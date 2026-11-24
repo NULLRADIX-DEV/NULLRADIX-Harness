@@ -1,6 +1,8 @@
 //! HTTP API served by the daemon.
 
 mod health;
+mod host;
+mod json;
 mod problem;
 
 use std::future::Future;
@@ -8,6 +10,7 @@ use std::io;
 
 use axum::Router;
 use axum::http::{Request, StatusCode};
+use axum::middleware;
 use axum::response::Response;
 use nullradix_app::AppError;
 use tokio::net::TcpListener;
@@ -19,20 +22,32 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use health::Health;
+pub use host::AllowedHosts;
+pub use json::ApiJson;
 pub use problem::{ApiError, Problem};
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
 pub const API_VERSION: u32 = 1;
 
 #[derive(OpenApi)]
-#[openapi(info(title = "NULLRADIX API"))]
+#[openapi(info(title = "NULLRADIX API"), components(schemas(Problem)))]
 struct ApiDoc;
 
-fn routes() -> OpenApiRouter {
-    OpenApiRouter::with_openapi(ApiDoc::openapi()).routes(routes!(health::health))
+/// Settings the router needs from the composition root.
+#[derive(Debug, Clone)]
+pub struct ApiConfig {
+    pub allowed_hosts: AllowedHosts,
 }
 
-pub fn router() -> Router {
+/// Prefix of every API route; the rest of the URL space belongs to the web UI.
+pub const API_PREFIX: &str = "/api/v1";
+
+fn routes() -> OpenApiRouter {
+    let v1 = OpenApiRouter::new().routes(routes!(health::health));
+    OpenApiRouter::with_openapi(ApiDoc::openapi()).nest(API_PREFIX, v1)
+}
+
+pub fn router(config: &ApiConfig) -> Router {
     let (router, _) = routes().split_for_parts();
     router
         .fallback(route_not_found)
@@ -41,7 +56,11 @@ pub fn router() -> Router {
             ServiceBuilder::new()
                 .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
                 .layer(TraceLayer::new_for_http().make_span_with(request_span))
-                .layer(PropagateRequestIdLayer::x_request_id()),
+                .layer(PropagateRequestIdLayer::x_request_id())
+                .layer(middleware::from_fn_with_state(
+                    config.allowed_hosts.clone(),
+                    host::check_host,
+                )),
         )
 }
 
@@ -94,8 +113,18 @@ mod tests {
 
     use super::*;
 
+    pub(crate) fn test_router() -> Router {
+        router(&ApiConfig {
+            allowed_hosts: AllowedHosts::loopback_and([]),
+        })
+    }
+
+    pub(crate) fn local(request: axum::http::request::Builder) -> axum::http::request::Builder {
+        request.header(header::HOST, "127.0.0.1:4711")
+    }
+
     async fn call(request: Request<Body>) -> (StatusCode, String) {
-        let response = router().oneshot(request).await.unwrap();
+        let response = test_router().oneshot(request).await.unwrap();
         let content_type = response.headers()[header::CONTENT_TYPE]
             .to_str()
             .unwrap()
@@ -105,7 +134,9 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_routes_answer_with_problem_details() {
-        let request = Request::get("/nope").body(Body::empty()).unwrap();
+        let request = local(Request::get("/api/v1/nope"))
+            .body(Body::empty())
+            .unwrap();
         assert_eq!(
             call(request).await,
             (
@@ -117,7 +148,9 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_methods_answer_with_problem_details() {
-        let request = Request::post("/health").body(Body::empty()).unwrap();
+        let request = local(Request::post("/api/v1/health"))
+            .body(Body::empty())
+            .unwrap();
         assert_eq!(
             call(request).await,
             (
@@ -127,10 +160,26 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn refuses_foreign_host_names() {
+        let request = Request::get("/api/v1/health")
+            .header(header::HOST, "attacker.example.com:4711")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            call(request).await,
+            (
+                StatusCode::FORBIDDEN,
+                String::from("application/problem+json")
+            )
+        );
+    }
+
     #[test]
     fn openapi_document_lists_health() {
         let json = openapi_json().unwrap();
-        assert!(json.contains("\"/health\""));
+        assert!(json.contains("\"/api/v1/health\""));
         assert!(json.contains("NULLRADIX API"));
+        assert!(json.contains("\"Problem\""));
     }
 }

@@ -3,7 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 
 use anyhow::{Context, bail};
-use nullradix_api::API_VERSION;
+use nullradix_api::{API_VERSION, AllowedHosts, ApiConfig};
 use nullradix_app::{Clock, SystemClock};
 use nullradix_client::{Discovery, DiscoveryFile};
 use nullradix_store::Store;
@@ -55,7 +55,10 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     if !address.ip().is_loopback() {
         tracing::warn!(%address, "listening beyond loopback without authentication");
     }
-    let served = nullradix_api::serve(listener, nullradix_api::router(), shutdown_signal())
+    let api = ApiConfig {
+        allowed_hosts: AllowedHosts::loopback_and(config.allowed_hosts.iter().cloned()),
+    };
+    let served = nullradix_api::serve(listener, nullradix_api::router(&api), shutdown_signal())
         .await
         .context("the HTTP server failed");
     store.close().await;

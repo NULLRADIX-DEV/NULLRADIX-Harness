@@ -34,10 +34,10 @@ mod tests {
 
     #[tokio::test]
     async fn reports_status_and_versions() {
-        let response = crate::router()
-            .oneshot(Request::get("/health").body(Body::empty()).unwrap())
-            .await
+        let request = crate::tests::local(Request::get("/api/v1/health"))
+            .body(Body::empty())
             .unwrap();
+        let response = crate::tests::test_router().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert!(response.headers().contains_key("x-request-id"));
         let body = to_bytes(response.into_body(), 1024).await.unwrap();
