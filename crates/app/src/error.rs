@@ -19,6 +19,8 @@ pub struct AppError {
     kind: ErrorKind,
     code: &'static str,
     message: String,
+    /// Key of the entity that already exists, for duplicates.
+    existing: Option<String>,
     source: Option<Box<dyn Error + Send + Sync>>,
 }
 
@@ -29,6 +31,7 @@ impl AppError {
             kind,
             code,
             message: message.into(),
+            existing: None,
             source: None,
         }
     }
@@ -91,6 +94,17 @@ impl AppError {
     #[must_use]
     pub fn internal(error: impl Error + Send + Sync + 'static) -> Self {
         Self::new(ErrorKind::Internal, "internal", "internal error").with_source(error)
+    }
+
+    #[must_use]
+    pub fn with_existing(mut self, key: String) -> Self {
+        self.existing = Some(key);
+        self
+    }
+
+    #[must_use]
+    pub fn existing(&self) -> Option<&str> {
+        self.existing.as_deref()
     }
 
     #[must_use]

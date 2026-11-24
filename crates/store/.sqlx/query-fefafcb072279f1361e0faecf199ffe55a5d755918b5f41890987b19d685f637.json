@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT h.at, h.actor_id AS \"actor_id: Uuid\", a.name AS actor_name, h.field,\n                  h.from_value, h.to_value, h.note\n           FROM activity h JOIN actors a ON a.id = h.actor_id\n           WHERE h.ticket_id = ?\n           ORDER BY h.at, h.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "at",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "at"
+          }
+        }
+      },
+      {
+        "name": "actor_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "actor_id"
+          }
+        }
+      },
+      {
+        "name": "actor_name",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "field",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "field"
+          }
+        }
+      },
+      {
+        "name": "from_value",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "from_value"
+          }
+        }
+      },
+      {
+        "name": "to_value",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "to_value"
+          }
+        }
+      },
+      {
+        "name": "note",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "activity",
+            "name": "note"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "fefafcb072279f1361e0faecf199ffe55a5d755918b5f41890987b19d685f637"
+}

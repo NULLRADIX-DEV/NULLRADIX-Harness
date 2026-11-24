@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO ticket_dependencies (ticket_id, depends_on_id, position)\n             SELECT ?, t.id, ? FROM tickets t JOIN projects p ON p.id = t.project_id\n             WHERE p.key = ? AND t.number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "ce50ef5cca6e9bafa2f31b155455f30cb0ee2ba41186d5fc3d56ab3e8fbc1113"
+}

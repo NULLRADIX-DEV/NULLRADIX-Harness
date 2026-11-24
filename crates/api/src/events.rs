@@ -27,6 +27,7 @@ const POLL: Duration = Duration::from_secs(5);
 pub enum EntityDto {
     Project,
     Board,
+    Ticket,
     Run,
 }
 
@@ -35,6 +36,7 @@ impl From<Entity> for EntityDto {
         match entity {
             Entity::Project => Self::Project,
             Entity::Board => Self::Board,
+            Entity::Ticket => Self::Ticket,
             Entity::Run => Self::Run,
         }
     }
@@ -363,7 +365,7 @@ mod tests {
             .unwrap();
         let (status, _, json) = send(&api.router, request).await;
         assert_eq!(status, 401);
-        assert_eq!(json["code"], "missing-credentials");
+        assert_eq!(json["code"], "credentials-missing");
     }
 
     #[tokio::test]

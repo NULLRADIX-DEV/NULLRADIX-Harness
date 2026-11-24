@@ -10,6 +10,7 @@ mod host;
 mod problem;
 mod projects;
 mod runs;
+mod tickets;
 mod web;
 
 use std::future::Future;
@@ -27,6 +28,7 @@ use nullradix_app::boards::BoardService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::runs::RunService;
+use nullradix_app::tickets::TicketService;
 use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -50,6 +52,10 @@ pub use problem::{ApiError, Problem};
 pub use projects::{CreateProject, ProjectDto, ProjectList, RenameProject};
 pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
+};
+pub use tickets::{
+    ColumnDto, CreateTicket, HistoryDto, PriorityDto, TicketDetailDto, TicketDto, TicketList,
+    TicketStatusDto,
 };
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
@@ -95,6 +101,7 @@ pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub projects: Arc<ProjectService>,
     pub boards: Arc<BoardService>,
+    pub tickets: Arc<TicketService>,
     /// The person every token and browser session acts for.
     pub person: Arc<nullradix_domain::Actor>,
     pub runs: Arc<RunService>,
@@ -130,6 +137,9 @@ fn routes() -> OpenApiRouter<ApiState> {
             boards::rename_board,
             boards::delete_board
         ))
+        .routes(routes!(tickets::list_tickets))
+        .routes(routes!(tickets::create_ticket))
+        .routes(routes!(tickets::get_ticket))
         .routes(routes!(runs::list_runs, runs::start_run))
         .routes(routes!(runs::get_run))
         .routes(routes!(runs::cancel_run))
@@ -243,6 +253,8 @@ pub(crate) mod tests {
         pub(crate) token: Secret,
         pub(crate) auth: Arc<AuthService>,
         pub(crate) projects: Arc<ProjectService>,
+        pub(crate) boards: Arc<BoardService>,
+        pub(crate) person: Arc<nullradix_domain::Actor>,
         pub(crate) changes: Arc<dyn ChangeFeed>,
         pub(crate) shutdown: CancellationToken,
     }
@@ -275,14 +287,23 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        let person = nullradix_app::boards::local_person(
-            store.as_ref(),
-            "tester",
-            &UuidV7Generator,
-            &SystemClock,
-        )
-        .await
-        .unwrap();
+        let tickets = Arc::new(TicketService::new(
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let person = Arc::new(
+            nullradix_app::boards::local_person(
+                store.as_ref(),
+                "tester",
+                &UuidV7Generator,
+                &SystemClock,
+            )
+            .await
+            .unwrap(),
+        );
         let runs = RunService::new(
             store.clone(),
             Arc::new(nullradix_runner::LocalRunner::new(
@@ -301,8 +322,9 @@ pub(crate) mod tests {
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
-            boards,
-            person: Arc::new(person),
+            boards: boards.clone(),
+            tickets,
+            person: person.clone(),
             runs,
             hooks,
             changes: changes.clone(),
@@ -317,9 +339,32 @@ pub(crate) mod tests {
             token,
             auth,
             projects,
+            boards,
+            person,
             changes,
             shutdown,
         }
+    }
+
+    /// Redeems a handoff and returns the session cookie as `name=value`.
+    pub(crate) async fn open_session(api: &TestApi) -> String {
+        let code = api.auth.create_handoff().unwrap();
+        let request = local(Request::get(format!(
+            "/api/v1/auth/handoff?code={}",
+            code.expose()
+        )))
+        .body(Body::empty())
+        .unwrap();
+        let response = api.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[header::LOCATION], "/");
+        let cookie = response.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("SameSite=Strict"));
+        cookie.split(';').next().unwrap().to_owned()
     }
 
     pub(crate) fn local(request: axum::http::request::Builder) -> axum::http::request::Builder {

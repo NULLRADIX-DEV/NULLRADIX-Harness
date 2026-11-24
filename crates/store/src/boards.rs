@@ -192,7 +192,10 @@ impl BoardRepository for Store {
             r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", p.key AS project_key,
                       b.name, b.owner_id AS "owner_id: Uuid", a.name AS owner_name,
                       b.dispatch_enabled,
-                      0 AS "open_tickets!: i64", b.created_at, b.updated_at, b.version
+                      (SELECT count(*) FROM tickets t
+                       WHERE t.board_id = b.id AND t.status NOT IN ('done', 'not-needed'))
+                        AS "open_tickets!: i64",
+                      b.created_at, b.updated_at, b.version
                FROM boards b
                JOIN projects p ON p.id = b.project_id
                JOIN actors a ON a.id = b.owner_id
@@ -213,7 +216,10 @@ impl BoardRepository for Store {
             r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", p.key AS project_key,
                       b.name, b.owner_id AS "owner_id: Uuid", a.name AS owner_name,
                       b.dispatch_enabled,
-                      0 AS "open_tickets!: i64", b.created_at, b.updated_at, b.version
+                      (SELECT count(*) FROM tickets t
+                       WHERE t.board_id = b.id AND t.status NOT IN ('done', 'not-needed'))
+                        AS "open_tickets!: i64",
+                      b.created_at, b.updated_at, b.version
                FROM boards b
                JOIN projects p ON p.id = b.project_id
                JOIN actors a ON a.id = b.owner_id
@@ -278,7 +284,13 @@ impl BoardRepository for Store {
         )
         .execute(&mut *tx)
         .await
-        .map_err(database)?;
+        .map_err(|error| {
+            if foreign_key_violation(&error) {
+                boards::has_tickets(id)
+            } else {
+                database(error)
+            }
+        })?;
         if deleted.rows_affected() == 0 {
             return Err(missed(&mut tx, id).await);
         }

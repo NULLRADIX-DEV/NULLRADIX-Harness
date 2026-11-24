@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT p.key AS project_key, t.number, t.title\n               FROM tickets t JOIN projects p ON p.id = t.project_id\n               WHERE t.board_id = ? AND t.status NOT IN ('done', 'not-needed')\n               ORDER BY t.number",
+  "describe": {
+    "columns": [
+      {
+        "name": "project_key",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "number",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "title"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b3bcdf587d6d98be78c7c50e9ce03d8243e02669f9c84311f5210f487b5a1c6b"
+}

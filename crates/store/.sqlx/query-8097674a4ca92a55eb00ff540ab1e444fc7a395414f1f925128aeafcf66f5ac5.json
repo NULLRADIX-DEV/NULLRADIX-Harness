@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO tickets (id, project_id, board_id, number, title, description, acceptance,\n                              plan, handbook, diagram, status, priority, sort_order, assignee,\n                              needs_planning, blocked_reason, target_branch, created_by,\n                              created_at, updated_at, version)\n         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 21
+    },
+    "nullable": []
+  },
+  "hash": "8097674a4ca92a55eb00ff540ab1e444fc7a395414f1f925128aeafcf66f5ac5"
+}

@@ -16,6 +16,9 @@ pub struct Problem {
     pub status: u16,
     pub detail: String,
     pub code: String,
+    /// Key of the entity that already exists, such as `ARC-0007` for a duplicate ticket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing: Option<String>,
 }
 
 /// Error response of a handler, rendered as `application/problem+json`.
@@ -46,7 +49,9 @@ impl IntoResponse for ApiError {
         if error.kind() == ErrorKind::Internal {
             tracing::error!(code = error.code(), cause = %causes(&error), "request failed");
         }
-        response(status(error.kind()), error.code(), error.message())
+        let mut problem = problem(status(error.kind()), error.code(), error.message());
+        problem.existing = error.existing().map(str::to_owned);
+        render(problem)
     }
 }
 
@@ -60,20 +65,29 @@ fn causes(error: &dyn Error) -> String {
     parts.join(": ")
 }
 
-pub(crate) fn response(status: StatusCode, code: &str, detail: &str) -> Response {
-    let problem = Problem {
+fn problem(status: StatusCode, code: &str, detail: &str) -> Problem {
+    Problem {
         problem_type: format!("urn:nullradix:problem:{code}"),
         title: status.canonical_reason().unwrap_or_default().to_owned(),
         status: status.as_u16(),
         detail: detail.to_owned(),
         code: code.to_owned(),
-    };
+        existing: None,
+    }
+}
+
+fn render(problem: Problem) -> Response {
+    let status = StatusCode::from_u16(problem.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (
         status,
         [(header::CONTENT_TYPE, "application/problem+json")],
         Json(problem),
     )
         .into_response()
+}
+
+pub(crate) fn response(status: StatusCode, code: &str, detail: &str) -> Response {
+    render(problem(status, code, detail))
 }
 
 #[cfg(test)]
@@ -104,6 +118,11 @@ mod tests {
         assert_eq!(json["status"], 404);
         assert_eq!(json["detail"], "no project abc");
         assert_eq!(json["code"], "project-not-found");
+        assert_eq!(json.get("existing"), None);
+        let duplicate =
+            AppError::conflict("ticket-duplicate", "taken").with_existing(String::from("ARC-0007"));
+        let (_, _, json) = render(duplicate).await;
+        assert_eq!(json["existing"], "ARC-0007");
     }
 
     #[tokio::test]

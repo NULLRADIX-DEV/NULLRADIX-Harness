@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.ticket_id AS \"ticket_id: Uuid\", l.label\n           FROM ticket_labels l\n           JOIN tickets t ON t.id = l.ticket_id\n           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)\n             AND (?3 IS NULL OR t.id = ?3)\n           ORDER BY l.ticket_id, l.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "ticket_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "ticket_labels",
+            "name": "ticket_id"
+          }
+        }
+      },
+      {
+        "name": "label",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_labels",
+            "name": "label"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "feb0d9863898092f1dca51a585fe6c56d2fb91d479a4a770f5116d58a9b15f4d"
+}

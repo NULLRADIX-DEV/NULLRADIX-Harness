@@ -14,6 +14,7 @@ use crate::AppError;
 pub enum Entity {
     Project,
     Board,
+    Ticket,
     Run,
 }
 
