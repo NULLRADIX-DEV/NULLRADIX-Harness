@@ -1,5 +1,10 @@
-import { ComingSoon } from '../../shared/ui/ComingSoon';
+import { RunsSection } from '../runs/RunsSection';
 
 export function DashboardPage() {
-  return <ComingSoon title="Dashboard" />;
+  return (
+    <div className="page">
+      <h1 className="page-title">Dashboard</h1>
+      <RunsSection />
+    </div>
+  );
 }
