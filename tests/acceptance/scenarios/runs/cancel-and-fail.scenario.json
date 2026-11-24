@@ -7,7 +7,12 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/runs",
-        "body": { "label": "sleeper", "program": "{{FAKE_CLAUDE}}", "cwd": "{{WORK}}" }
+        "body": {
+          "label": "sleeper",
+          "program": "{{FAKE_CLAUDE}}",
+          "cwd": "{{WORK}}",
+          "timeoutSeconds": 30
+        }
       },
       "save": { "run": "json.id" }
     },

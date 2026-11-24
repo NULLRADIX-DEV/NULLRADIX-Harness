@@ -8,7 +8,7 @@
         "path": "/api/v1/projects",
         "body": { "key": "ARC", "name": "Arches" }
       },
-      "save": { "arc": "json.id", "version": "json.version" }
+      "save": { "arc": "json.id" }
     },
     {
       "name": "taken key",

@@ -5,7 +5,8 @@
       "body": {
         "cwd": "<WORK>",
         "label": "sleeper",
-        "program": "<FAKE_CLAUDE>"
+        "program": "<FAKE_CLAUDE>",
+        "timeoutSeconds": 30
       },
       "method": "POST",
       "path": "/api/v1/runs"

@@ -13,6 +13,8 @@ use crate::normalize::Normalizer;
 use crate::scenario::{Action, Auth, Cli, Http, Scenario, Wait};
 
 const WAIT_POLL: Duration = Duration::from_millis(100);
+/// Run states that never change again.
+const FINAL: &[&str] = &["succeeded", "failed", "cancelled", "timed-out", "lost"];
 
 /// Plays a scenario against a fresh daemon and returns what happened, normalized.
 pub(crate) fn play(scenario: &Scenario, binaries: &Binaries) -> anyhow::Result<Vec<Value>> {
@@ -266,14 +268,29 @@ fn wait_step(
     let deadline = Instant::now() + Duration::from_millis(wait.timeout_ms);
     loop {
         let reply = request(agent, daemon, "GET", &path, None, Auth::Token)?;
-        if let Payload::Json(json) = reply.payload
-            && field(&json, &wait.field) == Some(&wait.equals)
+        let seen = match &reply.payload {
+            Payload::Json(json) => field(json, &wait.field).cloned(),
+            _ => None,
+        };
+        if seen.as_ref() == Some(&wait.equals)
+            && let Payload::Json(json) = reply.payload
         {
             let entry = json!({ "wait": path, "field": wait.field, "reached": wait.equals });
             return Ok((entry, json!({ "json": json })));
         }
-        if Instant::now() > deadline {
-            bail!("{path} never had {} = {}", wait.field, wait.equals);
+        // a run that ended otherwise will not change again
+        let ended = wait.field == "status"
+            && seen
+                .as_ref()
+                .and_then(Value::as_str)
+                .is_some_and(|status| FINAL.contains(&status));
+        if ended || Instant::now() > deadline {
+            let last = seen.map_or_else(|| format!("status {}", reply.status), |v| v.to_string());
+            bail!(
+                "{path} never had {} = {}, last {last}",
+                wait.field,
+                wait.equals
+            );
         }
         thread::sleep(WAIT_POLL);
     }

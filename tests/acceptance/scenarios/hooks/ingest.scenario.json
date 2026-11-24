@@ -1,6 +1,10 @@
 {
   "title": "Hooks reach the daemon silently and once per event",
-  "env": { "NULLRADIX_TICKET": "ARC-0007", "CLAUDE_CODE_ENTRYPOINT": "cli" },
+  "env": {
+    "NULLRADIX_TICKET": "ARC-0007",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "NULLRADIX_HOOK_DEADLINE_MS": "4500"
+  },
   "steps": [
     {
       "name": "session start",

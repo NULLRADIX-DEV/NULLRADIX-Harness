@@ -49,7 +49,7 @@ pub fn check(path: &Path, binaries: &Binaries) -> anyhow::Result<()> {
     let scenario = Scenario::load(path)?;
     let recording = runner::play(&scenario, binaries).with_context(|| scenario.title.clone())?;
     let golden = golden_path(path)?;
-    if env::var_os(ACCEPT).is_some() {
+    if env::var_os(ACCEPT).is_some_and(|value| value == "1") {
         let text = serde_json::to_string_pretty(&recording)? + "\n";
         fs::write(&golden, text).with_context(|| format!("cannot write {}", golden.display()))?;
         return Ok(());
