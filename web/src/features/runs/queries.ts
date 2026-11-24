@@ -1,9 +1,10 @@
-import { queryOptions, useMutation } from '@tanstack/react-query';
+import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, type components } from '../../shared/api/client';
-import { unwrap } from '../../shared/api/errors';
+import { ApiProblemError, isUnauthorized, unwrap } from '../../shared/api/errors';
 import type { ChangeRegistry } from '../../shared/live/registry';
 import { useInvalidate } from '../../shared/query/useInvalidate';
+import { recheckSession } from '../session/queries';
 
 export type Run = components['schemas']['RunDto'];
 export type RunStatus = components['schemas']['RunStatusDto'];
@@ -12,6 +13,7 @@ export type OutputLine = components['schemas']['OutputLineDto'];
 export const RUN_LIST_LIMIT = 50;
 // The page keeps this many lines of output; older ones scroll out.
 export const OUTPUT_LINE_LIMIT = 5000;
+export const OUTPUT_PAGE = 500;
 export const OUTPUT_POLL_MS = 1000;
 export const OUTPUT_RETRY_MS = 3000;
 
@@ -50,16 +52,21 @@ export interface RunOutputState {
   // Earlier lines were dropped to stay within OUTPUT_LINE_LIMIT.
   truncated: boolean;
   finished: boolean;
-  failing: boolean;
+  // The daemon cannot be reached right now; polling goes on.
+  retrying: boolean;
+  // The daemon refused the output; polling has stopped.
+  refused: ApiProblemError | null;
 }
 
 // Follows the output of one run until it ends; mount it per run so state starts empty.
 export function useRunOutput(runId: string): RunOutputState {
+  const client = useQueryClient();
   const [state, setState] = useState<RunOutputState>({
     lines: [],
     truncated: false,
     finished: false,
-    failing: false,
+    retrying: false,
+    refused: null,
   });
 
   useEffect(() => {
@@ -71,7 +78,7 @@ export function useRunOutput(runId: string): RunOutputState {
       try {
         const page = unwrap(
           await api.GET('/api/v1/runs/{id}/output', {
-            params: { path: { id: runId }, query: { after } },
+            params: { path: { id: runId }, query: { after, limit: OUTPUT_PAGE } },
           }),
         );
         if (stopped) return;
@@ -79,20 +86,30 @@ export function useRunOutput(runId: string): RunOutputState {
         if (last) after = last.seq;
         setState((previous) => {
           const lines = previous.lines.concat(page.lines);
-          const truncated = previous.truncated || lines.length > OUTPUT_LINE_LIMIT;
           return {
             lines: lines.length > OUTPUT_LINE_LIMIT ? lines.slice(-OUTPUT_LINE_LIMIT) : lines,
-            truncated,
+            truncated: previous.truncated || lines.length > OUTPUT_LINE_LIMIT,
             finished: page.finished,
-            failing: false,
+            retrying: false,
+            refused: null,
           };
         });
-        if (page.finished) return;
+        if (page.finished) {
+          // the list may not have heard of the end yet
+          void client.invalidateQueries({ queryKey: runKeys.all });
+          return;
+        }
         // a full page means more is waiting right away
-        timer = setTimeout(() => void poll(), last ? 0 : OUTPUT_POLL_MS);
-      } catch {
+        const full = page.lines.length >= OUTPUT_PAGE;
+        timer = setTimeout(() => void poll(), full ? 0 : OUTPUT_POLL_MS);
+      } catch (error) {
         if (stopped) return;
-        setState((previous) => ({ ...previous, failing: true }));
+        if (error instanceof ApiProblemError && error.status < 500) {
+          if (isUnauthorized(error)) void recheckSession(client);
+          setState((previous) => ({ ...previous, retrying: false, refused: error }));
+          return;
+        }
+        setState((previous) => ({ ...previous, retrying: true }));
         timer = setTimeout(() => void poll(), OUTPUT_RETRY_MS);
       }
     }
@@ -102,7 +119,7 @@ export function useRunOutput(runId: string): RunOutputState {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [runId]);
+  }, [client, runId]);
 
   return state;
 }

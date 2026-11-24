@@ -2,13 +2,18 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { FakeEventSource } from '../../test/eventSource';
-import { fakeApi, json, problem } from '../../test/fakeApi';
+import { fakeApi, json, problem, type Handler } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
-import { FINISHED_MESSAGE } from './RunsSection';
-import type { OutputLine, Run } from './queries';
+import { FINISHED_MESSAGE, GONE_MESSAGE } from './RunsSection';
+import { OUTPUT_PAGE, OUTPUT_POLL_MS, type OutputLine, type Run } from './queries';
 
 const BUILD_ID = '0190a0b0-0000-7000-8000-0000000000a1';
 const TEST_ID = '0190a0b0-0000-7000-8000-0000000000a2';
+
+interface Page {
+  lines: OutputLine[];
+  finished: boolean;
+}
 
 function run(overrides: Partial<Run> = {}): Run {
   return {
@@ -26,15 +31,25 @@ function line(seq: number, text: string, stream: OutputLine['stream'] = 'stdout'
   return { seq, stream, text };
 }
 
-// In-memory daemon for the runs routes; output pages are served in order.
-function runsServer(runs: Run[], pages: { lines: OutputLine[]; finished: boolean }[] = []) {
+// Serves the pages of one run in order, then an empty unfinished page.
+function pages(...served: Page[]): Handler {
+  const queue = [...served];
+  return () => json(200, queue.shift() ?? { lines: [], finished: false });
+}
+
+function outputRoute(id: string) {
+  return `GET /api/v1/runs/${id}/output`;
+}
+
+// In-memory daemon for the runs routes.
+function runsServer(runs: Run[], output: Record<string, Handler> = {}) {
   let items = runs;
-  const outputs = [...pages];
   const api = fakeApi({
     'GET /api/v1/runs': () => json(200, { items }),
-    [`GET /api/v1/runs/${BUILD_ID}/output`]: () =>
-      json(200, outputs.shift() ?? { lines: [], finished: false }),
     [`POST /api/v1/runs/${BUILD_ID}/cancel`]: () => json(202, items[0]),
+    ...Object.fromEntries(
+      Object.entries(output).map(([id, handler]) => [outputRoute(id), handler]),
+    ),
   });
   return {
     api,
@@ -48,6 +63,17 @@ function runList() {
   return screen.findByRole('list', { name: 'Runs' });
 }
 
+async function open(label: RegExp) {
+  await userEvent.click(within(await runList()).getByRole('button', { name: label }));
+}
+
+function afters(api: ReturnType<typeof fakeApi>, id: string) {
+  return api.requests(outputRoute(id)).map((request) => {
+    const query = new URL(request.url).searchParams;
+    return `${query.get('after') ?? ''}/${query.get('limit') ?? ''}`;
+  });
+}
+
 describe('RunsSection', () => {
   it('lists runs with their status on the dashboard', async () => {
     runsServer([
@@ -59,8 +85,8 @@ describe('RunsSection', () => {
     expect(within(list).getByText('cargo build')).toBeInTheDocument();
     expect(within(list).getByText('Running')).toBeInTheDocument();
     expect(within(list).getByText('Failed')).toBeInTheDocument();
-    expect(within(list).getByText(/exit 3/)).toBeInTheDocument();
-    expect(within(list).getByText(/3 s/)).toBeInTheDocument();
+    expect(within(list).getByText('exit 3')).toBeInTheDocument();
+    expect(within(list).getByText('3 s')).toBeInTheDocument();
   });
 
   it('explains how to start a run when there is none', async () => {
@@ -69,33 +95,75 @@ describe('RunsSection', () => {
     expect(await screen.findByText(/nullradix run start/)).toBeInTheDocument();
   });
 
-  it('follows the output of the chosen run until it finishes', async () => {
-    const server = runsServer(
-      [run()],
-      [
+  it('follows the output of the chosen run and stops once it finished', async () => {
+    const server = runsServer([run()], {
+      [BUILD_ID]: pages(
         { lines: [line(1, 'compiling'), line(2, 'warning: unused', 'stderr')], finished: false },
         { lines: [line(3, 'done')], finished: false },
         { lines: [], finished: true },
-      ],
-    );
+      ),
+    });
     renderApp('/dashboard');
-    await userEvent.click(within(await runList()).getByRole('button', { name: /cargo build/ }));
+    await open(/cargo build/);
     const output = await screen.findByRole('region', { name: 'cargo build' });
     expect(await within(output).findByText('done')).toBeInTheDocument();
     expect(within(output).getByText('warning: unused')).toHaveClass('stderr');
-    await waitFor(() => {
-      expect(server.api.requests(`GET /api/v1/runs/${BUILD_ID}/output`)).toHaveLength(3);
+    await waitFor(
+      () => {
+        expect(afters(server.api, BUILD_ID)).toHaveLength(3);
+      },
+      { timeout: OUTPUT_POLL_MS * 4 },
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, OUTPUT_POLL_MS + 300)));
+    const limit = String(OUTPUT_PAGE);
+    expect(afters(server.api, BUILD_ID)).toEqual([`0/${limit}`, `2/${limit}`, `3/${limit}`]);
+    expect(within(output).queryByRole('button', { name: 'Cancel run' })).not.toBeInTheDocument();
+  });
+
+  it('starts empty when switching to another run', async () => {
+    runsServer([run(), run({ id: TEST_ID, label: 'cargo test' })], {
+      [BUILD_ID]: pages({ lines: [line(1, 'build line')], finished: true }),
+      [TEST_ID]: pages({ lines: [line(1, 'test line')], finished: true }),
     });
-    const afters = server.api
-      .requests(`GET /api/v1/runs/${BUILD_ID}/output`)
-      .map((request) => new URL(request.url).searchParams.get('after'));
-    expect(afters).toEqual(['0', '2', '3']);
+    renderApp('/dashboard');
+    await open(/cargo build/);
+    expect(await screen.findByText('build line')).toBeInTheDocument();
+    await open(/cargo test/);
+    const output = await screen.findByRole('region', { name: 'cargo test' });
+    expect(await within(output).findByText('test line')).toBeInTheDocument();
+    expect(screen.queryByText('build line')).not.toBeInTheDocument();
+  });
+
+  it('stops following a run the daemon no longer knows', async () => {
+    const server = runsServer([run()], {
+      [BUILD_ID]: () => problem(404, 'run-not-found', 'gone'),
+    });
+    renderApp('/dashboard');
+    await open(/cargo build/);
+    expect(await screen.findByText(GONE_MESSAGE)).toBeInTheDocument();
+    await act(() => new Promise((resolve) => setTimeout(resolve, OUTPUT_POLL_MS + 300)));
+    expect(server.api.requests(outputRoute(BUILD_ID))).toHaveLength(1);
+  });
+
+  it('closes on a second click or Close and hands focus back to the row', async () => {
+    runsServer([run()], { [BUILD_ID]: pages() });
+    renderApp('/dashboard');
+    await open(/cargo build/);
+    const output = await screen.findByRole('region', { name: 'cargo build' });
+    await userEvent.click(within(output).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('region', { name: 'cargo build' })).not.toBeInTheDocument();
+    expect(within(await runList()).getByRole('button', { name: /cargo build/ })).toHaveFocus();
+
+    await open(/cargo build/);
+    expect(await screen.findByRole('region', { name: 'cargo build' })).toBeInTheDocument();
+    await open(/cargo build/);
+    expect(screen.queryByRole('region', { name: 'cargo build' })).not.toBeInTheDocument();
   });
 
   it('cancels an active run and explains a run that already ended', async () => {
-    const server = runsServer([run()], [{ lines: [], finished: false }]);
+    const server = runsServer([run()], { [BUILD_ID]: pages() });
     renderApp('/dashboard');
-    await userEvent.click(within(await runList()).getByRole('button', { name: /cargo build/ }));
+    await open(/cargo build/);
     const output = await screen.findByRole('region', { name: 'cargo build' });
     await userEvent.click(within(output).getByRole('button', { name: 'Cancel run' }));
     await waitFor(() => {

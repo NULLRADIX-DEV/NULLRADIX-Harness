@@ -579,7 +579,7 @@ textarea:focus {
 }
 
 .run-meta > span + span::before {
-  content: ' b7';
+  content: '\00b7';
   margin: 0 6px;
 }
 
