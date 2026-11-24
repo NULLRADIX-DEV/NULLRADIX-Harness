@@ -7,8 +7,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': daemon,
-      '/health': daemon,
+      '/api': { target: daemon, changeOrigin: false },
     },
   },
   build: {
