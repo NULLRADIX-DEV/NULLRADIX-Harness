@@ -19,7 +19,7 @@
         "parameters": [
           {
             "name": "code",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string"
@@ -153,14 +153,11 @@
         "parameters": [
           {
             "name": "since",
-            "in": "path",
+            "in": "query",
             "description": "Replay changes after this sequence number; `Last-Event-ID` takes precedence.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "int64"
             }
           }
@@ -386,7 +383,7 @@
           },
           {
             "name": "version",
-            "in": "path",
+            "in": "query",
             "description": "Version the deletion is based on.",
             "required": true,
             "schema": {

@@ -55,12 +55,14 @@ pub struct RenameProject {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct DeleteProjectQuery {
     /// Version the deletion is based on.
     version: i64,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 pub(crate) struct ProjectPath {
     /// Project id.
     id: Uuid,

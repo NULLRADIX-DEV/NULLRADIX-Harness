@@ -5,12 +5,12 @@ import { InboxPage } from '../features/inbox/InboxPage';
 import { QuestionsPage } from '../features/questions/QuestionsPage';
 import { SessionsPage } from '../features/sessions/SessionsPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
-import { AppLayout } from './layout/AppLayout';
+import { AppShell } from './AppShell';
 
 export const routes: RouteObject[] = [
   {
     path: '/',
-    element: <AppLayout />,
+    element: <AppShell />,
     children: [
       { index: true, element: <Navigate to="/board" replace /> },
       { path: 'board', element: <BoardPage /> },

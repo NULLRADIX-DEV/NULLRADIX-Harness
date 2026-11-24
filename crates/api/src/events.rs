@@ -84,6 +84,7 @@ pub struct StreamPosition {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct EventsQuery {
     /// Replay changes after this sequence number; `Last-Event-ID` takes precedence.
     since: Option<i64>,

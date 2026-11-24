@@ -44,3 +44,12 @@ export function unwrap<T>({ data, error, response }: FetchResult<T>): T {
   }
   throw new Error(`request failed with status ${String(response.status)}`);
 }
+
+export function unwrapEmpty(result: FetchResult<unknown>): void {
+  if (result.response.ok) return;
+  unwrap(result);
+}
+
+export function isUnauthorized(error: unknown): error is ApiProblemError {
+  return error instanceof ApiProblemError && error.status === 401;
+}
