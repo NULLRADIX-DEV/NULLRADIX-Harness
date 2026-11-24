@@ -166,7 +166,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: cargo xtask codegen
-      - run: git diff --exit-code
+      - run: git status --porcelain && test -z "$(git status --porcelain)"
 
   ci-ok:
     if: always()
