@@ -1,6 +1,7 @@
 use axum::Json;
-use axum::extract::rejection::JsonRejection;
-use axum::extract::{FromRequest, Request};
+use axum::extract::rejection::{JsonRejection, QueryRejection};
+use axum::extract::{FromRequest, FromRequestParts, Query, Request};
+use axum::http::request::Parts;
 use nullradix_app::AppError;
 
 use crate::ApiError;
@@ -20,6 +21,25 @@ where
         match Json::<T>::from_request(request, state).await {
             Ok(Json(value)) => Ok(Self(value)),
             Err(rejection) => Err(AppError::invalid("invalid-body", rejection.body_text()).into()),
+        }
+    }
+}
+
+/// Query string whose rejections are rendered as problem details.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ApiQuery<T>(pub T);
+
+impl<T, S> FromRequestParts<S> for ApiQuery<T>
+where
+    Query<T>: FromRequestParts<S, Rejection = QueryRejection>,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        match Query::<T>::from_request_parts(parts, state).await {
+            Ok(Query(value)) => Ok(Self(value)),
+            Err(rejection) => Err(AppError::invalid("invalid-query", rejection.body_text()).into()),
         }
     }
 }

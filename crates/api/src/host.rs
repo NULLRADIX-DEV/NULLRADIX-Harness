@@ -26,7 +26,7 @@ impl AllowedHosts {
         Self(hosts.into())
     }
 
-    fn allows(&self, authority: &str) -> bool {
+    pub(crate) fn allows(&self, authority: &str) -> bool {
         let host = host_name(authority).to_ascii_lowercase();
         self.0.contains(&host)
     }

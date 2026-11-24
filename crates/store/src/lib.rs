@@ -1,5 +1,6 @@
 //! SQLite persistence of the daemon.
 
+mod auth;
 mod change_feed;
 mod error;
 

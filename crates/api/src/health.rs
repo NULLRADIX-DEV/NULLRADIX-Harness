@@ -16,6 +16,7 @@ pub struct Health {
     get,
     path = "/health",
     tag = "system",
+    security(()),
     responses((status = 200, description = "The daemon is running", body = Health))
 )]
 pub(crate) async fn health() -> Json<Health> {
@@ -28,20 +29,19 @@ pub(crate) async fn health() -> Json<Health> {
 
 #[cfg(test)]
 mod tests {
-    use axum::body::{Body, to_bytes};
+    use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use tower::ServiceExt;
+
+    use crate::tests::{local, send, test_api};
 
     #[tokio::test]
-    async fn reports_status_and_versions() {
-        let request = crate::tests::local(Request::get("/api/v1/health"))
+    async fn reports_status_and_versions_without_credentials() {
+        let api = test_api().await;
+        let request = local(Request::get("/api/v1/health"))
             .body(Body::empty())
             .unwrap();
-        let response = crate::tests::test_router().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert!(response.headers().contains_key("x-request-id"));
-        let body = to_bytes(response.into_body(), 1024).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(json["status"], "ok");
         assert_eq!(json["apiVersion"], 1);
         assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));

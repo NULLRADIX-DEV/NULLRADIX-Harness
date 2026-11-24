@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 directories.workspace = true
+open.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(windows)'.dependencies]

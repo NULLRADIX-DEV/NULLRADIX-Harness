@@ -4,6 +4,7 @@ mod config;
 mod daemon;
 mod logging;
 mod status;
+mod token;
 
 use std::net::IpAddr;
 use std::path::PathBuf;
