@@ -7,6 +7,7 @@ const TOO_LONG: &str = "comment line longer than 100 characters";
 const MULTI_LINE: &str = "comment spans more than one line";
 const MULTI_LINE_BLOCK: &str = "block comment spans more than one line";
 const NON_ASCII: &str = "non-ASCII character";
+const CONTROL: &str = "control character other than tab";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Line {
@@ -62,6 +63,11 @@ pub(super) fn check(path: &Path, content: &str, syntax: Syntax) -> Vec<Violation
         let number = index + 1;
         if !text.is_ascii() {
             violations.push(violation(number, NON_ASCII));
+        } else if text
+            .chars()
+            .any(|letter| letter.is_ascii_control() && letter != '\t')
+        {
+            violations.push(violation(number, CONTROL));
         }
         if in_block {
             in_block = !text.contains("*/");
@@ -162,6 +168,12 @@ mod tests {
             lines(&content, Syntax::Slash),
             vec![(1, TOO_LONG.to_owned())]
         );
+    }
+
+    #[test]
+    fn rejects_control_characters_but_tabs() {
+        let content = format!("a {{ content: '{}b7'; }}\n\tb {{}}\n", char::from(0));
+        assert_eq!(lines(&content, Syntax::Css), vec![(1, CONTROL.to_owned())]);
     }
 
     #[test]

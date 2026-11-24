@@ -531,6 +531,138 @@ textarea:focus {
   margin: 0 0 10px;
 }
 
+/* Runs on the dashboard: one row per run, the chosen run's output below */
+.run-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line-soft);
+}
+
+.run-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 10px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-row:hover {
+  background: var(--surface-alt);
+}
+
+.run-row[aria-pressed='true'] {
+  background: var(--nav-active-bg);
+}
+
+.run-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-meta {
+  flex: none;
+  font-size: 12px;
+}
+
+.run-meta > span + span::before {
+  content: '\00b7';
+  margin: 0 6px;
+}
+
+.run-status {
+  flex: none;
+  min-width: 84px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--idle-bg);
+  color: var(--idle-fg);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.run-status-starting,
+.run-status-running {
+  background: var(--running-bg);
+  color: var(--running-fg);
+}
+
+.run-status-succeeded {
+  color: var(--ok-fg);
+}
+
+.run-status-failed,
+.run-status-timed-out,
+.run-status-lost {
+  background: var(--blocked-bg);
+  color: var(--blocked-fg);
+}
+
+.run-status-cancelled {
+  background: var(--waiting-bg);
+  color: var(--waiting-fg);
+}
+
+.run-output {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.run-output-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.run-output-head h3 {
+  margin: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.run-output-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.run-lines {
+  min-height: 120px;
+  max-height: 420px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: var(--radius-control);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.run-line.stderr {
+  color: var(--test-fail);
+}
+
 /* Session gate: shown instead of the shell until the browser has a session */
 .gate {
   display: grid;
