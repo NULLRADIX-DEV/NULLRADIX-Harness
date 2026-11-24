@@ -5,10 +5,9 @@ use anyhow::bail;
 use clap::Subcommand;
 use nullradix_api::{AddStep, ChangeStep, MoveStep, TicketDetailDto};
 use nullradix_client::Client;
-use nullradix_domain::TicketKey;
 use uuid::Uuid;
 
-use crate::ticket::text;
+use crate::ticket::{canonical, text};
 
 #[derive(Subcommand)]
 pub(crate) enum StepCommand {
@@ -168,10 +167,6 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
         }
     }
     Ok(ExitCode::SUCCESS)
-}
-
-fn canonical(key: &str) -> anyhow::Result<String> {
-    Ok(TicketKey::parse(key)?.to_string())
 }
 
 /// The id of step `number` as the ticket reads now; later changes follow the step, not the number.

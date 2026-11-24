@@ -25,8 +25,9 @@ pub use run::{Run, RunEnd, RunError, RunLabel, RunOutcome, RunRecord, RunStatus}
 pub use step::{STEP_MAX, Step, StepEdit, StepError};
 pub use text::{TextError, optional_text, required_text, utf16_len, utf16_prefix};
 pub use ticket::{
-    ASSIGNEE_MAX, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange, HistoryEntry, TITLE_MAX,
-    TargetBranch, Ticket, TicketDraft, TicketRecord, TicketTitle, Tombstone, changes,
+    ASSIGNEE_MAX, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange, HUMAN_INTERACTION, HistoryEntry,
+    PLANNING_CLAIM_TTL, TITLE_MAX, TargetBranch, Ticket, TicketDraft, TicketRecord, TicketTitle,
+    Tombstone, changes, planning_claim_alive, strip_fence, waits_for_a_person,
 };
 pub use ticket_values::{
     Column, Priority, StatusFacts, StatusLock, StatusRequest, TicketError, TicketKey, TicketStatus,

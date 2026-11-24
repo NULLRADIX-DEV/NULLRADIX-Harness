@@ -51,6 +51,10 @@ struct Row {
     needs_planning: i64,
     blocked_reason: Option<String>,
     target_branch: Option<String>,
+    planned_by: Option<String>,
+    planned_at: Option<i64>,
+    planning_claim_by: Option<String>,
+    planning_claim_at: Option<i64>,
     created_by: Uuid,
     created_by_name: String,
     created_at: i64,
@@ -92,6 +96,12 @@ impl Row {
             needs_planning: self.needs_planning != 0,
             blocked_reason: self.blocked_reason,
             target_branch,
+            planned: stamp(self.planned_by, self.planned_at, "plan")?,
+            planning_claim: stamp(
+                self.planning_claim_by,
+                self.planning_claim_at,
+                "planning claim",
+            )?,
             created_by: Id::from_uuid(self.created_by),
             created_at: Timestamp::from_millis(self.created_at),
             updated_at: Timestamp::from_millis(self.updated_at),
@@ -103,6 +113,25 @@ impl Row {
             created_by_name: self.created_by_name,
         })
     }
+}
+
+/// A name with its time, stored in two columns that are set or empty together.
+fn stamp(
+    name: Option<String>,
+    at: Option<i64>,
+    what: &str,
+) -> Result<Option<(String, Timestamp)>, StoreError> {
+    match (name, at) {
+        (Some(name), Some(at)) => Ok(Some((name, Timestamp::from_millis(at)))),
+        (None, None) => Ok(None),
+        _ => Err(corrupt(what)),
+    }
+}
+
+fn split(stamp: Option<&(String, Timestamp)>) -> (Option<&str>, Option<i64>) {
+    stamp.map_or((None, None), |(name, at)| {
+        (Some(name.as_str()), Some(at.as_millis()))
+    })
 }
 
 /// Which tickets a read covers; `None` does not narrow.
@@ -119,7 +148,8 @@ async fn rows(connection: &mut SqliteConnection, at: Selection) -> Result<Vec<Ro
         r#"SELECT t.id AS "id: Uuid", p.key AS project_key, t.project_id AS "project_id: Uuid",
                   t.board_id AS "board_id: Uuid", t.number, t.title, t.description, t.acceptance,
                   t.plan, t.handbook, t.diagram, t.status, t.priority, t.sort_order, t.assignee,
-                  t.needs_planning, t.blocked_reason, t.target_branch,
+                  t.needs_planning, t.blocked_reason, t.target_branch, t.planned_by,
+                  t.planned_at, t.planning_claim_by, t.planning_claim_at,
                   t.created_by AS "created_by: Uuid", a.name AS created_by_name, t.created_at,
                   t.updated_at, t.version
            FROM tickets t
@@ -703,6 +733,8 @@ async fn update_ticket(
     let priority = record.priority.as_str();
     let needs_planning = i64::from(record.needs_planning);
     let target_branch = record.target_branch.as_ref().map(TargetBranch::as_str);
+    let (planned_by, planned_at) = split(record.planned.as_ref());
+    let (claim_by, claim_at) = split(record.planning_claim.as_ref());
     let updated_at = record.updated_at.as_millis();
     let version = record.version.value();
     let expected = expected.value();
@@ -710,7 +742,9 @@ async fn update_ticket(
         "UPDATE tickets SET board_id = ?, title = ?, description = ?, acceptance = ?, plan = ?,
                             handbook = ?, diagram = ?, status = ?, priority = ?, sort_order = ?,
                             assignee = ?, needs_planning = ?, blocked_reason = ?,
-                            target_branch = ?, updated_at = ?, version = ?
+                            target_branch = ?, planned_by = ?, planned_at = ?,
+                            planning_claim_by = ?, planning_claim_at = ?, updated_at = ?,
+                            version = ?
          WHERE id = ? AND version = ?",
         board,
         title,
@@ -726,6 +760,10 @@ async fn update_ticket(
         needs_planning,
         record.blocked_reason,
         target_branch,
+        planned_by,
+        planned_at,
+        claim_by,
+        claim_at,
         updated_at,
         version,
         id,

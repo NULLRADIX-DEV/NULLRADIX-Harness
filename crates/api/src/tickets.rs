@@ -4,8 +4,8 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
 use nullradix_app::tickets::{
-    self, HistoryLine, NewTicket, StepGuard, StepPatch, TicketDetail, TicketFilter, TicketPatch,
-    TicketScope, TicketView, WriteOptions,
+    self, HistoryLine, NewTicket, PlanInput, StepGuard, StepPatch, TicketDetail, TicketFilter,
+    TicketPatch, TicketScope, TicketView, WriteOptions,
 };
 use nullradix_domain::{Column, Id, Priority, TicketKey, TicketStatus, Version};
 use serde::{Deserialize, Serialize};
@@ -143,6 +143,11 @@ pub struct TicketDto {
     pub blocked_reason: Option<String>,
     /// Branch the ticket merges into; none means the default branch.
     pub target_branch: Option<String>,
+    pub planned_by: Option<String>,
+    pub planned_at: Option<i64>,
+    /// Who plans the ticket now; a claim lives 15 minutes.
+    pub planning_claim_by: Option<String>,
+    pub planning_claim_at: Option<i64>,
     pub created_by_id: Uuid,
     pub created_by_name: String,
     pub created_at: i64,
@@ -185,6 +190,10 @@ impl From<TicketView> for TicketDto {
                 .target_branch
                 .as_ref()
                 .map(|branch| branch.as_str().to_owned()),
+            planned_by: record.planned.as_ref().map(|(name, _)| name.clone()),
+            planned_at: record.planned.as_ref().map(|(_, at)| at.as_millis()),
+            planning_claim_by: record.planning_claim.as_ref().map(|(name, _)| name.clone()),
+            planning_claim_at: record.planning_claim.as_ref().map(|(_, at)| at.as_millis()),
             created_by_id: record.created_by.as_uuid(),
             created_by_name: view.created_by_name,
             created_at: record.created_at.as_millis(),
@@ -475,6 +484,94 @@ fn guard(version: Option<i64>, expect_text: Option<String>) -> Result<StepGuard,
         version: version.map(AppError::client_version).transpose()?,
         expect_text,
     })
+}
+
+/// A claim of a ticket for an agent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClaimTicket {
+    pub agent: String,
+    /// In progress when left out.
+    #[schema(value_type = Option<TicketStatusDto>)]
+    pub status: Option<String>,
+    pub version: Option<i64>,
+    /// Takes the ticket from another assignee and lifts the locks.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReleaseTicket {
+    /// Applied without any lock.
+    #[schema(value_type = Option<TicketStatusDto>)]
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AcceptTicket {
+    pub version: Option<i64>,
+    /// Lifts the dependency and question locks, never the acceptance lock.
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// A plan; at least one of plan, handbook and diagram.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WritePlan {
+    pub plan: Option<String>,
+    pub handbook: Option<String>,
+    /// Mermaid; a Markdown fence around it is dropped.
+    pub diagram: Option<String>,
+    pub acceptance: Option<String>,
+    /// Planned when left out.
+    #[schema(value_type = Option<TicketStatusDto>)]
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClaimPlanning {
+    pub agent: String,
+}
+
+/// The next ticket that needs planning, claimed for an agent when one is named.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NextPlanningClaim {
+    pub agent: String,
+    pub project_id: Option<Uuid>,
+    pub board_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct NextPlanning {
+    /// None when no ticket needs planning.
+    pub ticket: Option<TicketDto>,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query, rename_all = "camelCase")]
+pub(crate) struct PlanningScope {
+    project_id: Option<Uuid>,
+    board_id: Option<Uuid>,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct AgentQuery {
+    /// Name of the agent that holds the claim.
+    agent: String,
+}
+
+fn scope(project: Option<Uuid>, board: Option<Uuid>) -> TicketScope {
+    TicketScope {
+        project: project.map(Id::from_uuid),
+        board: board.map(Id::from_uuid),
+    }
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -880,6 +977,231 @@ pub(crate) async fn move_step(
         )
         .await?;
     Ok(Json(detail.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/claim",
+    tag = "tickets",
+    params(TicketPath),
+    request_body = ClaimTicket,
+    responses(
+        (status = 200, body = TicketDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Assigned already, or a stale version", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn claim_ticket(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<ClaimTicket>,
+) -> Result<Json<TicketDto>, ApiError> {
+    let view = state
+        .tickets
+        .claim(
+            &path.ticket_key,
+            &input.agent,
+            input.status.as_deref(),
+            &state.person,
+            version(input.version)?,
+            input.force,
+        )
+        .await?;
+    Ok(Json(view.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/release",
+    tag = "tickets",
+    params(TicketPath),
+    request_body = ReleaseTicket,
+    responses(
+        (status = 200, body = TicketDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn release_ticket(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<ReleaseTicket>,
+) -> Result<Json<TicketDto>, ApiError> {
+    let view = state
+        .tickets
+        .release(&path.ticket_key, input.status.as_deref(), &state.person)
+        .await?;
+    Ok(Json(view.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/accept",
+    tag = "tickets",
+    params(TicketPath),
+    request_body = AcceptTicket,
+    responses(
+        (status = 200, body = TicketDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn accept_ticket(
+    State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<AcceptTicket>,
+) -> Result<Json<TicketDto>, ApiError> {
+    let view = state
+        .tickets
+        .accept(
+            &path.ticket_key,
+            &state.person,
+            version(input.version)?,
+            writer(&principal, input.force),
+        )
+        .await?;
+    Ok(Json(view.into()))
+}
+
+#[utoipa::path(
+    put,
+    path = "/tickets/{ticketKey}/plan",
+    tag = "tickets",
+    params(TicketPath),
+    request_body = WritePlan,
+    responses(
+        (status = 200, body = TicketDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn write_plan(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<WritePlan>,
+) -> Result<Json<TicketDto>, ApiError> {
+    let plan = PlanInput {
+        plan: input.plan,
+        handbook: input.handbook,
+        diagram: input.diagram,
+        acceptance: input.acceptance,
+        status: input.status,
+    };
+    let view = state
+        .tickets
+        .plan(&path.ticket_key, &plan, &state.person)
+        .await?;
+    Ok(Json(view.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/planning-claim",
+    tag = "tickets",
+    params(TicketPath),
+    request_body = ClaimPlanning,
+    responses(
+        (status = 200, body = TicketDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Another agent plans it", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn claim_planning(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<ClaimPlanning>,
+) -> Result<Json<TicketDto>, ApiError> {
+    let view = state
+        .tickets
+        .claim_planning(&path.ticket_key, &input.agent, &state.person)
+        .await?;
+    Ok(Json(view.into()))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/tickets/{ticketKey}/planning-claim",
+    tag = "tickets",
+    params(TicketPath, AgentQuery),
+    responses(
+        (status = 204, description = "The agent no longer holds a claim"),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn release_planning(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiQuery(query): ApiQuery<AgentQuery>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .tickets
+        .release_planning(&path.ticket_key, &query.agent, &state.person)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    get,
+    path = "/planning-queue",
+    tag = "tickets",
+    params(PlanningScope),
+    responses(
+        (status = 200, description = "The next ticket that needs planning", body = NextPlanning),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+    )
+)]
+pub(crate) async fn next_planning(
+    State(state): State<ApiState>,
+    ApiQuery(query): ApiQuery<PlanningScope>,
+) -> Result<Json<NextPlanning>, ApiError> {
+    let ticket = state
+        .tickets
+        .next_planning(scope(query.project_id, query.board_id), None, &state.person)
+        .await?;
+    Ok(Json(NextPlanning {
+        ticket: ticket.map(TicketDto::from),
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/planning-queue/claim",
+    tag = "tickets",
+    request_body = NextPlanningClaim,
+    responses(
+        (status = 200, description = "The claimed ticket, if any needs planning", body = NextPlanning),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn claim_next_planning(
+    State(state): State<ApiState>,
+    ApiJson(input): ApiJson<NextPlanningClaim>,
+) -> Result<Json<NextPlanning>, ApiError> {
+    let ticket = state
+        .tickets
+        .next_planning(
+            scope(input.project_id, input.board_id),
+            Some(&input.agent),
+            &state.person,
+        )
+        .await?;
+    Ok(Json(NextPlanning {
+        ticket: ticket.map(TicketDto::from),
+    }))
 }
 
 #[cfg(test)]

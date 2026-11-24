@@ -5,11 +5,15 @@ use std::sync::Arc;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::tickets::{
-    NewTicket, StepGuard, StepPatch, TicketDetail, TicketFilter, TicketPatch, TicketScope,
-    TicketService, WriteOptions,
+    NewTicket, PlanInput, StepGuard, StepPatch, TicketDetail, TicketFilter, TicketPatch,
+    TicketScope, TicketService, WriteOptions,
 };
-use nullradix_app::{ChangeFeed, ChangeOp, ChangeSignal, Entity, SystemClock, UuidV7Generator};
-use nullradix_domain::{Actor, Board, Column, Id, Priority, Project, Step, TicketStatus, Version};
+use nullradix_app::{
+    ChangeFeed, ChangeOp, ChangeSignal, Clock, Entity, SystemClock, UuidV7Generator,
+};
+use nullradix_domain::{
+    Actor, Board, Column, Id, Priority, Project, Step, TicketStatus, Timestamp, Version,
+};
 use nullradix_store::Store;
 use tokio::sync::watch::Receiver;
 
@@ -1218,4 +1222,207 @@ async fn steps_go_by_id_whatever_their_number() {
         .await
         .unwrap_err();
     assert_eq!(conflict.code(), "conflict");
+}
+
+/// A clock the test moves by hand.
+struct HandClock(std::sync::Mutex<i64>);
+
+impl Clock for HandClock {
+    fn now(&self) -> Timestamp {
+        Timestamp::from_millis(*self.0.lock().unwrap())
+    }
+}
+
+#[tokio::test]
+async fn claims_take_free_tickets_and_release_gives_them_back() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("Base"), AGENT).await.unwrap();
+    let top = NewTicket {
+        depends_on: vec![String::from("ARC-1")],
+        ..titled("Top")
+    };
+    fx.create(&board, top, AGENT).await.unwrap();
+    let claim =
+        |key: &'static str, agent: &'static str, status: Option<&'static str>, force: bool| {
+            let fx = &fx;
+            async move {
+                fx.tickets
+                    .claim(key, agent, status, &fx.person, None, force)
+                    .await
+                    .map_err(|error| error.code().to_owned())
+            }
+        };
+
+    assert_eq!(
+        claim("ARC-1", " ", None, false).await.unwrap_err(),
+        "agent-missing"
+    );
+    let claimed = claim("ARC-1", "claude", None, false).await.unwrap();
+    let record = claimed.ticket.record();
+    assert_eq!(
+        (record.assignee.as_deref(), record.status),
+        (Some("claude"), TicketStatus::InProgress)
+    );
+    assert_eq!(
+        claim("ARC-1", "claude", None, false).await.unwrap_err(),
+        "conflict"
+    );
+    assert!(claim("ARC-1", "other", Some("blocked"), true).await.is_ok());
+    assert_eq!(
+        claim("ARC-2", "claude", None, false).await.unwrap_err(),
+        "dependency-open"
+    );
+    let unneeded = claim("ARC-2", "claude", Some("not-needed"), false).await;
+    assert_eq!(unneeded.unwrap_err(), "not-needed-human-only");
+
+    let released = fx
+        .tickets
+        .release("ARC-1", Some("planned"), &fx.person)
+        .await
+        .unwrap();
+    let record = released.ticket.record();
+    assert_eq!(
+        (record.assignee.as_ref(), record.status),
+        (None, TicketStatus::Planned)
+    );
+    let history = fx.tickets.get("ARC-1").await.unwrap().history;
+    let notes: Vec<Option<&str>> = history.iter().map(|line| line.note.as_deref()).collect();
+    assert!(notes.contains(&Some("claimed")) && notes.contains(&Some("released")));
+}
+
+#[tokio::test]
+async fn people_accept_tickets_that_wait_for_them() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    let input = NewTicket {
+        acceptance: Some(String::from("Reviewed")),
+        ..titled("Review me")
+    };
+    fx.create(&board, input, AGENT).await.unwrap();
+    let not_yet = fx.tickets.accept("ARC-1", &fx.person, None, PERSON).await;
+    assert_eq!(not_yet.unwrap_err().code(), "accept-not-possible");
+    let waiting = TicketPatch {
+        status: Some(String::from("blocked")),
+        blocked_reason: Some(Some(String::from("Human Interaction: Review before merge"))),
+        ..patch()
+    };
+    fx.update("ARC-1", waiting, 1, AGENT).await.unwrap();
+    let accepted = fx
+        .tickets
+        .accept("ARC-1", &fx.person, None, PERSON)
+        .await
+        .unwrap();
+    let record = accepted.ticket.record();
+    assert_eq!(
+        (record.status, record.blocked_reason.as_ref()),
+        (TicketStatus::Done, None)
+    );
+
+    let bare = NewTicket {
+        status: Some(String::from("blocked")),
+        ..titled("No acceptance")
+    };
+    fx.create(&board, bare, AGENT).await.unwrap();
+    let reason = TicketPatch {
+        blocked_reason: Some(Some(String::from("Human Interaction"))),
+        ..patch()
+    };
+    fx.update("ARC-2", reason, 1, AGENT).await.unwrap();
+    let refused = fx.tickets.accept("ARC-2", &fx.person, None, PERSON).await;
+    assert_eq!(refused.unwrap_err().code(), "acceptance-missing");
+}
+
+#[tokio::test]
+async fn plans_and_planning_claims_follow_the_legacy_rules() {
+    let fx = fixture().await;
+    let clock = Arc::new(HandClock(std::sync::Mutex::new(
+        SystemClock.now().as_millis(),
+    )));
+    let tickets = TicketService::new(
+        fx.store.clone(),
+        fx.store.clone(),
+        clock.clone(),
+        Arc::new(UuidV7Generator),
+        ChangeSignal::new(),
+    );
+    let (_, board) = fx.board("ARC").await;
+    for title in ["One", "Two"] {
+        fx.create(&board, titled(title), AGENT).await.unwrap();
+    }
+    let peek = tickets
+        .next_planning(TicketScope::default(), None, &fx.person)
+        .await
+        .unwrap();
+    assert_eq!(peek.unwrap().ticket.key().to_string(), "ARC-0001");
+    let first = tickets
+        .next_planning(TicketScope::default(), Some("planner"), &fx.person)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.ticket.key().to_string(), "ARC-0001");
+    let second = tickets
+        .next_planning(TicketScope::default(), Some("other"), &fx.person)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(second.ticket.key().to_string(), "ARC-0002");
+    let taken = tickets.claim_planning("ARC-1", "other", &fx.person).await;
+    assert_eq!(taken.unwrap_err().code(), "plan-claimed");
+    tickets
+        .claim_planning("ARC-1", "planner", &fx.person)
+        .await
+        .unwrap();
+    *clock.0.lock().unwrap() += 15 * 60 * 1000;
+    tickets
+        .claim_planning("ARC-1", "other", &fx.person)
+        .await
+        .unwrap();
+    tickets
+        .release_planning("ARC-1", "planner", &fx.person)
+        .await
+        .unwrap();
+    let still = tickets.get("ARC-1").await.unwrap().view;
+    let owner = still
+        .ticket
+        .record()
+        .planning_claim
+        .as_ref()
+        .map(|(name, _)| name.as_str());
+    assert_eq!(owner, Some("other"));
+
+    let empty = tickets
+        .plan("ARC-1", &PlanInput::default(), &fx.person)
+        .await;
+    assert_eq!(empty.unwrap_err().code(), "plan-empty");
+    let plan = PlanInput {
+        plan: Some(String::from("Do it")),
+        diagram: Some(String::from("```mermaid\ngraph TD\n```")),
+        acceptance: Some(String::from("  ")),
+        ..PlanInput::default()
+    };
+    let planned = tickets.plan("ARC-1", &plan, &fx.person).await.unwrap();
+    let record = planned.ticket.record();
+    assert_eq!(
+        (record.status, record.needs_planning),
+        (TicketStatus::Planned, false)
+    );
+    assert_eq!(
+        (record.diagram.as_str(), record.acceptance.as_str()),
+        ("graph TD", "")
+    );
+    assert_eq!(record.planning_claim, None);
+    assert_eq!(
+        record.planned.as_ref().map(|(name, _)| name.as_str()),
+        Some("anna")
+    );
+    let history = tickets.get("ARC-1").await.unwrap().history;
+    let last = history.last().unwrap();
+    assert_eq!(last.note.as_deref(), Some("planned"));
+    // the claim on ARC-2 is fifteen minutes old by now, so ARC-2 is free again
+    let next = tickets
+        .next_planning(TicketScope::default(), None, &fx.person)
+        .await
+        .unwrap();
+    assert_eq!(next.unwrap().ticket.key().to_string(), "ARC-0002");
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT t.id AS \"id: Uuid\", p.key AS project_key, t.project_id AS \"project_id: Uuid\",\n                  t.board_id AS \"board_id: Uuid\", t.number, t.title, t.description, t.acceptance,\n                  t.plan, t.handbook, t.diagram, t.status, t.priority, t.sort_order, t.assignee,\n                  t.needs_planning, t.blocked_reason, t.target_branch,\n                  t.created_by AS \"created_by: Uuid\", a.name AS created_by_name, t.created_at,\n                  t.updated_at, t.version\n           FROM tickets t\n           JOIN projects p ON p.id = t.project_id\n           JOIN actors a ON a.id = t.created_by\n           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)\n             AND (?3 IS NULL OR t.id = ?3)",
+  "query": "SELECT t.id AS \"id: Uuid\", p.key AS project_key, t.project_id AS \"project_id: Uuid\",\n                  t.board_id AS \"board_id: Uuid\", t.number, t.title, t.description, t.acceptance,\n                  t.plan, t.handbook, t.diagram, t.status, t.priority, t.sort_order, t.assignee,\n                  t.needs_planning, t.blocked_reason, t.target_branch, t.planned_by,\n                  t.planned_at, t.planning_claim_by, t.planning_claim_at,\n                  t.created_by AS \"created_by: Uuid\", a.name AS created_by_name, t.created_at,\n                  t.updated_at, t.version\n           FROM tickets t\n           JOIN projects p ON p.id = t.project_id\n           JOIN actors a ON a.id = t.created_by\n           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)\n             AND (?3 IS NULL OR t.id = ?3)",
   "describe": {
     "columns": [
       {
@@ -202,8 +202,52 @@
         }
       },
       {
-        "name": "created_by: Uuid",
+        "name": "planned_by",
         "ordinal": 18,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "planned_by"
+          }
+        }
+      },
+      {
+        "name": "planned_at",
+        "ordinal": 19,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "planned_at"
+          }
+        }
+      },
+      {
+        "name": "planning_claim_by",
+        "ordinal": 20,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "planning_claim_by"
+          }
+        }
+      },
+      {
+        "name": "planning_claim_at",
+        "ordinal": 21,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "planning_claim_at"
+          }
+        }
+      },
+      {
+        "name": "created_by: Uuid",
+        "ordinal": 22,
         "type_info": "Blob",
         "origin": {
           "Table": {
@@ -214,7 +258,7 @@
       },
       {
         "name": "created_by_name",
-        "ordinal": 19,
+        "ordinal": 23,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -225,7 +269,7 @@
       },
       {
         "name": "created_at",
-        "ordinal": 20,
+        "ordinal": 24,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -236,7 +280,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 21,
+        "ordinal": 25,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -247,7 +291,7 @@
       },
       {
         "name": "version",
-        "ordinal": 22,
+        "ordinal": 26,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -279,6 +323,10 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
       false,
       false,
       false,
@@ -286,5 +334,5 @@
       false
     ]
   },
-  "hash": "5ce7b42e4ee45cb2ec3bac0fa44c15f35f2800aca1538a60cecde8d8d73fdf8e"
+  "hash": "38d5e0b31d78ea5406cc83c390ef6d1dc406a3160c0bd4905c20e99fbcbce749"
 }

@@ -2,11 +2,12 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, AddStep, BoardDeleted, BoardDto, BoardList, ChangeStep, CreateBoard,
-    CreateProject, CreateTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto,
-    HookReplyDto, MoveStep, MoveTicket, Problem, ProjectDto, ProjectList, RenameBoard,
-    RenameProject, RunDto, RunList, RunOutput, StartRun, TicketDetailDto, TicketDto, TicketList,
-    UpdateTicket,
+    API_PREFIX, API_VERSION, AcceptTicket, AddStep, BoardDeleted, BoardDto, BoardList, ChangeStep,
+    ClaimPlanning, ClaimTicket, CreateBoard, CreateProject, CreateTicket, Handoff, Health,
+    HookEventDto, HookEventList, HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning,
+    NextPlanningClaim, Problem, ProjectDto, ProjectList, ReleaseTicket, RenameBoard, RenameProject,
+    RunDto, RunList, RunOutput, StartRun, TicketDetailDto, TicketDto, TicketList, UpdateTicket,
+    WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -363,6 +364,100 @@ impl Client {
         let mut response = self
             .agent
             .post(&self.url(&format!("/tickets/{key}/steps/{step}/move")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    /// Posts `input` to a ticket action such as `claim`, answered with the ticket.
+    fn ticket_action<T: serde::Serialize>(
+        &self,
+        key: &str,
+        action: &str,
+        input: &T,
+    ) -> Result<TicketDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/tickets/{key}/{action}")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn claim_ticket(&self, key: &str, input: &ClaimTicket) -> Result<TicketDto, ClientError> {
+        self.ticket_action(key, "claim", input)
+    }
+
+    pub fn release_ticket(
+        &self,
+        key: &str,
+        input: &ReleaseTicket,
+    ) -> Result<TicketDto, ClientError> {
+        self.ticket_action(key, "release", input)
+    }
+
+    pub fn accept_ticket(&self, key: &str, input: &AcceptTicket) -> Result<TicketDto, ClientError> {
+        self.ticket_action(key, "accept", input)
+    }
+
+    pub fn claim_planning(
+        &self,
+        key: &str,
+        input: &ClaimPlanning,
+    ) -> Result<TicketDto, ClientError> {
+        self.ticket_action(key, "planning-claim", input)
+    }
+
+    pub fn release_planning(&self, key: &str, agent: &str) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!("/tickets/{key}/planning-claim")))
+            .header("Authorization", &self.authorization()?)
+            .query("agent", agent)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    pub fn write_plan(&self, key: &str, input: &WritePlan) -> Result<TicketDto, ClientError> {
+        let mut response = self
+            .agent
+            .put(&self.url(&format!("/tickets/{key}/plan")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    /// The next ticket that needs planning, of one board or project or of all.
+    pub fn next_planning(
+        &self,
+        project: Option<Uuid>,
+        board: Option<Uuid>,
+    ) -> Result<NextPlanning, ClientError> {
+        let mut request = self
+            .agent
+            .get(&self.url("/planning-queue"))
+            .header("Authorization", &self.authorization()?);
+        if let Some(project) = project {
+            request = request.query("projectId", project.to_string());
+        }
+        if let Some(board) = board {
+            request = request.query("boardId", board.to_string());
+        }
+        let mut response = request.call().map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn claim_next_planning(
+        &self,
+        input: &NextPlanningClaim,
+    ) -> Result<NextPlanning, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/planning-queue/claim"))
             .header("Authorization", &self.authorization()?)
             .send_json(input)
             .map_err(|source| self.unreachable(source))?;
