@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { USER_ID, boardServer, entry, ticket } from '../../test/boardServer';
+import { USER_ID, boardServer, entry, step, stepId, ticket } from '../../test/boardServer';
 import { problem } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
 import type { HistoryLine, Step } from '../tickets/queries';
@@ -10,10 +10,7 @@ import { CONFLICT_MESSAGE, STEP_CONFLICT_MESSAGE } from './messages';
 const KEY = 'ARC-0001';
 const BASE = `/api/v1/tickets/${KEY}`;
 
-const STEPS: Step[] = [
-  { number: 1, text: 'Write the queries', done: true },
-  { number: 2, text: 'Write the page', done: false },
-];
+const STEPS: Step[] = [step(1, 'Write the queries', true), step(2, 'Write the page')];
 
 const HISTORY: HistoryLine[] = [
   {
@@ -229,7 +226,7 @@ describe('TicketPanel', () => {
     await userEvent.click(panel.getByRole('checkbox', { name: 'Step 2: Write the page' }));
     expect(await panel.findByRole('tab', { name: 'Steps (2/2)' })).toBeInTheDocument();
     expect(panel.getByRole('checkbox', { name: 'Step 2: Write the page' })).toBeChecked();
-    expect(await lastBody(api.requests(`PATCH ${BASE}/steps/2`))).toEqual({
+    expect(await lastBody(api.requests(`PATCH ${BASE}/steps/${stepId(2)}`))).toEqual({
       done: true,
       expectText: 'Write the page',
     });
@@ -251,10 +248,7 @@ describe('TicketPanel', () => {
     const panel = await openTicket();
     await userEvent.click(panel.getByRole('tab', { name: 'Steps (1/2)' }));
     const item = entries.get(KEY);
-    if (item)
-      item.steps = [STEPS[0], { number: 2, text: 'Renamed', done: false }].flatMap((step) =>
-        step ? [step] : [],
-      );
+    if (item) item.steps = [STEPS[0], step(2, 'Renamed')].flatMap((each) => (each ? [each] : []));
 
     await userEvent.click(panel.getByRole('checkbox', { name: 'Step 2: Write the page' }));
     expect(await panel.findByRole('alert')).toHaveTextContent(STEP_CONFLICT_MESSAGE);

@@ -175,15 +175,15 @@ export function useAddStep() {
 // `expectText` is the text the step had when it was read; the daemon refuses a changed step.
 export interface ChangeStepVars {
   key: string;
-  number: number;
+  id: string;
   change: StepChange;
 }
 
 export function useChangeStep() {
-  return useDetailMutation(async ({ key, number, change }: ChangeStepVars) =>
+  return useDetailMutation(async ({ key, id, change }: ChangeStepVars) =>
     unwrap(
-      await api.PATCH('/api/v1/tickets/{ticketKey}/steps/{stepNumber}', {
-        params: { path: { ticketKey: key, stepNumber: number } },
+      await api.PATCH('/api/v1/tickets/{ticketKey}/steps/{stepId}', {
+        params: { path: { ticketKey: key, stepId: id } },
         body: change,
       }),
     ),
@@ -192,15 +192,15 @@ export function useChangeStep() {
 
 export interface RemoveStepVars {
   key: string;
-  number: number;
+  id: string;
   expectText: string;
 }
 
 export function useRemoveStep() {
-  return useDetailMutation(async ({ key, number, expectText }: RemoveStepVars) =>
+  return useDetailMutation(async ({ key, id, expectText }: RemoveStepVars) =>
     unwrap(
-      await api.DELETE('/api/v1/tickets/{ticketKey}/steps/{stepNumber}', {
-        params: { path: { ticketKey: key, stepNumber: number }, query: { expectText } },
+      await api.DELETE('/api/v1/tickets/{ticketKey}/steps/{stepId}', {
+        params: { path: { ticketKey: key, stepId: id }, query: { expectText } },
       }),
     ),
   );
@@ -208,16 +208,16 @@ export function useRemoveStep() {
 
 export interface MoveStepVars {
   key: string;
-  number: number;
+  id: string;
   to: number;
   expectText: string;
 }
 
 export function useMoveStep() {
-  return useDetailMutation(async ({ key, number, to, expectText }: MoveStepVars) =>
+  return useDetailMutation(async ({ key, id, to, expectText }: MoveStepVars) =>
     unwrap(
-      await api.POST('/api/v1/tickets/{ticketKey}/steps/{stepNumber}/move', {
-        params: { path: { ticketKey: key, stepNumber: number } },
+      await api.POST('/api/v1/tickets/{ticketKey}/steps/{stepId}/move', {
+        params: { path: { ticketKey: key, stepId: id } },
         body: { to, expectText },
       }),
     ),

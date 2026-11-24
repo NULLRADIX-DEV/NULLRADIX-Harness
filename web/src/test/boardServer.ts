@@ -12,8 +12,15 @@ import { fakeApi, json, problem } from './fakeApi';
 export const PROJECT_ID = '0190a0b0-0000-7000-8000-000000000001';
 export const BOARD_ID = '0190a0b0-0000-7000-8000-0000000000b1';
 export const USER_ID = '0190a0b0-0000-7000-8000-0000000000c1';
-// Steps routes exist for this many step numbers per ticket.
-const STEP_ROUTES = 6;
+
+// A step id from a small number, so tests can name steps.
+export function stepId(number: number): string {
+  return `0190a0b0-0000-7000-8000-${String(900 + number).padStart(12, '0')}`;
+}
+
+export function step(number: number, text: string, done = false): Step {
+  return { id: stepId(number), number, text, done };
+}
 
 export function board(overrides: Partial<Board> = {}): Board {
   return {
@@ -130,13 +137,35 @@ function setup(boards: Board[], initial: Entry[]) {
     return item;
   }
 
-  function stepAt(item: Entry, number: number, expectText: string | null | undefined) {
-    const step = item.steps[number - 1];
-    if (!step) return problem(404, 'step-not-found', `no step ${String(number)}`);
-    if (expectText !== undefined && expectText !== null && step.text !== expectText) {
+  function stepOf(item: Entry, id: string, expectText: string | null | undefined) {
+    const found = item.steps.find((each) => each.id === id);
+    if (!found) return problem(404, 'step-not-found', `no step ${id}`);
+    if (expectText !== undefined && expectText !== null && found.text !== expectText) {
       return problem(409, 'conflict', 'the step changed');
     }
-    return step;
+    return found;
+  }
+
+  function registerStep(key: string, id: string) {
+    api.set(`PATCH /api/v1/tickets/${key}/steps/${id}`, async (request) => {
+      const body = (await request.json()) as {
+        done?: boolean;
+        text?: string;
+        expectText?: string;
+      };
+      const item = entries.get(key);
+      if (!item) return problem(404, 'ticket-not-found', `ticket ${key} does not exist`);
+      const found = stepOf(item, id, body.expectText);
+      if (found instanceof Response) return found;
+      const changed = {
+        ...found,
+        ...(body.done === undefined ? {} : { done: body.done }),
+        ...(body.text === undefined ? {} : { text: body.text }),
+      };
+      item.steps = item.steps.map((each) => (each.id === id ? changed : each));
+      revise(item, {}, [line('step', null, `${String(changed.number)}: ${changed.text}`)]);
+      return json(200, detail(item));
+    });
   }
 
   function register(key: string) {
@@ -184,31 +213,13 @@ function setup(boards: Board[], initial: Entry[]) {
       const body = (await request.json()) as { text: string; detail?: string };
       const item = find(key, null);
       if (item instanceof Response) return item;
-      item.steps = [...item.steps, { number: item.steps.length + 1, text: body.text, done: false }];
+      const added = step(item.steps.length + 1, body.text);
+      item.steps = [...item.steps, added];
+      registerStep(key, added.id);
       revise(item, {}, [line('step', null, `${String(item.steps.length)}: ${body.text}`)]);
       return json(201, detail(item));
     });
-    for (let number = 1; number <= STEP_ROUTES; number += 1) {
-      api.set(`PATCH ${base}/steps/${String(number)}`, async (request) => {
-        const body = (await request.json()) as {
-          done?: boolean;
-          text?: string;
-          expectText?: string;
-        };
-        const item = find(key, null);
-        if (item instanceof Response) return item;
-        const step = stepAt(item, number, body.expectText);
-        if (step instanceof Response) return step;
-        const changed = {
-          ...step,
-          ...(body.done === undefined ? {} : { done: body.done }),
-          ...(body.text === undefined ? {} : { text: body.text }),
-        };
-        item.steps = item.steps.map((each, index) => (index === number - 1 ? changed : each));
-        revise(item, {}, [line('step', null, `${String(number)}: ${changed.text}`)]);
-        return json(200, detail(item));
-      });
-    }
+    for (const each of entries.get(key)?.steps ?? []) registerStep(key, each.id);
   }
 
   for (const key of entries.keys()) register(key);

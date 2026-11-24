@@ -3,12 +3,12 @@ import type { Step } from '../tickets/queries';
 import { StepForm } from './StepForm';
 import type { TicketActions } from './useTicketActions';
 
-type Mode = { kind: 'add' } | { kind: 'edit' | 'remove'; number: number; text: string } | null;
+// `text` is what the step said when the form opened; the daemon refuses a step changed since.
+type Mode = { kind: 'add' } | { kind: 'edit' | 'remove'; id: string; text: string } | null;
 
 // Number of the step an open form belongs to after a change of the list; 0 when it is gone.
-function locate(steps: readonly Step[], number: number, text: string): number {
-  if (steps[number - 1]?.text === text) return number;
-  return steps.findIndex((step) => step.text === text) + 1;
+function locate(steps: readonly Step[], id: string): number {
+  return steps.findIndex((step) => step.id === id) + 1;
 }
 
 function guidance(detail: string): string | null {
@@ -46,7 +46,7 @@ export function TicketSteps({
   const [mode, setMode] = useState<Mode>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(false);
-  const target = mode && mode.kind !== 'add' ? locate(steps, mode.number, mode.text) : 0;
+  const target = mode && mode.kind !== 'add' ? locate(steps, mode.id) : 0;
   const open = mode?.kind === 'add' || target > 0;
   const locked = actions.busy || open;
   const done = steps.filter((step) => step.done).length;
@@ -84,7 +84,7 @@ export function TicketSteps({
                     onCancel={close}
                     onSave={(value) => {
                       void actions
-                        .changeStep(number, {
+                        .changeStep(step.id, {
                           text: value.text,
                           detail: guidance(value.detail),
                           expectText: mode.text,
@@ -99,10 +99,7 @@ export function TicketSteps({
             }
             const confirming = mode?.kind === 'remove' && target === number;
             return (
-              <li
-                key={`${String(number)}:${step.text}`}
-                className={step.done ? 'db-step done' : 'db-step'}
-              >
+              <li key={step.id} className={step.done ? 'db-step done' : 'db-step'}>
                 <div className="db-step-line">
                   <label className="db-step-row">
                     <input
@@ -111,7 +108,7 @@ export function TicketSteps({
                       disabled={actions.busy}
                       aria-label={`Step ${String(number)}: ${step.text}`}
                       onChange={(event) => {
-                        void actions.changeStep(number, {
+                        void actions.changeStep(step.id, {
                           done: event.target.checked,
                           expectText: step.text,
                         });
@@ -126,7 +123,7 @@ export function TicketSteps({
                       aria-label={`Move ${name} up`}
                       title="Move up"
                       disabled={locked || number === 1}
-                      onClick={() => void actions.moveStep(number, number - 1, step.text)}
+                      onClick={() => void actions.moveStep(step.id, number - 1, step.text)}
                     >
                       &uarr;
                     </button>
@@ -136,7 +133,7 @@ export function TicketSteps({
                       aria-label={`Move ${name} down`}
                       title="Move down"
                       disabled={locked || number === steps.length}
-                      onClick={() => void actions.moveStep(number, number + 1, step.text)}
+                      onClick={() => void actions.moveStep(step.id, number + 1, step.text)}
                     >
                       &darr;
                     </button>
@@ -147,7 +144,7 @@ export function TicketSteps({
                       title="Edit"
                       disabled={locked}
                       onClick={() => {
-                        setMode({ kind: 'edit', number, text: step.text });
+                        setMode({ kind: 'edit', id: step.id, text: step.text });
                       }}
                     >
                       &#9998;
@@ -159,7 +156,7 @@ export function TicketSteps({
                       title="Remove"
                       disabled={locked}
                       onClick={() => {
-                        setMode({ kind: 'remove', number, text: step.text });
+                        setMode({ kind: 'remove', id: step.id, text: step.text });
                       }}
                     >
                       &times;
@@ -185,7 +182,7 @@ export function TicketSteps({
                       className="btn danger small"
                       disabled={actions.busy}
                       onClick={() => {
-                        void actions.removeStep(number, mode.text).then((removed) => {
+                        void actions.removeStep(step.id, mode.text).then((removed) => {
                           if (removed) close();
                         });
                       }}

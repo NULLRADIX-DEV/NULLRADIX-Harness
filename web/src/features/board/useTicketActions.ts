@@ -21,9 +21,9 @@ export interface TicketActions {
   move: (status: TicketStatus, acceptance?: string) => Promise<boolean>;
   remove: () => Promise<boolean>;
   addStep: (text: string, detail?: string) => Promise<boolean>;
-  changeStep: (number: number, change: StepChange) => Promise<boolean>;
-  removeStep: (number: number, expectText: string) => Promise<boolean>;
-  moveStep: (number: number, to: number, expectText: string) => Promise<boolean>;
+  changeStep: (id: string, change: StepChange) => Promise<boolean>;
+  removeStep: (id: string, expectText: string) => Promise<boolean>;
+  moveStep: (id: string, to: number, expectText: string) => Promise<boolean>;
 }
 
 // Every change of an open ticket, based on the version of the last read.
@@ -67,10 +67,8 @@ export function useTicketActions(ticket: Ticket): TicketActions {
     remove: () => run(() => deleteTicket.mutateAsync({ key, version })),
     addStep: (text, detail) =>
       run(() => add.mutateAsync({ key, text, ...(detail === undefined ? {} : { detail }) })),
-    changeStep: (number, fields) => run(() => change.mutateAsync({ key, number, change: fields })),
-    removeStep: (number, expectText) =>
-      run(() => removeOne.mutateAsync({ key, number, expectText })),
-    moveStep: (number, to, expectText) =>
-      run(() => moveOne.mutateAsync({ key, number, to, expectText })),
+    changeStep: (id, fields) => run(() => change.mutateAsync({ key, id, change: fields })),
+    removeStep: (id, expectText) => run(() => removeOne.mutateAsync({ key, id, expectText })),
+    moveStep: (id, to, expectText) => run(() => moveOne.mutateAsync({ key, id, to, expectText })),
   };
 }
