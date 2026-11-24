@@ -32,6 +32,7 @@ impl Client {
             .timeout_connect(Some(connect_timeout))
             .timeout_global(Some(timeout))
             .http_status_as_error(false)
+            .proxy(None)
             .build()
             .into();
         Self { agent, address }

@@ -1,5 +1,5 @@
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +14,14 @@ pub struct Discovery {
     pub version: String,
     pub api_version: u32,
     pub started_at: i64,
+}
+
+impl Discovery {
+    /// False when the recorded process is gone, which makes the file stale without a network call.
+    #[must_use]
+    pub fn process_alive(&self) -> bool {
+        nullradix_os::process_alive(self.pid)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -72,7 +80,11 @@ impl DiscoveryFile {
                 source,
             })?;
         let staging = self.path.with_extension("json.tmp");
-        fs::write(&staging, json).map_err(|source| self.io(source))?;
+        let mut file = File::create(&staging).map_err(|source| self.io(source))?;
+        file.write_all(&json)
+            .and_then(|()| file.sync_all())
+            .map_err(|source| self.io(source))?;
+        drop(file);
         fs::rename(&staging, &self.path).map_err(|source| self.io(source))
     }
 

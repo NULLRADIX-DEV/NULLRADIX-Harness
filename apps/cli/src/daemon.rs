@@ -1,4 +1,5 @@
 use std::fs::{self, File, TryLockError};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 
 use anyhow::{Context, bail};
@@ -7,43 +8,48 @@ use nullradix_app::{Clock, SystemClock};
 use nullradix_client::{Discovery, DiscoveryFile};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
+use tokio::task;
 
 use crate::config::Config;
 use crate::logging;
 
 pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
     let _logging = logging::init(&config.paths.logs, &config.log_filter)?;
+    let data = &config.paths.data;
+    fs::create_dir_all(data).with_context(|| format!("cannot create {}", data.display()))?;
+    let _lock = lock_profile(data)?;
+    let discovery = DiscoveryFile::in_dir(data);
+    // whatever is left belongs to a dead daemon, we hold the lock now
+    discovery.remove()?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("nullradix")
         .build()
         .context("cannot start the async runtime")?;
-    runtime.block_on(serve(config))
+    runtime.block_on(serve(config, discovery))
 }
 
-async fn serve(config: &Config) -> anyhow::Result<()> {
-    let data = &config.paths.data;
-    fs::create_dir_all(data).with_context(|| format!("cannot create {}", data.display()))?;
-    let _lock = lock_profile(data)?;
-    let store = Store::open(&data.join("nullradix.db"))
+async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> {
+    let store = Store::open(&config.paths.data.join("nullradix.db"))
         .await
         .context("cannot open the database")?;
     let listener = TcpListener::bind(config.address)
         .await
         .with_context(|| format!("cannot listen on {}", config.address))?;
     let address = listener.local_addr()?;
-    let discovery = DiscoveryFile::in_dir(data);
-    discovery.write(&Discovery {
+    let record = Discovery {
         pid: std::process::id(),
-        address,
+        address: advertised(address),
         version: String::from(env!("CARGO_PKG_VERSION")),
         api_version: API_VERSION,
         started_at: SystemClock.now().as_millis(),
-    })?;
+    };
+    let writer = discovery.clone();
+    task::spawn_blocking(move || writer.write(&record)).await??;
     tracing::info!(
         %address,
         profile = ?config.profile,
-        data = %data.display(),
+        data = %config.paths.data.display(),
         "daemon started"
     );
     if !address.ip().is_loopback() {
@@ -52,11 +58,25 @@ async fn serve(config: &Config) -> anyhow::Result<()> {
     let served = nullradix_api::serve(listener, nullradix_api::router(), shutdown_signal())
         .await
         .context("the HTTP server failed");
-    discovery.remove()?;
     store.close().await;
+    match task::spawn_blocking(move || discovery.remove()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!(error = %error, "cannot remove the discovery file"),
+        Err(error) => tracing::warn!(%error, "cannot remove the discovery file"),
+    }
     served?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+/// Address clients should dial; a wildcard bind is reachable through loopback.
+fn advertised(address: SocketAddr) -> SocketAddr {
+    let ip = match address.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ip => ip,
+    };
+    SocketAddr::new(ip, address.port())
 }
 
 /// Holds an exclusive lock so only one daemon serves a profile.
@@ -101,12 +121,41 @@ async fn shutdown_signal() {
         }
     };
 
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
+    #[cfg(windows)]
+    let terminate = async {
+        use tokio::signal::windows::{ctrl_close, ctrl_shutdown};
+        match (ctrl_close(), ctrl_shutdown()) {
+            (Ok(mut close), Ok(mut shutdown)) => {
+                tokio::select! {
+                    _ = close.recv() => {},
+                    _ = shutdown.recv() => {},
+                }
+            }
+            (Err(error), _) | (_, Err(error)) => {
+                tracing::error!(%error, "cannot listen for console close events");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
 
     tokio::select! {
         () = interrupt => {},
         () = terminate => {},
     }
     tracing::info!("shutdown requested");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advertises_loopback_for_wildcard_binds() {
+        let v4: SocketAddr = "0.0.0.0:4711".parse().unwrap();
+        let v6: SocketAddr = "[::]:4711".parse().unwrap();
+        let fixed: SocketAddr = "192.168.1.5:4711".parse().unwrap();
+        assert_eq!(advertised(v4), "127.0.0.1:4711".parse().unwrap());
+        assert_eq!(advertised(v6), "[::1]:4711".parse().unwrap());
+        assert_eq!(advertised(fixed), fixed);
+    }
 }

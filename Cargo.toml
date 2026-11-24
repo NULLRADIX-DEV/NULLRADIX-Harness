@@ -38,6 +38,7 @@ ureq = { version = "3.5.2", default-features = false, features = ["json"] }
 utoipa = { version = "6.0.0", features = ["uuid"] }
 utoipa-axum = "0.3.0"
 uuid = "1.29.3"
+windows-sys = "0.61.2"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
