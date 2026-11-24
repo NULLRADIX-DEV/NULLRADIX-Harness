@@ -244,6 +244,22 @@ export interface paths {
         patch: operations["rename_board"];
         trace?: never;
     };
+    "/api/v1/projects/{projectId}/boards/{boardId}/ticket-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["import_tickets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{projectId}/boards/{boardId}/tickets": {
         parameters: {
             query?: never;
@@ -695,6 +711,14 @@ export interface components {
             env?: {
                 [key: string]: string;
             };
+        };
+        /** @description Tickets of other boards of the same project to bring onto this board. */
+        ImportTickets: {
+            /** @description 1 to 200 ticket keys; all move or none. */
+            ticketKeys: string[];
+        };
+        ImportedTickets: {
+            moved: components["schemas"]["TicketDto"][];
         };
         /** @description The caller as the daemon sees it. */
         Me: {
@@ -1846,6 +1870,59 @@ export interface operations {
             };
             /** @description Stale version */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    import_tickets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+                /** @description Board id. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportTickets"];
+            };
+        };
+        responses: {
+            /** @description The tickets on their new board */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportedTickets"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

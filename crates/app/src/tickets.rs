@@ -17,6 +17,9 @@ use nullradix_domain::{
 use crate::projects::ProjectRepository;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator, boards};
 
+/// How many tickets one move to another board may carry, as in legacy.
+pub const IMPORT_MAX: usize = 200;
+
 /// A ticket with the name of the actor who created it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TicketRow {
@@ -701,6 +704,82 @@ impl TicketService {
             self.signal.notify(last);
         }
         Ok(())
+    }
+
+    /// Brings tickets of other boards of the project onto `board`, all or none, as legacy did.
+    pub async fn move_to_board(
+        &self,
+        project: Id<Project>,
+        board: Id<Board>,
+        keys: &[String],
+        actor: &Actor,
+    ) -> Result<Vec<TicketView>, AppError> {
+        if keys.is_empty() || keys.len() > IMPORT_MAX {
+            return Err(AppError::invalid(
+                "input-invalid",
+                format!("give 1 to {IMPORT_MAX} ticket keys"),
+            ));
+        }
+        let mut write = self.repository.begin().await?;
+        let target = match write.board(board).await? {
+            Some((found, _)) if found.project() == project => found,
+            _ => {
+                drop(write);
+                return Err(boards::missing(self.projects.as_ref(), project, board).await);
+            }
+        };
+        let mut wanted = Vec::new();
+        for key in keys {
+            let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
+            if !wanted.contains(&key) {
+                wanted.push(key);
+            }
+        }
+        let mut tickets = Vec::with_capacity(wanted.len());
+        for key in &wanted {
+            tickets.push(load(write.as_mut(), key, None).await?);
+        }
+        for ticket in &tickets {
+            let record = ticket.record();
+            if record.board == target.id() {
+                return Err(AppError::invalid(
+                    "ticket-already-on-board",
+                    format!(
+                        "{} is on board {} already",
+                        record.key,
+                        target.name().as_str()
+                    ),
+                ));
+            }
+            if record.project != target.project() {
+                return Err(other_project(target.id()));
+            }
+        }
+        let now = self.clock.now();
+        let mut last = None;
+        for before in &tickets {
+            let record = before.record();
+            let source = match write.board(record.board).await? {
+                Some((source, _)) => source.name().as_str().to_owned(),
+                None => record.board.to_string(),
+            };
+            let mut after = record.clone();
+            after.board = target.id();
+            after.sort_order = write.next_sort_order(target.id(), record.status).await?;
+            let revised = before.revised(after, now);
+            let note = format!("taken from board {source}");
+            let history = self.history(before, &revised, actor, now, Some(&note));
+            last = Some(write.update(&revised, record.version, &history).await?);
+        }
+        write.commit().await?;
+        if let Some(change) = &last {
+            self.signal.notify(change);
+        }
+        let mut moved = Vec::with_capacity(wanted.len());
+        for key in &wanted {
+            moved.push(self.get(&key.to_string()).await?.view);
+        }
+        Ok(moved)
     }
 
     /// Takes the ticket for an agent, as legacy `claim` did; it moves to in progress unless told.
