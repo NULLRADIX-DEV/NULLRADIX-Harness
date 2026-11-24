@@ -40,6 +40,12 @@ describe('unwrap', () => {
     );
   });
 
+  it('keeps the key of an existing entity', () => {
+    const duplicate = { ...problem, status: 409, code: 'ticket-duplicate', existing: 'ARC-0007' };
+    expect(new ApiProblemError(duplicate).existing).toBe('ARC-0007');
+    expect(new ApiProblemError(problem).existing).toBeNull();
+  });
+
   it('throws a generic error for other failures', () => {
     const result = { error: 'Bad Gateway', response: response(502, 'text/plain') };
     expect(() => unwrap(result)).toThrow('request failed with status 502');

@@ -8,6 +8,7 @@ export class ApiProblemError extends Error {
   readonly status: number;
   readonly code: string;
   readonly detail: string;
+  readonly existing: string | null;
 
   constructor(problem: Problem) {
     super(problem.detail);
@@ -15,6 +16,7 @@ export class ApiProblemError extends Error {
     this.status = problem.status;
     this.code = problem.code;
     this.detail = problem.detail;
+    this.existing = problem.existing ?? null;
   }
 }
 
