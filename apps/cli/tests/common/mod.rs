@@ -17,7 +17,13 @@ pub(crate) fn nullradix(home: &Path) -> Command {
         .env("NULLRADIX_HOME", home)
         .env("NULLRADIX_PROFILE", "dev")
         .env_remove("NULLRADIX_PORT")
-        .env_remove("NULLRADIX_BIND");
+        .env_remove("NULLRADIX_BIND")
+        .env_remove("NULLRADIX_DEBUG")
+        .env_remove("NULLRADIX_HOOK_DEADLINE_MS")
+        .env_remove("NULLRADIX_TICKET")
+        .env_remove("NULLRADIX_RUN")
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
+        .env_remove("CLAUDE_ENV_FILE");
     command
 }
 

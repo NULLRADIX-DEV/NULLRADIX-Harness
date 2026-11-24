@@ -111,23 +111,18 @@ pub struct HookEventDto {
 }
 
 impl HookEventDto {
+    /// The event with long texts cut as the daemon cuts them, so it stays small on the wire.
+    #[must_use]
+    pub fn clipped(mut self) -> Self {
+        let details = self.take_details().clipped();
+        self.put_details(details);
+        self
+    }
+
     /// The domain event, refused when the session or cwd is invalid.
-    pub fn into_event(self, kind: HookKindDto) -> Result<HookEvent, AppError> {
+    pub fn into_event(mut self, kind: HookKindDto) -> Result<HookEvent, AppError> {
         let session = SessionRef::parse(&self.session_id).map_err(|error| invalid(&error))?;
-        let details = HookDetails {
-            transcript_path: self.transcript_path,
-            prompt: self.prompt,
-            source: self.source,
-            model: self.model,
-            reason: self.reason,
-            message: self.message,
-            notification_type: self.notification_type,
-            agent_id: self.agent_id,
-            agent_type: self.agent_type,
-            ticket: self.ticket,
-            run: self.run,
-            entrypoint: self.entrypoint,
-        };
+        let details = self.take_details();
         HookEvent::new(
             Id::from_uuid(self.id),
             kind.into(),
@@ -138,29 +133,62 @@ impl HookEventDto {
         )
         .map_err(|error| invalid(&error))
     }
+
+    fn take_details(&mut self) -> HookDetails {
+        HookDetails {
+            transcript_path: self.transcript_path.take(),
+            prompt: self.prompt.take(),
+            source: self.source.take(),
+            model: self.model.take(),
+            reason: self.reason.take(),
+            message: self.message.take(),
+            notification_type: self.notification_type.take(),
+            agent_id: self.agent_id.take(),
+            agent_type: self.agent_type.take(),
+            ticket: self.ticket.take(),
+            run: self.run.take(),
+            entrypoint: self.entrypoint.take(),
+        }
+    }
+
+    fn put_details(&mut self, details: HookDetails) {
+        self.transcript_path = details.transcript_path;
+        self.prompt = details.prompt;
+        self.source = details.source;
+        self.model = details.model;
+        self.reason = details.reason;
+        self.message = details.message;
+        self.notification_type = details.notification_type;
+        self.agent_id = details.agent_id;
+        self.agent_type = details.agent_type;
+        self.ticket = details.ticket;
+        self.run = details.run;
+        self.entrypoint = details.entrypoint;
+    }
 }
 
 impl From<HookEvent> for HookEventDto {
     fn from(event: HookEvent) -> Self {
-        let details = event.details().clone();
-        Self {
+        let mut dto = Self {
             id: event.id().as_uuid(),
             session_id: event.session().as_str().to_owned(),
             cwd: event.cwd().to_owned(),
             occurred_at: event.occurred_at().as_millis(),
-            transcript_path: details.transcript_path,
-            prompt: details.prompt,
-            source: details.source,
-            model: details.model,
-            reason: details.reason,
-            message: details.message,
-            notification_type: details.notification_type,
-            agent_id: details.agent_id,
-            agent_type: details.agent_type,
-            ticket: details.ticket,
-            run: details.run,
-            entrypoint: details.entrypoint,
-        }
+            transcript_path: None,
+            prompt: None,
+            source: None,
+            model: None,
+            reason: None,
+            message: None,
+            notification_type: None,
+            agent_id: None,
+            agent_type: None,
+            ticket: None,
+            run: None,
+            entrypoint: None,
+        };
+        dto.put_details(event.details().clone());
+        dto
     }
 }
 
@@ -205,7 +233,7 @@ pub(crate) struct HookPath {
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct ListQuery {
-    /// Newest events first, at most 500.
+    /// Newest events first by when they happened, at most 500.
     limit: Option<u32>,
 }
 
@@ -219,8 +247,9 @@ pub(crate) struct ListQuery {
     responses(
         (status = 200, body = HookReplyDto),
         (status = 401, body = Problem),
+        (status = 400, body = Problem),
         (status = 403, description = "Browser sessions cannot report hooks", body = Problem),
-        (status = 422, body = Problem),
+        (status = 422, description = "Invalid event, body or hook name", body = Problem),
     )
 )]
 pub(crate) async fn receive_hook(

@@ -590,7 +590,7 @@ export interface operations {
     list_hook_events: {
         parameters: {
             query?: {
-                /** @description Newest events first, at most 500. */
+                /** @description Newest events first by when they happened, at most 500. */
                 limit?: number;
             };
             header?: never;
@@ -641,6 +641,14 @@ export interface operations {
                     "application/json": components["schemas"]["HookReplyDto"];
                 };
             };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -658,6 +666,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Invalid event, body or hook name */
             422: {
                 headers: {
                     [name: string]: unknown;

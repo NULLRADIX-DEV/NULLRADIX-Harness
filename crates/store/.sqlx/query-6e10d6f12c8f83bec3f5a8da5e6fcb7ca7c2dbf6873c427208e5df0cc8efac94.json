@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id: Uuid\", kind, session_id, cwd, occurred_at, transcript_path,\n                      prompt, source, model, reason, message, notification_type, agent_id,\n                      agent_type, ticket, run, entrypoint\n               FROM hook_events ORDER BY received_at DESC, id DESC LIMIT ?",
+  "query": "SELECT id AS \"id: Uuid\", kind, session_id, cwd, occurred_at, transcript_path,\n                      prompt, source, model, reason, message, notification_type, agent_id,\n                      agent_type, ticket, run, entrypoint\n               FROM hook_events ORDER BY occurred_at DESC, id DESC LIMIT ?",
   "describe": {
     "columns": [
       {
@@ -214,5 +214,5 @@
       true
     ]
   },
-  "hash": "06b33584bec2b8cfcc3b16a189c31b4f4cd114458494fe45c8e0879c52e5d707"
+  "hash": "6e10d6f12c8f83bec3f5a8da5e6fcb7ca7c2dbf6873c427208e5df0cc8efac94"
 }

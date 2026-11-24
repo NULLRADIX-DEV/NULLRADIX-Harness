@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
 use std::env;
+use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use clap::ValueEnum;
 use nullradix_api::{HookEventDto, HookKindDto, HookReplyDto};
 use nullradix_app::{Clock, SystemClock};
 use nullradix_client::{Client, ClientError, DiscoveryFile, Spool, SpooledHook};
@@ -20,22 +22,41 @@ use crate::token;
 
 /// Claude Code waits 5 s for a hook; the watchdog ends it well before that.
 const DEADLINE: Duration = Duration::from_millis(3000);
-const STDIN_TIMEOUT: Duration = Duration::from_millis(1500);
-/// Larger input is no hook payload.
-const STDIN_LIMIT: u64 = 4 * 1024 * 1024;
+const STDIN_TIMEOUT: Duration = Duration::from_millis(1000);
+/// Far beyond any prompt; long texts are cut once parsed.
+const STDIN_LIMIT: u64 = 64 * 1024 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 /// Hooks whose answer reaches the conversation may wait longer than mere notices.
 const ANSWER_TIMEOUT: Duration = Duration::from_millis(1000);
 const NOTICE_TIMEOUT: Duration = Duration::from_millis(300);
+/// Time kept back from the daemon call so the spool is written before the deadline.
+const SPOOL_RESERVE: Duration = Duration::from_millis(500);
+
+/// The plugin's call `nullradix hook <event>`, served without the parser so nothing fails it.
+pub(crate) fn run_plain(event: Option<&OsStr>) -> ExitCode {
+    let profile = env::var("NULLRADIX_PROFILE")
+        .ok()
+        .and_then(|name| Profile::from_str(&name, true).ok())
+        .unwrap_or_else(Profile::of_build);
+    let home = env::var_os("NULLRADIX_HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from);
+    run(
+        event.and_then(OsStr::to_str).unwrap_or_default(),
+        profile,
+        home.as_deref(),
+    )
+}
 
 /// Reports a hook to the daemon; it always succeeds and never starts the daemon.
 pub(crate) fn run(event: &str, profile: Profile, home: Option<&Path>) -> ExitCode {
-    let deadline = env::var("NULLRADIX_HOOK_DEADLINE_MS")
+    let budget = env::var("NULLRADIX_HOOK_DEADLINE_MS")
         .ok()
         .and_then(|millis| millis.parse().ok())
         .map_or(DEADLINE, Duration::from_millis);
+    let deadline = Instant::now() + budget;
     thread::spawn(move || {
-        thread::sleep(deadline);
+        thread::sleep(budget);
         debug("deadline reached");
         std::process::exit(0);
     });
@@ -43,7 +64,7 @@ pub(crate) fn run(event: &str, profile: Profile, home: Option<&Path>) -> ExitCod
         debug(&format!("unknown hook {event}"));
         return ExitCode::SUCCESS;
     };
-    if let Some(reply) = report(kind, profile, home) {
+    if let Some(reply) = report(kind, profile, home, deadline) {
         answer(kind, &reply);
     }
     ExitCode::SUCCESS
@@ -55,14 +76,19 @@ fn debug(message: &str) {
     }
 }
 
-fn report(kind: HookKindDto, profile: Profile, home: Option<&Path>) -> Option<HookReplyDto> {
+fn report(
+    kind: HookKindDto,
+    profile: Profile,
+    home: Option<&Path>,
+    deadline: Instant,
+) -> Option<HookReplyDto> {
     let input = read_stdin()?;
     let Some(event) = event(&input) else {
         debug("input without session_id and cwd");
         return None;
     };
     let paths = Paths::resolve(profile.app_name(), home).ok()?;
-    match deliver(&paths, kind, &event) {
+    match deliver(&paths, kind, &event, deadline) {
         Delivery::Answered(reply) => Some(reply),
         Delivery::Refused(error) => {
             debug(&format!("refused: {error}"));
@@ -98,12 +124,12 @@ fn read_stdin() -> Option<Vec<u8>> {
     }
 }
 
-/// The event in Claude Code's hook input; text fields of other types are left out.
+/// The event in Claude Code's hook input, cut like the daemon would; other types are left out.
 fn event(input: &[u8]) -> Option<HookEventDto> {
     let payload: Map<String, Value> = serde_json::from_slice(input).ok()?;
     let text = |key: &str| payload.get(key).and_then(Value::as_str).map(str::to_owned);
     let variable = |key: &str| env::var(key).ok().filter(|value| !value.is_empty());
-    Some(HookEventDto {
+    let event = HookEventDto {
         id: Uuid::now_v7(),
         session_id: text("session_id")?,
         cwd: text("cwd")?,
@@ -120,7 +146,8 @@ fn event(input: &[u8]) -> Option<HookEventDto> {
         ticket: variable("NULLRADIX_TICKET"),
         run: variable("NULLRADIX_RUN"),
         entrypoint: variable("CLAUDE_CODE_ENTRYPOINT"),
-    })
+    };
+    Some(event.clipped())
 }
 
 enum Delivery {
@@ -129,7 +156,7 @@ enum Delivery {
     Unreachable(String),
 }
 
-fn deliver(paths: &Paths, kind: HookKindDto, event: &HookEventDto) -> Delivery {
+fn deliver(paths: &Paths, kind: HookKindDto, event: &HookEventDto, deadline: Instant) -> Delivery {
     let discovery = match DiscoveryFile::in_dir(&paths.data).read() {
         Ok(Some(discovery)) if discovery.process_alive() => discovery,
         Ok(_) => return Delivery::Unreachable(String::from("the daemon is not running")),
@@ -140,18 +167,25 @@ fn deliver(paths: &Paths, kind: HookKindDto, event: &HookEventDto) -> Delivery {
         Ok(None) => return Delivery::Unreachable(String::from("no local token")),
         Err(error) => return Delivery::Unreachable(error.to_string()),
     };
-    let timeout = if kind.answers() {
+    let wanted = if kind.answers() {
         ANSWER_TIMEOUT
     } else {
         NOTICE_TIMEOUT
     };
+    let left = deadline
+        .saturating_duration_since(Instant::now())
+        .saturating_sub(SPOOL_RESERVE);
+    let timeout = wanted.min(left);
+    if timeout < CONNECT_TIMEOUT {
+        return Delivery::Unreachable(String::from("no time left to ask the daemon"));
+    }
     let client = Client::new(discovery.address, CONNECT_TIMEOUT, timeout).with_token(token);
     match client.post_hook(kind, event) {
         Ok(reply) => Delivery::Answered(reply),
         // the daemon judged the event itself, sending it again would not change that
         Err(
             error @ ClientError::Refused {
-                status: 400 | 403 | 413 | 422,
+                status: 400 | 403 | 422,
                 ..
             },
         ) => Delivery::Refused(error),

@@ -13,7 +13,7 @@ use crate::{AppError, Clock};
 pub trait HookRepository: Send + Sync {
     /// Keeps the event unless one with its id exists; true when it was new.
     async fn record(&self, event: &HookEvent, received_at: Timestamp) -> Result<bool, AppError>;
-    /// Newest first.
+    /// Newest first by when they happened.
     async fn recent(&self, limit: u32) -> Result<Vec<HookEvent>, AppError>;
     /// Deletes events received before `before` and returns how many.
     async fn prune_before(&self, before: Timestamp) -> Result<u64, AppError>;

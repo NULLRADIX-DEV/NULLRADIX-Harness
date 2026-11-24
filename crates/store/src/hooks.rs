@@ -109,7 +109,7 @@ impl HookRepository for Store {
             r#"SELECT id AS "id: Uuid", kind, session_id, cwd, occurred_at, transcript_path,
                       prompt, source, model, reason, message, notification_type, agent_id,
                       agent_type, ticket, run, entrypoint
-               FROM hook_events ORDER BY received_at DESC, id DESC LIMIT ?"#,
+               FROM hook_events ORDER BY occurred_at DESC, id DESC LIMIT ?"#,
             limit,
         )
         .fetch_all(&self.reader)

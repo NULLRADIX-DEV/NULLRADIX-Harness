@@ -25,7 +25,7 @@ fn event(n: u128, kind: HookKind) -> HookEvent {
         kind,
         SessionRef::parse("session-1").unwrap(),
         "/repo",
-        Timestamp::from_millis(10),
+        Timestamp::from_millis(i64::try_from(n).unwrap() * 10),
         HookDetails {
             prompt: Some(String::from("fix the login")),
             ticket: Some(String::from("ARC-0007")),

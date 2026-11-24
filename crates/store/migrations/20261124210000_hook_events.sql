@@ -22,4 +22,5 @@ CREATE TABLE hook_events (
 ) STRICT;
 
 CREATE INDEX ix_hook_events_session ON hook_events (session_id, occurred_at);
+CREATE INDEX ix_hook_events_occurred ON hook_events (occurred_at DESC);
 CREATE INDEX ix_hook_events_received ON hook_events (received_at);

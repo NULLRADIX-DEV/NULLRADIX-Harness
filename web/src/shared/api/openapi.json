@@ -227,7 +227,7 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Newest events first, at most 500.",
+            "description": "Newest events first by when they happened, at most 500.",
             "required": false,
             "schema": {
               "type": "integer",
@@ -295,6 +295,15 @@
               }
             }
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "401": {
             "content": {
               "application/json": {
@@ -315,6 +324,7 @@
             }
           },
           "422": {
+            "description": "Invalid event, body or hook name",
             "content": {
               "application/json": {
                 "schema": {

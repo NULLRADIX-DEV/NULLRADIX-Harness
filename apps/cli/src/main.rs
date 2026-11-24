@@ -4,6 +4,7 @@ mod config;
 mod connect;
 mod daemon;
 mod hook;
+mod intake;
 mod logging;
 mod open;
 mod project;
@@ -76,6 +77,10 @@ struct ServeArgs {
 }
 
 fn main() -> ExitCode {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if args.get(1).is_some_and(|arg| arg == "hook") {
+        return hook::run_plain(args.get(2).map(std::ffi::OsString::as_os_str));
+    }
     match run(Cli::parse()) {
         Ok(code) => code,
         Err(error) => {
