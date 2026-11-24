@@ -75,7 +75,7 @@ impl Store {
             seq,
             limit,
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.reader)
         .await?;
         rows.into_iter()
             .map(|row| {

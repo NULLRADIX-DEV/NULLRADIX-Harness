@@ -18,50 +18,63 @@ pub use error::StoreError;
 static MIGRATOR: Migrator = sqlx::migrate!();
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_CONNECTIONS: u32 = 8;
+const READERS: u32 = 8;
 
 /// Handle to the database; cheap to clone.
 #[derive(Debug, Clone)]
 pub struct Store {
-    pool: SqlitePool,
+    writer: SqlitePool,
+    reader: SqlitePool,
 }
 
 impl Store {
     /// Opens or creates the database file and applies pending migrations.
     pub async fn open(path: &Path) -> Result<Self, StoreError> {
-        let options = SqliteConnectOptions::new()
+        let base = SqliteConnectOptions::new()
             .filename(path)
-            .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Wal)
-            .synchronous(SqliteSynchronous::Normal)
             .foreign_keys(true)
             .busy_timeout(BUSY_TIMEOUT);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(MAX_CONNECTIONS)
-            .connect_with(options)
+        let writer_options = base
+            .clone()
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal);
+        // one writer connection queues writes in order instead of racing on the busy timeout
+        let writer = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(writer_options)
             .await?;
-        Self::migrated(pool).await
+        MIGRATOR.run(&writer).await?;
+        let reader = SqlitePoolOptions::new()
+            .max_connections(READERS)
+            .connect_with(base.read_only(true))
+            .await?;
+        Ok(Self { writer, reader })
     }
 
     /// Private in-memory database for tests.
     pub async fn in_memory() -> Result<Self, StoreError> {
         let options = SqliteConnectOptions::new()
             .in_memory(true)
-            .foreign_keys(true);
+            .foreign_keys(true)
+            .busy_timeout(BUSY_TIMEOUT);
         let pool = SqlitePoolOptions::new()
+            .min_connections(1)
             .max_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
             .connect_with(options)
             .await?;
-        Self::migrated(pool).await
-    }
-
-    async fn migrated(pool: SqlitePool) -> Result<Self, StoreError> {
         MIGRATOR.run(&pool).await?;
-        Ok(Self { pool })
+        Ok(Self {
+            writer: pool.clone(),
+            reader: pool,
+        })
     }
 
     pub async fn close(&self) {
-        self.pool.close().await;
+        self.reader.close().await;
+        self.writer.close().await;
     }
 
     /// Write transaction that takes the lock up front instead of failing on upgrade.
@@ -73,7 +86,7 @@ impl Store {
         )
     )]
     pub(crate) async fn begin(&self) -> Result<Transaction<'_, Sqlite>, StoreError> {
-        Ok(self.pool.begin_with("BEGIN IMMEDIATE").await?)
+        Ok(self.writer.begin_with("BEGIN IMMEDIATE").await?)
     }
 }
 
@@ -86,11 +99,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("nullradix.db")).await.unwrap();
         let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
-            .fetch_one(&store.pool)
+            .fetch_one(&store.reader)
             .await
             .unwrap();
         let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
-            .fetch_one(&store.pool)
+            .fetch_one(&store.reader)
             .await
             .unwrap();
         assert_eq!(mode, "wal");
@@ -105,10 +118,38 @@ mod tests {
         Store::open(&path).await.unwrap().close().await;
         let store = Store::open(&path).await.unwrap();
         let applied: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
-            .fetch_one(&store.pool)
+            .fetch_one(&store.reader)
             .await
             .unwrap();
         assert_eq!(applied, i64::try_from(MIGRATOR.iter().count()).unwrap());
+        store.close().await;
+    }
+
+    #[tokio::test]
+    async fn concurrent_writers_commit_one_after_another() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("nullradix.db")).await.unwrap();
+        let write = |store: Store, id: u128| async move {
+            let mut tx = store.begin().await.unwrap();
+            let at = nullradix_domain::Timestamp::from_millis(1);
+            let seq = change_feed::record(
+                &mut tx,
+                "project",
+                uuid::Uuid::from_u128(id),
+                ChangeOp::Insert,
+                at,
+            )
+            .await
+            .unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            tx.commit().await.unwrap();
+            seq
+        };
+        let first = tokio::spawn(write(store.clone(), 1));
+        let second = tokio::spawn(write(store.clone(), 2));
+        let mut seqs = vec![first.await.unwrap(), second.await.unwrap()];
+        seqs.sort_unstable();
+        assert_eq!(seqs, vec![1, 2]);
         store.close().await;
     }
 }

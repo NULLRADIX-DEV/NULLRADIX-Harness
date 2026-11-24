@@ -88,6 +88,16 @@ jobs:
           tool: cargo-nextest,cargo-llvm-cov
       - run: cargo llvm-cov nextest --workspace --locked --profile ci
       - run: cargo llvm-cov report --summary-only
+
+  query-cache:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo xtask db check
 
   test-windows:
@@ -119,7 +129,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [changes, lint, deny, test-linux, test-windows]
+    needs: [changes, lint, deny, test-linux, test-windows, query-cache]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

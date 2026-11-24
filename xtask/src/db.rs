@@ -47,10 +47,7 @@ fn generate(root: &Path, output: &Path) -> Result<()> {
     fs::create_dir_all(output).with_context(|| format!("cannot create {}", output.display()))?;
 
     let target = root.join("target/sqlx");
-    let url = format!(
-        "sqlite:{}",
-        database.display().to_string().replace('\\', "/")
-    );
+    let url = sqlite_url(&database);
     cargo(
         root,
         &["clean", "--package", STORE, "--target-dir"],
@@ -67,6 +64,10 @@ fn generate(root: &Path, output: &Path) -> Result<()> {
             ("SQLX_OFFLINE_DIR", &output.display().to_string()),
         ],
     )
+}
+
+fn sqlite_url(path: &Path) -> String {
+    format!("sqlite:{}", path.display().to_string().replace('\\', "/"))
 }
 
 fn migrate(migrations: &Path, database: &Path) -> Result<()> {
@@ -161,6 +162,18 @@ mod tests {
         assert_eq!(
             compare(&committed, &fresh),
             vec!["outdated b.json", "missing new.json", "stale old.json"]
+        );
+    }
+
+    #[test]
+    fn builds_sqlite_urls_with_forward_slashes() {
+        assert_eq!(
+            sqlite_url(Path::new(r"C:\Users\Some One\prepare.db")),
+            "sqlite:C:/Users/Some One/prepare.db"
+        );
+        assert_eq!(
+            sqlite_url(Path::new("/tmp/prepare.db")),
+            "sqlite:/tmp/prepare.db"
         );
     }
 
