@@ -72,6 +72,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         auth,
         allowed_hosts: AllowedHosts::loopback_and(config.allowed_hosts.iter().cloned()),
         secure_cookies: false,
+        web_dir: config.web_dir.clone(),
     };
     let served = nullradix_api::serve(listener, nullradix_api::router(state), shutdown_signal())
         .await

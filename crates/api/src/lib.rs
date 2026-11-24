@@ -5,20 +5,24 @@ mod extract;
 mod health;
 mod host;
 mod problem;
+mod web;
 
 use std::future::Future;
 use std::io;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::http::{Request, StatusCode};
+use axum::extract::State;
+use axum::http::{HeaderValue, Request, StatusCode, header};
 use axum::middleware;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use nullradix_app::AppError;
 use nullradix_app::auth::AuthService;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
@@ -68,6 +72,8 @@ pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub allowed_hosts: AllowedHosts,
     pub secure_cookies: bool,
+    /// Built web UI to serve next to the API, if any.
+    pub web_dir: Option<PathBuf>,
 }
 
 fn routes() -> OpenApiRouter<ApiState> {
@@ -85,7 +91,7 @@ fn routes() -> OpenApiRouter<ApiState> {
 pub fn router(state: ApiState) -> Router {
     let (router, _) = routes().split_for_parts();
     router
-        .fallback(route_not_found)
+        .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed)
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -96,6 +102,14 @@ pub fn router(state: ApiState) -> Router {
                 .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
                 .layer(TraceLayer::new_for_http().make_span_with(request_span))
                 .layer(PropagateRequestIdLayer::x_request_id())
+                .layer(security_header(header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+                .layer(security_header(header::X_FRAME_OPTIONS, "DENY"))
+                .layer(security_header(header::REFERRER_POLICY, "no-referrer"))
+                .layer(security_header(
+                    header::CONTENT_SECURITY_POLICY,
+                    "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+                ))
+                .layer(middleware::from_fn(web::no_store_for_api))
                 .layer(middleware::from_fn_with_state(
                     state.allowed_hosts.clone(),
                     host::check_host,
@@ -104,7 +118,21 @@ pub fn router(state: ApiState) -> Router {
         .with_state(state)
 }
 
-async fn route_not_found() -> ApiError {
+fn security_header(
+    name: header::HeaderName,
+    value: &'static str,
+) -> SetResponseHeaderLayer<HeaderValue> {
+    SetResponseHeaderLayer::if_not_present(name, HeaderValue::from_static(value))
+}
+
+async fn fallback(State(state): State<ApiState>, request: axum::extract::Request) -> Response {
+    match &state.web_dir {
+        Some(dir) if !web::is_api_path(request.uri().path()) => web::serve(dir, request).await,
+        _ => route_not_found().into_response(),
+    }
+}
+
+fn route_not_found() -> ApiError {
     AppError::not_found("route-not-found", "no such route").into()
 }
 
@@ -164,6 +192,10 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn test_api() -> TestApi {
+        test_api_with_web(None).await
+    }
+
+    pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
             store,
@@ -175,6 +207,7 @@ pub(crate) mod tests {
             auth: auth.clone(),
             allowed_hosts: AllowedHosts::loopback_and([]),
             secure_cookies: false,
+            web_dir,
         });
         TestApi {
             router,
