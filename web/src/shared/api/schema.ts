@@ -299,7 +299,7 @@ export interface components {
             items: components["schemas"]["RunDto"][];
         };
         RunOutput: {
-            /** @description Whether the runner reported the end of the run; then no lines will follow. */
+            /** @description Whether the run ended and these are its last lines; then no lines will follow. */
             finished: boolean;
             lines: components["schemas"]["OutputLineDto"][];
         };

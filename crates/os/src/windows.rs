@@ -2,22 +2,30 @@
 
 use std::ffi::{OsStr, OsString, c_void};
 use std::io;
+use std::iter;
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::AsRawHandle;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::process::CommandExt;
 use std::path::Path;
-use std::process::Child;
+use std::process::{Child, Command};
 use std::ptr;
 
-use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError, HANDLE};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, ERROR_ACCESS_DENIED, GetLastError, INVALID_HANDLE_VALUE,
+};
+use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
     SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Threading::{
-    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CreateProcessW, DETACHED_PROCESS,
-    GetExitCodeProcess, OpenProcess, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
-    STARTF_USESTDHANDLES, STARTUPINFOW,
+    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED,
+    CreateProcessW, DETACHED_PROCESS, GetExitCodeProcess, OpenProcess, OpenThread,
+    PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
+    STARTUPINFOW, THREAD_SUSPEND_RESUME,
 };
 
 const STILL_ACTIVE: u32 = 259;
@@ -41,19 +49,24 @@ const QUOTE: u16 = b'"' as u16;
 const BACKSLASH: u16 = b'\\' as u16;
 
 /// `CreateProcessW` without handle inheritance, which `std::process` cannot do.
-pub(crate) fn spawn_detached(program: &Path, args: &[OsString]) -> io::Result<u32> {
-    let mut line = command_line(program, args);
+pub(crate) fn spawn_detached(program: &Path, args: &[OsString], cwd: &Path) -> io::Result<u32> {
+    let cwd: Vec<u16> = cwd.as_os_str().encode_wide().chain(iter::once(0)).collect();
     let base = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
-    match create_process(&mut line, base | CREATE_BREAKAWAY_FROM_JOB) {
+    let detached = create_process(
+        &mut command_line(program, args),
+        &cwd,
+        base | CREATE_BREAKAWAY_FROM_JOB,
+    );
+    match detached {
         // the caller's job may forbid breakaway, detaching without it is still better
         Err(error) if error.raw_os_error() == i32::try_from(ERROR_ACCESS_DENIED).ok() => {
-            create_process(&mut command_line(program, args), base)
+            create_process(&mut command_line(program, args), &cwd, base)
         }
         other => other,
     }
 }
 
-fn create_process(line: &mut [u16], flags: u32) -> io::Result<u32> {
+fn create_process(line: &mut [u16], cwd: &[u16], flags: u32) -> io::Result<u32> {
     // SAFETY: an all-zero startup structure is valid; null std handles mean no stdio.
     let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
     startup.cb = u32::try_from(size_of::<STARTUPINFOW>())
@@ -61,7 +74,7 @@ fn create_process(line: &mut [u16], flags: u32) -> io::Result<u32> {
     startup.dwFlags = STARTF_USESTDHANDLES;
     // SAFETY: an all-zero process information structure is a valid out value.
     let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
-    // SAFETY: line is a writable NUL-terminated buffer and the structures outlive the call.
+    // SAFETY: line and cwd are NUL-terminated, line is writable, the structures outlive the call.
     let created = unsafe {
         CreateProcessW(
             ptr::null(),
@@ -71,7 +84,7 @@ fn create_process(line: &mut [u16], flags: u32) -> io::Result<u32> {
             0,
             flags,
             ptr::null(),
-            ptr::null(),
+            cwd.as_ptr(),
             &raw const startup,
             &raw mut info,
         )
@@ -130,19 +143,33 @@ fn push_argument(line: &mut Vec<u16>, arg: &OsStr) {
 /// Job object that kills its processes when terminated or closed.
 #[derive(Debug)]
 pub(crate) struct Job {
-    // the raw handle as an integer keeps the type Send without an unsafe impl
-    handle: usize,
+    handle: OwnedHandle,
 }
 
 impl Job {
-    pub(crate) fn assign(child: &Child) -> io::Result<Self> {
+    /// Spawns `command` suspended and resumes it only inside the job, so nothing escapes.
+    pub(crate) fn spawn(command: &mut Command) -> io::Result<(Child, Self)> {
+        let job = Self::create()?;
+        command.creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW);
+        let mut child = command.spawn()?;
+        if let Err(error) = job.assign(&child).and_then(|()| resume(child.id())) {
+            // the suspended child never ran, so killing it loses nothing
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+        Ok((child, job))
+    }
+
+    fn create() -> io::Result<Self> {
         // SAFETY: null attributes and name are allowed and create an unnamed job.
-        let handle = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
-        if handle.is_null() {
+        let raw = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+        if raw.is_null() {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: raw is a fresh job handle that nothing else owns.
         let job = Self {
-            handle: handle as usize,
+            handle: unsafe { OwnedHandle::from_raw_handle(raw) },
         };
         // SAFETY: an all-zero limit structure is a valid starting value.
         let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
@@ -152,7 +179,7 @@ impl Job {
         // SAFETY: the pointer and size describe the limits structure above.
         let configured = unsafe {
             SetInformationJobObject(
-                job.raw(),
+                job.handle.as_raw_handle(),
                 JobObjectExtendedLimitInformation,
                 (&raw const limits).cast::<c_void>(),
                 size,
@@ -161,32 +188,66 @@ impl Job {
         if configured == 0 {
             return Err(io::Error::last_os_error());
         }
-        // SAFETY: both handles are open for the duration of the call.
-        let assigned = unsafe { AssignProcessToJobObject(job.raw(), child.as_raw_handle()) };
-        if assigned == 0 {
-            return Err(io::Error::last_os_error());
-        }
         Ok(job)
     }
 
-    pub(crate) fn terminate(&self) -> io::Result<()> {
-        // SAFETY: the job handle stays open until drop.
-        if unsafe { TerminateJobObject(self.raw(), 1) } == 0 {
+    fn assign(&self, child: &Child) -> io::Result<()> {
+        // SAFETY: both handles are open for the duration of the call.
+        let assigned =
+            unsafe { AssignProcessToJobObject(self.handle.as_raw_handle(), child.as_raw_handle()) };
+        if assigned == 0 {
             return Err(io::Error::last_os_error());
         }
         Ok(())
     }
 
-    fn raw(&self) -> HANDLE {
-        self.handle as HANDLE
+    pub(crate) fn terminate(&self) -> io::Result<()> {
+        // SAFETY: the job handle stays open until drop.
+        if unsafe { TerminateJobObject(self.handle.as_raw_handle(), 1) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
     }
 }
 
-impl Drop for Job {
-    fn drop(&mut self) {
-        // SAFETY: the handle came from CreateJobObjectW and is closed exactly once.
-        unsafe { CloseHandle(self.raw()) };
+/// Resumes every thread of a process that was created suspended.
+fn resume(pid: u32) -> io::Result<()> {
+    // SAFETY: a thread snapshot takes no pointers.
+    let raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if raw == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
     }
+    // SAFETY: raw is a fresh snapshot handle that nothing else owns.
+    let snapshot = unsafe { OwnedHandle::from_raw_handle(raw) };
+    // SAFETY: an all-zero entry is valid once its size is set.
+    let mut entry: THREADENTRY32 = unsafe { std::mem::zeroed() };
+    entry.dwSize = u32::try_from(size_of::<THREADENTRY32>())
+        .map_err(|_| io::Error::other("thread entry too large"))?;
+    let mut resumed = 0;
+    // SAFETY: the snapshot is open and entry is a valid out pointer.
+    let mut more = unsafe { Thread32First(snapshot.as_raw_handle(), &raw mut entry) } != 0;
+    while more {
+        if entry.th32OwnerProcessID == pid {
+            // SAFETY: OpenThread only reads its arguments and returns null on failure.
+            let raw = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
+            if raw.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: raw is a fresh thread handle that nothing else owns.
+            let thread = unsafe { OwnedHandle::from_raw_handle(raw) };
+            // SAFETY: the thread handle is open with resume rights.
+            if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
+                return Err(io::Error::last_os_error());
+            }
+            resumed += 1;
+        }
+        // SAFETY: as for Thread32First.
+        more = unsafe { Thread32Next(snapshot.as_raw_handle(), &raw mut entry) } != 0;
+    }
+    if resumed == 0 {
+        return Err(io::Error::other(format!("process {pid} has no thread")));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -228,7 +289,7 @@ mod tests {
         };
         assert_ne!(marked, 0);
         let args = ["/C", "ping -n 5 127.0.0.1 > NUL"].map(OsString::from);
-        spawn_detached(Path::new("cmd"), &args).unwrap();
+        spawn_detached(Path::new("cmd"), &args, &std::env::temp_dir()).unwrap();
         drop(writer);
         let started = Instant::now();
         let mut rest = Vec::new();

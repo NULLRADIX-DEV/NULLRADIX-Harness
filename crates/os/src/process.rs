@@ -1,7 +1,9 @@
 use std::ffi::OsString;
 use std::io;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+#[cfg(unix)]
+use std::process::Stdio;
+use std::process::{Child, Command};
 
 /// Whether a process with this id currently exists.
 #[must_use]
@@ -16,23 +18,14 @@ pub fn process_alive(pid: u32) -> bool {
     }
 }
 
-/// Keeps a console window from flashing up for the child on Windows.
-pub fn hide_console(command: &mut Command) -> &mut Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
-    }
-    command
-}
-
 /// Starts an outliving process with null stdio and no inherited handles, returning its id.
-pub fn spawn_detached(program: &Path, args: &[OsString]) -> io::Result<u32> {
+pub fn spawn_detached(program: &Path, args: &[OsString], cwd: &Path) -> io::Result<u32> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         let mut child = Command::new(program)
             .args(args)
+            .current_dir(cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -45,7 +38,7 @@ pub fn spawn_detached(program: &Path, args: &[OsString]) -> io::Result<u32> {
     }
     #[cfg(windows)]
     {
-        crate::windows::spawn_detached(program, args)
+        crate::windows::spawn_detached(program, args, cwd)
     }
 }
 
@@ -54,26 +47,22 @@ pub fn spawn_detached(program: &Path, args: &[OsString]) -> io::Result<u32> {
 pub struct ProcessTree {
     child: Child,
     #[cfg(windows)]
-    job: Option<crate::windows::Job>,
+    job: crate::windows::Job,
 }
 
 impl ProcessTree {
     pub fn spawn(command: &mut Command) -> io::Result<Self> {
-        hide_console(command);
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
-            command.process_group(0);
+            let child = command.process_group(0).spawn()?;
+            Ok(Self { child })
         }
-        let child = command.spawn()?;
-        // without a job the kill falls back to taskkill
         #[cfg(windows)]
-        let job = crate::windows::Job::assign(&child).ok();
-        Ok(Self {
-            child,
-            #[cfg(windows)]
-            job,
-        })
+        {
+            let (child, job) = crate::windows::Job::spawn(command)?;
+            Ok(Self { child, job })
+        }
     }
 
     #[must_use]
@@ -100,12 +89,7 @@ impl ProcessTree {
             }
         }
         #[cfg(windows)]
-        {
-            match &self.job {
-                Some(job) => job.terminate()?,
-                None => taskkill(self.child.id())?,
-            }
-        }
+        self.job.terminate()?;
         match self.child.kill() {
             Err(error) if error.kind() != io::ErrorKind::InvalidInput => Err(error),
             _ => Ok(()),
@@ -113,18 +97,10 @@ impl ProcessTree {
     }
 }
 
-#[cfg(windows)]
-fn taskkill(pid: u32) -> io::Result<()> {
-    let status =
-        hide_console(Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()?;
-    // exit code 128 means the process is already gone
-    if status.success() || status.code() == Some(128) {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!("taskkill failed with {status}")))
+impl Drop for ProcessTree {
+    /// Whatever the tree left running dies with it, on every platform alike.
+    fn drop(&mut self) {
+        let _ = self.kill();
     }
 }
 
@@ -194,20 +170,22 @@ mod tests {
     }
 
     #[test]
-    fn detached_processes_run_with_arguments_containing_spaces() {
+    fn detached_processes_run_in_their_directory_with_intact_arguments() {
         let dir = tempfile::tempdir().unwrap();
-        let out = dir.path().join("out.txt");
         let (program, args) = if cfg!(windows) {
-            let script = format!("echo two words>{}", out.display());
-            ("cmd", ["/C", &script].map(OsString::from).to_vec())
+            (
+                "cmd",
+                ["/C", "echo two words>out.txt"]
+                    .map(OsString::from)
+                    .to_vec(),
+            )
         } else {
-            let out = out.display().to_string();
-            let script = r#"printf '%s' "$1" > "$2""#;
-            let args = ["-c", script, "sh", "two words", &out].map(OsString::from);
+            let script = r#"printf '%s' "$1" > out.txt"#;
+            let args = ["-c", script, "sh", "two words"].map(OsString::from);
             ("sh", args.to_vec())
         };
-        spawn_detached(Path::new(program), &args).unwrap();
-        assert_eq!(wait_for_file(&out), "two words");
+        spawn_detached(Path::new(program), &args, dir.path()).unwrap();
+        assert_eq!(wait_for_file(&dir.path().join("out.txt")), "two words");
     }
 
     #[test]
@@ -222,6 +200,20 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(10);
         while process_alive(grandchild) {
             assert!(Instant::now() < deadline, "grandchild survived the kill");
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    fn dropping_a_tree_kills_what_it_left_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("grandchild.pid");
+        let tree = ProcessTree::spawn(&mut parent_of_grandchild(&pid_file)).unwrap();
+        let grandchild: u32 = wait_for_file(&pid_file).parse().unwrap();
+        drop(tree);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while process_alive(grandchild) {
+            assert!(Instant::now() < deadline, "grandchild survived the drop");
             thread::sleep(Duration::from_millis(50));
         }
     }

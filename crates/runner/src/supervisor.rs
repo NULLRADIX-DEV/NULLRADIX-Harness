@@ -1,8 +1,8 @@
 //! Runs one process to completion on behalf of the daemon, which may come and go meanwhile.
 
-use std::fs::{File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
-use std::path::Path;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
@@ -11,15 +11,19 @@ use std::time::{Duration, Instant};
 use nullradix_domain::RunOutcome;
 use nullradix_os::{ProcessTree, write_atomic};
 
-use crate::protocol::{OutputRecord, ResultFile, RunFiles, SpecFile, read_json};
+use crate::protocol::{OutputRecord, ResultFile, RunFiles, SpecFile, hold_lock, read_json};
 
 const TICK: Duration = Duration::from_millis(100);
+/// Longer lines are split, so a child without newlines cannot exhaust memory.
+const MAX_LINE: u64 = 64 * 1024;
 /// Grandchildren may hold the pipes open after the child exits; stop waiting after this.
 const DRAIN: Duration = Duration::from_secs(10);
 
 /// Executes the run described in `dir` and always leaves a `result.json` behind.
 pub fn supervise(dir: &Path) -> io::Result<()> {
     let files = RunFiles::at(dir);
+    // released by the exit, which is how the runner learns that this process is gone
+    let _lock = hold_lock(&files);
     let result = match read_json::<SpecFile>(&files.spec()) {
         Ok(Some(spec)) => execute(&files, &spec),
         Ok(None) => Err(io::Error::new(
@@ -48,8 +52,18 @@ enum Ending {
     TimedOut,
 }
 
+/// Relative paths such as `./build.sh` mean the run's directory, on Windows too.
+fn program(spec: &SpecFile) -> PathBuf {
+    let program = Path::new(&spec.program);
+    if program.is_relative() && program.components().count() > 1 {
+        spec.cwd.join(program)
+    } else {
+        program.to_path_buf()
+    }
+}
+
 fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
-    let mut command = Command::new(&spec.program);
+    let mut command = Command::new(program(spec));
     command
         .args(&spec.args)
         .current_dir(&spec.cwd)
@@ -72,7 +86,7 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
     if let Some(stderr) = tree.child_mut().stderr.take() {
         forward(stderr, "stderr", sender);
     }
-    let mut output = OutputWriter::create(&files.output())?;
+    let mut output = OutputWriter::create(files)?;
     let deadline = spec
         .timeout_ms
         .and_then(|millis| Instant::now().checked_add(Duration::from_millis(millis)));
@@ -80,10 +94,14 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
     let ending = loop {
         match lines.recv_timeout(TICK) {
             Ok((stream, text)) => output.write(stream, &text)?,
-            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {}
+            Err(RecvTimeoutError::Timeout) => {}
+            // both pipes closed while the child still runs
+            Err(RecvTimeoutError::Disconnected) => thread::sleep(TICK),
         }
         output.drain(&lines)?;
         if let Some(status) = tree.child_mut().try_wait()? {
+            // the run ends with its main process; leftovers would hold the pipes open
+            tree.kill()?;
             break Ending::Exited(status);
         }
         if files.cancel().exists() {
@@ -133,7 +151,11 @@ fn forward(
         let mut buffer = Vec::new();
         loop {
             buffer.clear();
-            match reader.read_until(b'\n', &mut buffer) {
+            match reader
+                .by_ref()
+                .take(MAX_LINE)
+                .read_until(b'\n', &mut buffer)
+            {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {
                     while matches!(buffer.last(), Some(b'\n' | b'\r')) {
@@ -149,16 +171,20 @@ fn forward(
     });
 }
 
+/// Appends output lines and their offsets; a reader trusts a line once it has an index entry.
 struct OutputWriter {
-    file: BufWriter<File>,
+    output: File,
+    index: File,
+    offset: u64,
     seq: i64,
 }
 
 impl OutputWriter {
-    fn create(path: &Path) -> io::Result<Self> {
-        let file = OpenOptions::new().create(true).append(true).open(path)?;
+    fn create(files: &RunFiles) -> io::Result<Self> {
         Ok(Self {
-            file: BufWriter::new(file),
+            output: File::create(files.output())?,
+            index: File::create(files.index())?,
+            offset: 0,
             seq: 0,
         })
     }
@@ -170,9 +196,12 @@ impl OutputWriter {
             stream: stream.to_owned(),
             text: text.to_owned(),
         };
-        serde_json::to_writer(&mut self.file, &record).map_err(io::Error::other)?;
-        self.file.write_all(b"\n")?;
-        self.file.flush()
+        let mut line = serde_json::to_vec(&record).map_err(io::Error::other)?;
+        line.push(b'\n');
+        self.output.write_all(&line)?;
+        self.index.write_all(&self.offset.to_le_bytes())?;
+        self.offset += u64::try_from(line.len()).map_err(io::Error::other)?;
+        Ok(())
     }
 
     fn drain(&mut self, lines: &Receiver<(&'static str, String)>) -> io::Result<()> {
@@ -239,7 +268,7 @@ mod tests {
         let report = result(&files);
         assert_eq!(report.outcome, "failed");
         assert_eq!(report.exit_code, Some(3));
-        let lines = read_output(&files.output(), 0, 10).unwrap();
+        let lines = read_output(&files, 0, 10).unwrap();
         let texts: Vec<&str> = lines.iter().map(|line| line.text.trim()).collect();
         assert_eq!(texts, vec!["first", "second"]);
         assert_eq!(lines[1].seq, 2);
@@ -283,6 +312,71 @@ mod tests {
         let files = RunFiles::at(dir.path());
         supervise(files.dir()).unwrap();
         assert!(result(&files).error.unwrap().contains("spec.json"));
+    }
+
+    #[test]
+    fn splits_overlong_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let (program, mut args) = shell("");
+        args.pop();
+        let script = if cfg!(windows) {
+            "powershell -NoProfile -NonInteractive -Command [Console]::Out.Write('x' * 70000)"
+        } else {
+            "head -c 70000 /dev/zero | tr '\\0' x"
+        };
+        args.push(script.to_owned());
+        let spec = SpecFile {
+            program,
+            args,
+            cwd: dir.path().to_path_buf(),
+            timeout_ms: None,
+        };
+        fs::write(
+            dir.path().join("spec.json"),
+            serde_json::to_vec(&spec).unwrap(),
+        )
+        .unwrap();
+        let files = RunFiles::at(dir.path());
+        supervise(files.dir()).unwrap();
+        let lengths: Vec<usize> = read_output(&files, 0, 10)
+            .unwrap()
+            .iter()
+            .filter(|line| line.stream == nullradix_app::runs::OutputStream::Stdout)
+            .map(|line| line.text.len())
+            .collect();
+        assert_eq!(lengths, vec![65536, 70000 - 65536]);
+    }
+
+    #[test]
+    fn runs_relative_programs_from_the_run_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let (name, body) = if cfg!(windows) {
+            ("hello.cmd", "@echo hello from the script\r\n")
+        } else {
+            ("hello.sh", "#!/bin/sh\necho hello from the script\n")
+        };
+        fs::write(dir.path().join(name), body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir.path().join(name), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let spec = SpecFile {
+            program: format!(".{}{name}", std::path::MAIN_SEPARATOR),
+            args: Vec::new(),
+            cwd: dir.path().to_path_buf(),
+            timeout_ms: None,
+        };
+        fs::write(
+            dir.path().join("spec.json"),
+            serde_json::to_vec(&spec).unwrap(),
+        )
+        .unwrap();
+        let files = RunFiles::at(dir.path());
+        supervise(files.dir()).unwrap();
+        assert_eq!(result(&files).outcome, "succeeded");
+        let lines = read_output(&files, 0, 10).unwrap();
+        assert_eq!(lines[0].text.trim(), "hello from the script");
     }
 
     #[test]

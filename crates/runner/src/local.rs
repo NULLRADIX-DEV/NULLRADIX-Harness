@@ -7,9 +7,9 @@ use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
 use nullradix_domain::{Id, Run};
-use nullradix_os::{process_alive, spawn_detached, write_atomic};
+use nullradix_os::{spawn_detached, write_atomic};
 
-use crate::protocol::{ResultFile, RunFiles, SpecFile, read_json, read_output};
+use crate::protocol::{RunFiles, SpecFile, read_output, read_report, supervisor_alive};
 
 /// How the runner starts the supervisor: a program plus leading arguments, the run dir follows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +62,10 @@ fn validate(spec: &RunSpec) -> Result<(), AppError> {
 
 #[async_trait]
 impl RunnerPort for LocalRunner {
+    async fn check(&self, spec: &RunSpec) -> Result<(), AppError> {
+        validate(spec)
+    }
+
     async fn start(&self, run: Id<Run>, spec: &RunSpec) -> Result<u32, AppError> {
         validate(spec)?;
         let files = self.files(run);
@@ -80,8 +84,12 @@ impl RunnerPort for LocalRunner {
             write_atomic(&files.spec(), &json)?;
             let mut args: Vec<OsString> = supervisor.args.iter().map(OsString::from).collect();
             args.push(files.dir().as_os_str().to_owned());
-            let pid = spawn_detached(&supervisor.program, &args)?;
-            write_atomic(&files.supervisor(), pid.to_string().as_bytes())?;
+            let pid = spawn_detached(&supervisor.program, &args, files.dir())?;
+            if let Err(error) = write_atomic(&files.supervisor(), pid.to_string().as_bytes()) {
+                // the start counts as failed, so the command must not run unseen
+                let _ = write_atomic(&files.cancel(), b"");
+                return Err(error);
+            }
             Ok(pid)
         })
         .await
@@ -100,18 +108,14 @@ impl RunnerPort for LocalRunner {
     ) -> Result<RunProgress, AppError> {
         let files = self.files(run);
         blocking(move || {
+            // the report comes first: once it exists, all output is already written
+            let report = read_report(&files)?;
             let lines = if limit == 0 {
                 Vec::new()
             } else {
-                read_output(&files.output(), after, limit)?
+                read_output(&files, after, limit)?
             };
-            let report = read_json::<ResultFile>(&files.result())?
-                .map(ResultFile::into_report)
-                .transpose()?;
-            let alive = fs::read_to_string(files.supervisor())
-                .ok()
-                .and_then(|pid| pid.trim().parse::<u32>().ok())
-                .is_some_and(process_alive);
+            let alive = supervisor_alive(&files)?;
             Ok(RunProgress {
                 lines,
                 report,
@@ -161,6 +165,10 @@ mod tests {
             "invalid-run-program"
         );
         let missing = spec(dir.path().join("nope"));
+        assert_eq!(
+            runner.check(&missing).await.unwrap_err().code(),
+            "invalid-run-cwd"
+        );
         assert_eq!(
             runner.start(id, &missing).await.unwrap_err().code(),
             "invalid-run-cwd"

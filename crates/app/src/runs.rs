@@ -76,6 +76,8 @@ pub struct RunProgress {
 
 #[async_trait]
 pub trait RunnerPort: Send + Sync {
+    /// Refuses what this runner cannot run, before anything is recorded.
+    async fn check(&self, spec: &RunSpec) -> Result<(), AppError>;
     /// Starts the run detached and returns the id of its supervising process.
     async fn start(&self, run: Id<Run>, spec: &RunSpec) -> Result<u32, AppError>;
     /// Asks the run to stop; the report arrives later through `progress`.
@@ -105,6 +107,9 @@ fn transition(error: &RunError) -> AppError {
         RunError::InvalidTransition { .. } => AppError::conflict("run-finished", error.to_string()),
     }
 }
+
+/// Longest pause between checks of a run whose checks keep failing.
+const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
 pub struct RunService {
     repository: Arc<dyn RunRepository>,
@@ -145,6 +150,7 @@ impl RunService {
     pub async fn start(self: &Arc<Self>, label: &str, spec: &RunSpec) -> Result<Run, AppError> {
         let label = RunLabel::parse(label).map_err(|error| transition(&error))?;
         spec.validate()?;
+        self.runner.check(spec).await?;
         let run = Run::new(self.ids.as_ref().next(), label, self.clock.now());
         self.save_new(&run).await?;
         match self.runner.start(run.id(), spec).await {
@@ -152,8 +158,15 @@ impl RunService {
                 let running = run
                     .started(pid, self.clock.now())
                     .map_err(|error| transition(&error))?;
-                self.save(&running, run.version()).await?;
-                self.watch(running.id());
+                let saved = self.save(&running, run.version()).await;
+                self.watch(run.id());
+                if let Err(error) = saved {
+                    // the caller hears of a failure, so the run must not go on unseen
+                    if let Err(cancel) = self.runner.cancel(run.id()).await {
+                        tracing::warn!(run = %run.id(), error = %cancel, "cannot cancel run");
+                    }
+                    return Err(error);
+                }
                 Ok(running)
             }
             Err(error) => {
@@ -186,42 +199,41 @@ impl RunService {
         Ok(run)
     }
 
+    /// Output after `after` and the run as it was before, whose status says whether more follows.
     pub async fn output(
         &self,
         id: Id<Run>,
         after: i64,
         limit: u32,
-    ) -> Result<RunProgress, AppError> {
-        self.get(id).await?;
-        self.runner.progress(id, after, limit).await
+    ) -> Result<(Run, RunProgress), AppError> {
+        let run = self.get(id).await?;
+        let progress = self.runner.progress(id, after, limit).await?;
+        Ok((run, progress))
     }
 
-    /// Watches runs that were active when the daemon stopped.
+    /// Watches runs that were active when the daemon stopped; the runner knows how they ended.
     pub async fn recover(self: &Arc<Self>) -> Result<usize, AppError> {
         let active = self.repository.active().await?;
-        let count = active.len();
-        for run in active {
-            if run.pid().is_some() {
-                self.watch(run.id());
-            } else {
-                let lost = run
-                    .lost(self.clock.now())
-                    .map_err(|error| transition(&error))?;
-                self.save(&lost, run.version()).await?;
-            }
+        for run in &active {
+            self.watch(run.id());
         }
-        Ok(count)
+        Ok(active.len())
     }
 
     fn watch(self: &Arc<Self>, id: Id<Run>) {
         let service = Arc::clone(self);
         tokio::spawn(async move {
+            let mut delay = service.poll;
             loop {
-                tokio::time::sleep(service.poll).await;
+                tokio::time::sleep(delay).await;
                 match service.settle(id).await {
                     Ok(true) => break,
-                    Ok(false) => {}
-                    Err(error) => tracing::warn!(run = %id, error = %error, "cannot check run"),
+                    Ok(false) => delay = service.poll,
+                    Err(error) if error.code() == "run-not-found" => break,
+                    Err(error) => {
+                        tracing::warn!(run = %id, error = %error, "cannot check run");
+                        delay = (delay * 2).min(MAX_BACKOFF);
+                    }
                 }
             }
         });

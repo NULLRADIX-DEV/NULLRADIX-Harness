@@ -20,6 +20,7 @@ type Script = (Option<RunReport>, bool);
 /// Runner double whose processes the test finishes by hand.
 #[derive(Default)]
 struct ScriptedRunner {
+    reject: Mutex<bool>,
     refuse: Mutex<Option<String>>,
     runs: Mutex<HashMap<Id<Run>, Script>>,
     cancelled: Mutex<Vec<Id<Run>>>,
@@ -40,10 +41,21 @@ impl ScriptedRunner {
     fn vanish(&self, id: Id<Run>) {
         self.runs.lock().unwrap().insert(id, (None, false));
     }
+
+    fn keep_alive(&self, id: Id<Run>) {
+        self.runs.lock().unwrap().insert(id, (None, true));
+    }
 }
 
 #[async_trait]
 impl RunnerPort for ScriptedRunner {
+    async fn check(&self, _spec: &RunSpec) -> Result<(), AppError> {
+        if *self.reject.lock().unwrap() {
+            return Err(AppError::invalid("invalid-run-cwd", "no such directory"));
+        }
+        Ok(())
+    }
+
     async fn start(&self, run: Id<Run>, _spec: &RunSpec) -> Result<u32, AppError> {
         if let Some(reason) = self.refuse.lock().unwrap().clone() {
             return Err(AppError::unavailable("runner-failed", reason));
@@ -168,24 +180,36 @@ async fn cancelling_asks_the_runner_and_finished_runs_refuse() {
     assert_eq!(again.code(), "run-finished");
 }
 
-#[tokio::test]
-async fn recovery_watches_started_runs_and_drops_unstarted_ones() {
-    let fx = fixture().await;
-    let started = fx.runs.start("echo hi", &spec()).await.unwrap();
-    let unstarted = Run::new(
+fn record(label: &str) -> Run {
+    Run::new(
         Id::from_uuid(uuid::Uuid::now_v7()),
-        RunLabel::parse("never started").unwrap(),
+        RunLabel::parse(label).unwrap(),
         Timestamp::from_millis(1),
-    );
-    fx.store.insert(&unstarted).await.unwrap();
+    )
+}
 
-    assert_eq!(fx.runs.recover().await.unwrap(), 2);
-    assert_eq!(
-        fx.runs.get(unstarted.id()).await.unwrap().status(),
-        RunStatus::Lost
-    );
-    fx.runner.finish(started.id(), RunOutcome::Succeeded, 0);
-    wait_for(&fx.runs, started.id(), RunStatus::Succeeded).await;
+#[tokio::test]
+async fn recovery_settles_runs_from_before_the_restart() {
+    let fx = fixture().await;
+    let running = record("survivor")
+        .started(4242, Timestamp::from_millis(2))
+        .unwrap();
+    // the daemon died between starting the supervisor and saving its pid
+    let half_started = record("half started");
+    let orphan = record("orphan");
+    for run in [&running, &half_started, &orphan] {
+        fx.store.insert(run).await.unwrap();
+    }
+    fx.runner.keep_alive(running.id());
+    fx.runner.keep_alive(half_started.id());
+
+    assert_eq!(fx.runs.recover().await.unwrap(), 3);
+    wait_for(&fx.runs, orphan.id(), RunStatus::Lost).await;
+    fx.runner.finish(running.id(), RunOutcome::Succeeded, 0);
+    fx.runner.finish(half_started.id(), RunOutcome::Failed, 2);
+    wait_for(&fx.runs, running.id(), RunStatus::Succeeded).await;
+    let failed = wait_for(&fx.runs, half_started.id(), RunStatus::Failed).await;
+    assert_eq!(failed.exit_code(), Some(2));
 }
 
 #[tokio::test]
@@ -198,6 +222,9 @@ async fn invalid_input_is_rejected_without_a_record() {
         ..spec()
     };
     let error = fx.runs.start("echo hi", &relative).await.unwrap_err();
+    assert_eq!(error.code(), "invalid-run-cwd");
+    *fx.runner.reject.lock().unwrap() = true;
+    let error = fx.runs.start("echo hi", &spec()).await.unwrap_err();
     assert_eq!(error.code(), "invalid-run-cwd");
     assert_eq!(fx.runs.list(10).await.unwrap(), Vec::new());
 }

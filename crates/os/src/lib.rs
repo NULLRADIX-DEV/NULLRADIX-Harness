@@ -10,4 +10,4 @@ mod windows;
 pub use browser::open_url;
 pub use files::write_atomic;
 pub use paths::{Paths, PathsError};
-pub use process::{ProcessTree, hide_console, process_alive, spawn_detached};
+pub use process::{ProcessTree, process_alive, spawn_detached};
