@@ -101,12 +101,13 @@ impl TicketStatus {
             .to_lowercase()
             .split_whitespace()
             .collect::<Vec<_>>()
-            .join("-")
-            .replace('_', "-");
+            .join("-");
         if matches!(dashed.as_str(), "waiting" | "wartet") {
             return Err(TicketError::WaitingIsDerived);
         }
-        if let Some(status) = Self::iter().find(|status| status.as_str() == dashed) {
+        // underscores only spell the status names; the legacy aliases take dashes alone
+        let named = dashed.replace('_', "-");
+        if let Some(status) = Self::iter().find(|status| status.as_str() == named) {
             return Ok(status);
         }
         Ok(match dashed.as_str() {
@@ -221,6 +222,7 @@ fn join(keys: &[TicketKey]) -> String {
 /// What a status check needs to know about the ticket and its surroundings.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StatusFacts {
+    /// True when the acceptance criteria are empty after trimming.
     pub acceptance_blank: bool,
     pub open_dependencies: Vec<TicketKey>,
     /// Human keys of open questions that name the ticket.
@@ -317,6 +319,10 @@ mod tests {
             Err(TicketError::WaitingIsDerived)
         );
         assert!(TicketStatus::parse_loosely("later").is_err());
+        // legacy matches its aliases with dashes only
+        for text in ["in_arbeit", "in_planung", "nicht_mehr_noetig"] {
+            assert!(TicketStatus::parse_loosely(text).is_err(), "{text}");
+        }
         assert!(!TicketStatus::Done.is_open() && !TicketStatus::NotNeeded.is_open());
         assert!(TicketStatus::Blocked.is_open());
     }
@@ -385,6 +391,10 @@ mod tests {
             Err(StatusLock::NotNeededByPeople)
         );
         assert_eq!(check(TicketStatus::NotNeeded, person, &open), Ok(()));
+        assert_eq!(
+            check(TicketStatus::Done, person, &open),
+            Err(StatusLock::AcceptanceMissing)
+        );
         assert_eq!(
             check(TicketStatus::Done, forced, &open),
             Err(StatusLock::AcceptanceMissing)
