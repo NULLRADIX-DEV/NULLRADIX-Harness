@@ -36,7 +36,7 @@ impl HookKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum HookError {
-    #[error("a session id has 1 to 200 characters")]
+    #[error("a session id has 1 to 200 characters and no control characters")]
     InvalidSession,
     #[error("the working directory must be an absolute path of at most 4096 characters")]
     InvalidCwd,
@@ -49,7 +49,8 @@ pub struct SessionRef(String);
 impl SessionRef {
     pub fn parse(text: &str) -> Result<Self, HookError> {
         let trimmed = text.trim();
-        if trimmed.is_empty() || trimmed.chars().count() > SESSION_CHARS {
+        let unusable = trimmed.chars().any(char::is_control);
+        if trimmed.is_empty() || unusable || trimmed.chars().count() > SESSION_CHARS {
             return Err(HookError::InvalidSession);
         }
         Ok(Self(trimmed.to_owned()))
@@ -134,7 +135,8 @@ impl HookEvent {
         occurred_at: Timestamp,
         details: HookDetails,
     ) -> Result<Self, HookError> {
-        if cwd.chars().count() > CWD_CHARS || !is_absolute(cwd) {
+        if cwd.chars().count() > CWD_CHARS || cwd.chars().any(char::is_control) || !is_absolute(cwd)
+        {
             return Err(HookError::InvalidCwd);
         }
         Ok(Self {
@@ -224,6 +226,7 @@ mod tests {
             SessionRef::parse(&"s".repeat(201)),
             Err(HookError::InvalidSession)
         );
+        assert_eq!(SessionRef::parse("s\u{0}1"), Err(HookError::InvalidSession));
     }
 
     #[test]
@@ -231,7 +234,13 @@ mod tests {
         for cwd in ["C:\\repo", "d:/repo", "\\\\server\\share", "/home/me/repo"] {
             assert!(event(cwd, HookDetails::default()).is_ok(), "{cwd}");
         }
-        for cwd in ["repo", "", "C:repo", &format!("/{}", "x".repeat(4096))] {
+        for cwd in [
+            "repo",
+            "",
+            "C:repo",
+            "/re\u{0}po",
+            &format!("/{}", "x".repeat(4096)),
+        ] {
             assert_eq!(
                 event(cwd, HookDetails::default()),
                 Err(HookError::InvalidCwd),

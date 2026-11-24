@@ -18,6 +18,8 @@ const RETENTION: Duration = Duration::from_hours(24 * 30);
 const PRUNE_EVERY: Duration = Duration::from_hours(24);
 /// Staging files this old belong to hooks that were stopped while spooling.
 const STALE_STAGING: Duration = Duration::from_secs(60);
+/// Failures in a row that mean the store itself is down rather than one file is odd.
+const FAILURES_IN_A_ROW: usize = 3;
 
 enum Verdict {
     Taken,
@@ -42,6 +44,12 @@ pub(crate) fn start(hooks: Arc<HookService>, spool: Spool, shutdown: Cancellatio
                     Ok(pruned) => tracing::debug!(pruned, "old hook events removed"),
                     Err(error) => tracing::warn!(%error, "cannot remove old hook events"),
                 }
+                let leftovers = spool.clone();
+                match task::spawn_blocking(move || leftovers.prune(RETENTION)).await {
+                    Ok(Ok(pruned)) => tracing::debug!(pruned, "old spool leftovers removed"),
+                    Ok(Err(error)) => tracing::warn!(%error, "cannot remove old spool leftovers"),
+                    Err(error) => tracing::warn!(%error, "cannot remove old spool leftovers"),
+                }
                 pruned_at = Some(Instant::now());
             }
             match drain(spool.clone(), &hooks).await {
@@ -57,11 +65,12 @@ pub(crate) fn start(hooks: Arc<HookService>, spool: Spool, shutdown: Cancellatio
     });
 }
 
-/// Takes in one batch, oldest first; stops at the first failure of the store.
+/// Takes in one batch, oldest first; stops when the store keeps failing.
 async fn drain(spool: Spool, hooks: &HookService) -> anyhow::Result<usize> {
     let batch = task::spawn_blocking(move || read_batch(&spool)).await??;
     let mut verdicts = Vec::new();
     let mut failure = None;
+    let mut failures = 0;
     for (path, hook) in batch {
         let hook = match hook {
             Ok(hook) => hook,
@@ -86,14 +95,21 @@ async fn drain(spool: Spool, hooks: &HookService) -> anyhow::Result<usize> {
             Err(error) => Err(error),
         };
         match received {
-            Ok(_) => verdicts.push((path, Verdict::Taken)),
+            Ok(_) => {
+                failures = 0;
+                verdicts.push((path, Verdict::Taken));
+            }
             Err(error) if error.kind() == ErrorKind::Invalid => {
                 tracing::warn!(path = %path.display(), %error, "invalid spooled hook set aside");
                 verdicts.push((path, Verdict::Rejected));
             }
             Err(error) => {
+                tracing::debug!(path = %path.display(), %error, "spooled hook not taken in");
+                failures += 1;
                 failure = Some(error);
-                break;
+                if failures == FAILURES_IN_A_ROW {
+                    break;
+                }
             }
         }
     }
@@ -103,8 +119,8 @@ async fn drain(spool: Spool, hooks: &HookService) -> anyhow::Result<usize> {
         .count();
     task::spawn_blocking(move || settle(&verdicts)).await?;
     match failure {
-        Some(error) => Err(error.into()),
-        None => Ok(taken),
+        Some(error) if taken == 0 => Err(error.into()),
+        _ => Ok(taken),
     }
 }
 

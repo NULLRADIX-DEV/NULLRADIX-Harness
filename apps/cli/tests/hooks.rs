@@ -160,10 +160,8 @@ fn hooks_spool_while_the_daemon_is_down_and_arrive_after_its_start() {
     );
 }
 
-#[test]
-fn hooks_give_up_on_a_daemon_that_does_not_answer() {
-    let home = tempfile::tempdir().unwrap();
-    // accepts connections into its backlog but never answers
+/// A daemon as discovery sees it that accepts connections into its backlog but never answers.
+fn silent_daemon(home: &Path) -> TcpListener {
     let silent = TcpListener::bind("127.0.0.1:0").unwrap();
     let discovery = serde_json::json!({
         "pid": std::process::id(),
@@ -172,21 +170,36 @@ fn hooks_give_up_on_a_daemon_that_does_not_answer() {
         "apiVersion": 1,
         "startedAt": 0,
     });
-    std::fs::create_dir_all(home.path().join("data")).unwrap();
-    std::fs::write(
-        home.path().join("data").join("daemon.json"),
-        discovery.to_string(),
-    )
-    .unwrap();
-    std::fs::create_dir_all(home.path().join("config")).unwrap();
-    std::fs::write(home.path().join("config").join("cli-token"), "a".repeat(64)).unwrap();
+    std::fs::create_dir_all(home.join("data")).unwrap();
+    std::fs::write(home.join("data").join("daemon.json"), discovery.to_string()).unwrap();
+    std::fs::create_dir_all(home.join("config")).unwrap();
+    std::fs::write(home.join("config").join("cli-token"), "a".repeat(64)).unwrap();
+    silent
+}
 
+#[test]
+fn hooks_give_up_on_a_daemon_that_does_not_answer() {
+    let home = tempfile::tempdir().unwrap();
+    let silent = silent_daemon(home.path());
     for (n, event) in ["stop", "user-prompt"].into_iter().enumerate() {
         let (output, took) = hook(home.path(), event, &payload(home.path(), &format!("s-{n}")));
         assert_silent_success(&output);
         assert!(took < CEILING, "the {event} hook waited {took:?}");
     }
     assert_eq!(spooled(home.path()).len(), 2);
+    drop(silent);
+}
+
+#[test]
+fn a_hook_short_of_time_spools_without_asking() {
+    let home = tempfile::tempdir().unwrap();
+    let silent = silent_daemon(home.path());
+    let mut short = hook_command(home.path(), &["hook", "user-prompt"]);
+    short.env("NULLRADIX_HOOK_DEADLINE_MS", "900");
+    let (output, took) = finish(short, Some(&payload(home.path(), "s-1")));
+    assert_silent_success(&output);
+    assert!(took < Duration::from_millis(900), "took {took:?}");
+    assert_eq!(spooled(home.path()).len(), 1);
     drop(silent);
 }
 
@@ -205,10 +218,21 @@ fn hooks_stay_silent_whatever_they_are_given() {
     assert_eq!(spooled(home.path()), Vec::<PathBuf>::new());
 
     // whatever confuses the regular parser must not fail the hook either
-    let mut confused = hook_command(home.path(), &["hook", "stop", "--no-such-flag"]);
+    let home_text = cwd(home.path());
+    let flagged = [
+        "--profile",
+        "no-such-profile",
+        "--home",
+        &home_text,
+        "hook",
+        "stop",
+        "--no-such-flag",
+    ];
+    let mut confused = hook_command(home.path(), &flagged);
     confused.env("NULLRADIX_PROFILE", "no-such-profile");
     let (output, _) = finish(confused, Some(&payload(home.path(), "s-1")));
     assert_silent_success(&output);
+    assert_eq!(spooled(home.path()).len(), 1);
     let mut bare = hook_command(home.path(), &["hook"]);
     bare.env("NULLRADIX_PROFILE", "no-such-profile");
     let (output, _) = finish(bare, Some(b"{}"));

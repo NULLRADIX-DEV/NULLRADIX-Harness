@@ -41,15 +41,16 @@ impl Spool {
         write_atomic(&path, &json)
     }
 
-    /// Prompts may sit here, so only the owner may look inside.
+    /// Prompts may sit here, so directories it creates are for the owner only.
     fn create_private_dir(&self) -> io::Result<()> {
-        fs::create_dir_all(&self.dir)?;
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&self.dir, fs::Permissions::from_mode(0o700))?;
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
         }
-        Ok(())
+        builder.create(&self.dir)
     }
 
     /// Spooled files, oldest first because event ids grow with time.
@@ -59,13 +60,20 @@ impl Spool {
         Ok(paths)
     }
 
-    /// Unreadable JSON is `InvalidData`; JSON of a newer hook is `Unsupported`.
+    /// An unknown hook kind is `Unsupported`, anything else broken is `InvalidData`.
     pub fn read(path: &Path) -> io::Result<SpooledHook> {
         let bytes = fs::read(path)?;
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let known = serde_json::from_value::<HookKindDto>(value["kind"].clone()).is_ok();
+        if value["kind"].is_string() && !known {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "unknown hook kind",
+            ));
+        }
         serde_json::from_value(value)
-            .map_err(|error| io::Error::new(io::ErrorKind::Unsupported, error))
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     }
 
     /// Keeps a file this daemon cannot read for a later, newer one.
@@ -75,27 +83,21 @@ impl Spool {
 
     /// Puts postponed files back in line, for a daemon that may read them now.
     pub fn retry_postponed(&self) -> io::Result<usize> {
-        let postponed = self.files(POSTPONED)?;
-        for path in &postponed {
-            fs::rename(path, path.with_extension(EXTENSION))?;
-        }
-        Ok(postponed.len())
+        each(self.files(POSTPONED)?, |path| {
+            fs::rename(path, path.with_extension(EXTENSION)).map(|()| true)
+        })
     }
 
     /// Removes half-written files of hooks that were stopped while spooling.
     pub fn remove_stale_staging(&self, age: Duration) -> io::Result<usize> {
-        let mut removed = 0;
-        for path in self.files("tmp")? {
-            let stale = fs::metadata(&path)?
-                .modified()?
-                .elapsed()
-                .is_ok_and(|elapsed| elapsed > age);
-            if stale {
-                Self::remove(&path)?;
-                removed += 1;
-            }
-        }
-        Ok(removed)
+        each(self.files("tmp")?, |path| remove_older(path, age))
+    }
+
+    /// Forgets postponed and rejected files older than `age`, as events of that age are.
+    pub fn prune(&self, age: Duration) -> io::Result<usize> {
+        let mut paths = self.files(POSTPONED)?;
+        paths.extend(self.files(REJECTED)?);
+        each(paths, |path| remove_older(path, age))
     }
 
     fn files(&self, extension: &str) -> io::Result<Vec<PathBuf>> {
@@ -125,6 +127,37 @@ impl Spool {
     pub fn set_aside(path: &Path) -> io::Result<()> {
         fs::rename(path, path.with_extension(REJECTED))
     }
+}
+
+/// Handles every file even when some fail, and reports the first failure after all.
+fn each(
+    paths: Vec<PathBuf>,
+    mut action: impl FnMut(&Path) -> io::Result<bool>,
+) -> io::Result<usize> {
+    let mut done = 0;
+    let mut failure = None;
+    for path in paths {
+        match action(&path) {
+            Ok(true) => done += 1,
+            Ok(false) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                failure.get_or_insert(error);
+            }
+        }
+    }
+    failure.map_or(Ok(done), Err)
+}
+
+fn remove_older(path: &Path, age: Duration) -> io::Result<bool> {
+    let old = fs::metadata(path)?
+        .modified()?
+        .elapsed()
+        .is_ok_and(|elapsed| elapsed > age);
+    if old {
+        fs::remove_file(path)?;
+    }
+    Ok(old)
 }
 
 #[cfg(test)]
@@ -191,6 +224,26 @@ mod tests {
         assert_eq!(spool.pending().unwrap(), Vec::<PathBuf>::new());
         assert_eq!(spool.retry_postponed().unwrap(), 1);
         assert_eq!(spool.pending().unwrap(), vec![path]);
+    }
+
+    #[test]
+    fn broken_hooks_are_invalid_and_old_leftovers_are_pruned() {
+        let dir = tempfile::tempdir().unwrap();
+        let spool = Spool::in_dir(dir.path());
+        spool.push(&hook(1)).unwrap();
+        let path = spool.pending().unwrap().remove(0);
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        json["event"]["id"] = serde_json::json!("not a uuid");
+        fs::write(&path, json.to_string()).unwrap();
+        assert_eq!(
+            Spool::read(&path).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        Spool::set_aside(&path).unwrap();
+        assert_eq!(spool.prune(Duration::from_secs(60)).unwrap(), 0);
+        assert_eq!(spool.prune(Duration::ZERO).unwrap(), 1);
+        assert!(!path.with_extension("bad").exists());
     }
 
     #[test]

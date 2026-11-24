@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -30,19 +30,63 @@ const CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 const ANSWER_TIMEOUT: Duration = Duration::from_millis(1000);
 const NOTICE_TIMEOUT: Duration = Duration::from_millis(300);
 /// Time kept back from the daemon call so the spool is written before the deadline.
-const SPOOL_RESERVE: Duration = Duration::from_millis(500);
+const SPOOL_RESERVE: Duration = Duration::from_millis(800);
+/// Claude Code stops a hook after 5 s, so a longer deadline makes no sense.
+const MAX_DEADLINE: Duration = Duration::from_millis(4500);
 
-/// The plugin's call `nullradix hook <event>`, served without the parser so nothing fails it.
-pub(crate) fn run_plain(event: Option<&OsStr>) -> ExitCode {
-    let profile = env::var("NULLRADIX_PROFILE")
-        .ok()
+/// The arguments after the program name when they ask for a hook, read without the parser.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct HookCall {
+    event: Option<String>,
+    profile: Option<String>,
+    home: Option<OsString>,
+}
+
+impl HookCall {
+    /// `[--profile P] [--home H] hook <event> ...`; anything else is no hook call.
+    pub(crate) fn parse(args: &[OsString]) -> Option<Self> {
+        let mut call = Self::default();
+        let mut rest = args.iter();
+        while let Some(arg) = rest.next() {
+            let text = arg.to_string_lossy();
+            if text == "hook" {
+                call.event = rest
+                    .next()
+                    .map(|event| event.to_string_lossy().into_owned());
+                return Some(call);
+            }
+            let (flag, inline) = match text.split_once('=') {
+                Some((flag, value)) => (flag.to_owned(), Some(OsString::from(value))),
+                None => (text.into_owned(), None),
+            };
+            let value = match inline {
+                Some(value) => value,
+                None => rest.next()?.clone(),
+            };
+            match flag.as_str() {
+                "--profile" => call.profile = Some(value.to_string_lossy().into_owned()),
+                "--home" => call.home = Some(value),
+                _ => return None,
+            }
+        }
+        None
+    }
+}
+
+/// The plugin's call, served without the parser so no argument can fail it.
+pub(crate) fn run_plain(call: HookCall) -> ExitCode {
+    let profile = call
+        .profile
+        .or_else(|| env::var("NULLRADIX_PROFILE").ok())
         .and_then(|name| Profile::from_str(&name, true).ok())
         .unwrap_or_else(Profile::of_build);
-    let home = env::var_os("NULLRADIX_HOME")
+    let home = call
+        .home
+        .or_else(|| env::var_os("NULLRADIX_HOME"))
         .filter(|home| !home.is_empty())
         .map(PathBuf::from);
     run(
-        event.and_then(OsStr::to_str).unwrap_or_default(),
+        call.event.as_deref().unwrap_or_default(),
         profile,
         home.as_deref(),
     )
@@ -53,7 +97,8 @@ pub(crate) fn run(event: &str, profile: Profile, home: Option<&Path>) -> ExitCod
     let budget = env::var("NULLRADIX_HOOK_DEADLINE_MS")
         .ok()
         .and_then(|millis| millis.parse().ok())
-        .map_or(DEADLINE, Duration::from_millis);
+        .map_or(DEADLINE, Duration::from_millis)
+        .min(MAX_DEADLINE);
     let deadline = Instant::now() + budget;
     thread::spawn(move || {
         thread::sleep(budget);
@@ -182,6 +227,10 @@ fn deliver(paths: &Paths, kind: HookKindDto, event: &HookEventDto, deadline: Ins
     let client = Client::new(discovery.address, CONNECT_TIMEOUT, timeout).with_token(token);
     match client.post_hook(kind, event) {
         Ok(reply) => Delivery::Answered(reply),
+        // an older daemon that does not know this hook may take it from the spool once updated
+        Err(ClientError::Refused { code, .. }) if code == "invalid-path" => {
+            Delivery::Unreachable(String::from("the daemon does not know this hook"))
+        }
         // the daemon judged the event itself, sending it again would not change that
         Err(
             error @ ClientError::Refused {
@@ -280,6 +329,48 @@ mod tests {
         assert!(super::event(br#"{"cwd":"/repo"}"#).is_none());
         assert!(super::event(b"not json").is_none());
         assert!(super::event(b"[1,2]").is_none());
+    }
+
+    fn args(text: &[&str]) -> Vec<OsString> {
+        text.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn hook_calls_are_found_behind_global_flags_only() {
+        let call = HookCall::parse(&args(&[
+            "--home",
+            "h",
+            "--profile=dev",
+            "hook",
+            "stop",
+            "-x",
+        ]));
+        assert_eq!(
+            call,
+            Some(HookCall {
+                event: Some(String::from("stop")),
+                profile: Some(String::from("dev")),
+                home: Some(OsString::from("h")),
+            })
+        );
+        assert_eq!(HookCall::parse(&args(&["hook"])), Some(HookCall::default()));
+        assert_eq!(HookCall::parse(&args(&["serve"])), None);
+        assert_eq!(
+            HookCall::parse(&args(&["--port", "1", "hook", "stop"])),
+            None
+        );
+        assert_eq!(HookCall::parse(&args(&["--home"])), None);
+    }
+
+    #[test]
+    fn long_texts_are_cut_before_they_travel() {
+        let input = serde_json::json!({
+            "session_id": "s-1",
+            "cwd": "/repo",
+            "prompt": "x".repeat(50_000),
+        });
+        let event = event(input.to_string().as_bytes()).unwrap();
+        assert_eq!(event.prompt.map(|prompt| prompt.len()), Some(10_000));
     }
 
     #[test]

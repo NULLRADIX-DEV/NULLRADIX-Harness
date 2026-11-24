@@ -55,9 +55,6 @@ enum Command {
     /// Supervise one run; the daemon starts this, not people
     #[command(hide = true)]
     RunSupervisor { dir: PathBuf },
-    /// Report a Claude Code hook; the plugin calls this, not people
-    #[command(hide = true)]
-    Hook { event: String },
 }
 
 #[derive(Args)]
@@ -77,9 +74,9 @@ struct ServeArgs {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
-    if args.get(1).is_some_and(|arg| arg == "hook") {
-        return hook::run_plain(args.get(2).map(std::ffi::OsString::as_os_str));
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if let Some(call) = hook::HookCall::parse(&args) {
+        return hook::run_plain(call);
     }
     match run(Cli::parse()) {
         Ok(code) => code,
@@ -114,7 +111,6 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             let client = connect::connect(profile, cli.home.as_deref())?;
             run::run(command, &client)
         }
-        Command::Hook { event } => Ok(hook::run(&event, profile, cli.home.as_deref())),
         Command::RunSupervisor { dir } => {
             nullradix_runner::supervise(&dir)
                 .with_context(|| format!("cannot record the result in {}", dir.display()))?;
