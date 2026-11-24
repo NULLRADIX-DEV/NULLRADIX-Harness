@@ -67,9 +67,7 @@ export function useDeleteProject() {
     mutationFn: async ({ id, version }: DeleteProjectInput) => {
       unwrapEmpty(
         await api.DELETE('/api/v1/projects/{id}', {
-          params: { path: { id, version } },
-          // The spec lists version as a path parameter; the daemon reads it from the query.
-          querySerializer: () => `version=${String(version)}`,
+          params: { path: { id }, query: { version } },
         }),
       );
     },

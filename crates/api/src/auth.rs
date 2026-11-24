@@ -146,6 +146,7 @@ pub(crate) async fn create_handoff(
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct HandoffQuery {
     code: String,
 }

@@ -221,11 +221,11 @@ export type $defs = Record<string, never>;
 export interface operations {
     redeem_handoff: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query: {
                 code: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -339,12 +339,12 @@ export interface operations {
     };
     events: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query?: {
                 /** @description Replay changes after this sequence number; `Last-Event-ID` takes precedence. */
-                since: number | null;
+                since?: number;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -521,13 +521,14 @@ export interface operations {
     };
     delete_project: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Version the deletion is based on. */
+                version: number;
+            };
             header?: never;
             path: {
                 /** @description Project id. */
                 id: string;
-                /** @description Version the deletion is based on. */
-                version: number;
             };
             cookie?: never;
         };
