@@ -35,9 +35,11 @@ function RunRow({
         <RunStatusBadge run={run} />
         <span className="run-label">{run.label}</span>
         <span className="run-meta muted">
-          {formatStart(run)}
-          {duration !== null && ` · ${duration}`}
-          {run.exitCode !== null && run.exitCode !== undefined && ` · exit ${String(run.exitCode)}`}
+          <span>{formatStart(run)}</span>
+          {duration !== null && <span>{duration}</span>}
+          {run.exitCode !== null && run.exitCode !== undefined && (
+            <span>exit {String(run.exitCode)}</span>
+          )}
         </span>
       </button>
     </li>

@@ -578,6 +578,11 @@ textarea:focus {
   font-size: 12px;
 }
 
+.run-meta > span + span::before {
+  content: ' b7';
+  margin: 0 6px;
+}
+
 .run-status {
   flex: none;
   min-width: 84px;
