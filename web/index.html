@@ -103,23 +103,30 @@
         />
       </svg>
     </div>
+    <div id="root"></div>
     <script>
       (function () {
         var box = document.getElementById('start-anim');
-        if (!box) return;
-        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        var root = document.getElementById('root');
+        if (!box || !root) return;
+        var seen = false;
+        try {
+          seen = sessionStorage.getItem('nullradix-started') === '1';
+          sessionStorage.setItem('nullradix-started', '1');
+        } catch (e) {}
+        var still =
+          window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (seen || still) {
           box.remove();
           return;
         }
+        root.inert = true;
         setTimeout(function () {
-          box.classList.add('is-done');
-          setTimeout(function () {
-            box.remove();
-          }, 300);
-        }, 1700);
+          root.inert = false;
+          if (box.isConnected) box.remove();
+        }, 5000);
       })();
     </script>
-    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
