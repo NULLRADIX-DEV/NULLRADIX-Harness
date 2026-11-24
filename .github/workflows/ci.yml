@@ -95,6 +95,10 @@ jobs:
           tool: cargo-nextest,cargo-llvm-cov
       - run: cargo llvm-cov nextest --workspace --locked --profile ci
       - run: cargo llvm-cov report --summary-only
+      - name: Domain and app coverage of at least 80 percent
+        run: >-
+          cargo llvm-cov report --summary-only --fail-under-lines 80
+          --ignore-filename-regex '(apps|xtask|crates[/\\](api|client|os|runner|store))[/\\]'
 
   query-cache:
     needs: changes
