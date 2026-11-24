@@ -39,19 +39,19 @@ pub struct ProjectList {
     pub items: Vec<ProjectDto>,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct CreateProject {
-    key: String,
-    name: String,
+pub struct CreateProject {
+    pub key: String,
+    pub name: String,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct RenameProject {
-    name: String,
+pub struct RenameProject {
+    pub name: String,
     /// Version the change is based on; a newer stored version fails with `version-conflict`.
-    version: i64,
+    pub version: i64,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]

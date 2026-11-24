@@ -1,11 +1,15 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use nullradix_api::{API_PREFIX, API_VERSION, Handoff, Health, Problem};
+use nullradix_api::{
+    API_PREFIX, API_VERSION, CreateProject, Handoff, Health, Problem, ProjectDto, ProjectList,
+    RenameProject,
+};
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
 use ureq::http::Response;
 use ureq::{Agent, Body};
+use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -88,14 +92,62 @@ impl Client {
 
     /// One-time code that opens a browser session.
     pub fn create_handoff(&self) -> Result<Handoff, ClientError> {
-        let token = self.token.as_ref().ok_or(ClientError::MissingToken)?;
         let mut response = self
             .agent
             .post(&self.url("/auth/handoffs"))
-            .header("Authorization", &format!("Bearer {}", token.expose()))
+            .header("Authorization", &self.authorization()?)
             .send_empty()
             .map_err(|source| self.unreachable(source))?;
         decode(&mut response, 201)
+    }
+
+    pub fn list_projects(&self) -> Result<ProjectList, ClientError> {
+        let mut response = self
+            .agent
+            .get(&self.url("/projects"))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn create_project(&self, input: &CreateProject) -> Result<ProjectDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/projects"))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    pub fn rename_project(
+        &self,
+        id: Uuid,
+        input: &RenameProject,
+    ) -> Result<ProjectDto, ClientError> {
+        let mut response = self
+            .agent
+            .patch(&self.url(&format!("/projects/{id}")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn delete_project(&self, id: Uuid, version: i64) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!("/projects/{id}?version={version}")))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    fn authorization(&self) -> Result<String, ClientError> {
+        let token = self.token.as_ref().ok_or(ClientError::MissingToken)?;
+        Ok(format!("Bearer {}", token.expose()))
     }
 
     fn url(&self, route: &str) -> String {
@@ -108,6 +160,13 @@ impl Client {
             source: Box::new(source),
         }
     }
+}
+
+fn expect_empty(response: &mut Response<Body>, expected: u16) -> Result<(), ClientError> {
+    if response.status().as_u16() == expected {
+        return Ok(());
+    }
+    decode::<serde_json::Value>(response, expected).map(|_| ())
 }
 
 fn decode<T: DeserializeOwned>(

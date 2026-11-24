@@ -1148,6 +1148,7 @@ dependencies = [
  "nullradix-os",
  "nullradix-store",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1173,6 +1174,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "ureq",
+ "uuid",
 ]
 
 [[package]]
