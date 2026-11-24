@@ -742,8 +742,17 @@
   gap: 2px;
 }
 
-.db-step-tools .icon-btn:disabled {
+.db-step-tools .icon-btn:disabled,
+.db-step-tools .icon-btn[aria-disabled='true'] {
   opacity: 0.4;
+  cursor: default;
+}
+
+/* Busy controls stay focusable, so they are dimmed through aria-disabled. */
+.db-step-row input[aria-disabled='true'],
+.db-fields select[aria-disabled='true'],
+.db-fields input[aria-disabled='true'] {
+  opacity: 0.5;
   cursor: default;
 }
 

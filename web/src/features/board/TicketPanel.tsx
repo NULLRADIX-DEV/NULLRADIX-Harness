@@ -16,10 +16,15 @@ function oneLine(text: string): string {
 
 // The title grows with its text; Enter or leaving the field saves it.
 function TitleField({ ticket, actions }: { ticket: Ticket; actions: TicketActions }) {
-  const [draft, setDraft] = useDraft(ticket.title);
+  const { draft, setDraft, behind, acknowledge } = useDraft(ticket.title);
 
   function commit() {
     if (actions.busy || draft.trim() === '' || draft === ticket.title) return;
+    if (behind) {
+      acknowledge();
+      actions.conflict('Title');
+      return;
+    }
     void actions.save({ title: draft });
   }
 

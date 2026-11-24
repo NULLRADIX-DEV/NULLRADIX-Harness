@@ -12,11 +12,14 @@ import {
   type TicketChange,
   type TicketStatus,
 } from '../tickets/queries';
+import { FieldConflict } from './messages';
 
 export interface TicketActions {
   busy: boolean;
   // The error of the last change; a later success clears it.
   failure: unknown;
+  // Reports a field whose saved value changed while the user typed over it.
+  conflict: (label: string) => void;
   save: (change: TicketChange) => Promise<boolean>;
   move: (status: TicketStatus, acceptance?: string) => Promise<boolean>;
   remove: () => Promise<boolean>;
@@ -54,6 +57,9 @@ export function useTicketActions(ticket: Ticket): TicketActions {
       (mutation) => mutation.isPending,
     ),
     failure,
+    conflict: (label) => {
+      setFailure(new FieldConflict(label));
+    },
     save: (fields) => run(() => update.mutateAsync({ key, version, change: fields })),
     move: (status, acceptance) =>
       run(() =>

@@ -140,8 +140,9 @@ export interface DeleteTicketVars {
   version: number;
 }
 
-// Refetches only the lists; the open ticket is gone and closes.
+// Refetches the lists; the ticket itself only after a refusal, so a retry sends its new version.
 export function useDeleteTicket() {
+  const queryClient = useQueryClient();
   const changed = useTicketsChanged(TICKET_LISTS);
   return useMutation({
     mutationFn: async ({ key, version }: DeleteTicketVars) => {
@@ -151,6 +152,8 @@ export function useDeleteTicket() {
         }),
       );
     },
+    onError: (_error, { key }) =>
+      queryClient.invalidateQueries({ queryKey: ticketKeys.detail(key) }),
     onSettled: changed,
   });
 }

@@ -105,9 +105,10 @@ export function TicketSteps({
                     <input
                       type="checkbox"
                       checked={step.done}
-                      disabled={actions.busy}
+                      aria-disabled={actions.busy}
                       aria-label={`Step ${String(number)}: ${step.text}`}
                       onChange={(event) => {
+                        if (actions.busy) return;
                         void actions.changeStep(step.id, {
                           done: event.target.checked,
                           expectText: step.text,
@@ -122,8 +123,11 @@ export function TicketSteps({
                       className="icon-btn"
                       aria-label={`Move ${name} up`}
                       title="Move up"
-                      disabled={locked || number === 1}
-                      onClick={() => void actions.moveStep(step.id, number - 1, step.text)}
+                      disabled={number === 1}
+                      aria-disabled={locked}
+                      onClick={() => {
+                        if (!locked) void actions.moveStep(step.id, number - 1, step.text);
+                      }}
                     >
                       &uarr;
                     </button>
@@ -132,8 +136,11 @@ export function TicketSteps({
                       className="icon-btn"
                       aria-label={`Move ${name} down`}
                       title="Move down"
-                      disabled={locked || number === steps.length}
-                      onClick={() => void actions.moveStep(step.id, number + 1, step.text)}
+                      disabled={number === steps.length}
+                      aria-disabled={locked}
+                      onClick={() => {
+                        if (!locked) void actions.moveStep(step.id, number + 1, step.text);
+                      }}
                     >
                       &darr;
                     </button>
@@ -142,9 +149,9 @@ export function TicketSteps({
                       className="icon-btn"
                       aria-label={`Edit ${name}`}
                       title="Edit"
-                      disabled={locked}
+                      aria-disabled={locked}
                       onClick={() => {
-                        setMode({ kind: 'edit', id: step.id, text: step.text });
+                        if (!locked) setMode({ kind: 'edit', id: step.id, text: step.text });
                       }}
                     >
                       &#9998;
@@ -154,9 +161,9 @@ export function TicketSteps({
                       className="icon-btn"
                       aria-label={`Remove ${name}`}
                       title="Remove"
-                      disabled={locked}
+                      aria-disabled={locked}
                       onClick={() => {
-                        setMode({ kind: 'remove', id: step.id, text: step.text });
+                        if (!locked) setMode({ kind: 'remove', id: step.id, text: step.text });
                       }}
                     >
                       &times;

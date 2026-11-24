@@ -37,9 +37,9 @@ export function TicketProperties({
           <span>Status</span>
           <select
             value={ticket.status}
-            disabled={busy}
+            aria-disabled={busy}
             onChange={(event) => {
-              if (isStatus(event.target.value)) onStatus(event.target.value);
+              if (!busy && isStatus(event.target.value)) onStatus(event.target.value);
             }}
           >
             {STATUSES.map((status) => (
@@ -53,9 +53,9 @@ export function TicketProperties({
           <span>Priority</span>
           <select
             value={ticket.priority}
-            disabled={busy}
+            aria-disabled={busy}
             onChange={(event) => {
-              if (isPriority(event.target.value))
+              if (!busy && isPriority(event.target.value))
                 void actions.save({ priority: event.target.value });
             }}
           >
@@ -70,8 +70,9 @@ export function TicketProperties({
           <input
             type="checkbox"
             checked={ticket.needsPlanning}
-            disabled={busy}
+            aria-disabled={busy}
             onChange={(event) => {
+              if (busy) return;
               void actions.save({ needsPlanning: event.target.checked });
             }}
           />
@@ -82,6 +83,7 @@ export function TicketProperties({
           value={ticket.assignee ?? ''}
           placeholder="Nobody"
           busy={busy}
+          onConflict={actions.conflict}
           onSave={(text) => void actions.save({ assignee: orNull(text) })}
         />
         <InlineField
@@ -90,6 +92,7 @@ export function TicketProperties({
           placeholder="comma separated"
           busy={busy}
           normalize={labelText}
+          onConflict={actions.conflict}
           onSave={(text) => void actions.save({ labels: splitList(text) })}
         />
         <InlineField
@@ -98,6 +101,7 @@ export function TicketProperties({
           placeholder="Not blocked"
           busy={busy}
           wide
+          onConflict={actions.conflict}
           onSave={(text) => void actions.save({ blockedReason: orNull(text) })}
         />
       </div>

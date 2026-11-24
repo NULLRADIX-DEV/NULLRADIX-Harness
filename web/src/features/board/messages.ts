@@ -11,6 +11,15 @@ export const GONE_MESSAGE = 'This ticket no longer exists.';
 export const DEPENDENCY_OPEN_MESSAGE =
   'An open dependency holds this ticket back; finish it first.';
 
+// The saved value of a field changed while the user typed over it.
+export class FieldConflict {
+  readonly label: string;
+
+  constructor(label: string) {
+    this.label = label;
+  }
+}
+
 const TICKET_MESSAGES: ProblemMessages = {
   'version-conflict': CONFLICT_MESSAGE,
   conflict: STEP_CONFLICT_MESSAGE,
@@ -27,6 +36,9 @@ const TICKET_MESSAGES: ProblemMessages = {
 
 // Text for a failed change of `ticket`; open dependencies are named.
 export function ticketProblem(error: unknown, ticket: Ticket): string | null {
+  if (error instanceof FieldConflict) {
+    return `${error.label} changed in the meantime. Your text is kept; save again to replace it.`;
+  }
   const open = ticket.dependsOpen;
   const messages =
     open.length === 0

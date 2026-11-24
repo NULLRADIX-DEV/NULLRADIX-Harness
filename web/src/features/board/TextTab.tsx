@@ -4,6 +4,12 @@ import type { TicketActions } from './useTicketActions';
 
 export type TextField = 'description' | 'acceptance' | 'plan' | 'handbook';
 
+// `from` is the saved text the draft started from.
+interface Edit {
+  draft: string;
+  from: string;
+}
+
 // A long text of a ticket: shown as written, edited in place and saved with Ctrl+Enter.
 export function TextTab({
   ticket,
@@ -18,34 +24,43 @@ export function TextTab({
   empty: string;
   actions: TicketActions;
 }) {
-  const [draft, setDraft] = useState<string | null>(null);
+  const [edit, setEdit] = useState<Edit | null>(null);
   const text = ticket[field];
 
   async function save() {
-    if (draft === null || actions.busy) return;
+    if (edit === null || actions.busy) return;
+    if (edit.draft !== text && text !== edit.from) {
+      setEdit({ ...edit, from: text });
+      actions.conflict(label);
+      return;
+    }
     const change: Partial<Record<TextField, string>> = {};
-    change[field] = draft;
-    if (await actions.save(change)) setDraft(null);
+    change[field] = edit.draft;
+    if (await actions.save(change)) setEdit(null);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (event.key === 'Escape') {
+      // keep the panel open; only an unchanged draft leaves edit mode
+      event.stopPropagation();
+      if (edit?.draft === text) setEdit(null);
+    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       void save();
     }
   }
 
-  if (draft !== null) {
+  if (edit !== null) {
     return (
       <>
         <textarea
           aria-label={label}
           rows={14}
           spellCheck={false}
-          value={draft}
+          value={edit.draft}
           autoFocus
           onChange={(event) => {
-            setDraft(event.target.value);
+            setEdit({ ...edit, draft: event.target.value });
           }}
           onKeyDown={onKeyDown}
         />
@@ -53,7 +68,7 @@ export function TextTab({
           <button
             type="button"
             className="btn primary"
-            disabled={actions.busy || draft === text}
+            disabled={actions.busy || edit.draft === text}
             onClick={() => void save()}
           >
             Save (Ctrl+Enter)
@@ -62,7 +77,7 @@ export function TextTab({
             type="button"
             className="btn"
             onClick={() => {
-              setDraft(null);
+              setEdit(null);
             }}
           >
             Cancel
@@ -78,7 +93,7 @@ export function TextTab({
           type="button"
           className="btn"
           onClick={() => {
-            setDraft(text);
+            setEdit({ draft: text, from: text });
           }}
         >
           Edit

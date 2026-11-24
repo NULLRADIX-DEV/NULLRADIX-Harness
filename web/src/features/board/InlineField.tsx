@@ -14,6 +14,7 @@ export function InlineField({
   wide = false,
   normalize = trimmed,
   onSave,
+  onConflict,
 }: {
   label: string;
   value: string;
@@ -22,11 +23,17 @@ export function InlineField({
   wide?: boolean;
   normalize?: (text: string) => string;
   onSave: (text: string) => void;
+  onConflict: (label: string) => void;
 }) {
-  const [draft, setDraft] = useDraft(value, normalize);
+  const { draft, setDraft, behind, acknowledge } = useDraft(value, normalize);
 
   function commit() {
     if (busy || normalize(draft) === normalize(value)) return;
+    if (behind) {
+      acknowledge();
+      onConflict(label);
+      return;
+    }
     onSave(draft);
   }
 
