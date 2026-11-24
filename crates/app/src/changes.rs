@@ -16,6 +16,8 @@ pub enum Entity {
     Board,
     Ticket,
     Run,
+    Runner,
+    Repository,
 }
 
 impl Entity {

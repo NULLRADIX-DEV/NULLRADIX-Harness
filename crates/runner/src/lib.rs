@@ -1,5 +1,6 @@
 //! Executes runs on this machine under detached supervisors.
 
+mod git;
 mod local;
 mod protocol;
 mod supervisor;

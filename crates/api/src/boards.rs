@@ -20,6 +20,9 @@ pub struct BoardDto {
     pub name: String,
     pub owner_id: Uuid,
     pub owner_name: String,
+    /// Repository the board's work happens in.
+    pub repository_id: Option<Uuid>,
+    pub repository_name: Option<String>,
     /// Whether the dispatcher may take tickets from this board.
     pub dispatch_enabled: bool,
     /// Tickets that are neither done nor not needed.
@@ -39,6 +42,8 @@ impl From<BoardSummary> for BoardDto {
             name: board.name().as_str().to_owned(),
             owner_id: board.owner().as_uuid(),
             owner_name: summary.owner_name,
+            repository_id: board.repository().map(|id| id.as_uuid()),
+            repository_name: summary.repository_name,
             dispatch_enabled: board.dispatch_enabled(),
             open_tickets: summary.open_tickets,
             created_at: board.created_at().as_millis(),
@@ -65,6 +70,35 @@ pub struct RenameBoard {
     pub name: String,
     /// Version the rename is based on.
     pub version: i64,
+}
+
+/// Points a board to the repository checked out at a folder on a runner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetBoardRepository {
+    pub runner_id: Uuid,
+    /// Absolute folder on the runner; any folder inside the checkout or a worktree of it.
+    pub path: String,
+    /// Version the change is based on.
+    pub version: i64,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query, rename_all = "camelCase")]
+pub(crate) struct AllBoardsQuery {
+    /// With `path`: only boards of the repository checked out there on this runner.
+    runner_id: Option<Uuid>,
+    /// With `runnerId`: a folder inside the checkout.
+    path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query, rename_all = "camelCase")]
+pub(crate) struct VersionQuery {
+    /// Version the change is based on.
+    version: i64,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -114,15 +148,32 @@ fn board_list(summaries: Vec<BoardSummary>) -> BoardList {
     get,
     path = "/boards",
     tag = "boards",
+    params(AllBoardsQuery),
     responses(
-        (status = 200, description = "Boards of every project", body = BoardList),
+        (status = 200, description = "Boards of every project, or of one checkout", body = BoardList),
         (status = 401, body = Problem),
+        (status = 404, description = "Unknown runner", body = Problem),
+        (status = 422, body = Problem),
+        (status = 503, description = "The runner is not connected", body = Problem),
     )
 )]
 pub(crate) async fn list_all_boards(
     State(state): State<ApiState>,
+    ApiQuery(query): ApiQuery<AllBoardsQuery>,
 ) -> Result<Json<BoardList>, ApiError> {
-    Ok(Json(board_list(state.boards.list(None).await?)))
+    let boards = match (query.runner_id, query.path) {
+        (None, None) => state.boards.list(None).await?,
+        (Some(runner), Some(path)) => {
+            state
+                .boards
+                .list_by_checkout(Id::from_uuid(runner), &path)
+                .await?
+        }
+        _ => {
+            return Err(AppError::invalid("query-invalid", "runnerId and path go together").into());
+        }
+    };
+    Ok(Json(board_list(boards)))
 }
 
 #[utoipa::path(
@@ -269,6 +320,68 @@ pub(crate) async fn delete_board(
     }))
 }
 
+#[utoipa::path(
+    put,
+    path = "/projects/{projectId}/boards/{boardId}/repository",
+    tag = "boards",
+    params(BoardPath),
+    request_body = SetBoardRepository,
+    responses(
+        (status = 200, body = BoardDto),
+        (status = 401, body = Problem),
+        (status = 404, description = "Unknown project, board or runner", body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, description = "The path is no folder inside a git repository", body = Problem),
+        (status = 503, description = "The runner is not connected", body = Problem),
+    )
+)]
+pub(crate) async fn set_board_repository(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<BoardPath>,
+    ApiJson(input): ApiJson<SetBoardRepository>,
+) -> Result<Json<BoardDto>, ApiError> {
+    let board = state
+        .boards
+        .set_repository(
+            Id::from_uuid(path.project_id),
+            Id::from_uuid(path.board_id),
+            Id::from_uuid(input.runner_id),
+            &input.path,
+            AppError::client_version(input.version)?,
+        )
+        .await?;
+    Ok(Json(board.into()))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/projects/{projectId}/boards/{boardId}/repository",
+    tag = "boards",
+    params(BoardPath, VersionQuery),
+    responses(
+        (status = 200, description = "The board without a repository", body = BoardDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn clear_board_repository(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<BoardPath>,
+    ApiQuery(query): ApiQuery<VersionQuery>,
+) -> Result<Json<BoardDto>, ApiError> {
+    let board = state
+        .boards
+        .clear_repository(
+            Id::from_uuid(path.project_id),
+            Id::from_uuid(path.board_id),
+            AppError::client_version(query.version)?,
+        )
+        .await?;
+    Ok(Json(board.into()))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
@@ -335,5 +448,102 @@ mod tests {
             (status.as_u16(), problem["code"].as_str()),
             (404, Some("project-not-found"))
         );
+    }
+
+    fn git_repo(dir: &std::path::Path) -> String {
+        let status = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        dir.join("src").to_string_lossy().into_owned()
+    }
+
+    #[tokio::test]
+    async fn boards_point_to_repositories_on_runners() {
+        let api = test_api().await;
+        let project = api.projects.create("ARC", "Arches").await.unwrap();
+        let board = api
+            .boards
+            .create(project.id(), "Main", &api.person)
+            .await
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("Arches");
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        let folder = git_repo(&repo);
+        let get = |path: String| {
+            bearer(Request::get(path), &api.token)
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        let (_, _, runners) = send(&api.router, get(String::from("/api/v1/runners"))).await;
+        assert_eq!(runners["items"][0]["name"], "local");
+        assert_eq!(runners["items"][0]["local"], true);
+        let runner = runners["items"][0]["id"].as_str().unwrap().to_owned();
+
+        let location = format!(
+            "/api/v1/projects/{}/boards/{}/repository",
+            project.id().as_uuid(),
+            board.board.id().as_uuid()
+        );
+        let put = |body: serde_json::Value| {
+            bearer(Request::put(location.as_str()), &api.token)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let outside = dir.path().to_string_lossy().into_owned();
+        let (status, _, problem) = send(
+            &api.router,
+            put(json!({ "runnerId": runner, "path": outside, "version": 1 })),
+        )
+        .await;
+        assert_eq!(
+            (status.as_u16(), problem["code"].as_str()),
+            (422, Some("not-a-git-project"))
+        );
+        let (status, _, bound) = send(
+            &api.router,
+            put(json!({ "runnerId": runner, "path": folder, "version": 1 })),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(bound["repositoryName"], "Arches");
+
+        let (_, _, repositories) =
+            send(&api.router, get(String::from("/api/v1/repositories"))).await;
+        assert_eq!(repositories["items"][0]["id"], bound["repositoryId"]);
+        let path = repositories["items"][0]["checkouts"][0]["path"]
+            .as_str()
+            .unwrap();
+        assert!(path.ends_with("/Arches"), "{path}");
+
+        let query = format!(
+            "/api/v1/boards?runnerId={runner}&path={}",
+            path.replace(' ', "%20")
+        );
+        let (_, _, found) = send(&api.router, get(query)).await;
+        assert_eq!(found["items"][0]["id"], bound["id"]);
+        let (status, _, problem) = send(
+            &api.router,
+            get(format!("/api/v1/boards?runnerId={runner}")),
+        )
+        .await;
+        assert_eq!(
+            (status.as_u16(), problem["code"].as_str()),
+            (422, Some("query-invalid"))
+        );
+
+        let clear = format!("{location}?version=2");
+        let request = bearer(Request::delete(clear.as_str()), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, cleared) = send(&api.router, request).await;
+        assert_eq!(status, 200);
+        assert_eq!(cleared["repositoryId"], serde_json::Value::Null);
+        assert_eq!(cleared["version"], 3);
     }
 }

@@ -1,0 +1,108 @@
+{
+  "title": "Boards point to the repository checked out at a folder on the local runner",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "the local runner",
+      "wait": { "path": "/api/v1/runners", "field": "items.0.local", "equals": true },
+      "save": { "runner": "json.items.0.id" }
+    },
+    {
+      "name": "init a repository",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git init",
+          "program": "git",
+          "args": ["init", "-q", "arches"],
+          "cwd": "{{WORK}}",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": { "init": "json.id" }
+    },
+    {
+      "name": "initialized",
+      "wait": { "path": "/api/v1/runs/{{init}}", "field": "status", "equals": "succeeded" }
+    },
+    { "name": "no repository yet", "cli": { "args": ["board", "repo", "{{board}}"] } },
+    {
+      "name": "a folder outside any repository",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/repository",
+        "body": { "runnerId": "{{runner}}", "path": "{{WORK}}", "version": 1 }
+      }
+    },
+    {
+      "name": "a relative path",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/repository",
+        "body": { "runnerId": "{{runner}}", "path": "arches", "version": 1 }
+      }
+    },
+    {
+      "name": "an unknown runner",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/repository",
+        "body": {
+          "runnerId": "0190a0b0-0000-7000-8000-00000000dead",
+          "path": "{{WORK}}/arches",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "set",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/repository",
+        "body": { "runnerId": "{{runner}}", "path": "{{WORK}}/arches", "version": 1 }
+      }
+    },
+    {
+      "name": "stale version",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/repository",
+        "body": { "runnerId": "{{runner}}", "path": "{{WORK}}/arches", "version": 1 }
+      }
+    },
+    { "name": "repositories", "http": { "method": "GET", "path": "/api/v1/repositories" } },
+    { "name": "show in the CLI", "cli": { "args": ["board", "repo", "{{board}}"] } },
+    { "name": "list in the CLI", "cli": { "args": ["board", "list"] } },
+    { "name": "clear in the CLI", "cli": { "args": ["board", "repo", "{{board}}", "--clear"] } },
+    {
+      "name": "set again in the CLI",
+      "cli": { "args": ["board", "repo", "{{board}}", "{{WORK}}/arches"] }
+    },
+    {
+      "name": "clear",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/repository?version=4"
+      }
+    },
+    { "name": "board without repository", "http": { "method": "GET", "path": "/api/v1/boards" } }
+  ]
+}

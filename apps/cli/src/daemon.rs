@@ -10,6 +10,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
+use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
@@ -92,14 +93,16 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    let board = start_board(&store, &signal).await?;
-    let runs = start_runs(config, &store, &signal).await?;
+    let (runner, runners) = start_runners(config, &store, &signal).await?;
+    let board = start_board(&store, &runners, &signal).await?;
+    let runs = start_runs(&store, runner, &signal).await?;
     let hooks = start_hooks(config, &store, &shutdown);
     let state = ApiState {
         auth,
         projects,
         boards: board.boards,
         tickets: board.tickets,
+        runners,
         person: board.person,
         runs,
         hooks,
@@ -148,7 +151,11 @@ struct BoardServices {
     person: Arc<Actor>,
 }
 
-async fn start_board(store: &Store, signal: &ChangeSignal) -> anyhow::Result<BoardServices> {
+async fn start_board(
+    store: &Store,
+    runners: &Arc<RunnerService>,
+    signal: &ChangeSignal,
+) -> anyhow::Result<BoardServices> {
     let person = local_person(store, &person_name(), &UuidV7Generator, &SystemClock)
         .await
         .context("cannot record the local person; NULLRADIX_PERSON takes up to 100 characters")?;
@@ -157,6 +164,7 @@ async fn start_board(store: &Store, signal: &ChangeSignal) -> anyhow::Result<Boa
         Arc::new(store.clone()),
         Arc::new(store.clone()),
         Arc::new(store.clone()),
+        Arc::clone(runners),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),
@@ -183,19 +191,40 @@ fn person_name() -> String {
         .unwrap_or_else(|| String::from("owner"))
 }
 
-/// Run service on the local runner, watching runs that outlived the previous daemon.
-async fn start_runs(
+/// The runner on this machine, recorded as the local runner; runs start under this binary.
+async fn start_runners(
     config: &Config,
     store: &Store,
     signal: &ChangeSignal,
-) -> anyhow::Result<Arc<RunService>> {
+) -> anyhow::Result<(Arc<LocalRunner>, Arc<RunnerService>)> {
     let supervisor = SupervisorCommand {
         program: std::env::current_exe().context("cannot locate the nullradix binary")?,
         args: vec![String::from("run-supervisor")],
     };
+    let runner = Arc::new(LocalRunner::new(config.paths.data.join("runs"), supervisor));
+    let runners = RunnerService::start(
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        runner.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    )
+    .await
+    .context("cannot record the local runner")?;
+    tracing::debug!(runner = %runners.local().id(), "local runner");
+    Ok((runner, Arc::new(runners)))
+}
+
+/// Run service on the local runner, watching runs that outlived the previous daemon.
+async fn start_runs(
+    store: &Store,
+    runner: Arc<LocalRunner>,
+    signal: &ChangeSignal,
+) -> anyhow::Result<Arc<RunService>> {
     let runs = RunService::new(
         Arc::new(store.clone()),
-        Arc::new(LocalRunner::new(config.paths.data.join("runs"), supervisor)),
+        runner,
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),

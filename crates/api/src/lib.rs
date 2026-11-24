@@ -9,6 +9,7 @@ mod hooks;
 mod host;
 mod problem;
 mod projects;
+mod repositories;
 mod runs;
 mod tickets;
 mod web;
@@ -27,6 +28,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
+use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
@@ -42,7 +44,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
-pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard};
+pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
 pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
@@ -50,6 +52,9 @@ pub use hooks::{HookEventDto, HookEventList, HookKindDto, HookReplyDto, Recorded
 pub use host::AllowedHosts;
 pub use problem::{ApiError, Problem};
 pub use projects::{CreateProject, ProjectDto, ProjectList, RenameProject};
+pub use repositories::{
+    CheckoutDto, RepositoryDto, RepositoryList, RunnerDto, RunnerList, RunnerOsDto,
+};
 pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
 };
@@ -104,6 +109,7 @@ pub struct ApiState {
     pub projects: Arc<ProjectService>,
     pub boards: Arc<BoardService>,
     pub tickets: Arc<TicketService>,
+    pub runners: Arc<RunnerService>,
     /// The person every token and browser session acts for.
     pub person: Arc<nullradix_domain::Actor>,
     pub runs: Arc<RunService>,
@@ -139,6 +145,12 @@ fn routes() -> OpenApiRouter<ApiState> {
             boards::rename_board,
             boards::delete_board
         ))
+        .routes(routes!(
+            boards::set_board_repository,
+            boards::clear_board_repository
+        ))
+        .routes(routes!(repositories::list_runners))
+        .routes(routes!(repositories::list_repositories))
         .routes(routes!(tickets::list_tickets))
         .routes(routes!(tickets::create_ticket))
         .routes(routes!(tickets::import_tickets))
@@ -298,10 +310,30 @@ pub(crate) mod tests {
             signal.clone(),
         ));
         let changes: Arc<dyn ChangeFeed> = store.clone();
+        let runner = Arc::new(nullradix_runner::LocalRunner::new(
+            std::env::temp_dir().join("nullradix-api-tests"),
+            nullradix_runner::SupervisorCommand {
+                program: PathBuf::from("nullradix-missing-supervisor"),
+                args: Vec::new(),
+            },
+        ));
+        let runners = Arc::new(
+            RunnerService::start(
+                store.clone(),
+                store.clone(),
+                runner.clone(),
+                Arc::new(SystemClock),
+                Arc::new(UuidV7Generator),
+                signal.clone(),
+            )
+            .await
+            .unwrap(),
+        );
         let boards = Arc::new(BoardService::new(
             store.clone(),
             store.clone(),
             store.clone(),
+            runners.clone(),
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
             signal.clone(),
@@ -325,13 +357,7 @@ pub(crate) mod tests {
         );
         let runs = RunService::new(
             store.clone(),
-            Arc::new(nullradix_runner::LocalRunner::new(
-                std::env::temp_dir().join("nullradix-api-tests"),
-                nullradix_runner::SupervisorCommand {
-                    program: PathBuf::from("nullradix-missing-supervisor"),
-                    args: Vec::new(),
-                },
-            )),
+            runner,
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
             signal.clone(),
@@ -343,6 +369,7 @@ pub(crate) mod tests {
             projects: projects.clone(),
             boards: boards.clone(),
             tickets,
+            runners,
             person: person.clone(),
             runs,
             hooks,

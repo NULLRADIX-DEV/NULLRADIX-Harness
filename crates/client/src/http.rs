@@ -6,8 +6,8 @@ use nullradix_api::{
     ClaimPlanning, ClaimTicket, CreateBoard, CreateProject, CreateTicket, Handoff, Health,
     HookEventDto, HookEventList, HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning,
     NextPlanningClaim, Problem, ProjectDto, ProjectList, ReleaseTicket, RenameBoard, RenameProject,
-    RunDto, RunList, RunOutput, StartRun, TicketDetailDto, TicketDto, TicketList, UpdateTicket,
-    WritePlan,
+    RepositoryList, RunDto, RunList, RunOutput, RunnerList, SetBoardRepository, StartRun,
+    TicketDetailDto, TicketDto, TicketList, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -202,6 +202,47 @@ impl Client {
             .call()
             .map_err(|source| self.unreachable(source))?;
         decode(&mut response, 200)
+    }
+
+    /// Points the board to the repository checked out at a folder on a runner.
+    pub fn set_board_repository(
+        &self,
+        project: Uuid,
+        board: Uuid,
+        input: &SetBoardRepository,
+    ) -> Result<BoardDto, ClientError> {
+        let mut response = self
+            .agent
+            .put(&self.url(&format!("/projects/{project}/boards/{board}/repository")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn clear_board_repository(
+        &self,
+        project: Uuid,
+        board: Uuid,
+        version: i64,
+    ) -> Result<BoardDto, ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!(
+                "/projects/{project}/boards/{board}/repository?version={version}"
+            )))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn list_runners(&self) -> Result<RunnerList, ClientError> {
+        self.get_json("/runners")
+    }
+
+    pub fn list_repositories(&self) -> Result<RepositoryList, ClientError> {
+        self.get_json("/repositories")
     }
 
     pub fn list_runs(&self, limit: u32) -> Result<RunList, ClientError> {
@@ -569,6 +610,91 @@ mod tests {
         }
     }
 
+    async fn test_state(ready: std::sync::mpsc::Sender<Secret>) -> ApiState {
+        let store = Arc::new(Store::in_memory().await.unwrap());
+        let auth = Arc::new(AuthService::new(
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+        ));
+        ready.send(auth.local_token(None).await.unwrap()).unwrap();
+        let signal = ChangeSignal::new();
+        let projects = Arc::new(ProjectService::new(
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let runner = Arc::new(LocalRunner::new(
+            std::env::temp_dir().join("nullradix-client-tests"),
+            SupervisorCommand {
+                program: std::path::PathBuf::from("nullradix-missing-supervisor"),
+                args: Vec::new(),
+            },
+        ));
+        let runners = Arc::new(
+            nullradix_app::repositories::RunnerService::start(
+                store.clone(),
+                store.clone(),
+                runner.clone(),
+                Arc::new(SystemClock),
+                Arc::new(UuidV7Generator),
+                signal.clone(),
+            )
+            .await
+            .unwrap(),
+        );
+        let runs = RunService::new(
+            store.clone(),
+            runner,
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+            FAST,
+        );
+        let hooks = Arc::new(HookService::new(store.clone(), Arc::new(SystemClock)));
+        let boards = Arc::new(nullradix_app::boards::BoardService::new(
+            store.clone(),
+            store.clone(),
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let tickets = Arc::new(nullradix_app::tickets::TicketService::new(
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let person = nullradix_app::boards::local_person(
+            store.as_ref(),
+            "tester",
+            &UuidV7Generator,
+            &SystemClock,
+        )
+        .await
+        .unwrap();
+        ApiState {
+            auth,
+            projects,
+            boards,
+            tickets,
+            runners,
+            person: Arc::new(person),
+            runs,
+            hooks,
+            changes: store,
+            signal,
+            shutdown: tokio_util::sync::CancellationToken::new(),
+            allowed_hosts: AllowedHosts::loopback_and([]),
+            secure_cookies: false,
+            web_dir: None,
+        }
+    }
+
     fn spawn_daemon() -> TestDaemon {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
@@ -582,73 +708,7 @@ mod tests {
                 .build()
                 .unwrap();
             runtime.block_on(async move {
-                let store = Arc::new(Store::in_memory().await.unwrap());
-                let auth = Arc::new(AuthService::new(
-                    store.clone(),
-                    Arc::new(SystemClock),
-                    Arc::new(UuidV7Generator),
-                ));
-                ready.send(auth.local_token(None).await.unwrap()).unwrap();
-                let signal = ChangeSignal::new();
-                let projects = Arc::new(ProjectService::new(
-                    store.clone(),
-                    Arc::new(SystemClock),
-                    Arc::new(UuidV7Generator),
-                    signal.clone(),
-                ));
-                let runs = RunService::new(
-                    store.clone(),
-                    Arc::new(LocalRunner::new(
-                        std::env::temp_dir().join("nullradix-client-tests"),
-                        SupervisorCommand {
-                            program: std::path::PathBuf::from("nullradix-missing-supervisor"),
-                            args: Vec::new(),
-                        },
-                    )),
-                    Arc::new(SystemClock),
-                    Arc::new(UuidV7Generator),
-                    signal.clone(),
-                    FAST,
-                );
-                let hooks = Arc::new(HookService::new(store.clone(), Arc::new(SystemClock)));
-                let boards = Arc::new(nullradix_app::boards::BoardService::new(
-                    store.clone(),
-                    store.clone(),
-                    store.clone(),
-                    Arc::new(SystemClock),
-                    Arc::new(UuidV7Generator),
-                    signal.clone(),
-                ));
-                let tickets = Arc::new(nullradix_app::tickets::TicketService::new(
-                    store.clone(),
-                    store.clone(),
-                    Arc::new(SystemClock),
-                    Arc::new(UuidV7Generator),
-                    signal.clone(),
-                ));
-                let person = nullradix_app::boards::local_person(
-                    store.as_ref(),
-                    "tester",
-                    &UuidV7Generator,
-                    &SystemClock,
-                )
-                .await
-                .unwrap();
-                let state = ApiState {
-                    auth,
-                    projects,
-                    boards,
-                    tickets,
-                    person: Arc::new(person),
-                    runs,
-                    hooks,
-                    changes: store,
-                    signal,
-                    shutdown: tokio_util::sync::CancellationToken::new(),
-                    allowed_hosts: AllowedHosts::loopback_and([]),
-                    secure_cookies: false,
-                    web_dir: None,
-                };
+                let state = test_state(ready).await;
                 let listener = tokio::net::TcpListener::from_std(listener).unwrap();
                 let shutdown = async {
                     let _ = stopped.await;

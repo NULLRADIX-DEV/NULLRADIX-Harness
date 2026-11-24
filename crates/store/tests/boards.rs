@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used, reason = "integration tests fail loudly")]
 
+mod common;
+
 use std::sync::Arc;
 
 use nullradix_app::boards::{BoardService, BoardSummary, local_person};
@@ -53,6 +55,7 @@ async fn fixture() -> Fixture {
             store.clone(),
             store.clone(),
             store.clone(),
+            common::runners(&store, &signal).await,
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
             signal.clone(),

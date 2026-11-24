@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use nullradix_domain::{Id, Run, RunEnd, RunError, RunLabel, RunOutcome, Version};
 use strum::{EnumString, IntoStaticStr};
 
+use crate::repositories::Located;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
 /// What to execute; the runner owns how.
@@ -84,6 +85,8 @@ pub trait RunnerPort: Send + Sync {
     async fn cancel(&self, run: Id<Run>) -> Result<(), AppError>;
     async fn progress(&self, run: Id<Run>, after: i64, limit: u32)
     -> Result<RunProgress, AppError>;
+    /// Finds the repository an absolute folder on this runner belongs to.
+    async fn locate(&self, path: &str) -> Result<Located, AppError>;
 }
 
 #[async_trait]

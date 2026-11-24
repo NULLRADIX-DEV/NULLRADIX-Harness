@@ -42,6 +42,8 @@
         "ownerName": "tester",
         "projectId": "<ID-1>",
         "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
         "updatedAt": "<TIME>",
         "version": 1
       },
@@ -524,6 +526,8 @@
         "ownerName": "tester",
         "projectId": "<ID-1>",
         "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
         "updatedAt": "<TIME>",
         "version": 1
       },

@@ -5,6 +5,7 @@ mod board_rules;
 mod hook;
 mod id;
 mod project;
+mod repository;
 mod run;
 pub mod step;
 mod text;
@@ -21,6 +22,11 @@ pub use board_rules::{
 pub use hook::{HookDetails, HookError, HookEvent, HookKind, SessionRef};
 pub use id::{Id, ParseIdError};
 pub use project::{Project, ProjectError, ProjectKey, ProjectName};
+pub use repository::{
+    CHECKOUT_PATH_MAX, Checkout, CheckoutPath, CheckoutRecord, REPOSITORY_NAME_MAX,
+    RUNNER_NAME_MAX, Repository, RepositoryError, RepositoryName, RepositoryRecord, Runner,
+    RunnerName, RunnerOs, RunnerRecord,
+};
 pub use run::{Run, RunEnd, RunError, RunLabel, RunOutcome, RunRecord, RunStatus};
 pub use step::{STEP_MAX, Step, StepEdit, StepError};
 pub use text::{TextError, optional_text, required_text, utf16_len, utf16_prefix};

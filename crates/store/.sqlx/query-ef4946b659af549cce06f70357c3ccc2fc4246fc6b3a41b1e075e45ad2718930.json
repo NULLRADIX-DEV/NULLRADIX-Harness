@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO checkouts (id, repository_id, runner_id, path, path_key, created_at,\n                                    updated_at, version)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "ef4946b659af549cce06f70357c3ccc2fc4246fc6b3a41b1e075e45ad2718930"
+}
