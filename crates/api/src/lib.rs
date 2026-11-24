@@ -4,6 +4,7 @@ mod auth;
 mod events;
 mod extract;
 mod health;
+mod hooks;
 mod host;
 mod problem;
 mod projects;
@@ -21,6 +22,7 @@ use axum::http::{HeaderValue, Request, StatusCode, header};
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use nullradix_app::auth::AuthService;
+use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::runs::RunService;
 use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
@@ -39,6 +41,7 @@ pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
 pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
+pub use hooks::{HookEventDto, HookEventList, HookKindDto, HookReplyDto, RecordedHookDto};
 pub use host::AllowedHosts;
 pub use problem::{ApiError, Problem};
 pub use projects::{CreateProject, ProjectDto, ProjectList, RenameProject};
@@ -89,6 +92,7 @@ pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub projects: Arc<ProjectService>,
     pub runs: Arc<RunService>,
+    pub hooks: Arc<HookService>,
     pub changes: Arc<dyn ChangeFeed>,
     pub signal: ChangeSignal,
     /// Cancelled when the daemon stops; long-lived responses end with it.
@@ -116,7 +120,9 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(runs::list_runs, runs::start_run))
         .routes(routes!(runs::get_run))
         .routes(routes!(runs::cancel_run))
-        .routes(routes!(runs::run_output));
+        .routes(routes!(runs::run_output))
+        .routes(routes!(hooks::receive_hook))
+        .routes(routes!(hooks::list_hook_events));
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
@@ -263,10 +269,12 @@ pub(crate) mod tests {
             signal.clone(),
             std::time::Duration::from_millis(50),
         );
+        let hooks = Arc::new(HookService::new(store.clone(), Arc::new(SystemClock)));
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
             runs,
+            hooks,
             changes: changes.clone(),
             signal,
             shutdown: shutdown.clone(),

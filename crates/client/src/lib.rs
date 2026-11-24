@@ -2,6 +2,8 @@
 
 mod discovery;
 mod http;
+mod spool;
 
 pub use discovery::{Discovery, DiscoveryError, DiscoveryFile};
 pub use http::{Client, ClientError};
+pub use spool::{Spool, SpooledHook};

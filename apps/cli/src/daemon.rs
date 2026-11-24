@@ -1,15 +1,17 @@
 use std::fs::{self, File, TryLockError};
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, bail};
 use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
 use nullradix_app::auth::AuthService;
+use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::runs::RunService;
-use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
-use nullradix_client::{Discovery, DiscoveryFile};
+use nullradix_app::{ChangeSignal, Clock, ErrorKind, SystemClock, UuidV7Generator};
+use nullradix_client::{Discovery, DiscoveryFile, Spool, SpooledHook};
 use nullradix_runner::{LocalRunner, SupervisorCommand};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -24,6 +26,11 @@ use crate::token;
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 /// How often the daemon checks on active runs.
 const RUN_POLL: Duration = Duration::from_millis(500);
+/// How often the daemon takes in hooks spooled while it could not answer.
+const SPOOL_POLL: Duration = Duration::from_secs(10);
+const SPOOL_BATCH: usize = 500;
+/// Hook events older than this are forgotten.
+const HOOK_RETENTION: Duration = Duration::from_hours(24 * 30);
 
 pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
     let _logging = logging::init(&config.paths.logs, &config.log_filter)?;
@@ -87,10 +94,12 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         signal.clone(),
     ));
     let runs = start_runs(config, &store, &signal).await?;
+    let hooks = start_hooks(config, &store, &shutdown).await?;
     let state = ApiState {
         auth,
         projects,
         runs,
+        hooks,
         changes: Arc::new(store.clone()),
         signal,
         shutdown: shutdown.clone(),
@@ -152,6 +161,98 @@ async fn start_runs(
         tracing::info!(recovered, "watching runs from before the restart");
     }
     Ok(runs)
+}
+
+/// Hook service that also takes in what hooks spooled while the daemon was away.
+async fn start_hooks(
+    config: &Config,
+    store: &Store,
+    shutdown: &CancellationToken,
+) -> anyhow::Result<Arc<HookService>> {
+    let hooks = Arc::new(HookService::new(
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+    ));
+    let pruned = hooks.prune(HOOK_RETENTION).await?;
+    tracing::debug!(pruned, "old hook events removed");
+    let spool = Spool::in_dir(&config.paths.data);
+    let service = Arc::clone(&hooks);
+    let stop = shutdown.clone();
+    tokio::spawn(async move {
+        loop {
+            match drain_spool(spool.clone(), &service).await {
+                Ok(0) => {}
+                Ok(taken) => tracing::info!(taken, "spooled hooks taken in"),
+                Err(error) => tracing::warn!(error = %error, "cannot take in spooled hooks"),
+            }
+            tokio::select! {
+                () = stop.cancelled() => break,
+                () = tokio::time::sleep(SPOOL_POLL) => {}
+            }
+        }
+    });
+    Ok(hooks)
+}
+
+/// Takes in a batch of spooled hooks, oldest first; stops when the store fails.
+async fn drain_spool(spool: Spool, hooks: &HookService) -> anyhow::Result<usize> {
+    let batch = task::spawn_blocking(
+        move || -> io::Result<Vec<(PathBuf, io::Result<SpooledHook>)>> {
+            let pending = spool.pending()?.into_iter().take(SPOOL_BATCH);
+            Ok(pending
+                .map(|path| {
+                    let hook = Spool::read(&path);
+                    (path, hook)
+                })
+                .collect())
+        },
+    )
+    .await??;
+    let mut taken = Vec::new();
+    let mut rejected = Vec::new();
+    let mut failure = None;
+    for (path, hook) in batch {
+        let hook = match hook {
+            Ok(hook) => hook,
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                tracing::warn!(path = %path.display(), %error, "unreadable spooled hook set aside");
+                rejected.push(path);
+                continue;
+            }
+            // gone already or locked by a scanner; the next round sees it again
+            Err(_) => continue,
+        };
+        let received = match hook.event.into_event(hook.kind) {
+            Ok(event) => hooks.receive(&event).await,
+            Err(error) => Err(error),
+        };
+        match received {
+            Ok(_) => taken.push(path),
+            Err(error) if error.kind() == ErrorKind::Invalid => {
+                tracing::warn!(path = %path.display(), %error, "invalid spooled hook set aside");
+                rejected.push(path);
+            }
+            Err(error) => {
+                failure = Some(error);
+                break;
+            }
+        }
+    }
+    let count = taken.len();
+    task::spawn_blocking(move || -> io::Result<()> {
+        for path in &taken {
+            Spool::remove(path)?;
+        }
+        for path in &rejected {
+            Spool::set_aside(path)?;
+        }
+        Ok(())
+    })
+    .await??;
+    match failure {
+        Some(error) => Err(error.into()),
+        None => Ok(count),
+    }
 }
 
 /// Makes sure the token file holds a token the daemon accepts.

@@ -3,6 +3,7 @@
 mod config;
 mod connect;
 mod daemon;
+mod hook;
 mod logging;
 mod open;
 mod project;
@@ -53,6 +54,9 @@ enum Command {
     /// Supervise one run; the daemon starts this, not people
     #[command(hide = true)]
     RunSupervisor { dir: PathBuf },
+    /// Report a Claude Code hook; the plugin calls this, not people
+    #[command(hide = true)]
+    Hook { event: String },
 }
 
 #[derive(Args)]
@@ -105,6 +109,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             let client = connect::connect(profile, cli.home.as_deref())?;
             run::run(command, &client)
         }
+        Command::Hook { event } => Ok(hook::run(&event, profile, cli.home.as_deref())),
         Command::RunSupervisor { dir } => {
             nullradix_runner::supervise(&dir)
                 .with_context(|| format!("cannot record the result in {}", dir.display()))?;

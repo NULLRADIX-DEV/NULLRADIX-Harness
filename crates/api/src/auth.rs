@@ -62,6 +62,18 @@ fn same_origin(headers: &HeaderMap) -> bool {
     matches!((origin, host), (Some(origin), Some(host)) if origin.eq_ignore_ascii_case(host))
 }
 
+/// Refuses browser sessions where only local token holders may act.
+pub(crate) fn require_token(principal: &Principal, action: &str) -> Result<(), ApiError> {
+    if matches!(principal, Principal::Token { .. }) {
+        Ok(())
+    } else {
+        Err(
+            AppError::forbidden("token-required", format!("only token holders can {action}"))
+                .into(),
+        )
+    }
+}
+
 pub(crate) async fn authenticate(
     State(state): State<ApiState>,
     mut request: Request,
@@ -130,13 +142,7 @@ pub(crate) async fn create_handoff(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
 ) -> Result<(StatusCode, Json<Handoff>), ApiError> {
-    if !matches!(principal, Principal::Token { .. }) {
-        return Err(AppError::forbidden(
-            "token-required",
-            "only token holders can open browser sessions",
-        )
-        .into());
-    }
+    require_token(&principal, "open browser sessions")?;
     let code = state.auth.create_handoff()?;
     let handoff = Handoff {
         path: format!("{API_PREFIX}/auth/handoff?code={}", code.expose()),

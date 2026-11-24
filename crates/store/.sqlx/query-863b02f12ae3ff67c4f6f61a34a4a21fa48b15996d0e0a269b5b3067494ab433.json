@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM hook_events WHERE received_at < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "863b02f12ae3ff67c4f6f61a34a4a21fa48b15996d0e0a269b5b3067494ab433"
+}

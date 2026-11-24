@@ -2,8 +2,9 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, CreateProject, Handoff, Health, Problem, ProjectDto, ProjectList,
-    RenameProject, RunDto, RunList, RunOutput, StartRun,
+    API_PREFIX, API_VERSION, CreateProject, Handoff, Health, HookEventDto, HookEventList,
+    HookKindDto, HookReplyDto, Problem, ProjectDto, ProjectList, RenameProject, RunDto, RunList,
+    RunOutput, StartRun,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -171,6 +172,24 @@ impl Client {
         decode(&mut response, 202)
     }
 
+    pub fn post_hook(
+        &self,
+        kind: HookKindDto,
+        event: &HookEventDto,
+    ) -> Result<HookReplyDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/hooks/{}", kind.as_str())))
+            .header("Authorization", &self.authorization()?)
+            .send_json(event)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn hook_events(&self, limit: u32) -> Result<HookEventList, ClientError> {
+        self.get_json(&format!("/hook-events?limit={limit}"))
+    }
+
     fn get_json<T: DeserializeOwned>(&self, route: &str) -> Result<T, ClientError> {
         let mut response = self
             .agent
@@ -233,6 +252,7 @@ mod tests {
 
     use nullradix_api::{AllowedHosts, ApiState};
     use nullradix_app::auth::AuthService;
+    use nullradix_app::hooks::HookService;
     use nullradix_app::projects::ProjectService;
     use nullradix_app::runs::RunService;
     use nullradix_app::{ChangeSignal, SystemClock, UuidV7Generator};
@@ -298,10 +318,12 @@ mod tests {
                     signal.clone(),
                     FAST,
                 );
+                let hooks = Arc::new(HookService::new(store.clone(), Arc::new(SystemClock)));
                 let state = ApiState {
                     auth,
                     projects,
                     runs,
+                    hooks,
                     changes: store,
                     signal,
                     shutdown: tokio_util::sync::CancellationToken::new(),

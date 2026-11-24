@@ -217,6 +217,120 @@
         ]
       }
     },
+    "/api/v1/hook-events": {
+      "get": {
+        "tags": [
+          "hooks"
+        ],
+        "operationId": "list_hook_events",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Newest events first, at most 500.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HookEventList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hooks/{event}": {
+      "post": {
+        "tags": [
+          "hooks"
+        ],
+        "operationId": "receive_hook",
+        "parameters": [
+          {
+            "name": "event",
+            "in": "path",
+            "description": "The hook that fired.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/HookKindDto"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HookEventDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HookReplyDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Browser sessions cannot report hooks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects": {
       "get": {
         "tags": [
@@ -930,6 +1044,159 @@
           }
         }
       },
+      "HookEventDto": {
+        "type": "object",
+        "description": "One hook report; unknown fields are ignored because hooks skip the version handshake.",
+        "required": [
+          "id",
+          "sessionId",
+          "cwd",
+          "occurredAt"
+        ],
+        "properties": {
+          "agentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Absolute working directory of the session."
+          },
+          "entrypoint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Which Claude client ran the hook."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Chosen by the reporter, so a resend is recognised."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notificationType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurredAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds."
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Run that started the session."
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ticket": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Ticket key the session was started for."
+          },
+          "transcriptPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "HookEventList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecordedHookDto"
+            }
+          }
+        }
+      },
+      "HookKindDto": {
+        "type": "string",
+        "enum": [
+          "session-start",
+          "user-prompt",
+          "notification",
+          "stop",
+          "subagent-start",
+          "subagent-stop",
+          "session-end"
+        ]
+      },
+      "HookReplyDto": {
+        "type": "object",
+        "description": "What the hook passes on to Claude Code.",
+        "properties": {
+          "additionalContext": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Text Claude Code adds to the conversation."
+          },
+          "env": {
+            "type": "object",
+            "description": "Variables for the environment of the session.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "Me": {
         "type": "object",
         "description": "The caller as the daemon sees it.",
@@ -1053,6 +1320,21 @@
             "items": {
               "$ref": "#/components/schemas/ProjectDto"
             }
+          }
+        }
+      },
+      "RecordedHookDto": {
+        "type": "object",
+        "required": [
+          "kind",
+          "event"
+        ],
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/HookEventDto"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/HookKindDto"
           }
         }
       },
