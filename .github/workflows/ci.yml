@@ -98,6 +98,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
         with:
+          drive-size: 16GB
           workspace-copy: true
           env-mapping: |
             CARGO_HOME,{{ DEV_DRIVE }}/.cargo
