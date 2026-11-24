@@ -1,7 +1,0 @@
-{
-  "title": "Workflow und Anpassungen im frischen Home",
-  "steps": [
-    { "name": "Workflow ohne Anpassung", "method": "GET", "path": "/api/workflow" },
-    { "name": "Anpassungen ohne Übersicht", "method": "GET", "path": "/api/customizations" }
-  ]
-}

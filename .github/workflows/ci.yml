@@ -1,235 +1,125 @@
-# Baut die Oberfläche und führt Typcheck und Tests auf macOS, Windows und Linux aus.
-# Läuft von Hand (workflow_dispatch) und als Teil des Release-Workflows (workflow_call, Job „ci“), dort
-# parallel zu den Builds; ein Release wird erst veröffentlicht, wenn sie grün ist. Für Tags läuft sie nicht
-# mehr eigens: das wäre derselbe Stand ein zweites Mal.
 name: CI
+
 on:
-  workflow_dispatch:
-  workflow_call:
-# Aus dem Release heraus ist github.workflow „Release“: so verdrängen sich ein Lauf von Hand und der
-# des Releases auf demselben Branch nicht gegenseitig
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  pull_request:
+  push:
+    branches: [main]
+
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+  RUSTFLAGS: -D warnings
+
 jobs:
-  # Eigene Runner (self-hosted) für macOS und Windows, wenn einer online ist, sonst die von GitHub.
-  # Die Runner-Liste darf nur ein Token mit „Administration: read“ lesen (RUNNER_TOKEN, ersatzweise
-  # RELEASE_TOKEN); ohne beide gelten die gehosteten. Linux läuft immer gehostet.
-  # Logik und Labels: scripts/ci/pick-runners.mjs
-  runners:
-    name: Runner wählen
+  changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
-      windows: ${{ steps.pick.outputs.windows }}
-      macos: ${{ steps.pick.outputs.macos }}
+      rust: ${{ steps.filter.outputs.rust }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
         with:
-          sparse-checkout: scripts/ci
-      - id: pick
-        env:
-          RUNNER_TOKEN: ${{ secrets.RUNNER_TOKEN || secrets.RELEASE_TOKEN }}
-        run: node scripts/ci/pick-runners.mjs
+          filters: |
+            rust:
+              - '**/*.rs'
+              - '**/Cargo.toml'
+              - Cargo.lock
+              - rust-toolchain.toml
+              - clippy.toml
+              - rustfmt.toml
+              - deny.toml
+              - .cargo/**
+              - .config/nextest.toml
+              - .github/workflows/ci.yml
 
-  test:
-    name: test (${{ matrix.os }})
-    needs: runners
-    strategy:
-      # Jede Plattform läuft zu Ende, damit ein Fehler auf einer die anderen nicht verdeckt
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, macos-26, windows-latest]
-    # macOS und Windows nach der Wahl von „runners“; die Matrix-Werte bleiben die gehosteten Namen
-    runs-on: ${{ fromJSON(matrix.os == 'windows-latest' && needs.runners.outputs.windows || matrix.os == 'macos-26' && needs.runners.outputs.macos || format('"{0}"', matrix.os)) }}
-    timeout-minutes: 45
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      # Vor dem Checkout: die Tests legen eigene Git-Projekte an, und autocrlf false hält Golden-Dateien unter Windows bei \n.
-      # GIT_CONFIG_GLOBAL lenkt „--global“ in eine Datei des Laufs: ein eigener Runner behält so seine Git-Konfiguration
-      - name: Git für Tests einrichten
-        shell: bash
-        run: |
-          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/ci.gitconfig"
-          echo "GIT_CONFIG_GLOBAL=$GIT_CONFIG_GLOBAL" >> "$GITHUB_ENV"
-          git config --global user.name "CI"
-          git config --global user.email "ci@example.invalid"
-          git config --global init.defaultBranch main
-          git config --global core.autocrlf false
-          if [ "$RUNNER_OS" = "Windows" ]; then git config --global core.longpaths true; fi
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '26'
-          cache: npm
-      # Plugin-Tests und Vertrag brauchen das Binary: der Vertragsserver und die geprüfte CLI
-      # sind `nullradix`. Version absichtlich wie in rust-toolchain.toml.
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: '1.99.1'
-      # Cargo.toml übersetzt fremde Crates im dev-Profil mit opt-level 2 (schnelleres `tauri dev`).
-      # In der CI kostet das je Lauf viele Minuten Kompilierzeit und brachte den Windows-Rust-Job
-      # über sein Zeitlimit; Tests brauchen die Optimierung nicht. Die Cargo-Konfiguration geht vor.
-      - name: Fremde Crates in der CI unoptimiert übersetzen
-        shell: bash
-        run: printf '\n[profile.dev.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
-      - uses: Swatinem/rust-cache@v2
-      - run: npm ci
-      # Die Plugin-Tests bauen das Plugin und brauchen dafür die gebaute Oberfläche
-      - run: npm run build
-      - run: npm run typecheck
-      - run: cargo build -p nullradix-cli --bin nullradix
-      # Trockenlauf der Theme-Pakete fürs Release: kaputte Manifeste fallen schon hier auf
-      - name: Theme-Pakete und Store-Index (Trockenlauf)
-        shell: bash
-        run: |
-          NULLRADIX_BIN="$PWD/target/debug/nullradix" npm run build:themes
-          node scripts/release/theme-index.mjs dist/themes "https://github.com/${{ github.repository }}/releases/download/v0.0.0" dist/release-themes
-      # Der Plugin-Build (build-plugin.mjs) braucht das Release-Binary; vorab gebaut, damit die
-      # Plugin-Tests nicht selbst minutenlang kompilieren und dabei in ihr Zeitlimit laufen
-      - run: cargo build --release -p nullradix-cli --bin nullradix
-      - run: npm test
-      # Läuft erst, sobald es die Vertragstests im Repo gibt
-      - name: Vertragstests
-        if: hashFiles('contract/run.mjs') != ''
-        run: npm run contract
-
-  # Misst Server, Hooks und Ereignisstrom auf jedem Runner und vergleicht mit dessen Ausgangswerten.
-  # Scheitert, sobald eine Messgröße mehr als 10 % schlechter ist als in contract/baseline-ci-<os>.json.
-  # Bleibt bewusst auf den Runnern von GitHub: die Ausgangswerte gelten für deren Hardware, auf einem
-  # eigenen Rechner wäre der Vergleich bedeutungslos
-  bench:
-    name: bench (${{ matrix.os }})
-    strategy:
-      # Jede Plattform läuft zu Ende, damit ein Rückschritt auf einer die anderen nicht verdeckt
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            baseline: linux
-          - os: macos-26
-            baseline: macos
-          - os: windows-latest
-            baseline: windows
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    steps:
-      # Das Messskript legt ein eigenes Git-Projekt für die Hooks an
-      - name: Git für die Messung einrichten
-        shell: bash
-        run: |
-          git config --global user.name "CI"
-          git config --global user.email "ci@example.invalid"
-          git config --global init.defaultBranch main
-          git config --global core.autocrlf false
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '26'
-          cache: npm
-      # Version absichtlich wie in rust-toolchain.toml
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: '1.99.1'
-      - uses: Swatinem/rust-cache@v2
-      - run: npm ci
-      # Gemessen wird das Release-Profil: das Debug-Binary wäre um ein Vielfaches langsamer
-      - run: cargo build --release -p nullradix-cli --bin nullradix
-      # sseDbBoardLatencyMs folgt dem Abfrage-Takt des Servers (2500 ms) und streut deshalb stark;
-      # der Wert wird gemeldet, lässt den Job aber nicht scheitern (siehe scripts/bench/README.md).
-      - name: Messen
-        shell: bash
-        run: node scripts/bench/bench.mjs --out bench-${{ matrix.baseline }}.json
-      - name: Mit den Ausgangswerten des Runners vergleichen
-        shell: bash
-        run: |
-          node scripts/bench/compare.mjs \
-            --baseline contract/baseline-ci-${{ matrix.baseline }}.json \
-            --measured bench-${{ matrix.baseline }}.json \
-            --ignore sseDbBoardLatencyMs
-      # Immer hochladen: gerade der gescheiterte Lauf soll nachlesbar sein
-      - name: Messwerte als Artefakt
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bench-${{ matrix.baseline }}
-          path: bench-${{ matrix.baseline }}.json
-
-  # Formatiert, lintet und testet den Cargo-Workspace (nullradix-core, nullradix-db, Desktop-App).
-  rust:
-    name: rust (${{ matrix.os }})
-    needs: runners
-    strategy:
-      # Jede Plattform läuft zu Ende, damit ein Fehler auf einer die anderen nicht verdeckt
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-26, windows-latest]
-    # Wie im test-Job: macOS und Windows nach der Wahl von „runners“
-    runs-on: ${{ fromJSON(matrix.os == 'windows-latest' && needs.runners.outputs.windows || matrix.os == 'macos-26' && needs.runners.outputs.macos || format('"{0}"', matrix.os)) }}
-    timeout-minutes: 45
-    # Ohne Debug-Info: die Testbinaries des ganzen Workspace samt Tauri füllen sonst die Platte
-    # des Linux-Runners, und der Linker bricht mit „Bus error“ ab
-    env:
-      CARGO_PROFILE_DEV_DEBUG: '0'
-      CARGO_PROFILE_TEST_DEBUG: '0'
-    steps:
-      # Wie im test-Job vor dem Checkout: die Tests legen eigene Git-Projekte an, und autocrlf
-      # false hält Vergleichsdateien wie tests/fixtures unter Windows bei \n; GIT_CONFIG_GLOBAL wie dort
-      - name: Git für Tests einrichten
-        shell: bash
-        run: |
-          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/ci.gitconfig"
-          echo "GIT_CONFIG_GLOBAL=$GIT_CONFIG_GLOBAL" >> "$GITHUB_ENV"
-          git config --global user.name "CI"
-          git config --global user.email "ci@example.invalid"
-          git config --global init.defaultBranch main
-          git config --global core.autocrlf false
-          if [ "$RUNNER_OS" = "Windows" ]; then git config --global core.longpaths true; fi
-      - uses: actions/checkout@v4
-      # Version absichtlich wie in rust-toolchain.toml; beim Anheben beide Stellen ändern
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: '1.99.1'
-          components: rustfmt, clippy
-      # Wie im test-Job: fremde Crates ohne das opt-level 2 aus Cargo.toml übersetzen
-      - name: Fremde Crates in der CI unoptimiert übersetzen
-        shell: bash
-        run: printf '\n[profile.dev.package."*"]\nopt-level = 0\n' >> .cargo/config.toml
-      - uses: Swatinem/rust-cache@v2
-      # Nur Linux braucht die Systembibliotheken von Tauri; Windows hat WebView2 ab Werk
-      - name: Systempakete für Tauri installieren
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --all --check
-      # Das Build-Skript der Desktop-App verlangt den Rust-Server unter binaries/, die gebaute
-      # Oberfläche und das Plugin-Bündel, die erst copy-server.mjs, npm run build bzw.
-      # build-plugin.mjs anlegen. Für Lint und Tests reichen leere Platzhalter.
-      - name: Platzhalter für Sidecar, Oberfläche und Plugin anlegen
-        shell: bash
-        run: |
-          ziel="$(rustc -vV | sed -n 's/^host: //p')"
-          endung=""; if [ "$RUNNER_OS" = "Windows" ]; then endung=".exe"; fi
-          mkdir -p apps/desktop/src-tauri/binaries packages/web/dist packages/plugin/dist/nullradix
-          touch "apps/desktop/src-tauri/binaries/nullradix-$ziel$endung" packages/web/dist/index.html \
-            packages/plugin/dist/nullradix/.platzhalter
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      # Alle Testprogramme laufen zu Ende: sonst verdeckt das erste scheiternde alle folgenden
-      - run: cargo test --workspace --no-fail-fast
-      # Die TypeScript-Typen aus ts-rs sind eingecheckt: neu erzeugen und prüfen, dass sich
-      # nichts ändert. Reicht auf einer Plattform, weil das Ergebnis überall gleich ist.
-      - name: Erzeugte TypeScript-Typen prüfen
-        if: runner.os == 'Linux'
-        run: cargo test -p nullradix-core export_bindings
-      # git diff findet geänderte Dateien, git status zusätzlich neu entstandene
-      - name: Erzeugte TypeScript-Typen sind aktuell
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          git diff --exit-code -- packages/web/src/api/generated
-          neu="$(git status --porcelain -- packages/web/src/api/generated)"
-          if [ -n "$neu" ]; then
-            echo "Nicht eingecheckte erzeugte Typen:"; echo "$neu"; exit 1
-          fi
+      - run: cargo clippy --workspace --all-targets --locked
+      - run: cargo xtask check
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+
+  deny:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@17aeb3c839e42274e2b8adf721c8c65edfdc74dd # v2.1.3
+
+  test-linux:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+      - run: cargo llvm-cov nextest --workspace --locked --profile ci
+      - run: cargo llvm-cov report --summary-only
+
+  test-windows:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld.exe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
+        with:
+          drive-size: 16GB
+          workspace-copy: true
+          env-mapping: |
+            CARGO_HOME,{{ DEV_DRIVE }}/.cargo
+            RUSTUP_HOME,{{ DEV_DRIVE }}/.rustup
+      - run: rustup toolchain install
+        working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: ${{ env.DEV_DRIVE_WORKSPACE }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest
+      - run: cargo nextest run --workspace --locked --profile ci
+        working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
+
+  ci-ok:
+    if: always()
+    needs: [changes, lint, deny, test-linux, test-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - run: echo "all checks passed"

@@ -1,6 +1,0 @@
-{
-  "name": "@harness/plugin",
-  "version": "0.3.6",
-  "private": true,
-  "type": "module"
-}

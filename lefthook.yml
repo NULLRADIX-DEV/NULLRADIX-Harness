@@ -1,0 +1,9 @@
+pre-push:
+  parallel: true
+  jobs:
+    - name: rustfmt
+      run: cargo fmt --all --check
+    - name: repository checks
+      run: cargo xtask check
+    - name: prettier
+      run: npx prettier --check .
