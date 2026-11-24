@@ -49,6 +49,15 @@
       "http": { "method": "DELETE", "path": "/api/v1/projects/{{project}}?version=1" }
     },
     { "name": "list in the CLI", "cli": { "args": ["board", "list", "--project", "ARC"] } },
+    { "name": "list everything", "http": { "method": "GET", "path": "/api/v1/boards" } },
+    { "name": "list everything in the CLI", "cli": { "args": ["board", "list"] } },
+    {
+      "name": "board under an unknown project",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/projects/0190a0b0-0000-7000-8000-00000000dead/boards/{{board}}"
+      }
+    },
     { "name": "delete in the CLI", "cli": { "args": ["board", "delete", "ARC", "{{board}}"] } },
     {
       "name": "list after delete",

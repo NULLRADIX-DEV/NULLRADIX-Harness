@@ -16,6 +16,7 @@ use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem}
 pub struct BoardDto {
     pub id: Uuid,
     pub project_id: Uuid,
+    pub project_key: String,
     pub name: String,
     pub owner_id: Uuid,
     pub owner_name: String,
@@ -34,6 +35,7 @@ impl From<BoardSummary> for BoardDto {
         Self {
             id: board.id().as_uuid(),
             project_id: board.project().as_uuid(),
+            project_key: summary.project_key,
             name: board.name().as_str().to_owned(),
             owner_id: board.owner().as_uuid(),
             owner_name: summary.owner_name,
@@ -90,6 +92,27 @@ pub(crate) struct DeleteBoardQuery {
     version: i64,
 }
 
+fn board_list(summaries: Vec<BoardSummary>) -> BoardList {
+    BoardList {
+        items: summaries.into_iter().map(BoardDto::from).collect(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/boards",
+    tag = "boards",
+    responses(
+        (status = 200, description = "Boards of every project", body = BoardList),
+        (status = 401, body = Problem),
+    )
+)]
+pub(crate) async fn list_all_boards(
+    State(state): State<ApiState>,
+) -> Result<Json<BoardList>, ApiError> {
+    Ok(Json(board_list(state.boards.list(None).await?)))
+}
+
 #[utoipa::path(
     get,
     path = "/projects/{projectId}/boards",
@@ -107,15 +130,7 @@ pub(crate) async fn list_boards(
     ApiPath(path): ApiPath<ProjectBoardsPath>,
 ) -> Result<Json<BoardList>, ApiError> {
     let project = Id::from_uuid(path.project_id);
-    state.projects.get(project).await?;
-    let items = state
-        .boards
-        .list(Some(project))
-        .await?
-        .into_iter()
-        .map(BoardDto::from)
-        .collect();
-    Ok(Json(BoardList { items }))
+    Ok(Json(board_list(state.boards.list(Some(project)).await?)))
 }
 
 #[utoipa::path(
@@ -267,6 +282,11 @@ mod tests {
             .unwrap();
         let (_, _, list) = send(&api.router, request).await;
         assert_eq!(list["items"][0]["name"], "Main");
+        let request = bearer(Request::get("/api/v1/boards"), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (_, _, all) = send(&api.router, request).await;
+        assert_eq!(all["items"], list["items"]);
 
         let request = bearer(Request::patch(location.as_str()), &api.token)
             .header("content-type", "application/json")

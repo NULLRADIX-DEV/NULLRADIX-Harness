@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/boards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_all_boards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -283,6 +299,7 @@ export interface components {
             ownerName: string;
             /** Format: uuid */
             projectId: string;
+            projectKey: string;
             /** Format: int64 */
             updatedAt: number;
             /** Format: int64 */
@@ -586,6 +603,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Me"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_all_boards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Boards of every project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardList"];
                 };
             };
             401: {
@@ -908,7 +953,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Stale version */
+            /** @description Stale version, or the project still has boards */
             409: {
                 headers: {
                     [name: string]: unknown;

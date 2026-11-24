@@ -123,6 +123,7 @@ fn routes() -> OpenApiRouter<ApiState> {
             projects::rename_project,
             projects::delete_project
         ))
+        .routes(routes!(boards::list_all_boards))
         .routes(routes!(boards::list_boards, boards::create_board))
         .routes(routes!(
             boards::get_board,
@@ -268,6 +269,7 @@ pub(crate) mod tests {
         ));
         let changes: Arc<dyn ChangeFeed> = store.clone();
         let boards = Arc::new(BoardService::new(
+            store.clone(),
             store.clone(),
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),

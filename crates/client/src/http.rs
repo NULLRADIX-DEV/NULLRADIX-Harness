@@ -140,8 +140,16 @@ impl Client {
         expect_empty(&mut response, 204)
     }
 
+    pub fn list_all_boards(&self) -> Result<BoardList, ClientError> {
+        self.get_json("/boards")
+    }
+
     pub fn list_boards(&self, project: Uuid) -> Result<BoardList, ClientError> {
         self.get_json(&format!("/projects/{project}/boards"))
+    }
+
+    pub fn get_board(&self, project: Uuid, board: Uuid) -> Result<BoardDto, ClientError> {
+        self.get_json(&format!("/projects/{project}/boards/{board}"))
     }
 
     pub fn create_board(
@@ -370,6 +378,7 @@ mod tests {
                 );
                 let hooks = Arc::new(HookService::new(store.clone(), Arc::new(SystemClock)));
                 let boards = Arc::new(nullradix_app::boards::BoardService::new(
+                    store.clone(),
                     store.clone(),
                     Arc::new(SystemClock),
                     Arc::new(UuidV7Generator),

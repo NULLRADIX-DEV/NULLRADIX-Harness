@@ -41,6 +41,7 @@
         "ownerId": "<ID-3>",
         "ownerName": "tester",
         "projectId": "<ID-1>",
+        "projectKey": "ARC",
         "updatedAt": "<TIME>",
         "version": 1
       },
@@ -120,6 +121,7 @@
         "ownerId": "<ID-3>",
         "ownerName": "tester",
         "projectId": "<ID-1>",
+        "projectKey": "ARC",
         "updatedAt": "<TIME>",
         "version": 2
       },
@@ -156,6 +158,73 @@
     "stdout": "<ID-2>  ARC     Main 2  (0 open)\n<ID-5>  ARC     Second  (0 open)\n"
   },
   {
+    "name": "list everything",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/boards"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatchEnabled": true,
+            "id": "<ID-2>",
+            "name": "Main 2",
+            "openTickets": 0,
+            "ownerId": "<ID-3>",
+            "ownerName": "tester",
+            "projectId": "<ID-1>",
+            "projectKey": "ARC",
+            "updatedAt": "<TIME>",
+            "version": 2
+          },
+          {
+            "createdAt": "<TIME>",
+            "dispatchEnabled": true,
+            "id": "<ID-5>",
+            "name": "Second",
+            "openTickets": 0,
+            "ownerId": "<ID-3>",
+            "ownerName": "tester",
+            "projectId": "<ID-1>",
+            "projectKey": "ARC",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "board",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "list everything in the CLI",
+    "stderr": "",
+    "stdout": "<ID-2>  ARC     Main 2  (0 open)\n<ID-5>  ARC     Second  (0 open)\n"
+  },
+  {
+    "name": "board under an unknown project",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/projects/<ID-4>/boards/<ID-2>"
+    },
+    "response": {
+      "json": {
+        "code": "project-not-found",
+        "detail": "project <ID-4> does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:project-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
     "cli": [
       "board",
       "delete",
@@ -185,6 +254,7 @@
             "ownerId": "<ID-3>",
             "ownerName": "tester",
             "projectId": "<ID-1>",
+            "projectKey": "ARC",
             "updatedAt": "<TIME>",
             "version": 1
           }

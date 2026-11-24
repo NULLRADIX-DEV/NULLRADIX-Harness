@@ -146,9 +146,10 @@ async fn start_boards(
 ) -> anyhow::Result<(Arc<BoardService>, Arc<Actor>)> {
     let person = local_person(store, &person_name(), &UuidV7Generator, &SystemClock)
         .await
-        .context("cannot record the local person")?;
-    tracing::debug!(person = person.name().as_str(), "acting person");
+        .context("cannot record the local person; NULLRADIX_PERSON takes up to 100 characters")?;
+    tracing::debug!(person = %person.id(), "acting person");
     let boards = Arc::new(BoardService::new(
+        Arc::new(store.clone()),
         Arc::new(store.clone()),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),

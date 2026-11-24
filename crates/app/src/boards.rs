@@ -7,6 +7,7 @@ use nullradix_domain::{
     Actor, ActorKind, ActorName, Board, BoardError, BoardName, Id, Project, Timestamp, Version,
 };
 
+use crate::projects::{self, ProjectRepository};
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
 #[async_trait]
@@ -19,6 +20,7 @@ pub trait ActorRepository: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoardSummary {
     pub board: Board,
+    pub project_key: String,
     pub owner_name: String,
     /// Tickets that are neither done nor not needed.
     pub open_tickets: u32,
@@ -72,6 +74,7 @@ pub async fn local_person(
 
 pub struct BoardService {
     repository: Arc<dyn BoardRepository>,
+    projects: Arc<dyn ProjectRepository>,
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     signal: ChangeSignal,
@@ -87,12 +90,14 @@ impl BoardService {
     #[must_use]
     pub fn new(
         repository: Arc<dyn BoardRepository>,
+        projects: Arc<dyn ProjectRepository>,
         clock: Arc<dyn Clock>,
         ids: Arc<dyn IdGenerator>,
         signal: ChangeSignal,
     ) -> Self {
         Self {
             repository,
+            projects,
             clock,
             ids,
             signal,
@@ -109,24 +114,31 @@ impl BoardService {
         let board = Board::new(self.ids.next(), project, name, owner.id(), self.clock.now());
         let change = self.repository.insert(&board).await?;
         self.signal.notify(&change);
-        Ok(BoardSummary {
-            board,
-            owner_name: owner.name().as_str().to_owned(),
-            open_tickets: 0,
-        })
+        self.repository
+            .get(board.id())
+            .await?
+            .ok_or_else(|| not_found(board.id()))
     }
 
+    /// Boards of `project`, which must exist, or of all projects.
     pub async fn list(&self, project: Option<Id<Project>>) -> Result<Vec<BoardSummary>, AppError> {
-        self.repository.list(project).await
+        let boards = self.repository.list(project).await?;
+        if let Some(project) = project
+            && boards.is_empty()
+            && self.projects.get(project).await?.is_none()
+        {
+            return Err(projects::not_found(project));
+        }
+        Ok(boards)
     }
 
     /// The board, which must belong to `project`.
     pub async fn get(&self, project: Id<Project>, id: Id<Board>) -> Result<BoardSummary, AppError> {
-        self.repository
-            .get(id)
-            .await?
-            .filter(|summary| summary.board.project() == project)
-            .ok_or_else(|| not_found(id))
+        match self.repository.get(id).await? {
+            Some(summary) if summary.board.project() == project => Ok(summary),
+            _ if self.projects.get(project).await?.is_none() => Err(projects::not_found(project)),
+            _ => Err(not_found(id)),
+        }
     }
 
     /// Renames the board; the same name returns it unchanged.

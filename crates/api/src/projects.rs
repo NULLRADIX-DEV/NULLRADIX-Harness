@@ -173,7 +173,8 @@ pub(crate) async fn rename_project(
         (status = 204, description = "The project is gone"),
         (status = 401, body = Problem),
         (status = 404, body = Problem),
-        (status = 409, description = "Stale version", body = Problem),
+        (status = 409, description = "Stale version, or the project still has boards",
+            body = Problem),
         (status = 422, body = Problem),
     )
 )]

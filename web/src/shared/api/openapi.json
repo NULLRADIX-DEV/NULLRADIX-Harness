@@ -144,6 +144,35 @@
         }
       }
     },
+    "/api/v1/boards": {
+      "get": {
+        "tags": [
+          "boards"
+        ],
+        "operationId": "list_all_boards",
+        "responses": {
+          "200": {
+            "description": "Boards of every project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/events": {
       "get": {
         "tags": [
@@ -539,7 +568,7 @@
             }
           },
           "409": {
-            "description": "Stale version",
+            "description": "Stale version, or the project still has boards",
             "content": {
               "application/json": {
                 "schema": {
@@ -1327,6 +1356,7 @@
         "required": [
           "id",
           "projectId",
+          "projectKey",
           "name",
           "ownerId",
           "ownerName",
@@ -1368,6 +1398,9 @@
           "projectId": {
             "type": "string",
             "format": "uuid"
+          },
+          "projectKey": {
+            "type": "string"
           },
           "updatedAt": {
             "type": "integer",

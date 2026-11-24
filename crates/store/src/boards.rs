@@ -74,6 +74,7 @@ impl ActorRepository for Store {
 struct Row {
     id: Uuid,
     project_id: Uuid,
+    project_key: String,
     name: String,
     owner_id: Uuid,
     owner_name: String,
@@ -99,6 +100,7 @@ impl Row {
         });
         Ok(BoardSummary {
             board,
+            project_key: self.project_key,
             owner_name: self.owner_name,
             open_tickets: u32::try_from(self.open_tickets).map_err(|_| corrupt("ticket count"))?,
         })
@@ -115,6 +117,19 @@ async fn missed(connection: &mut SqliteConnection, id: Id<Board>) -> AppError {
         AppError::version_conflict("board", id),
         boards::not_found(id),
     )
+}
+
+/// Names the missing project when it caused `error`; a missing owner stays a database error.
+async fn missing_project(
+    connection: &mut SqliteConnection,
+    project: Id<Project>,
+    error: sqlx::Error,
+) -> AppError {
+    let uuid = project.as_uuid();
+    let exists = sqlx::query_scalar!("SELECT 1 FROM projects WHERE id = ?", uuid)
+        .fetch_optional(connection)
+        .await;
+    missed_guard(exists, database(error), projects::not_found(project))
 }
 
 fn summaries(rows: Vec<Row>) -> Result<Vec<BoardSummary>, AppError> {
@@ -154,7 +169,7 @@ impl BoardRepository for Store {
         match inserted {
             Ok(_) => {}
             Err(error) if foreign_key_violation(&error) => {
-                return Err(projects::not_found(board.project()));
+                return Err(missing_project(&mut tx, board.project(), error).await);
             }
             Err(error) => return Err(database(error)),
         }
@@ -174,8 +189,9 @@ impl BoardRepository for Store {
         let project = project.map(|id| id.as_uuid());
         let rows = sqlx::query_as!(
             Row,
-            r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", b.name,
-                      b.owner_id AS "owner_id: Uuid", a.name AS owner_name, b.dispatch_enabled,
+            r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", p.key AS project_key,
+                      b.name, b.owner_id AS "owner_id: Uuid", a.name AS owner_name,
+                      b.dispatch_enabled,
                       0 AS "open_tickets!: i64", b.created_at, b.updated_at, b.version
                FROM boards b
                JOIN projects p ON p.id = b.project_id
@@ -194,10 +210,12 @@ impl BoardRepository for Store {
         let uuid = id.as_uuid();
         let row = sqlx::query_as!(
             Row,
-            r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", b.name,
-                      b.owner_id AS "owner_id: Uuid", a.name AS owner_name, b.dispatch_enabled,
+            r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", p.key AS project_key,
+                      b.name, b.owner_id AS "owner_id: Uuid", a.name AS owner_name,
+                      b.dispatch_enabled,
                       0 AS "open_tickets!: i64", b.created_at, b.updated_at, b.version
                FROM boards b
+               JOIN projects p ON p.id = b.project_id
                JOIN actors a ON a.id = b.owner_id
                WHERE b.id = ?"#,
             uuid,
