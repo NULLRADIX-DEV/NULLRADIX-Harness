@@ -1,0 +1,46 @@
+import type { components } from './schema';
+
+export type Problem = components['schemas']['Problem'];
+
+export const PROBLEM_CONTENT_TYPE = 'application/problem+json';
+
+export class ApiProblemError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly detail: string;
+
+  constructor(problem: Problem) {
+    super(problem.detail);
+    this.name = 'ApiProblemError';
+    this.status = problem.status;
+    this.code = problem.code;
+    this.detail = problem.detail;
+  }
+}
+
+export function isProblem(value: unknown): value is Problem {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record['status'] === 'number' &&
+    typeof record['code'] === 'string' &&
+    typeof record['detail'] === 'string' &&
+    typeof record['title'] === 'string' &&
+    typeof record['type'] === 'string'
+  );
+}
+
+export interface FetchResult<T> {
+  data?: T;
+  error?: unknown;
+  response: Response;
+}
+
+export function unwrap<T>({ data, error, response }: FetchResult<T>): T {
+  if (response.ok && data !== undefined) return data;
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.startsWith(PROBLEM_CONTENT_TYPE) && isProblem(error)) {
+    throw new ApiProblemError(error);
+  }
+  throw new Error(`request failed with status ${String(response.status)}`);
+}

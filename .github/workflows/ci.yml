@@ -28,6 +28,7 @@ jobs:
       pull-requests: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -46,6 +47,12 @@ jobs:
               - .config/nextest.toml
               - crates/store/migrations/**
               - crates/store/.sqlx/**
+              - .github/workflows/ci.yml
+            web:
+              - 'web/**'
+              - 'package*.json'
+              - eslint.config.js
+              - .nvmrc
               - .github/workflows/ci.yml
 
   lint:
@@ -127,9 +134,43 @@ jobs:
       - run: cargo nextest run --workspace --locked --profile ci
         working-directory: ${{ env.DEV_DRIVE_WORKSPACE }}
 
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  codegen:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: cargo xtask codegen
+      - run: git status --porcelain && test -z "$(git status --porcelain)"
+
   ci-ok:
     if: always()
-    needs: [changes, lint, deny, test-linux, test-windows, query-cache]
+    needs: [changes, lint, deny, test-linux, test-windows, query-cache, web, codegen]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
