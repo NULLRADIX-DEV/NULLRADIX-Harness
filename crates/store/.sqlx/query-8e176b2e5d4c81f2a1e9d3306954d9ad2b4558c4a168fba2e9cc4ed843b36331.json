@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT seq AS \"seq!\", entity, entity_id AS \"entity_id: Uuid\", op, at\n               FROM change_feed WHERE seq > ? ORDER BY seq LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "seq!",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "change_feed",
+            "name": "seq"
+          }
+        }
+      },
+      {
+        "name": "entity",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "change_feed",
+            "name": "entity"
+          }
+        }
+      },
+      {
+        "name": "entity_id: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "change_feed",
+            "name": "entity_id"
+          }
+        }
+      },
+      {
+        "name": "op",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "change_feed",
+            "name": "op"
+          }
+        }
+      },
+      {
+        "name": "at",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "change_feed",
+            "name": "at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8e176b2e5d4c81f2a1e9d3306954d9ad2b4558c4a168fba2e9cc4ed843b36331"
+}

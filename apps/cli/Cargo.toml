@@ -16,6 +16,7 @@ anyhow.workspace = true
 clap.workspace = true
 nullradix-api.workspace = true
 nullradix-os.workspace = true
+nullradix-store.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal"] }
