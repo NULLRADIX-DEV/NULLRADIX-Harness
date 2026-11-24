@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{
     Actor, Board, Id, Priority, Project, TicketError, TicketKey, TicketStatus, Timestamp, Version,
     required_text, utf16_len,
@@ -120,6 +122,10 @@ pub struct TicketRecord {
     pub needs_planning: bool,
     pub blocked_reason: Option<String>,
     pub target_branch: Option<TargetBranch>,
+    /// Who wrote the plan and when.
+    pub planned: Option<(String, Timestamp)>,
+    /// Who plans the ticket right now and since when; a claim lives 15 minutes.
+    pub planning_claim: Option<(String, Timestamp)>,
     pub created_by: Id<Actor>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
@@ -161,6 +167,8 @@ impl Ticket {
             needs_planning: draft.needs_planning,
             blocked_reason: None,
             target_branch: draft.target_branch,
+            planned: None,
+            planning_claim: None,
             created_by,
             created_at: now,
             updated_at: now,
@@ -226,6 +234,7 @@ pub fn changes(before: &TicketRecord, after: &TicketRecord) -> Vec<FieldChange> 
     let branch = |value: &Option<TargetBranch>| value.as_ref().map(|name| name.0.clone());
     let keys = |keys: &[TicketKey]| keys.iter().map(ToString::to_string).collect::<Vec<_>>();
     let length = |value: &str| Some(format!("{} characters", utf16_len(value)));
+    let name = |value: &Option<(String, Timestamp)>| value.as_ref().map(|(name, _)| name.clone());
     let pairs = [
         (
             "title",
@@ -262,6 +271,12 @@ pub fn changes(before: &TicketRecord, after: &TicketRecord) -> Vec<FieldChange> 
             "boardId",
             text(&before.board.to_string()),
             text(&after.board.to_string()),
+        ),
+        ("plannedBy", name(&before.planned), name(&after.planned)),
+        (
+            "planningClaimBy",
+            name(&before.planning_claim),
+            name(&after.planning_claim),
         ),
         (
             "targetBranch",
@@ -334,6 +349,66 @@ fn json_list(items: &[String]) -> String {
     }
     json.push(']');
     json
+}
+
+/// How long a planning claim keeps others off a ticket.
+pub const PLANNING_CLAIM_TTL: Duration = Duration::from_mins(15);
+
+/// Whether someone still holds the planning claim at `now`.
+#[must_use]
+pub fn planning_claim_alive(record: &TicketRecord, now: Timestamp) -> bool {
+    record
+        .planning_claim
+        .as_ref()
+        .is_some_and(|(_, at)| now.saturating_since(*at) < PLANNING_CLAIM_TTL)
+}
+
+/// Needs planning, is neither in planning nor not needed, and nobody holds a live claim.
+#[must_use]
+pub fn planning_candidate(record: &TicketRecord, now: Timestamp) -> bool {
+    record.needs_planning
+        && !matches!(
+            record.status,
+            TicketStatus::InPlanning | TicketStatus::NotNeeded
+        )
+        && !planning_claim_alive(record, now)
+}
+
+/// Prefix of a block reason that waits for a person, such as a review before merge.
+pub const HUMAN_INTERACTION: &str = "Human Interaction:";
+
+/// Whether the block reason asks a person to accept the ticket.
+#[must_use]
+pub fn waits_for_a_person(reason: Option<&str>) -> bool {
+    let text = reason.unwrap_or_default().trim();
+    text.starts_with(HUMAN_INTERACTION) || Some(text) == HUMAN_INTERACTION.strip_suffix(':')
+}
+
+/// A diagram without the Markdown fence around it, as legacy stored plans.
+#[must_use]
+pub fn strip_fence(diagram: &str) -> String {
+    fenced_body(diagram).unwrap_or(diagram).to_owned()
+}
+
+fn fenced_body(diagram: &str) -> Option<&str> {
+    let rest = diagram.trim_start().strip_prefix("```")?;
+    let rest = rest.strip_prefix("mermaid").unwrap_or(rest);
+    let inner = rest.trim_end().strip_suffix("```")?;
+    let gap = inner.len() - inner.trim_start().len();
+    let breaks = |text: &str| -> Vec<usize> {
+        text.char_indices()
+            .filter(|(_, letter)| *letter == '\n')
+            .map(|(at, _)| at)
+            .collect()
+    };
+    // the opening takes as many blank lines as it can and still leaves one for the end
+    breaks(&inner[..gap]).into_iter().rev().find_map(|opening| {
+        let body = &inner[opening + 1..];
+        breaks(body)
+            .into_iter()
+            .find(|end| body[*end..].trim().is_empty())
+            .map(|end| &body[..end])
+    })
 }
 
 /// What stays of a deleted ticket.
@@ -600,6 +675,40 @@ mod tests {
             ]
         );
         assert_eq!(super::changes(before.record(), before.record()), []);
+    }
+
+    #[test]
+    fn fences_come_off_diagrams_as_legacy_stripped_them() {
+        let cases = [
+            ("```mermaid\ngraph TD\n  A-->B\n```", "graph TD\n  A-->B"),
+            ("  ```\n\nA \n\n```  ", "A "),
+            ("```\n\n```", ""),
+            ("graph TD", "graph TD"),
+            ("```mermaidx\nA\n```", "```mermaidx\nA\n```"),
+            ("```\nA```", "```\nA```"),
+        ];
+        for (given, stored) in cases {
+            assert_eq!(strip_fence(given), stored, "{given:?}");
+        }
+    }
+
+    #[test]
+    fn planning_claims_live_fifteen_minutes() {
+        let mut record = sample().record().clone();
+        let start = Timestamp::from_millis(1_000);
+        assert!(!planning_claim_alive(&record, start));
+        record.planning_claim = Some((String::from("planner"), start));
+        let later = |minutes: u64| start.checked_add(Duration::from_mins(minutes)).unwrap();
+        assert!(planning_claim_alive(&record, later(14)));
+        assert!(!planning_claim_alive(&record, later(15)));
+    }
+
+    #[test]
+    fn only_human_interaction_reasons_wait_for_a_person() {
+        assert!(waits_for_a_person(Some(" Human Interaction: review ")));
+        assert!(waits_for_a_person(Some("Human Interaction")));
+        assert!(!waits_for_a_person(Some("Merge: conflict")));
+        assert!(!waits_for_a_person(None));
     }
 
     #[test]

@@ -54,8 +54,9 @@ pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
 };
 pub use tickets::{
-    AddStep, ChangeStep, ColumnDto, CreateTicket, HistoryDto, MoveStep, MoveTicket, PriorityDto,
-    StepDto, TicketDetailDto, TicketDto, TicketList, TicketStatusDto, UpdateTicket,
+    AcceptTicket, AddStep, ChangeStep, ClaimPlanning, ClaimTicket, ColumnDto, CreateTicket,
+    HistoryDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, PriorityDto, ReleaseTicket,
+    StepDto, TicketDetailDto, TicketDto, TicketList, TicketStatusDto, UpdateTicket, WritePlan,
 };
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
@@ -148,6 +149,13 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(tickets::add_step))
         .routes(routes!(tickets::change_step, tickets::remove_step))
         .routes(routes!(tickets::move_step))
+        .routes(routes!(tickets::claim_ticket))
+        .routes(routes!(tickets::release_ticket))
+        .routes(routes!(tickets::accept_ticket))
+        .routes(routes!(tickets::write_plan))
+        .routes(routes!(tickets::claim_planning, tickets::release_planning))
+        .routes(routes!(tickets::next_planning))
+        .routes(routes!(tickets::claim_next_planning))
         .routes(routes!(runs::list_runs, runs::start_run))
         .routes(routes!(runs::get_run))
         .routes(routes!(runs::cancel_run))

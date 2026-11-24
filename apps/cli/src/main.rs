@@ -8,6 +8,7 @@ mod hook;
 mod intake;
 mod logging;
 mod open;
+mod plan;
 mod project;
 mod run;
 mod status;
@@ -61,6 +62,9 @@ enum Command {
     /// Check, add, edit, remove and move the work steps of a ticket
     #[command(subcommand)]
     Step(step::StepCommand),
+    /// Write plans and claim tickets for planning
+    #[command(subcommand)]
+    Plan(plan::PlanCommand),
     /// Run commands on the daemon's machine
     #[command(subcommand)]
     Run(run::RunCommand),
@@ -130,6 +134,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Step(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             step::run(command, &client)
+        }
+        Command::Plan(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            plan::run(command, &client)
         }
         Command::Run(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

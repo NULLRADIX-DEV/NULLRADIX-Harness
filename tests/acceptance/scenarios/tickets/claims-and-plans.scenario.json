@@ -1,0 +1,106 @@
+{
+  "title": "Agents claim and plan tickets, people accept them, as on the legacy board",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "first ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Plan me" }
+      }
+    },
+    {
+      "name": "second ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Then me" }
+      }
+    },
+    { "name": "peek at the queue", "cli": { "args": ["plan", "next"] } },
+    { "name": "claim from the queue", "cli": { "args": ["plan", "next", "--claim", "planner"] } },
+    {
+      "name": "another planner",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/planning-claim",
+        "body": { "agent": "other" }
+      }
+    },
+    {
+      "name": "the queue skips claimed tickets",
+      "http": { "method": "GET", "path": "/api/v1/planning-queue" }
+    },
+    {
+      "name": "plan without content",
+      "http": { "method": "PUT", "path": "/api/v1/tickets/ARC-1/plan", "body": {} }
+    },
+    {
+      "name": "write the plan",
+      "cli": {
+        "args": [
+          "plan",
+          "write",
+          "ARC-1",
+          "--plan",
+          "Do it",
+          "--handbook",
+          "Steps",
+          "--diagram",
+          "```mermaid\ngraph TD\n```",
+          "--acceptance",
+          "It works"
+        ]
+      }
+    },
+    {
+      "name": "claim for work",
+      "cli": { "args": ["ticket", "claim", "ARC-1", "--agent", "claude"] }
+    },
+    {
+      "name": "claim taken",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/claim",
+        "body": { "agent": "claude" }
+      }
+    },
+    {
+      "name": "wait for review",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1",
+        "body": {
+          "version": 4,
+          "status": "blocked",
+          "blockedReason": "Human Interaction: Review before merge"
+        }
+      }
+    },
+    { "name": "accept in the CLI", "cli": { "args": ["ticket", "accept", "ARC-1"] } },
+    {
+      "name": "accept twice",
+      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-1/accept", "body": {} }
+    },
+    { "name": "release", "cli": { "args": ["ticket", "release", "ARC-2", "--status", "planned"] } },
+    { "name": "detail", "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1" } }
+  ]
+}

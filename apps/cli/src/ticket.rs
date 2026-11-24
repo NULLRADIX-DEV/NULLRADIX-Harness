@@ -5,7 +5,8 @@ use std::process::ExitCode;
 use anyhow::{Context, bail};
 use clap::Subcommand;
 use nullradix_api::{
-    ColumnDto, CreateTicket, MoveTicket, PriorityDto, TicketDetailDto, TicketDto, UpdateTicket,
+    AcceptTicket, ClaimTicket, ColumnDto, CreateTicket, MoveTicket, PriorityDto, ReleaseTicket,
+    TicketDetailDto, TicketDto, UpdateTicket,
 };
 use nullradix_client::Client;
 use nullradix_domain::{Priority, TicketKey, TicketStatus, Timestamp};
@@ -16,32 +17,7 @@ use crate::project;
 #[derive(Subcommand)]
 pub(crate) enum TicketCommand {
     /// List tickets by column in display order
-    List {
-        /// Only the tickets of this board
-        #[arg(long)]
-        board: Option<Uuid>,
-        /// Only the tickets of this project key
-        #[arg(long)]
-        project: Option<String>,
-        /// Comma-separated columns, such as waiting,planned
-        #[arg(long)]
-        status: Option<String>,
-        /// Only tickets that still need planning
-        #[arg(long)]
-        needs_planning: bool,
-        /// Only tickets assigned to this name
-        #[arg(long)]
-        assignee: Option<String>,
-        /// Only tickets with this label
-        #[arg(long)]
-        label: Option<String>,
-        /// Text in the key, title or description
-        #[arg(long)]
-        query: Option<String>,
-        /// Print JSON instead of text
-        #[arg(long)]
-        json: bool,
-    },
+    List(ListArgs),
     /// Show a ticket
     Show {
         /// Ticket key such as ARC-7
@@ -72,6 +48,32 @@ pub(crate) enum TicketCommand {
         /// Lift the dependency, question and not-needed locks
         #[arg(long)]
         force: bool,
+    },
+    /// Take a ticket for an agent; it moves to in progress unless told
+    Claim {
+        key: String,
+        /// Name of the agent that works on it
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        version: Option<i64>,
+        /// Take it from another assignee and lift the locks
+        #[arg(long)]
+        force: bool,
+    },
+    /// Give a ticket back; a given status applies without locks
+    Release {
+        key: String,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Finish a ticket that waits for a person
+    Accept {
+        key: String,
+        #[arg(long)]
+        version: Option<i64>,
     },
     /// Delete a ticket for good
     Delete {
@@ -150,6 +152,34 @@ pub(crate) struct SetArgs {
 }
 
 #[derive(clap::Args)]
+pub(crate) struct ListArgs {
+    /// Only the tickets of this board
+    #[arg(long)]
+    board: Option<Uuid>,
+    /// Only the tickets of this project key
+    #[arg(long)]
+    project: Option<String>,
+    /// Comma-separated columns, such as waiting,planned
+    #[arg(long)]
+    status: Option<String>,
+    /// Only tickets that still need planning
+    #[arg(long)]
+    needs_planning: bool,
+    /// Only tickets assigned to this name
+    #[arg(long)]
+    assignee: Option<String>,
+    /// Only tickets with this label
+    #[arg(long)]
+    label: Option<String>,
+    /// Text in the key, title or description
+    #[arg(long)]
+    query: Option<String>,
+    /// Print JSON instead of text
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(clap::Args)]
 pub(crate) struct CreateArgs {
     title: String,
     /// Board to create the ticket on
@@ -223,47 +253,7 @@ pub(crate) fn text(inline: Option<String>, file: Option<&Path>) -> anyhow::Resul
 
 pub(crate) fn run(command: TicketCommand, client: &Client) -> anyhow::Result<ExitCode> {
     match command {
-        TicketCommand::List {
-            board,
-            project,
-            status,
-            needs_planning,
-            assignee,
-            label,
-            query,
-            json,
-        } => {
-            let project = match project {
-                Some(key) => Some(project::find(client, &key)?.id.to_string()),
-                None => None,
-            };
-            let board = board.map(|id| id.to_string());
-            let mut pairs: Vec<(&str, &str)> = Vec::new();
-            let optional = [
-                ("projectId", project.as_deref()),
-                ("boardId", board.as_deref()),
-                ("columns", status.as_deref()),
-                ("assignee", assignee.as_deref()),
-                ("label", label.as_deref()),
-                ("query", query.as_deref()),
-            ];
-            pairs.extend(
-                optional
-                    .into_iter()
-                    .filter_map(|(name, value)| Some((name, value?))),
-            );
-            if needs_planning {
-                pairs.push(("needsPlanning", "true"));
-            }
-            let tickets = client.list_tickets(&pairs)?.items;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&tickets)?);
-            } else {
-                for line in list_lines(&tickets) {
-                    println!("{line}");
-                }
-            }
-        }
+        TicketCommand::List(args) => list(&args, client)?,
         TicketCommand::Show { key, history, json } => {
             let key = TicketKey::parse(&key)?;
             let detail = client.get_ticket(&key.to_string())?;
@@ -298,6 +288,34 @@ pub(crate) fn run(command: TicketCommand, client: &Client) -> anyhow::Result<Exi
                 TicketStatus::from(ticket.status).as_str()
             );
         }
+        TicketCommand::Claim {
+            key,
+            agent,
+            status,
+            version,
+            force,
+        } => {
+            let input = ClaimTicket {
+                agent: agent.clone(),
+                status,
+                version,
+                force,
+            };
+            let ticket = client.claim_ticket(&canonical(&key)?, &input)?;
+            let name = ticket.assignee.clone().unwrap_or(agent);
+            report(&ticket, &format!("claimed by {name}"));
+        }
+        TicketCommand::Release { key, status } => {
+            let ticket = client.release_ticket(&canonical(&key)?, &ReleaseTicket { status })?;
+            report(&ticket, "released");
+        }
+        TicketCommand::Accept { key, version } => {
+            let input = AcceptTicket { version };
+            report(
+                &client.accept_ticket(&canonical(&key)?, &input)?,
+                "accepted",
+            );
+        }
         TicketCommand::Delete { key, version } => {
             let key = TicketKey::parse(&key)?.to_string();
             client.delete_ticket(&key, version)?;
@@ -305,6 +323,51 @@ pub(crate) fn run(command: TicketCommand, client: &Client) -> anyhow::Result<Exi
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn list(args: &ListArgs, client: &Client) -> anyhow::Result<()> {
+    let project = match &args.project {
+        Some(key) => Some(project::find(client, key)?.id.to_string()),
+        None => None,
+    };
+    let board = args.board.map(|id| id.to_string());
+    let optional = [
+        ("projectId", project.as_deref()),
+        ("boardId", board.as_deref()),
+        ("columns", args.status.as_deref()),
+        ("assignee", args.assignee.as_deref()),
+        ("label", args.label.as_deref()),
+        ("query", args.query.as_deref()),
+    ];
+    let mut pairs: Vec<(&str, &str)> = optional
+        .into_iter()
+        .filter_map(|(name, value)| Some((name, value?)))
+        .collect();
+    if args.needs_planning {
+        pairs.push(("needsPlanning", "true"));
+    }
+    let tickets = client.list_tickets(&pairs)?.items;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&tickets)?);
+    } else {
+        for line in list_lines(&tickets) {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn canonical(key: &str) -> anyhow::Result<String> {
+    Ok(TicketKey::parse(key)?.to_string())
+}
+
+/// One line such as `ARC-0001 released (backlog)`.
+pub(crate) fn report(ticket: &TicketDto, what: &str) {
+    println!(
+        "{} {what} ({})",
+        ticket.key,
+        TicketStatus::from(ticket.status).as_str()
+    );
 }
 
 fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {

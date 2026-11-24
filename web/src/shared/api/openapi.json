@@ -370,6 +370,130 @@
         ]
       }
     },
+    "/api/v1/planning-queue": {
+      "get": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "next_planning",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "boardId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The next ticket that needs planning",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextPlanning"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/planning-queue/claim": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "claim_next_planning",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NextPlanningClaim"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The claimed ticket, if any needs planning",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextPlanning"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects": {
       "get": {
         "tags": [
@@ -1772,6 +1896,160 @@
         }
       }
     },
+    "/api/v1/tickets/{ticketKey}/accept": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "accept_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/claim": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "claim_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Assigned already, or a stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticketKey}/move": {
       "post": {
         "tags": [
@@ -1829,6 +2107,275 @@
           },
           "409": {
             "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/plan": {
+      "put": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "write_plan",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WritePlan"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/planning-claim": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "claim_planning",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimPlanning"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another agent plans it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "release_planning",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "description": "Name of the agent that holds the claim.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The agent no longer holds a claim"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/release": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "release_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
@@ -2197,6 +2744,19 @@
   },
   "components": {
     "schemas": {
+      "AcceptTicket": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
       "AddStep": {
         "type": "object",
         "description": "A new work step.",
@@ -2398,6 +2958,53 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClaimPlanning": {
+        "type": "object",
+        "required": [
+          "agent"
+        ],
+        "properties": {
+          "agent": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClaimTicket": {
+        "type": "object",
+        "description": "A claim of a ticket for an agent.",
+        "required": [
+          "agent"
+        ],
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Takes the ticket from another assignee and lifts the locks."
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TicketStatusDto",
+                "description": "In progress when left out."
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "version": {
@@ -2858,6 +3465,49 @@
         },
         "additionalProperties": false
       },
+      "NextPlanning": {
+        "type": "object",
+        "properties": {
+          "ticket": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TicketDto",
+                "description": "None when no ticket needs planning."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "NextPlanningClaim": {
+        "type": "object",
+        "description": "The next ticket that needs planning, claimed for an agent when one is named.",
+        "required": [
+          "agent"
+        ],
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "boardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "projectId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "OutputLineDto": {
         "type": "object",
         "required": [
@@ -3002,6 +3652,23 @@
             "$ref": "#/components/schemas/HookKindDto"
           }
         }
+      },
+      "ReleaseTicket": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TicketStatusDto",
+                "description": "Applied without any lock."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "RenameBoard": {
         "type": "object",
@@ -3369,6 +4036,33 @@
           "plan": {
             "type": "string"
           },
+          "plannedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "plannedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "planningClaimAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "planningClaimBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who plans the ticket now; a claim lives 15 minutes."
+          },
           "priority": {
             "$ref": "#/components/schemas/PriorityDto"
           },
@@ -3587,6 +4281,49 @@
             "type": "integer",
             "format": "int64",
             "description": "Version the change is based on."
+          }
+        },
+        "additionalProperties": false
+      },
+      "WritePlan": {
+        "type": "object",
+        "description": "A plan; at least one of plan, handbook and diagram.",
+        "properties": {
+          "acceptance": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "diagram": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Mermaid; a Markdown fence around it is dropped."
+          },
+          "handbook": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TicketStatusDto",
+                "description": "Planned when left out."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false

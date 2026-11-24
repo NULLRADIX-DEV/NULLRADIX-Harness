@@ -5,12 +5,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    ASSIGNEE_MAX, Actor, BLOCKED_REASON_MAX, Board, Column, DependencyIndex, HistoryEntry, Id,
-    Priority, Project, ProjectKey, RuleError, StatusFacts, StatusLock, StatusRequest, Step,
-    StepEdit, StepError, TargetBranch, TextError, Ticket, TicketDraft, TicketError, TicketKey,
-    TicketRecord, TicketStatus, TicketTitle, Timestamp, Tombstone, Version, changes,
-    check_status_change, display_order, normalize_dependencies, normalize_labels, optional_text,
-    step, validate_dependencies,
+    ASSIGNEE_MAX, Actor, BLOCKED_REASON_MAX, Board, Column, DependencyIndex, HUMAN_INTERACTION,
+    HistoryEntry, Id, Priority, Project, ProjectKey, RuleError, StatusFacts, StatusLock,
+    StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError, Ticket, TicketDraft,
+    TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle, Timestamp, Tombstone, Version,
+    changes, check_status_change, display_order, normalize_dependencies, normalize_labels,
+    optional_text, planning_candidate, planning_claim_alive, step, strip_fence,
+    validate_dependencies, waits_for_a_person,
 };
 
 use crate::projects::ProjectRepository;
@@ -238,6 +239,19 @@ impl TicketPatch {
     }
 }
 
+/// The fields a plan writes; at least one of plan, handbook and diagram must be given.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlanInput {
+    pub plan: Option<String>,
+    pub handbook: Option<String>,
+    /// A Markdown fence around it is dropped.
+    pub diagram: Option<String>,
+    /// Kept as it was when blank.
+    pub acceptance: Option<String>,
+    /// Planned when left out.
+    pub status: Option<String>,
+}
+
 /// Who writes and which legacy locks the write lifts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WriteOptions {
@@ -335,6 +349,22 @@ fn locked(error: &StatusLock) -> AppError {
 #[must_use]
 pub fn not_found(key: &TicketKey) -> AppError {
     AppError::not_found("ticket-not-found", format!("ticket {key} does not exist"))
+}
+
+fn agent_missing() -> AppError {
+    AppError::invalid("agent-missing", "the claim needs the name of the agent")
+}
+
+fn agent_name(agent: &str) -> Result<String, AppError> {
+    match optional_text(agent, ASSIGNEE_MAX) {
+        Ok(Some(name)) => Ok(name.to_owned()),
+        Ok(None) => Err(agent_missing()),
+        Err(error) => Err(AppError::text(
+            error,
+            "agent-missing",
+            format!("the agent name {error}"),
+        )),
+    }
 }
 
 fn nothing_changed() -> AppError {
@@ -671,6 +701,286 @@ impl TicketService {
             self.signal.notify(last);
         }
         Ok(())
+    }
+
+    /// Takes the ticket for an agent, as legacy `claim` did; it moves to in progress unless told.
+    pub async fn claim(
+        &self,
+        key: &str,
+        agent: &str,
+        status: Option<&str>,
+        actor: &Actor,
+        expected: Option<Version>,
+        force: bool,
+    ) -> Result<TicketView, AppError> {
+        if agent.trim().is_empty() {
+            return Err(agent_missing());
+        }
+        let status = optional_status(status)?.unwrap_or(TicketStatus::InProgress);
+        let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
+        let mut write = self.repository.begin().await?;
+        let name = agent_name(agent)?;
+        let before = load(write.as_mut(), &key, expected).await?;
+        let record = before.record();
+        // even the same name: several sessions often share one, only this keeps a claim exclusive
+        if let Some(assignee) = &record.assignee
+            && !force
+        {
+            return Err(AppError::conflict(
+                "conflict",
+                format!("{key} is already assigned to {assignee}; take the next free ticket"),
+            ));
+        }
+        if status == TicketStatus::NotNeeded && !force {
+            return Err(locked(&StatusLock::NotNeededByPeople));
+        }
+        let index = write.dependency_index().await?;
+        if !force {
+            let open = index.open_dependencies(&record.depends_on);
+            if !open.is_empty() {
+                return Err(locked(&StatusLock::DependencyOpen(open)));
+            }
+        }
+        let mut after = record.clone();
+        after.assignee = Some(name);
+        after.status = status;
+        if status != record.status {
+            after.sort_order = write.next_sort_order(record.board, status).await?;
+        }
+        self.save(write, &before, after, actor, Some("claimed"))
+            .await
+    }
+
+    /// Clears the assignee; a given status applies without any lock.
+    pub async fn release(
+        &self,
+        key: &str,
+        status: Option<&str>,
+        actor: &Actor,
+    ) -> Result<TicketView, AppError> {
+        let status = optional_status(status)?;
+        let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
+        let mut write = self.repository.begin().await?;
+        let before = load(write.as_mut(), &key, None).await?;
+        let record = before.record();
+        let mut after = record.clone();
+        after.assignee = None;
+        after.status = status.unwrap_or(record.status);
+        if after.status != record.status {
+            after.sort_order = write.next_sort_order(record.board, after.status).await?;
+        }
+        self.save(write, &before, after, actor, Some("released"))
+            .await
+    }
+
+    /// Finishes a ticket that waits for a person, as legacy `accept` did.
+    pub async fn accept(
+        &self,
+        key: &str,
+        actor: &Actor,
+        expected: Option<Version>,
+        by_person: bool,
+    ) -> Result<TicketView, AppError> {
+        let options = WriteOptions {
+            by_person,
+            ..WriteOptions::default()
+        };
+        let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
+        let mut write = self.repository.begin().await?;
+        let before = load(write.as_mut(), &key, expected).await?;
+        let record = before.record();
+        if record.status != TicketStatus::Blocked
+            || !waits_for_a_person(record.blocked_reason.as_deref())
+        {
+            return Err(AppError::invalid(
+                "accept-not-possible",
+                format!(
+                    "{key} waits for no acceptance; only blocked with \"{HUMAN_INTERACTION} ...\""
+                ),
+            ));
+        }
+        let mut after = record.clone();
+        after.status = TicketStatus::Done;
+        after.blocked_reason = None;
+        after.sort_order = write
+            .next_sort_order(record.board, TicketStatus::Done)
+            .await?;
+        let index = write.dependency_index().await?;
+        check_change(&before, &after, &index, options)?;
+        self.save(write, &before, after, actor, Some("accepted"))
+            .await
+    }
+
+    /// Writes the plan as legacy `plan` did: no locks, planned unless told, claim cleared.
+    pub async fn plan(
+        &self,
+        key: &str,
+        input: &PlanInput,
+        actor: &Actor,
+    ) -> Result<TicketView, AppError> {
+        if input.plan.is_none() && input.handbook.is_none() && input.diagram.is_none() {
+            return Err(AppError::invalid(
+                "plan-empty",
+                "give at least a plan, a handbook or a diagram",
+            ));
+        }
+        let status = optional_status(input.status.as_deref())?.unwrap_or(TicketStatus::Planned);
+        let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
+        let mut write = self.repository.begin().await?;
+        let before = load(write.as_mut(), &key, None).await?;
+        let record = before.record();
+        let now = self.clock.now();
+        let mut after = record.clone();
+        if let Some(plan) = &input.plan {
+            after.plan.clone_from(plan);
+        }
+        if let Some(handbook) = &input.handbook {
+            after.handbook.clone_from(handbook);
+        }
+        if let Some(diagram) = &input.diagram {
+            after.diagram = strip_fence(diagram);
+        }
+        if let Some(acceptance) = input
+            .acceptance
+            .as_ref()
+            .filter(|text| !text.trim().is_empty())
+        {
+            after.acceptance.clone_from(acceptance);
+        }
+        after.status = status;
+        after.needs_planning = false;
+        after.planning_claim = None;
+        after.planned = Some((actor.name().as_str().to_owned(), now));
+        if status != record.status {
+            after.sort_order = write.next_sort_order(record.board, status).await?;
+        }
+        let note = if status == record.status {
+            "plan updated"
+        } else {
+            "planned"
+        };
+        self.save(write, &before, after, actor, Some(note)).await
+    }
+
+    /// Claims planning for 15 minutes; another agent's live claim refuses it.
+    pub async fn claim_planning(
+        &self,
+        key: &str,
+        agent: &str,
+        actor: &Actor,
+    ) -> Result<TicketView, AppError> {
+        if agent.trim().is_empty() {
+            return Err(agent_missing());
+        }
+        let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
+        let mut write = self.repository.begin().await?;
+        let name = agent_name(agent)?;
+        let before = load(write.as_mut(), &key, None).await?;
+        let record = before.record();
+        let now = self.clock.now();
+        if let Some((owner, _)) = &record.planning_claim
+            && *owner != name
+            && planning_claim_alive(record, now)
+        {
+            return Err(AppError::conflict(
+                "plan-claimed",
+                format!("{owner} is planning {key} right now"),
+            ));
+        }
+        let mut after = record.clone();
+        after.planning_claim = Some((name, now));
+        self.save(write, &before, after, actor, None).await
+    }
+
+    /// Gives up the planning claim; a claim of someone else stays without a word.
+    pub async fn release_planning(
+        &self,
+        key: &str,
+        agent: &str,
+        actor: &Actor,
+    ) -> Result<(), AppError> {
+        let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
+        let mut write = self.repository.begin().await?;
+        let before = load(write.as_mut(), &key, None).await?;
+        let record = before.record();
+        if record
+            .planning_claim
+            .as_ref()
+            .map(|(owner, _)| owner.as_str())
+            != Some(agent)
+        {
+            return Ok(());
+        }
+        let mut after = record.clone();
+        after.planning_claim = None;
+        self.save(write, &before, after, actor, None).await?;
+        Ok(())
+    }
+
+    /// The first ticket in display order that needs planning; with an agent it is claimed.
+    pub async fn next_planning(
+        &self,
+        scope: TicketScope,
+        agent: Option<&str>,
+        actor: &Actor,
+    ) -> Result<Option<TicketView>, AppError> {
+        if agent.is_some_and(|agent| agent.trim().is_empty()) {
+            return Err(agent_missing());
+        }
+        let now = self.clock.now();
+        let candidates: Vec<TicketView> = self
+            .list(&TicketFilter {
+                scope,
+                ..TicketFilter::default()
+            })
+            .await?
+            .into_iter()
+            .filter(|view| planning_candidate(view.ticket.record(), now))
+            .collect();
+        let Some(agent) = agent else {
+            return Ok(candidates.into_iter().next());
+        };
+        let name = agent_name(agent)?;
+        for candidate in candidates {
+            let mut write = self.repository.begin().await?;
+            // another agent may have claimed it since the list was read
+            let Some(before) = write.ticket(candidate.ticket.key()).await? else {
+                continue;
+            };
+            // and it must still sit where the caller looked
+            let record = before.record();
+            let in_scope = scope.board.is_none_or(|board| record.board == board)
+                && scope
+                    .project
+                    .is_none_or(|project| record.project == project);
+            if !in_scope || !planning_candidate(record, now) {
+                continue;
+            }
+            let mut after = before.record().clone();
+            after.planning_claim = Some((name, now));
+            return Ok(Some(self.save(write, &before, after, actor, None).await?));
+        }
+        Ok(None)
+    }
+
+    /// Stores the next version with its history and returns the ticket as boards show it.
+    async fn save(
+        &self,
+        mut write: Box<dyn TicketWrite>,
+        before: &Ticket,
+        after: TicketRecord,
+        actor: &Actor,
+        note: Option<&str>,
+    ) -> Result<TicketView, AppError> {
+        let now = self.clock.now();
+        let revised = before.revised(after, now);
+        let history = self.history(before, &revised, actor, now, note);
+        let change = write
+            .update(&revised, before.record().version, &history)
+            .await?;
+        write.commit().await?;
+        self.signal.notify(&change);
+        Ok(self.get(&revised.key().to_string()).await?.view)
     }
 
     /// Appends a step or inserts it at `at`, counted from 1.
