@@ -39,7 +39,7 @@ pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
 pub use host::AllowedHosts;
 pub use problem::{ApiError, Problem};
-pub use projects::{ProjectDto, ProjectList};
+pub use projects::{CreateProject, ProjectDto, ProjectList, RenameProject};
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
 pub const API_VERSION: u32 = 1;

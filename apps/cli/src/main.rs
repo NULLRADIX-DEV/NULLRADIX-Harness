@@ -1,9 +1,11 @@
 //! The `nullradix` command line and daemon.
 
 mod config;
+mod connect;
 mod daemon;
 mod logging;
 mod open;
+mod project;
 mod status;
 mod token;
 
@@ -40,6 +42,9 @@ enum Command {
     Status,
     /// Open the web UI in the browser
     Open,
+    /// Manage projects
+    #[command(subcommand)]
+    Project(project::ProjectCommand),
 }
 
 #[derive(Args)]
@@ -84,5 +89,9 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         }
         Command::Status => status::run(profile, cli.home.as_deref()),
         Command::Open => open::run(profile, cli.home.as_deref()),
+        Command::Project(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            project::run(command, &client)
+        }
     }
 }

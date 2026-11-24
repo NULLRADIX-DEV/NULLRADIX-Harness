@@ -84,3 +84,35 @@ fn the_daemon_refuses_to_listen_beyond_loopback() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("refusing to listen"));
 }
+
+fn run(home: &Path, args: &[&str]) -> Output {
+    nullradix(home).args(args).output().unwrap()
+}
+
+#[test]
+fn manages_projects_through_the_daemon() {
+    let home = tempfile::tempdir().unwrap();
+    let _daemon = Daemon::start(home.path());
+
+    let created = run(home.path(), &["project", "create", "ARC", "Arches"]);
+    assert!(created.status.success(), "{created:?}");
+
+    let listed = run(home.path(), &["project", "list", "--json"]);
+    let projects: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(projects[0]["key"], "ARC");
+    assert_eq!(projects[0]["name"], "Arches");
+
+    let renamed = run(home.path(), &["project", "rename", "ARC", "Arches 2"]);
+    assert!(renamed.status.success(), "{renamed:?}");
+    let table = run(home.path(), &["project", "list"]);
+    assert!(String::from_utf8_lossy(&table.stdout).contains("Arches 2"));
+
+    let invalid = run(home.path(), &["project", "create", "arc", "Lower"]);
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("invalid-project-key"));
+
+    let deleted = run(home.path(), &["project", "delete", "ARC"]);
+    assert!(deleted.status.success(), "{deleted:?}");
+    let missing = run(home.path(), &["project", "delete", "ARC"]);
+    assert!(!missing.status.success());
+}
