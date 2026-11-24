@@ -75,7 +75,16 @@
     {
       "name": "create in the CLI",
       "cli": {
-        "args": ["ticket", "create", "From the CLI", "--board", "{{board}}", "--planned", "--label", "cli"]
+        "args": [
+          "ticket",
+          "create",
+          "From the CLI",
+          "--board",
+          "{{board}}",
+          "--planned",
+          "--label",
+          "cli"
+        ]
       }
     },
     { "name": "list in the CLI", "cli": { "args": ["ticket", "list", "--board", "{{board}}"] } },
