@@ -63,6 +63,21 @@ impl AppError {
         Self::new(ErrorKind::Unavailable, code, message)
     }
 
+    /// The stored entity changed since the caller read it.
+    #[must_use]
+    pub fn version_conflict(entity: &str, id: impl std::fmt::Display) -> Self {
+        Self::conflict(
+            "version-conflict",
+            format!("{entity} {id} was changed by someone else, reload and try again"),
+        )
+    }
+
+    /// Validates a version number sent by a client.
+    pub fn client_version(value: i64) -> Result<nullradix_domain::Version, Self> {
+        nullradix_domain::Version::parse(value)
+            .map_err(|error| Self::invalid("invalid-version", error.to_string()))
+    }
+
     #[must_use]
     pub fn internal(error: impl Error + Send + Sync + 'static) -> Self {
         Self::new(ErrorKind::Internal, "internal", "internal error").with_source(error)

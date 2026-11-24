@@ -3,6 +3,7 @@
 mod auth;
 mod change_feed;
 mod error;
+mod projects;
 
 use std::path::Path;
 use std::time::Duration;
@@ -13,7 +14,6 @@ use sqlx::sqlite::{
 };
 use sqlx::{Sqlite, Transaction};
 
-pub use change_feed::{Change, ChangeOp};
 pub use error::StoreError;
 
 static MIGRATOR: Migrator = sqlx::migrate!();
@@ -126,18 +126,18 @@ mod tests {
         let write = |store: Store, id: u128| async move {
             let mut tx = store.begin().await.unwrap();
             let at = nullradix_domain::Timestamp::from_millis(1);
-            let seq = change_feed::record(
+            let change = change_feed::record(
                 &mut tx,
-                "project",
+                nullradix_app::Entity::Project,
                 uuid::Uuid::from_u128(id),
-                ChangeOp::Insert,
+                nullradix_app::ChangeOp::Insert,
                 at,
             )
             .await
             .unwrap();
             tokio::time::sleep(Duration::from_millis(50)).await;
             tx.commit().await.unwrap();
-            seq
+            change.seq
         };
         let first = tokio::spawn(write(store.clone(), 1));
         let second = tokio::spawn(write(store.clone(), 2));
