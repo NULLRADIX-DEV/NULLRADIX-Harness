@@ -1,4 +1,7 @@
+use std::fs;
+
 use anyhow::Context;
+use nullradix_store::Store;
 use tokio::net::TcpListener;
 
 use crate::config::Config;
@@ -15,6 +18,11 @@ pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
 }
 
 async fn serve(config: &Config) -> anyhow::Result<()> {
+    let data = &config.paths.data;
+    fs::create_dir_all(data).with_context(|| format!("cannot create {}", data.display()))?;
+    let store = Store::open(&data.join("nullradix.db"))
+        .await
+        .context("cannot open the database")?;
     let listener = TcpListener::bind(config.address)
         .await
         .with_context(|| format!("cannot listen on {}", config.address))?;
@@ -30,6 +38,7 @@ async fn serve(config: &Config) -> anyhow::Result<()> {
     nullradix_api::serve(listener, nullradix_api::router(), shutdown_signal())
         .await
         .context("the HTTP server failed")?;
+    store.close().await;
     tracing::info!("daemon stopped");
     Ok(())
 }

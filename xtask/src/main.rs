@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 mod checks;
+mod db;
 mod files;
 
 #[derive(Parser)]
@@ -17,6 +18,17 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Run the repository checks
+    Check,
+    /// Manage the offline query cache of the store
+    #[command(subcommand)]
+    Db(Db),
+}
+
+#[derive(Subcommand)]
+enum Db {
+    /// Regenerate the query cache from the migrations
+    Prepare,
+    /// Fail when the query cache is out of date
     Check,
 }
 
@@ -36,6 +48,8 @@ fn run(command: &Command) -> Result<ExitCode> {
         .context("xtask must live inside the workspace")?;
     match command {
         Command::Check => check(root),
+        Command::Db(Db::Prepare) => db::prepare(root),
+        Command::Db(Db::Check) => db::check(root),
     }
 }
 

@@ -44,6 +44,8 @@ jobs:
               - deny.toml
               - .cargo/**
               - .config/nextest.toml
+              - crates/store/migrations/**
+              - crates/store/.sqlx/**
               - .github/workflows/ci.yml
 
   lint:
@@ -86,6 +88,7 @@ jobs:
           tool: cargo-nextest,cargo-llvm-cov
       - run: cargo llvm-cov nextest --workspace --locked --profile ci
       - run: cargo llvm-cov report --summary-only
+      - run: cargo xtask db check
 
   test-windows:
     needs: changes
