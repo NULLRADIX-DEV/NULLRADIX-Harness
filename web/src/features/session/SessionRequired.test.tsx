@@ -1,7 +1,7 @@
 import { act, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FakeEventSource } from '../../test/eventSource';
-import { fakeApi, json, problem, signedIn, signedOut } from '../../test/fakeApi';
+import { fakeApi, json, problem, signedIn, signedOut, type Handler } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
 import { SESSION_RECHECK_MS } from './queries';
 
@@ -50,6 +50,29 @@ describe('session gate', () => {
     renderApp('/settings');
     expect(await screen.findByRole('heading', gateHeading)).toBeInTheDocument();
     expect(api.requests('GET /api/v1/auth/me')).toHaveLength(2);
+  });
+
+  it('stays on the gate while the page behind it answers 401 too', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // A slow answer lets a recheck render while it runs.
+    const slowSignedOut: Handler = (request) =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve(signedOut(request));
+        }, 20);
+      });
+    const api = fakeApi({
+      'GET /api/v1/auth/me': slowSignedOut,
+      'GET /api/v1/boards': () => problem(401, 'credentials-missing', 'sign in first'),
+    });
+    renderApp('/board');
+    await screen.findByRole('heading', gateHeading);
+
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_RECHECK_MS + 100));
+
+    expect(screen.getByRole('heading', gateHeading)).toBeInTheDocument();
+    expect(api.requests('GET /api/v1/boards').length).toBeLessThanOrEqual(1);
+    expect(api.requests('GET /api/v1/auth/me').length).toBeLessThanOrEqual(3);
   });
 
   it('keeps checking after an error and opens the stream once the daemon answers', async () => {

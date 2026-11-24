@@ -1,11 +1,5 @@
-import {
-  MutationCache,
-  QueryCache,
-  QueryClient,
-  hashKey,
-  type DefaultOptions,
-} from '@tanstack/react-query';
-import { recheckSession, sessionKeys } from '../features/session/queries';
+import { MutationCache, QueryCache, QueryClient, type DefaultOptions } from '@tanstack/react-query';
+import { recheckSession } from '../features/session/queries';
 import { ApiProblemError, isUnauthorized } from '../shared/api/errors';
 
 export const MAX_RETRIES = 2;
@@ -21,11 +15,7 @@ export function createQueryClient(queries: DefaultOptions['queries'] = {}): Quer
     if (isUnauthorized(error)) void recheckSession(client);
   };
   const client: QueryClient = new QueryClient({
-    queryCache: new QueryCache({
-      onError: (error, query) => {
-        if (query.queryHash !== hashKey(sessionKeys.all)) onUnauthorized(error);
-      },
-    }),
+    queryCache: new QueryCache({ onError: onUnauthorized }),
     mutationCache: new MutationCache({ onError: onUnauthorized }),
     defaultOptions: {
       queries: {
