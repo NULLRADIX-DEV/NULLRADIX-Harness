@@ -167,7 +167,7 @@
         ],
         "responses": {
           "200": {
-            "description": "`change` events in commit order, `reset` when the client must reload",
+            "description": "Server-sent events. The stream starts with `ready` (data `StreamPosition`). `change` events (data `ChangeDto`) follow in commit order. `reset` (data `StreamPosition`) means the client must drop its cached data. Every event id is a sequence number for `Last-Event-ID`.",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -264,10 +264,27 @@
         },
         "responses": {
           "201": {
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the new project"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProjectDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -322,7 +339,25 @@
               }
             }
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -364,6 +399,15 @@
           "204": {
             "description": "The project is gone"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "content": {
               "application/json": {
@@ -375,6 +419,15 @@
           },
           "409": {
             "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -422,6 +475,15 @@
               }
             }
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "content": {
               "application/json": {
@@ -458,7 +520,7 @@
     "schemas": {
       "ChangeDto": {
         "type": "object",
-        "description": "A committed change, sent as the `change` event; `id` carries `seq`.",
+        "description": "Data of a `change` event; the event id carries `seq`.",
         "required": [
           "seq",
           "entity",
@@ -472,20 +534,28 @@
             "format": "int64"
           },
           "entity": {
-            "type": "string"
+            "$ref": "#/components/schemas/EntityDto"
           },
           "entityId": {
             "type": "string",
             "format": "uuid"
           },
           "op": {
-            "type": "string"
+            "$ref": "#/components/schemas/ChangeOpDto"
           },
           "seq": {
             "type": "integer",
             "format": "int64"
           }
         }
+      },
+      "ChangeOpDto": {
+        "type": "string",
+        "enum": [
+          "insert",
+          "update",
+          "delete"
+        ]
       },
       "CreateProject": {
         "type": "object",
@@ -502,6 +572,12 @@
           }
         },
         "additionalProperties": false
+      },
+      "EntityDto": {
+        "type": "string",
+        "enum": [
+          "project"
+        ]
       },
       "Handoff": {
         "type": "object",
@@ -656,6 +732,19 @@
           }
         },
         "additionalProperties": false
+      },
+      "StreamPosition": {
+        "type": "object",
+        "description": "Data of the `ready` and `reset` events: the position the stream continues from.",
+        "required": [
+          "seq"
+        ],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       }
     },
     "securitySchemes": {

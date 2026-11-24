@@ -91,7 +91,9 @@ pub(crate) async fn list_projects(
     tag = "projects",
     request_body = CreateProject,
     responses(
-        (status = 201, body = ProjectDto),
+        (status = 201, body = ProjectDto,
+            headers(("Location" = String, description = "URL of the new project"))),
+        (status = 401, body = Problem),
         (status = 409, description = "The key is taken", body = Problem),
         (status = 422, body = Problem),
     )
@@ -114,7 +116,12 @@ pub(crate) async fn create_project(
     path = "/projects/{id}",
     tag = "projects",
     params(ProjectPath),
-    responses((status = 200, body = ProjectDto), (status = 404, body = Problem))
+    responses(
+        (status = 200, body = ProjectDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 422, body = Problem),
+    )
 )]
 pub(crate) async fn get_project(
     State(state): State<ApiState>,
@@ -132,6 +139,7 @@ pub(crate) async fn get_project(
     request_body = RenameProject,
     responses(
         (status = 200, body = ProjectDto),
+        (status = 401, body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, body = Problem),
@@ -160,8 +168,10 @@ pub(crate) async fn rename_project(
     params(ProjectPath, DeleteProjectQuery),
     responses(
         (status = 204, description = "The project is gone"),
+        (status = 401, body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
+        (status = 422, body = Problem),
     )
 )]
 pub(crate) async fn delete_project(
@@ -254,6 +264,66 @@ mod tests {
         assert_eq!(
             (status.as_u16(), gone["code"].as_str()),
             (404, Some("project-not-found"))
+        );
+    }
+
+    #[tokio::test]
+    async fn created_projects_point_to_their_url() {
+        use tower::ServiceExt;
+        let api = test_api().await;
+        let request = bearer(Request::post("/api/v1/projects"), &api.token)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "key": "ARC", "name": "Arches" }).to_string(),
+            ))
+            .unwrap();
+        let response = api.router.clone().oneshot(request).await.unwrap();
+        let location = response.headers()["location"].to_str().unwrap().to_owned();
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let project: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            location,
+            format!("/api/v1/projects/{}", project["id"].as_str().unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_renames_conflict() {
+        let api = test_api().await;
+        let (_, created) = call(
+            &api,
+            Request::post("/api/v1/projects"),
+            Some(json!({ "key": "ARC", "name": "Arches" })),
+        )
+        .await;
+        let id = created["id"].as_str().unwrap().to_owned();
+        call(
+            &api,
+            Request::patch(format!("/api/v1/projects/{id}")),
+            Some(json!({ "name": "Two", "version": 1 })),
+        )
+        .await;
+        let (status, problem) = call(
+            &api,
+            Request::patch(format!("/api/v1/projects/{id}")),
+            Some(json!({ "name": "Three", "version": 1 })),
+        )
+        .await;
+        assert_eq!(
+            (status.as_u16(), problem["code"].as_str()),
+            (409, Some("version-conflict"))
+        );
+        let (status, problem) = call(
+            &api,
+            Request::patch(format!("/api/v1/projects/{id}")),
+            Some(json!({ "name": "Three", "version": 0 })),
+        )
+        .await;
+        assert_eq!(
+            (status.as_u16(), problem["code"].as_str()),
+            (422, Some("invalid-version"))
         );
     }
 

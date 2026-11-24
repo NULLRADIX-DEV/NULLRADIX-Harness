@@ -136,21 +136,25 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description A committed change, sent as the `change` event; `id` carries `seq`. */
+        /** @description Data of a `change` event; the event id carries `seq`. */
         ChangeDto: {
             /** Format: int64 */
             at: number;
-            entity: string;
+            entity: components["schemas"]["EntityDto"];
             /** Format: uuid */
             entityId: string;
-            op: string;
+            op: components["schemas"]["ChangeOpDto"];
             /** Format: int64 */
             seq: number;
         };
+        /** @enum {string} */
+        ChangeOpDto: "insert" | "update" | "delete";
         CreateProject: {
             key: string;
             name: string;
         };
+        /** @enum {string} */
+        EntityDto: "project";
         /** @description One-time code that opens a browser session. */
         Handoff: {
             code: string;
@@ -200,6 +204,11 @@ export interface components {
              * @description Version the change is based on; a newer stored version fails with `version-conflict`.
              */
             version: number;
+        };
+        /** @description Data of the `ready` and `reset` events: the position the stream continues from. */
+        StreamPosition: {
+            /** Format: int64 */
+            seq: number;
         };
     };
     responses: never;
@@ -340,7 +349,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description `change` events in commit order, `reset` when the client must reload */
+            /** @description Server-sent events. The stream starts with `ready` (data `StreamPosition`). `change` events (data `ChangeDto`) follow in commit order. `reset` (data `StreamPosition`) means the client must drop its cached data. Every event id is a sequence number for `Last-Event-ID`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -429,10 +438,20 @@ export interface operations {
         responses: {
             201: {
                 headers: {
+                    /** @description URL of the new project */
+                    Location?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
             /** @description The key is taken */
@@ -474,7 +493,23 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectDto"];
                 };
             };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -505,6 +540,14 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -515,6 +558,14 @@ export interface operations {
             };
             /** @description Stale version */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -546,6 +597,14 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
             404: {

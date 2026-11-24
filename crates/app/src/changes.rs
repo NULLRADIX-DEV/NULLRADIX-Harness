@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use nullradix_domain::Timestamp;
 use strum::{EnumString, IntoStaticStr};
+use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::AppError;
@@ -44,6 +47,42 @@ pub struct Change {
     pub at: Timestamp,
 }
 
+/// Wakes event streams after a commit; the newest `seq` is all it carries.
+#[derive(Debug, Clone)]
+pub struct ChangeSignal {
+    head: Arc<watch::Sender<i64>>,
+}
+
+impl Default for ChangeSignal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChangeSignal {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            head: Arc::new(watch::Sender::new(0)),
+        }
+    }
+
+    pub fn notify(&self, change: &Change) {
+        self.head.send_if_modified(|head| {
+            let newer = change.seq > *head;
+            if newer {
+                *head = change.seq;
+            }
+            newer
+        });
+    }
+
+    #[must_use]
+    pub fn subscribe(&self) -> watch::Receiver<i64> {
+        self.head.subscribe()
+    }
+}
+
 #[async_trait]
 pub trait ChangeFeed: Send + Sync {
     /// Changes committed after `seq`, oldest first, at most `limit`.
@@ -55,6 +94,28 @@ pub trait ChangeFeed: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn change(seq: i64) -> Change {
+        Change {
+            seq,
+            entity: Entity::Project,
+            entity_id: Uuid::from_u128(1),
+            op: ChangeOp::Insert,
+            at: Timestamp::from_millis(0),
+        }
+    }
+
+    #[test]
+    fn the_signal_only_moves_forward() {
+        let signal = ChangeSignal::new();
+        let mut head = signal.subscribe();
+        signal.notify(&change(5));
+        assert!(head.has_changed().unwrap());
+        assert_eq!(*head.borrow_and_update(), 5);
+        signal.notify(&change(3));
+        assert!(!head.has_changed().unwrap());
+        assert_eq!(*head.borrow(), 5);
+    }
 
     #[test]
     fn wire_names_round_trip() {

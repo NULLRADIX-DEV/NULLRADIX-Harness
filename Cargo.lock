@@ -1112,7 +1112,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "tokio-stream",
+ "tokio-util",
  "tower",
  "tower-http",
  "tracing",
@@ -1151,6 +1151,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "toml",
  "tracing",
  "tracing-appender",
@@ -1170,6 +1171,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "ureq",
 ]
 
@@ -2017,7 +2019,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]

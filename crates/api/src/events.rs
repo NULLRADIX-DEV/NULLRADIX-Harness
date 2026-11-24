@@ -6,11 +6,10 @@ use std::time::Duration;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use futures_util::Stream;
-use futures_util::stream;
-use nullradix_app::{AppError, Change, ChangeFeed};
+use futures_util::{Stream, StreamExt, stream};
+use nullradix_app::{AppError, Change, ChangeFeed, ChangeOp, Entity};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::watch;
 use tokio::time::{Interval, MissedTickBehavior};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -20,17 +19,49 @@ use crate::{ApiError, ApiQuery, ApiState, Problem};
 /// How far a client may lag behind before it must reload instead of replaying.
 const MAX_BACKLOG: u32 = 1000;
 const PAGE: u32 = 200;
-/// Safety net for a missed wake-up; the bus normally wakes streams at once.
+/// Safety net for a missed wake-up; the signal normally wakes streams at once.
 const POLL: Duration = Duration::from_secs(5);
 
-/// A committed change, sent as the `change` event; `id` carries `seq`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum EntityDto {
+    Project,
+}
+
+impl From<Entity> for EntityDto {
+    fn from(entity: Entity) -> Self {
+        match entity {
+            Entity::Project => Self::Project,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChangeOpDto {
+    Insert,
+    Update,
+    Delete,
+}
+
+impl From<ChangeOp> for ChangeOpDto {
+    fn from(op: ChangeOp) -> Self {
+        match op {
+            ChangeOp::Insert => Self::Insert,
+            ChangeOp::Update => Self::Update,
+            ChangeOp::Delete => Self::Delete,
+        }
+    }
+}
+
+/// Data of a `change` event; the event id carries `seq`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeDto {
     pub seq: i64,
-    pub entity: String,
+    pub entity: EntityDto,
     pub entity_id: Uuid,
-    pub op: String,
+    pub op: ChangeOpDto,
     pub at: i64,
 }
 
@@ -38,12 +69,18 @@ impl From<&Change> for ChangeDto {
     fn from(change: &Change) -> Self {
         Self {
             seq: change.seq,
-            entity: change.entity.as_str().to_owned(),
+            entity: change.entity.into(),
             entity_id: change.entity_id,
-            op: change.op.as_str().to_owned(),
+            op: change.op.into(),
             at: change.at.as_millis(),
         }
     }
+}
+
+/// Data of the `ready` and `reset` events: the position the stream continues from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StreamPosition {
+    pub seq: i64,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -95,32 +132,32 @@ fn last_event_id(headers: &HeaderMap) -> Result<Option<i64>, AppError> {
         .transpose()
 }
 
+fn position_event(name: &'static str, seq: i64) -> Event {
+    Event::default()
+        .event(name)
+        .id(seq.to_string())
+        .json_data(StreamPosition { seq })
+        .unwrap_or_else(|_| Event::default().event(name).id(seq.to_string()))
+}
+
 fn change_event(change: &Change) -> Event {
     Event::default()
         .event("change")
         .id(change.seq.to_string())
         .json_data(ChangeDto::from(change))
-        .unwrap_or_else(|_| reset_event())
-}
-
-fn reset_event() -> Event {
-    Event::default().event("reset").data("{}")
+        .unwrap_or_else(|_| position_event("reset", change.seq))
 }
 
 struct Cursor {
     feed: Arc<dyn ChangeFeed>,
-    wake: broadcast::Receiver<Change>,
+    head: watch::Receiver<i64>,
     poll: Interval,
     after: i64,
     pending: VecDeque<Change>,
-    reset: bool,
 }
 
 impl Cursor {
     async fn next(mut self) -> Option<(Event, Self)> {
-        if std::mem::take(&mut self.reset) {
-            return Some((reset_event(), self));
-        }
         loop {
             if let Some(change) = self.pending.pop_front() {
                 self.after = change.seq;
@@ -128,7 +165,7 @@ impl Cursor {
             }
             match self.feed.changes_since(self.after, PAGE).await {
                 Ok(changes) if !changes.is_empty() => self.pending.extend(changes),
-                Ok(_) => self.sleep().await,
+                Ok(_) => self.wait().await,
                 Err(error) => {
                     tracing::warn!(error = %error, "event stream stopped");
                     return None;
@@ -137,10 +174,14 @@ impl Cursor {
         }
     }
 
-    async fn sleep(&mut self) {
+    /// Returns once the head moved past the cursor or the safety poll fired.
+    async fn wait(&mut self) {
+        if *self.head.borrow_and_update() > self.after {
+            return;
+        }
         tokio::select! {
-            woken = self.wake.recv() => {
-                if matches!(woken, Err(broadcast::error::RecvError::Closed)) {
+            changed = self.head.changed() => {
+                if changed.is_err() {
                     self.poll.tick().await;
                 }
             }
@@ -156,7 +197,10 @@ impl Cursor {
     params(EventsQuery),
     responses(
         (status = 200, content_type = "text/event-stream", body = ChangeDto,
-            description = "`change` events in commit order, `reset` when the client must reload"),
+            description = "Server-sent events. The stream starts with `ready` (data `StreamPosition`). \
+                `change` events (data `ChangeDto`) follow in commit order. `reset` (data `StreamPosition`) \
+                means the client must drop its cached data. Every event id is a sequence number for \
+                `Last-Event-ID`."),
         (status = 401, body = Problem),
         (status = 422, body = Problem),
     )
@@ -166,26 +210,30 @@ pub(crate) async fn events(
     headers: HeaderMap,
     ApiQuery(query): ApiQuery<EventsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let wake = state.events.subscribe();
+    let head = state.signal.subscribe();
     let since = last_event_id(&headers)?.or(query.since);
     let resume = plan(state.changes.as_ref(), since, MAX_BACKLOG).await?;
     let mut poll = tokio::time::interval(POLL);
     poll.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let cursor = Cursor {
         feed: state.changes.clone(),
-        wake,
+        head,
         poll,
         after: resume.after,
         pending: VecDeque::new(),
-        reset: resume.reset,
     };
-    let stream = stream::unfold(cursor, |cursor| async move {
-        cursor
-            .next()
-            .await
-            .map(|(event, cursor)| (Ok::<_, Infallible>(event), cursor))
-    });
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    let opening = if resume.reset {
+        position_event("reset", resume.after)
+    } else {
+        position_event("ready", resume.after)
+    };
+    let changes = stream::unfold(cursor, Cursor::next);
+    let shutdown = state.shutdown.clone().cancelled_owned();
+    let events = stream::once(async move { opening })
+        .chain(changes)
+        .take_until(shutdown)
+        .map(Ok::<_, Infallible>);
+    Ok(Sse::new(events).keep_alive(KeepAlive::default()))
 }
 
 #[cfg(test)]
@@ -198,24 +246,45 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
-    use crate::tests::{TestApi, bearer, test_api};
+    use crate::tests::{TestApi, bearer, local, send, test_api};
 
-    async fn read_until(api: &TestApi, request: Request<Body>, needle: &str) -> String {
-        let response = api.router.clone().oneshot(request).await.unwrap();
+    async fn open(api: &TestApi, path: &str, last_event_id: Option<&str>) -> Body {
+        let mut request = bearer(Request::get(path), &api.token);
+        if let Some(id) = last_event_id {
+            request = request.header("last-event-id", id);
+        }
+        let response = api
+            .router
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         assert_eq!(response.status(), 200);
-        let mut body = response.into_body();
-        let mut text = String::new();
+        response.into_body()
+    }
+
+    async fn read_until(body: &mut Body, text: &mut String, needle: &str) {
         while !text.contains(needle) {
             let frame = tokio::time::timeout(Duration::from_secs(5), body.frame())
                 .await
                 .expect("event in time")
-                .unwrap()
+                .expect("stream still open")
                 .unwrap();
             if let Ok(data) = frame.into_data() {
                 text.push_str(&String::from_utf8_lossy(&data));
             }
         }
-        text
+    }
+
+    #[tokio::test]
+    async fn starts_with_ready_at_the_head_when_no_position_is_given() {
+        let api = test_api().await;
+        api.projects.create("ARC", "Arches").await.unwrap();
+        let mut body = open(&api, "/api/v1/events", None).await;
+        let mut text = String::new();
+        read_until(&mut body, &mut text, "event: ready").await;
+        assert!(text.contains("id: 1"));
+        assert!(text.contains("{\"seq\":1}"));
     }
 
     #[tokio::test]
@@ -223,31 +292,73 @@ mod tests {
         let api = test_api().await;
         api.projects.create("ARC", "Arches").await.unwrap();
         api.projects.create("BRD", "Bridge").await.unwrap();
-        let request = bearer(Request::get("/api/v1/events?since=0"), &api.token)
-            .body(Body::empty())
-            .unwrap();
-        let text = read_until(&api, request, "id: 2").await;
-        assert!(text.contains("event: change"));
-        assert!(text.contains("id: 1"));
+        let mut body = open(&api, "/api/v1/events?since=0", None).await;
+        let mut text = String::new();
+        read_until(&mut body, &mut text, "id: 2").await;
+        let ready = text.find("event: ready").unwrap();
+        let first = text.find("event: change").unwrap();
+        assert!(ready < first);
         assert!(text.contains("\"entity\":\"project\""));
         assert!(text.contains("\"op\":\"insert\""));
     }
 
     #[tokio::test]
-    async fn streams_new_changes_live() {
+    async fn streams_new_changes_live_in_order_without_gaps() {
         let api = test_api().await;
-        let request = bearer(Request::get("/api/v1/events"), &api.token)
-            .header("last-event-id", "0")
-            .body(Body::empty())
-            .unwrap();
+        let mut body = open(&api, "/api/v1/events", Some("0")).await;
         let projects = api.projects.clone();
         let creator = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            projects.create("ARC", "Arches").await.unwrap();
+            for index in 0..300 {
+                let key = format!("P{index}");
+                projects.create(&key, "Burst").await.unwrap();
+            }
         });
-        let text = read_until(&api, request, "id: 1").await;
-        assert!(text.contains("event: change"));
+        let mut text = String::new();
+        read_until(&mut body, &mut text, "id: 300\n").await;
         creator.await.unwrap();
+        let ids: Vec<i64> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("id: "))
+            .filter_map(|id| id.parse().ok())
+            .filter(|id| *id > 0)
+            .collect();
+        assert_eq!(ids, (1..=300).collect::<Vec<_>>());
+    }
+
+    #[tokio::test]
+    async fn tells_clients_ahead_of_the_feed_to_reset() {
+        let api = test_api().await;
+        let mut body = open(&api, "/api/v1/events", Some("99")).await;
+        let mut text = String::new();
+        read_until(&mut body, &mut text, "event: reset").await;
+        assert!(text.contains("id: 0"));
+    }
+
+    #[tokio::test]
+    async fn streams_end_when_the_daemon_shuts_down() {
+        let api = test_api().await;
+        let mut body = open(&api, "/api/v1/events", None).await;
+        let mut text = String::new();
+        read_until(&mut body, &mut text, "event: ready").await;
+        api.shutdown.cancel();
+        let end = tokio::time::timeout(Duration::from_secs(5), async {
+            while let Some(frame) = body.frame().await {
+                frame.unwrap();
+            }
+        })
+        .await;
+        assert!(end.is_ok(), "stream did not end");
+    }
+
+    #[tokio::test]
+    async fn needs_credentials() {
+        let api = test_api().await;
+        let request = local(Request::get("/api/v1/events"))
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        assert_eq!(status, 401);
+        assert_eq!(json["code"], "missing-credentials");
     }
 
     #[tokio::test]
@@ -273,13 +384,6 @@ mod tests {
         );
         assert_eq!(
             plan(feed, Some(0), 2).await.unwrap(),
-            Resume {
-                after: 3,
-                reset: true
-            }
-        );
-        assert_eq!(
-            plan(feed, Some(9), 10).await.unwrap(),
             Resume {
                 after: 3,
                 reset: true

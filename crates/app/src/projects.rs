@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nullradix_domain::{Id, Project, ProjectError, ProjectKey, ProjectName, Timestamp, Version};
 
-use crate::{AppError, Change, Clock, EventBus, IdGenerator};
+use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
 #[async_trait]
 pub trait ProjectRepository: Send + Sync {
@@ -48,7 +48,7 @@ pub struct ProjectService {
     repository: Arc<dyn ProjectRepository>,
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
-    events: EventBus<Change>,
+    signal: ChangeSignal,
 }
 
 impl std::fmt::Debug for ProjectService {
@@ -63,13 +63,13 @@ impl ProjectService {
         repository: Arc<dyn ProjectRepository>,
         clock: Arc<dyn Clock>,
         ids: Arc<dyn IdGenerator>,
-        events: EventBus<Change>,
+        signal: ChangeSignal,
     ) -> Self {
         Self {
             repository,
             clock,
             ids,
-            events,
+            signal,
         }
     }
 
@@ -78,7 +78,7 @@ impl ProjectService {
         let name = ProjectName::parse(name).map_err(|error| invalid(&error))?;
         let project = Project::new(self.ids.as_ref().next(), key, name, self.clock.now());
         let change = self.repository.insert(&project).await?;
-        self.events.publish(change);
+        self.signal.notify(&change);
         Ok(project)
     }
 
@@ -106,7 +106,7 @@ impl ProjectService {
             return Ok(current);
         };
         let change = self.repository.update(&renamed, expected).await?;
-        self.events.publish(change);
+        self.signal.notify(&change);
         Ok(renamed)
     }
 
@@ -115,7 +115,7 @@ impl ProjectService {
             .repository
             .delete(id, expected, self.clock.now())
             .await?;
-        self.events.publish(change);
+        self.signal.notify(&change);
         Ok(())
     }
 }

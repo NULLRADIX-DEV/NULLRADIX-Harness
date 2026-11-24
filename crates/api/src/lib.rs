@@ -21,8 +21,9 @@ use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use nullradix_app::auth::AuthService;
 use nullradix_app::projects::ProjectService;
-use nullradix_app::{AppError, Change, ChangeFeed, EventBus};
+use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -33,7 +34,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
-pub use events::ChangeDto;
+pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
 pub use host::AllowedHosts;
@@ -49,7 +50,7 @@ pub const API_PREFIX: &str = "/api/v1";
 #[derive(OpenApi)]
 #[openapi(
     info(title = "NULLRADIX API"),
-    components(schemas(Problem)),
+    components(schemas(Problem, ChangeDto, StreamPosition)),
     modifiers(&SecuritySchemes),
     security(("bearer" = []), ("session" = []))
 )]
@@ -83,7 +84,9 @@ pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub projects: Arc<ProjectService>,
     pub changes: Arc<dyn ChangeFeed>,
-    pub events: EventBus<Change>,
+    pub signal: ChangeSignal,
+    /// Cancelled when the daemon stops; long-lived responses end with it.
+    pub shutdown: CancellationToken,
     pub allowed_hosts: AllowedHosts,
     pub secure_cookies: bool,
     /// Built web UI to serve next to the API, if any.
@@ -212,6 +215,7 @@ pub(crate) mod tests {
         pub(crate) auth: Arc<AuthService>,
         pub(crate) projects: Arc<ProjectService>,
         pub(crate) changes: Arc<dyn ChangeFeed>,
+        pub(crate) shutdown: CancellationToken,
     }
 
     pub(crate) async fn test_api() -> TestApi {
@@ -226,19 +230,21 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
         ));
         let token = auth.local_token(None).await.unwrap();
-        let events = EventBus::new(std::num::NonZeroUsize::new(64).unwrap());
+        let signal = ChangeSignal::new();
+        let shutdown = CancellationToken::new();
         let projects = Arc::new(ProjectService::new(
             store.clone(),
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
-            events.clone(),
+            signal.clone(),
         ));
         let changes: Arc<dyn ChangeFeed> = store.clone();
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
             changes: changes.clone(),
-            events,
+            signal,
+            shutdown: shutdown.clone(),
             allowed_hosts: AllowedHosts::loopback_and([]),
             secure_cookies: false,
             web_dir,
@@ -249,6 +255,7 @@ pub(crate) mod tests {
             auth,
             projects,
             changes,
+            shutdown,
         }
     }
 

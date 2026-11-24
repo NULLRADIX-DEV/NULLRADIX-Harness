@@ -1,23 +1,25 @@
 use std::fs::{self, File, TryLockError};
-use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, bail};
 use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
 use nullradix_app::auth::AuthService;
 use nullradix_app::projects::ProjectService;
-use nullradix_app::{Clock, EventBus, SystemClock, UuidV7Generator};
+use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
 use tokio::task;
+use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::logging;
 use crate::token;
 
-const EVENT_CAPACITY: NonZeroUsize = NonZeroUsize::new(256).expect("non-zero");
+/// Time open connections get to finish once a shutdown is requested.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 
 pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
     let _logging = logging::init(&config.paths.logs, &config.log_filter)?;
@@ -72,25 +74,44 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         data = %config.paths.data.display(),
         "daemon started"
     );
-    let events = EventBus::new(EVENT_CAPACITY);
+    let signal = ChangeSignal::new();
+    let shutdown = CancellationToken::new();
     let projects = Arc::new(ProjectService::new(
         Arc::new(store.clone()),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
-        events.clone(),
+        signal.clone(),
     ));
     let state = ApiState {
         auth,
         projects,
         changes: Arc::new(store.clone()),
-        events,
+        signal,
+        shutdown: shutdown.clone(),
         allowed_hosts: AllowedHosts::loopback_and(config.allowed_hosts.iter().cloned()),
         secure_cookies: false,
         web_dir: config.web_dir.clone(),
     };
-    let served = nullradix_api::serve(listener, nullradix_api::router(state), shutdown_signal())
-        .await
-        .context("the HTTP server failed");
+    let trigger = shutdown.clone();
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        trigger.cancel();
+    });
+    let http = nullradix_api::serve(
+        listener,
+        nullradix_api::router(state),
+        shutdown.clone().cancelled_owned(),
+    );
+    let served = tokio::select! {
+        result = http => result.context("the HTTP server failed"),
+        () = async {
+            shutdown.cancelled().await;
+            tokio::time::sleep(SHUTDOWN_GRACE).await;
+        } => {
+            tracing::warn!("open connections did not close in time");
+            Ok(())
+        }
+    };
     store.close().await;
     match task::spawn_blocking(move || discovery.remove()).await {
         Ok(Ok(())) => {}

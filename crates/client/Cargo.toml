@@ -17,6 +17,7 @@ thiserror.workspace = true
 ureq.workspace = true
 
 [dev-dependencies]
+tokio-util.workspace = true
 nullradix-store.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["net", "rt-multi-thread", "sync"] }

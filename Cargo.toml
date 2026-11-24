@@ -38,6 +38,7 @@ tempfile = "3.27.0"
 thiserror = "2.0.21"
 tokio = "1.54.1"
 tokio-stream = { version = "0.1.19", features = ["sync"] }
+tokio-util = "0.7.20"
 toml = "1.2.2"
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["fs", "request-id", "set-header", "trace", "util"] }

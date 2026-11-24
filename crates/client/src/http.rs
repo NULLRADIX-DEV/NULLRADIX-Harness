@@ -139,7 +139,7 @@ mod tests {
     use nullradix_api::{AllowedHosts, ApiState};
     use nullradix_app::auth::AuthService;
     use nullradix_app::projects::ProjectService;
-    use nullradix_app::{EventBus, SystemClock, UuidV7Generator};
+    use nullradix_app::{ChangeSignal, SystemClock, UuidV7Generator};
     use nullradix_store::Store;
 
     use super::*;
@@ -180,18 +180,19 @@ mod tests {
                     Arc::new(UuidV7Generator),
                 ));
                 ready.send(auth.local_token(None).await.unwrap()).unwrap();
-                let events = EventBus::new(std::num::NonZeroUsize::new(16).unwrap());
+                let signal = ChangeSignal::new();
                 let projects = Arc::new(ProjectService::new(
                     store.clone(),
                     Arc::new(SystemClock),
                     Arc::new(UuidV7Generator),
-                    events.clone(),
+                    signal.clone(),
                 ));
                 let state = ApiState {
                     auth,
                     projects,
                     changes: store,
-                    events,
+                    signal,
+                    shutdown: tokio_util::sync::CancellationToken::new(),
                     allowed_hosts: AllowedHosts::loopback_and([]),
                     secure_cookies: false,
                     web_dir: None,
