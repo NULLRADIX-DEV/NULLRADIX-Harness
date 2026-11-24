@@ -18,6 +18,7 @@ use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+pub use health::Health;
 pub use problem::{ApiError, Problem};
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.

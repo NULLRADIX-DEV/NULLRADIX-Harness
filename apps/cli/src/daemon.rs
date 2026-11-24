@@ -1,6 +1,10 @@
-use std::fs;
+use std::fs::{self, File, TryLockError};
+use std::path::Path;
 
-use anyhow::Context;
+use anyhow::{Context, bail};
+use nullradix_api::API_VERSION;
+use nullradix_app::{Clock, SystemClock};
+use nullradix_client::{Discovery, DiscoveryFile};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
 
@@ -20,27 +24,59 @@ pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
 async fn serve(config: &Config) -> anyhow::Result<()> {
     let data = &config.paths.data;
     fs::create_dir_all(data).with_context(|| format!("cannot create {}", data.display()))?;
+    let _lock = lock_profile(data)?;
     let store = Store::open(&data.join("nullradix.db"))
         .await
         .context("cannot open the database")?;
     let listener = TcpListener::bind(config.address)
         .await
         .with_context(|| format!("cannot listen on {}", config.address))?;
+    let address = listener.local_addr()?;
+    let discovery = DiscoveryFile::in_dir(data);
+    discovery.write(&Discovery {
+        pid: std::process::id(),
+        address,
+        version: String::from(env!("CARGO_PKG_VERSION")),
+        api_version: API_VERSION,
+        started_at: SystemClock.now().as_millis(),
+    })?;
     tracing::info!(
-        address = %listener.local_addr()?,
+        %address,
         profile = ?config.profile,
-        data = %config.paths.data.display(),
+        data = %data.display(),
         "daemon started"
     );
-    if !config.address.ip().is_loopback() {
-        tracing::warn!(address = %config.address, "listening beyond loopback without authentication");
+    if !address.ip().is_loopback() {
+        tracing::warn!(%address, "listening beyond loopback without authentication");
     }
-    nullradix_api::serve(listener, nullradix_api::router(), shutdown_signal())
+    let served = nullradix_api::serve(listener, nullradix_api::router(), shutdown_signal())
         .await
-        .context("the HTTP server failed")?;
+        .context("the HTTP server failed");
+    discovery.remove()?;
     store.close().await;
+    served?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+/// Holds an exclusive lock so only one daemon serves a profile.
+fn lock_profile(data: &Path) -> anyhow::Result<File> {
+    let path = data.join("daemon.lock");
+    let file = File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("cannot open {}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(TryLockError::WouldBlock) => {
+            bail!("another daemon is already running for this profile")
+        }
+        Err(TryLockError::Error(error)) => {
+            Err(error).with_context(|| format!("cannot lock {}", path.display()))
+        }
+    }
 }
 
 async fn shutdown_signal() {

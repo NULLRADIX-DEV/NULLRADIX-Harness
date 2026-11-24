@@ -1,15 +1,15 @@
 use axum::Json;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::API_VERSION;
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Health {
-    status: &'static str,
-    version: &'static str,
-    api_version: u32,
+pub struct Health {
+    pub status: String,
+    pub version: String,
+    pub api_version: u32,
 }
 
 #[utoipa::path(
@@ -20,8 +20,8 @@ pub(crate) struct Health {
 )]
 pub(crate) async fn health() -> Json<Health> {
     Json(Health {
-        status: "ok",
-        version: env!("CARGO_PKG_VERSION"),
+        status: String::from("ok"),
+        version: String::from(env!("CARGO_PKG_VERSION")),
         api_version: API_VERSION,
     })
 }

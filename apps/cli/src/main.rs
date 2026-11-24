@@ -3,6 +3,7 @@
 mod config;
 mod daemon;
 mod logging;
+mod status;
 
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -33,6 +34,8 @@ struct Cli {
 enum Command {
     /// Run the daemon in the foreground
     Serve(ServeArgs),
+    /// Show whether the daemon is running
+    Status,
 }
 
 #[derive(Args)]
@@ -50,7 +53,7 @@ struct ServeArgs {
 
 fn main() -> ExitCode {
     match run(Cli::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(error) => {
             eprintln!("error: {error:#}");
             ExitCode::FAILURE
@@ -58,7 +61,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> anyhow::Result<()> {
+fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     let profile = cli.profile.unwrap_or_else(Profile::of_build);
     match cli.command {
         Command::Serve(args) => {
@@ -68,7 +71,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 log: args.log,
             };
             let config = Config::load(profile, cli.home.as_deref(), overrides)?;
-            daemon::run(&config)
+            daemon::run(&config)?;
+            Ok(ExitCode::SUCCESS)
         }
+        Command::Status => status::run(profile, cli.home.as_deref()),
     }
 }
