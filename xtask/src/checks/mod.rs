@@ -31,6 +31,15 @@ enum Syntax {
     Css,
 }
 
+/// Generated files the source checks skip.
+const GENERATED: &[&str] = &[crate::codegen::OPENAPI_PATH, "web/src/shared/api/schema.ts"];
+
+fn is_generated(path: &Path) -> bool {
+    GENERATED
+        .iter()
+        .any(|generated| path == Path::new(generated))
+}
+
 fn syntax(path: &Path) -> Option<Syntax> {
     let name = path.file_name()?.to_str()?;
     if matches!(
@@ -50,6 +59,9 @@ fn syntax(path: &Path) -> Option<Syntax> {
 pub(crate) fn run(root: &Path) -> Result<Vec<Violation>> {
     let mut violations = Vec::new();
     for path in files::repository_files(root)? {
+        if is_generated(&path) {
+            continue;
+        }
         let Some(syntax) = syntax(&path) else {
             continue;
         };
@@ -86,6 +98,14 @@ mod tests {
         assert_eq!(syntax(Path::new("web/src/app.css")), Some(Syntax::Css));
         assert_eq!(syntax(Path::new("README.md")), None);
         assert_eq!(syntax(Path::new("LICENSE")), None);
+    }
+
+    #[test]
+    fn skips_generated_files_only() {
+        assert!(is_generated(Path::new("web/src/shared/api/schema.ts")));
+        assert!(is_generated(Path::new("web/src/shared/api/openapi.json")));
+        assert!(!is_generated(Path::new("web/src/shared/api/client.ts")));
+        assert!(!is_generated(Path::new("schema.ts")));
     }
 
     #[test]

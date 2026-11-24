@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 
 mod checks;
 mod db;
+mod codegen;
 mod files;
 
 #[derive(Parser)]
@@ -22,6 +23,10 @@ enum Command {
     /// Manage the offline query cache of the store
     #[command(subcommand)]
     Db(Db),
+    /// Write the OpenAPI document for the web client
+    Openapi,
+    /// Write the OpenAPI document and regenerate the web API types
+    Codegen,
 }
 
 #[derive(Subcommand)]
@@ -50,6 +55,14 @@ fn run(command: &Command) -> Result<ExitCode> {
         Command::Check => check(root),
         Command::Db(Db::Prepare) => db::prepare(root),
         Command::Db(Db::Check) => db::check(root),
+        Command::Openapi => {
+            codegen::openapi(root)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Codegen => {
+            codegen::codegen(root)?;
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
