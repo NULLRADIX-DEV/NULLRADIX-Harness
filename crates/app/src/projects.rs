@@ -24,11 +24,10 @@ pub trait ProjectRepository: Send + Sync {
 }
 
 fn invalid(error: &ProjectError) -> AppError {
-    let code = match error {
-        ProjectError::InvalidKey => "invalid-project-key",
-        ProjectError::InvalidName => "invalid-project-name",
-    };
-    AppError::invalid(code, error.to_string())
+    match error {
+        ProjectError::InvalidKey => AppError::invalid("project-key-invalid", error.to_string()),
+        ProjectError::Name(text) => AppError::text(*text, "project-name-empty", error.to_string()),
+    }
 }
 
 #[must_use]
@@ -47,7 +46,7 @@ pub fn has_boards(id: Id<Project>) -> AppError {
 #[must_use]
 pub fn key_taken(key: &ProjectKey) -> AppError {
     AppError::conflict(
-        "project-key-taken",
+        "project-exists",
         format!("another project already uses the key {key}"),
     )
 }
@@ -82,7 +81,7 @@ impl ProjectService {
     }
 
     pub async fn create(&self, key: &str, name: &str) -> Result<Project, AppError> {
-        let key = ProjectKey::parse(key).map_err(|error| invalid(&error))?;
+        let key = ProjectKey::normalize(key).map_err(|error| invalid(&error))?;
         let name = ProjectName::parse(name).map_err(|error| invalid(&error))?;
         let project = Project::new(self.ids.as_ref().next(), key, name, self.clock.now());
         let change = self.repository.insert(&project).await?;
@@ -130,21 +129,27 @@ impl ProjectService {
 
 #[cfg(test)]
 mod tests {
+    use nullradix_domain::TextError;
+
     use super::*;
 
     #[test]
     fn maps_validation_errors_to_stable_codes() {
         assert_eq!(
             invalid(&ProjectError::InvalidKey).code(),
-            "invalid-project-key"
+            "project-key-invalid"
         );
         assert_eq!(
-            invalid(&ProjectError::InvalidName).code(),
-            "invalid-project-name"
+            invalid(&ProjectError::Name(TextError::Empty)).code(),
+            "project-name-empty"
+        );
+        assert_eq!(
+            invalid(&ProjectError::Name(TextError::TooLong(200))).code(),
+            "value-too-long"
         );
         assert_eq!(
             key_taken(&ProjectKey::parse("ARC").unwrap()).code(),
-            "project-key-taken"
+            "project-exists"
         );
     }
 }

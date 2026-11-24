@@ -1,10 +1,12 @@
 use std::process::ExitCode;
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use clap::Subcommand;
-use nullradix_api::{CreateBoard, ProjectDto, RenameBoard};
+use nullradix_api::{CreateBoard, RenameBoard};
 use nullradix_client::Client;
 use uuid::Uuid;
+
+use crate::project;
 
 #[derive(Subcommand)]
 pub(crate) enum BoardCommand {
@@ -37,7 +39,7 @@ pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<Exit
     match command {
         BoardCommand::List { project, json } => {
             let boards = match project {
-                Some(key) => client.list_boards(find_project(client, &key)?.id)?,
+                Some(key) => client.list_boards(project::find(client, &key)?.id)?,
                 None => client.list_all_boards()?,
             }
             .items;
@@ -55,7 +57,7 @@ pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<Exit
             }
         }
         BoardCommand::Create { project, name } => {
-            let project = find_project(client, &project)?;
+            let project = project::find(client, &project)?;
             let board = client.create_board(project.id, &CreateBoard { name })?;
             println!(
                 "created board {} {} in {}",
@@ -67,7 +69,7 @@ pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<Exit
             board,
             name,
         } => {
-            let project = find_project(client, &project)?;
+            let project = project::find(client, &project)?;
             let current = client.get_board(project.id, board)?;
             let renamed = client
                 .rename_board(
@@ -82,7 +84,7 @@ pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<Exit
             println!("renamed board {} to {}", renamed.id, renamed.name);
         }
         BoardCommand::Delete { project, board } => {
-            let project = find_project(client, &project)?;
+            let project = project::find(client, &project)?;
             let current = client.get_board(project.id, board)?;
             client
                 .delete_board(project.id, board, current.version)
@@ -91,17 +93,4 @@ pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<Exit
         }
     }
     Ok(ExitCode::SUCCESS)
-}
-
-pub(crate) fn find_project(client: &Client, key: &str) -> anyhow::Result<ProjectDto> {
-    let wanted = key.to_ascii_uppercase();
-    match client
-        .list_projects()?
-        .items
-        .into_iter()
-        .find(|project| project.key == wanted)
-    {
-        Some(project) => Ok(project),
-        None => bail!("no project has the key {key}"),
-    }
 }

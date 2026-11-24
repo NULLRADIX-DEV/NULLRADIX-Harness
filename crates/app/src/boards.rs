@@ -43,11 +43,11 @@ pub trait BoardRepository: Send + Sync {
 }
 
 fn invalid(error: &BoardError) -> AppError {
-    let code = match error {
-        BoardError::InvalidName => "invalid-board-name",
-        BoardError::InvalidActorName => "invalid-actor-name",
+    let (text, empty) = match error {
+        BoardError::Name(text) => (text, "board-name-empty"),
+        BoardError::ActorName(text) => (text, "actor-name-empty"),
     };
-    AppError::invalid(code, error.to_string())
+    AppError::text(*text, empty, error.to_string())
 }
 
 #[must_use]
@@ -183,17 +183,19 @@ impl BoardService {
 
 #[cfg(test)]
 mod tests {
+    use nullradix_domain::TextError;
+
     use super::*;
 
     #[test]
     fn maps_validation_errors_to_stable_codes() {
         assert_eq!(
-            invalid(&BoardError::InvalidName).code(),
-            "invalid-board-name"
+            invalid(&BoardError::Name(TextError::Empty)).code(),
+            "board-name-empty"
         );
         assert_eq!(
-            invalid(&BoardError::InvalidActorName).code(),
-            "invalid-actor-name"
+            invalid(&BoardError::ActorName(TextError::TooLong(100))).code(),
+            "value-too-long"
         );
         let id = Id::from_uuid(uuid::Uuid::from_u128(1));
         assert_eq!(not_found(id).code(), "board-not-found");

@@ -24,19 +24,19 @@ impl RunSpec {
     pub fn validate(&self) -> Result<(), AppError> {
         if self.program.trim().is_empty() {
             return Err(AppError::invalid(
-                "invalid-run-program",
+                "run-program-invalid",
                 "the program is empty",
             ));
         }
         if !self.cwd.is_absolute() {
             return Err(AppError::invalid(
-                "invalid-run-cwd",
+                "run-cwd-invalid",
                 format!("{} is not an absolute path", self.cwd.display()),
             ));
         }
         if self.timeout.is_some_and(|timeout| timeout.is_zero()) {
             return Err(AppError::invalid(
-                "invalid-run-timeout",
+                "run-timeout-invalid",
                 "the timeout must be positive",
             ));
         }
@@ -103,7 +103,7 @@ pub fn not_found(id: Id<Run>) -> AppError {
 
 fn transition(error: &RunError) -> AppError {
     match error {
-        RunError::InvalidLabel => AppError::invalid("invalid-run-label", error.to_string()),
+        RunError::InvalidLabel => AppError::invalid("run-label-invalid", error.to_string()),
         RunError::InvalidTransition { .. } => AppError::conflict("run-finished", error.to_string()),
     }
 }
@@ -282,7 +282,7 @@ mod tests {
     fn maps_domain_errors_to_stable_codes() {
         assert_eq!(
             transition(&RunError::InvalidLabel).code(),
-            "invalid-run-label"
+            "run-label-invalid"
         );
         let finished = RunError::InvalidTransition {
             from: "failed",
@@ -306,21 +306,21 @@ mod tests {
                     program: String::from(" "),
                     ..valid.clone()
                 },
-                "invalid-run-program",
+                "run-program-invalid",
             ),
             (
                 RunSpec {
                     cwd: PathBuf::from("relative"),
                     ..valid.clone()
                 },
-                "invalid-run-cwd",
+                "run-cwd-invalid",
             ),
             (
                 RunSpec {
                     timeout: Some(Duration::ZERO),
                     ..valid.clone()
                 },
-                "invalid-run-timeout",
+                "run-timeout-invalid",
             ),
         ];
         for (spec, code) in cases {

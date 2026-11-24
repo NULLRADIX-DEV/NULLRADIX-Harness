@@ -44,7 +44,7 @@ async fn local_token_is_created_once_and_then_kept() {
     assert!(auth.authenticate_token(&replaced).await.is_ok());
     assert_eq!(
         auth.authenticate_token(&first).await.unwrap_err().code(),
-        "invalid-token"
+        "token-invalid"
     );
 }
 
@@ -71,7 +71,7 @@ async fn a_handoff_code_opens_one_session_and_only_once() {
         Principal::Session { .. }
     ));
     let again = auth.redeem_handoff(&code).await.unwrap_err();
-    assert_eq!(again.code(), "invalid-handoff");
+    assert_eq!(again.code(), "handoff-invalid");
 }
 
 #[tokio::test]
@@ -80,7 +80,7 @@ async fn handoff_codes_expire_after_a_minute() {
     let code = auth.create_handoff().unwrap();
     clock.advance(Duration::from_secs(61));
     let error = auth.redeem_handoff(&code).await.unwrap_err();
-    assert_eq!(error.code(), "invalid-handoff");
+    assert_eq!(error.code(), "handoff-invalid");
 }
 
 #[tokio::test]
@@ -96,7 +96,7 @@ async fn sessions_expire_and_can_be_ended() {
             .await
             .unwrap_err()
             .code(),
-        "invalid-session"
+        "session-invalid"
     );
 
     let session = auth
@@ -118,7 +118,7 @@ async fn sessions_expire_and_can_be_ended() {
             .await
             .unwrap_err()
             .code(),
-        "invalid-session"
+        "session-invalid"
     );
 }
 
@@ -136,6 +136,6 @@ async fn expired_sessions_are_pruned() {
             .await
             .unwrap_err()
             .code(),
-        "invalid-session"
+        "session-invalid"
     );
 }

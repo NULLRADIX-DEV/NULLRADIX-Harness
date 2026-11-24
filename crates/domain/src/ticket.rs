@@ -2,7 +2,7 @@ use std::fmt;
 
 use strum::{EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
 
-use crate::{ProjectError, ProjectKey};
+use crate::ProjectKey;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TicketError {
@@ -55,18 +55,6 @@ impl TicketKey {
 impl fmt::Display for TicketKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}-{:04}", self.project, self.number)
-    }
-}
-
-impl ProjectKey {
-    /// Legacy leniency: uppercases and drops anything but letters and digits, so `Inc-1` is `INC1`.
-    pub fn normalize(text: &str) -> Result<Self, ProjectError> {
-        let key: String = text
-            .to_uppercase()
-            .chars()
-            .filter(|letter| letter.is_ascii_uppercase() || letter.is_ascii_digit())
-            .collect();
-        Self::parse(&key)
     }
 }
 

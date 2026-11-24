@@ -70,9 +70,9 @@ fn manages_projects_through_the_daemon() {
     let table = run(home.path(), &["project", "list"]);
     assert!(String::from_utf8_lossy(&table.stdout).contains("Arches 2"));
 
-    let invalid = run(home.path(), &["project", "create", "arc", "Lower"]);
-    assert!(!invalid.status.success());
-    assert!(String::from_utf8_lossy(&invalid.stderr).contains("invalid-project-key"));
+    let taken = run(home.path(), &["project", "create", "arc", "Lower"]);
+    assert!(!taken.status.success());
+    assert!(String::from_utf8_lossy(&taken.stderr).contains("project-exists"));
 
     let deleted = run(home.path(), &["project", "delete", "ARC"]);
     assert!(deleted.status.success(), "{deleted:?}");

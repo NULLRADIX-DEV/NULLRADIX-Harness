@@ -107,7 +107,7 @@ describe('ProjectsSection', () => {
   it('shows the problem detail of a validation error', async () => {
     const { api } = projectsServer([]);
     api.set('POST /api/v1/projects', () =>
-      problem(422, 'invalid-project-key', 'Project keys are 2 to 6 characters'),
+      problem(422, 'project-key-invalid', 'Project keys are 2 to 6 characters'),
     );
     renderApp('/settings');
     await screen.findByText('No projects yet.');
@@ -122,7 +122,7 @@ describe('ProjectsSection', () => {
 
   it('shows the detail when the key is taken', async () => {
     const { api } = projectsServer();
-    api.set('POST /api/v1/projects', () => problem(409, 'project-key-taken', 'ARC is taken'));
+    api.set('POST /api/v1/projects', () => problem(409, 'project-exists', 'ARC is taken'));
     renderApp('/settings');
     await projectList();
     const form = createForm();

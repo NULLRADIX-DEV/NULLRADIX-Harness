@@ -60,11 +60,11 @@
     },
     "response": {
       "json": {
-        "code": "invalid-board-name",
-        "detail": "a board name has 1 to 200 characters",
+        "code": "board-name-empty",
+        "detail": "the board name is empty",
         "status": 422,
         "title": "Unprocessable Entity",
-        "type": "urn:nullradix:problem:invalid-board-name"
+        "type": "urn:nullradix:problem:board-name-empty"
       },
       "status": 422
     }

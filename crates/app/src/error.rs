@@ -75,7 +75,17 @@ impl AppError {
     /// Validates a version number sent by a client.
     pub fn client_version(value: i64) -> Result<nullradix_domain::Version, Self> {
         nullradix_domain::Version::parse(value)
-            .map_err(|error| Self::invalid("invalid-version", error.to_string()))
+            .map_err(|error| Self::invalid("version-invalid", error.to_string()))
+    }
+
+    /// Refused text: `empty` names the blank field, any field too long is `value-too-long`.
+    #[must_use]
+    pub fn text(error: nullradix_domain::TextError, empty: &'static str, message: String) -> Self {
+        let code = match error {
+            nullradix_domain::TextError::Empty => empty,
+            nullradix_domain::TextError::TooLong(_) => "value-too-long",
+        };
+        Self::invalid(code, message)
     }
 
     #[must_use]

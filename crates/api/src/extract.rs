@@ -20,7 +20,7 @@ where
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
         match Json::<T>::from_request(request, state).await {
             Ok(Json(value)) => Ok(Self(value)),
-            Err(rejection) => Err(AppError::invalid("invalid-body", rejection.body_text()).into()),
+            Err(rejection) => Err(AppError::invalid("input-invalid", rejection.body_text()).into()),
         }
     }
 }
@@ -39,7 +39,7 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         match Query::<T>::from_request_parts(parts, state).await {
             Ok(Query(value)) => Ok(Self(value)),
-            Err(rejection) => Err(AppError::invalid("invalid-query", rejection.body_text()).into()),
+            Err(rejection) => Err(AppError::invalid("query-invalid", rejection.body_text()).into()),
         }
     }
 }
@@ -58,7 +58,7 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         match Path::<T>::from_request_parts(parts, state).await {
             Ok(Path(value)) => Ok(Self(value)),
-            Err(rejection) => Err(AppError::invalid("invalid-path", rejection.body_text()).into()),
+            Err(rejection) => Err(AppError::invalid("path-invalid", rejection.body_text()).into()),
         }
     }
 }
@@ -111,6 +111,6 @@ mod tests {
         let (status, body) = send(r#"{"nom":"board"}"#).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         let problem: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(problem["code"], "invalid-body");
+        assert_eq!(problem["code"], "input-invalid");
     }
 }

@@ -3,13 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
-use crate::TicketKey;
-
-/// Length as the legacy board counted it: UTF-16 code units, like JavaScript.
-#[must_use]
-pub fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
+use crate::{TicketKey, utf16_len};
 
 pub const LABEL_MAX: usize = 100;
 /// How much of a too long label an error shows, as in legacy.

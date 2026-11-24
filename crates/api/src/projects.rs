@@ -327,7 +327,7 @@ mod tests {
         .await;
         assert_eq!(
             (status.as_u16(), problem["code"].as_str()),
-            (422, Some("invalid-version"))
+            (422, Some("version-invalid"))
         );
     }
 
@@ -337,12 +337,12 @@ mod tests {
         let (status, problem) = call(
             &api,
             Request::post("/api/v1/projects"),
-            Some(json!({ "key": "arc", "name": "Arches" })),
+            Some(json!({ "key": "1arc", "name": "Arches" })),
         )
         .await;
         assert_eq!(
             (status.as_u16(), problem["code"].as_str()),
-            (422, Some("invalid-project-key"))
+            (422, Some("project-key-invalid"))
         );
 
         let (status, problem) = call(
@@ -353,13 +353,13 @@ mod tests {
         .await;
         assert_eq!(
             (status.as_u16(), problem["code"].as_str()),
-            (422, Some("invalid-body"))
+            (422, Some("input-invalid"))
         );
 
         let (status, problem) = call(&api, Request::get("/api/v1/projects/not-a-uuid"), None).await;
         assert_eq!(
             (status.as_u16(), problem["code"].as_str()),
-            (422, Some("invalid-path"))
+            (422, Some("path-invalid"))
         );
 
         call(
@@ -376,7 +376,7 @@ mod tests {
         .await;
         assert_eq!(
             (status.as_u16(), problem["code"].as_str()),
-            (409, Some("project-key-taken"))
+            (409, Some("project-exists"))
         );
     }
 }

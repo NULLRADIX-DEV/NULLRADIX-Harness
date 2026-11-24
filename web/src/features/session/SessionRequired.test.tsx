@@ -45,7 +45,7 @@ describe('session gate', () => {
         sessionChecks += 1;
         return sessionChecks === 1 ? signedIn(request) : signedOut(request);
       },
-      'GET /api/v1/projects': () => problem(401, 'invalid-session', 'session expired'),
+      'GET /api/v1/projects': () => problem(401, 'session-invalid', 'session expired'),
     });
     renderApp('/settings');
     expect(await screen.findByRole('heading', gateHeading)).toBeInTheDocument();

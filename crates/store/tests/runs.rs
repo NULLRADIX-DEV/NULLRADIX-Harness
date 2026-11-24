@@ -51,7 +51,7 @@ impl ScriptedRunner {
 impl RunnerPort for ScriptedRunner {
     async fn check(&self, _spec: &RunSpec) -> Result<(), AppError> {
         if *self.reject.lock().unwrap() {
-            return Err(AppError::invalid("invalid-run-cwd", "no such directory"));
+            return Err(AppError::invalid("run-cwd-invalid", "no such directory"));
         }
         Ok(())
     }
@@ -216,15 +216,15 @@ async fn recovery_settles_runs_from_before_the_restart() {
 async fn invalid_input_is_rejected_without_a_record() {
     let fx = fixture().await;
     let error = fx.runs.start("  ", &spec()).await.unwrap_err();
-    assert_eq!(error.code(), "invalid-run-label");
+    assert_eq!(error.code(), "run-label-invalid");
     let relative = RunSpec {
         cwd: std::path::PathBuf::from("relative"),
         ..spec()
     };
     let error = fx.runs.start("echo hi", &relative).await.unwrap_err();
-    assert_eq!(error.code(), "invalid-run-cwd");
+    assert_eq!(error.code(), "run-cwd-invalid");
     *fx.runner.reject.lock().unwrap() = true;
     let error = fx.runs.start("echo hi", &spec()).await.unwrap_err();
-    assert_eq!(error.code(), "invalid-run-cwd");
+    assert_eq!(error.code(), "run-cwd-invalid");
     assert_eq!(fx.runs.list(10).await.unwrap(), Vec::new());
 }

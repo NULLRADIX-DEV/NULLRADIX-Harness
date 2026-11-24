@@ -53,7 +53,7 @@ fn validate(spec: &RunSpec) -> Result<(), AppError> {
     spec.validate()?;
     if !spec.cwd.is_dir() {
         return Err(AppError::invalid(
-            "invalid-run-cwd",
+            "run-cwd-invalid",
             format!("{} is not a directory", spec.cwd.display()),
         ));
     }
@@ -162,16 +162,16 @@ mod tests {
         empty.program = String::from(" ");
         assert_eq!(
             runner.start(id, &empty).await.unwrap_err().code(),
-            "invalid-run-program"
+            "run-program-invalid"
         );
         let missing = spec(dir.path().join("nope"));
         assert_eq!(
             runner.check(&missing).await.unwrap_err().code(),
-            "invalid-run-cwd"
+            "run-cwd-invalid"
         );
         assert_eq!(
             runner.start(id, &missing).await.unwrap_err().code(),
-            "invalid-run-cwd"
+            "run-cwd-invalid"
         );
         assert!(!dir.path().join("runs").exists());
     }

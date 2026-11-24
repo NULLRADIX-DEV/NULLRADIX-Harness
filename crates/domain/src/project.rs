@@ -1,13 +1,13 @@
 use std::fmt;
 
-use crate::{Id, Timestamp, Version};
+use crate::{Id, TextError, Timestamp, Version, required_text};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProjectError {
     #[error("a project key has 2 to 6 characters, starts with A-Z and uses only A-Z and 0-9")]
     InvalidKey,
-    #[error("a project name has 1 to 200 characters")]
-    InvalidName,
+    #[error("the project name {0}")]
+    Name(TextError),
 }
 
 /// Prefix of the project's human keys, such as `ARC` in `ARC-0042`.
@@ -26,6 +26,16 @@ impl ProjectKey {
             .ok_or(ProjectError::InvalidKey)
     }
 
+    /// Legacy leniency: uppercases and drops anything but letters and digits, so `Inc-1` is `INC1`.
+    pub fn normalize(text: &str) -> Result<Self, ProjectError> {
+        let key: String = text
+            .to_uppercase()
+            .chars()
+            .filter(|letter| letter.is_ascii_uppercase() || letter.is_ascii_digit())
+            .collect();
+        Self::parse(&key)
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -42,14 +52,10 @@ impl fmt::Display for ProjectKey {
 pub struct ProjectName(String);
 
 impl ProjectName {
-    /// Trims surrounding whitespace before checking the length.
     pub fn parse(text: &str) -> Result<Self, ProjectError> {
-        let trimmed = text.trim();
-        let length = trimmed.chars().count();
-        (1..=200)
-            .contains(&length)
-            .then(|| Self(trimmed.to_owned()))
-            .ok_or(ProjectError::InvalidName)
+        required_text(text, 200)
+            .map(|name| Self(name.to_owned()))
+            .map_err(ProjectError::Name)
     }
 
     #[must_use]
@@ -168,11 +174,14 @@ mod tests {
     #[test]
     fn names_are_trimmed_and_bounded() {
         assert_eq!(ProjectName::parse("  Arches ").unwrap().as_str(), "Arches");
-        assert_eq!(ProjectName::parse("   "), Err(ProjectError::InvalidName));
+        assert_eq!(
+            ProjectName::parse("   "),
+            Err(ProjectError::Name(TextError::Empty))
+        );
         assert!(ProjectName::parse(&"x".repeat(200)).is_ok());
         assert_eq!(
             ProjectName::parse(&"x".repeat(201)),
-            Err(ProjectError::InvalidName)
+            Err(ProjectError::Name(TextError::TooLong(200)))
         );
     }
 

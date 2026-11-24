@@ -131,7 +131,7 @@ fn last_event_id(headers: &HeaderMap) -> Result<Option<i64>, AppError> {
                 .ok()
                 .and_then(|text| text.trim().parse::<i64>().ok())
                 .ok_or_else(|| {
-                    AppError::invalid("invalid-last-event-id", "Last-Event-ID must be a number")
+                    AppError::invalid("last-event-id-invalid", "Last-Event-ID must be a number")
                 })
         })
         .transpose()
@@ -405,7 +405,7 @@ mod tests {
         headers.insert("last-event-id", "nope".parse().unwrap());
         assert_eq!(
             last_event_id(&headers).unwrap_err().code(),
-            "invalid-last-event-id"
+            "last-event-id-invalid"
         );
     }
 }
