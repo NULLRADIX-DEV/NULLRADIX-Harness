@@ -1,0 +1,95 @@
+{
+  "title": "CLI commands pick the board of the folder's repository, else the active board",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "main board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "main": "json.id" }
+    },
+    {
+      "name": "side board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Side" }
+      },
+      "save": { "side": "json.id" }
+    },
+    { "name": "no board selected", "cli": { "args": ["ticket", "list"] } },
+    { "name": "use the side board", "cli": { "args": ["board", "use", "{{side}}"] } },
+    { "name": "the list marks it", "cli": { "args": ["board", "list"] } },
+    {
+      "name": "create on the active board",
+      "cli": { "args": ["ticket", "create", "Lands on Side"] }
+    },
+    {
+      "name": "init a repository",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git init",
+          "program": "git",
+          "args": ["init", "-q", "arches"],
+          "cwd": "{{WORK}}",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": { "init": "json.id" }
+    },
+    {
+      "name": "initialized",
+      "wait": { "path": "/api/v1/runs/{{init}}", "field": "status", "equals": "succeeded" }
+    },
+    {
+      "name": "bind the main board",
+      "cli": { "args": ["board", "repo", "{{main}}", "{{WORK}}/arches"] }
+    },
+    {
+      "name": "inside the repository the main board wins",
+      "cli": { "args": ["ticket", "create", "Lands on Main"], "cwd": "{{WORK}}/arches" }
+    },
+    {
+      "name": "the repository's list",
+      "cli": { "args": ["ticket", "list"], "cwd": "{{WORK}}/arches" }
+    },
+    { "name": "the active board's list", "cli": { "args": ["ticket", "list"] } },
+    {
+      "name": "bind the side board too",
+      "cli": { "args": ["board", "repo", "{{side}}", "{{WORK}}/arches"] }
+    },
+    {
+      "name": "among the repository's boards the active one wins",
+      "cli": { "args": ["ticket", "list"], "cwd": "{{WORK}}/arches" }
+    },
+    {
+      "name": "planning in the repository",
+      "cli": { "args": ["plan", "next"], "cwd": "{{WORK}}/arches" }
+    },
+    {
+      "name": "a project alone keeps its scope",
+      "cli": { "args": ["ticket", "list", "--project", "ARC"] }
+    },
+    {
+      "name": "planning across the project",
+      "cli": { "args": ["plan", "next", "--project", "ARC"] }
+    },
+    { "name": "every board", "cli": { "args": ["ticket", "list", "--board", "all"] } },
+    { "name": "clear the active board", "cli": { "args": ["board", "use", "--clear"] } },
+    { "name": "none selected again", "cli": { "args": ["ticket", "list"] } },
+    { "name": "an unknown board", "cli": { "args": ["board", "use", "{{project}}"] } }
+  ]
+}

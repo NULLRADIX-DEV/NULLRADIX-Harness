@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use clap::Subcommand;
 use nullradix_api::{
     AcceptTicket, ClaimTicket, ColumnDto, CreateTicket, MoveTicket, PriorityDto, ReleaseTicket,
@@ -13,6 +13,7 @@ use nullradix_domain::{Priority, TicketKey, TicketStatus, Timestamp};
 use uuid::Uuid;
 
 use crate::project;
+use crate::selection::{BoardChoice, BoardOption};
 
 #[derive(Subcommand)]
 pub(crate) enum TicketCommand {
@@ -153,9 +154,9 @@ pub(crate) struct SetArgs {
 
 #[derive(clap::Args)]
 pub(crate) struct ListArgs {
-    /// Only the tickets of this board
+    /// A board id or `all`; by default the repository's board, else the active one
     #[arg(long)]
-    board: Option<Uuid>,
+    board: Option<BoardOption>,
     /// Only the tickets of this project key
     #[arg(long)]
     project: Option<String>,
@@ -182,9 +183,9 @@ pub(crate) struct ListArgs {
 #[derive(clap::Args)]
 pub(crate) struct CreateArgs {
     title: String,
-    /// Board to create the ticket on
+    /// Board to create on; by default the repository's board, else the active one
     #[arg(long)]
-    board: Uuid,
+    board: Option<Uuid>,
     #[arg(long, conflicts_with = "description_file")]
     description: Option<String>,
     /// Read the description from this file
@@ -251,9 +252,13 @@ pub(crate) fn text(inline: Option<String>, file: Option<&Path>) -> anyhow::Resul
     }
 }
 
-pub(crate) fn run(command: TicketCommand, client: &Client) -> anyhow::Result<ExitCode> {
+pub(crate) fn run(
+    command: TicketCommand,
+    client: &Client,
+    choice: &BoardChoice,
+) -> anyhow::Result<ExitCode> {
     match command {
-        TicketCommand::List(args) => list(&args, client)?,
+        TicketCommand::List(args) => list(&args, client, choice)?,
         TicketCommand::Show { key, history, json } => {
             let key = TicketKey::parse(&key)?;
             let detail = client.get_ticket(&key.to_string())?;
@@ -265,7 +270,7 @@ pub(crate) fn run(command: TicketCommand, client: &Client) -> anyhow::Result<Exi
                 }
             }
         }
-        TicketCommand::Create(args) => create(args, client)?,
+        TicketCommand::Create(args) => create(args, client, choice)?,
         TicketCommand::Set(args) => set(*args, client)?,
         TicketCommand::Move {
             key,
@@ -325,12 +330,17 @@ pub(crate) fn run(command: TicketCommand, client: &Client) -> anyhow::Result<Exi
     Ok(ExitCode::SUCCESS)
 }
 
-fn list(args: &ListArgs, client: &Client) -> anyhow::Result<()> {
+fn list(args: &ListArgs, client: &Client, choice: &BoardChoice) -> anyhow::Result<()> {
     let project = match &args.project {
         Some(key) => Some(project::find(client, key)?.id.to_string()),
         None => None,
     };
-    let board = args.board.map(|id| id.to_string());
+    // a project alone names the scope; otherwise the board choice applies
+    let board = if project.is_some() && args.board.is_none() {
+        None
+    } else {
+        choice.many(client, args.board)?.map(|id| id.to_string())
+    };
     let optional = [
         ("projectId", project.as_deref()),
         ("boardId", board.as_deref()),
@@ -422,15 +432,8 @@ fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn create(args: CreateArgs, client: &Client) -> anyhow::Result<()> {
-    let Some(board) = client
-        .list_all_boards()?
-        .items
-        .into_iter()
-        .find(|board| board.id == args.board)
-    else {
-        bail!("no board has the id {}", args.board);
-    };
+fn create(args: CreateArgs, client: &Client, choice: &BoardChoice) -> anyhow::Result<()> {
+    let board = choice.board(client, args.board)?;
     let input = CreateTicket {
         title: args.title,
         description: text(args.description, args.description_file.as_deref())?,

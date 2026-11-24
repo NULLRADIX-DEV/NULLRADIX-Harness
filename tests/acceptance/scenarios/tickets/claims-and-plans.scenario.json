@@ -35,6 +35,7 @@
         "body": { "title": "Then me" }
       }
     },
+    { "name": "make the board active", "cli": { "args": ["board", "use", "{{board}}"] } },
     { "name": "peek at the queue", "cli": { "args": ["plan", "next"] } },
     { "name": "claim from the queue", "cli": { "args": ["plan", "next", "--claim", "planner"] } },
     {

@@ -4,9 +4,9 @@ use std::process::ExitCode;
 use clap::Subcommand;
 use nullradix_api::{ClaimPlanning, NextPlanningClaim, WritePlan};
 use nullradix_client::Client;
-use uuid::Uuid;
 
 use crate::project;
+use crate::selection::{BoardChoice, BoardOption};
 use crate::ticket::{canonical, report, text};
 
 #[derive(Subcommand)]
@@ -18,9 +18,9 @@ pub(crate) enum PlanCommand {
         /// Claim it for this agent for 15 minutes
         #[arg(long)]
         claim: Option<String>,
-        /// Only this board
+        /// A board id or `all`; by default the repository's board, else the active one
         #[arg(long)]
-        board: Option<Uuid>,
+        board: Option<BoardOption>,
         /// Only this project key
         #[arg(long)]
         project: Option<String>,
@@ -62,7 +62,11 @@ pub(crate) struct WriteArgs {
     status: Option<String>,
 }
 
-pub(crate) fn run(command: PlanCommand, client: &Client) -> anyhow::Result<ExitCode> {
+pub(crate) fn run(
+    command: PlanCommand,
+    client: &Client,
+    choice: &BoardChoice,
+) -> anyhow::Result<ExitCode> {
     match command {
         PlanCommand::Write(args) => {
             let input = WritePlan {
@@ -85,6 +89,11 @@ pub(crate) fn run(command: PlanCommand, client: &Client) -> anyhow::Result<ExitC
             let project = match project {
                 Some(key) => Some(project::find(client, &key)?.id),
                 None => None,
+            };
+            let board = if project.is_some() && board.is_none() {
+                None
+            } else {
+                choice.many(client, board)?
             };
             let next = match claim {
                 Some(agent) => client.claim_next_planning(&NextPlanningClaim {

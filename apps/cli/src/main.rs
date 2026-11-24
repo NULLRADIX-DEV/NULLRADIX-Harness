@@ -11,19 +11,23 @@ mod open;
 mod plan;
 mod project;
 mod run;
+mod selection;
 mod status;
 mod step;
 mod ticket;
 mod token;
 
 use std::net::IpAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 
+use nullradix_os::Paths;
+
 use crate::config::{Config, Overrides, Profile};
+use crate::selection::BoardChoice;
 
 #[derive(Parser)]
 #[command(
@@ -103,6 +107,12 @@ fn main() -> ExitCode {
     }
 }
 
+fn choice(profile: Profile, home: Option<&Path>) -> anyhow::Result<BoardChoice> {
+    Ok(BoardChoice::in_dir(
+        &Paths::resolve(profile.app_name(), home)?.config,
+    ))
+}
+
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     let profile = cli.profile.unwrap_or_else(Profile::of_build);
     match cli.command {
@@ -125,11 +135,11 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         }
         Command::Board(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
-            board::run(command, &client)
+            board::run(command, &client, &choice(profile, cli.home.as_deref())?)
         }
         Command::Ticket(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
-            ticket::run(command, &client)
+            ticket::run(command, &client, &choice(profile, cli.home.as_deref())?)
         }
         Command::Step(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
@@ -137,7 +147,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         }
         Command::Plan(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
-            plan::run(command, &client)
+            plan::run(command, &client, &choice(profile, cli.home.as_deref())?)
         }
         Command::Run(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
