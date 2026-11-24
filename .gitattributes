@@ -1,13 +1,2 @@
-# Die Standardvorlagen der Dispatcher-Prompts sind Vertrag zwischen Dispatcher und Agent und
-# werden Zeichen für Zeichen verglichen. Ein Checkout unter Windows darf ihre Zeilenenden
-# deshalb nicht auf CRLF umstellen.
-crates/nullradix-core/src/dispatch/prompts/*.txt text eol=lf
-
-# Das PowerShell-Skript der Ordnerwahl wird Zeichen für Zeichen nach UTF-16LE kodiert und an
-# PowerShell übergeben; CRLF im Checkout würde die Kodierung verändern.
-crates/nullradix-platform/src/windows/folder_picker.ps1 text eol=lf
-
-# Das Test-Theme wird zu e2e-shell.nullradix gepackt und der Test vergleicht Paket und Quelle Byte für
-# Byte; CRLF im Checkout würde die Quelle verändern.
-packages/web/tests/fixtures/themes/e2e-shell/** text eol=lf
-*.nullradix binary
+* text=auto eol=lf
+*.png binary

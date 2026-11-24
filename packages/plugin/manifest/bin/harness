@@ -1,6 +1,0 @@
-#!/bin/sh
-# Alias des Plugins: `harness` in der Bash von Claude Code startet das Binary `nullradix` daneben
-# und meldet über NULLRADIX_INVOKED_AS den alten Namen, damit `nullradix` einmal darauf hinweist.
-NULLRADIX_INVOKED_AS=harness
-export NULLRADIX_INVOKED_AS
-exec "$(dirname "$0")/nullradix" "$@"
