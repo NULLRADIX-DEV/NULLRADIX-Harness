@@ -1031,6 +1031,102 @@
         }
       }
     },
+    "/api/v1/projects/{projectId}/boards/{boardId}/tickets": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "create_ticket",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "boardId",
+            "in": "path",
+            "description": "Board id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the new ticket"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An open ticket has the same title",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs": {
       "get": {
         "tags": [
@@ -1346,6 +1442,174 @@
           }
         }
       }
+    },
+    "/api/v1/tickets": {
+      "get": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "list_tickets",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "boardId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "columns",
+            "in": "query",
+            "description": "Comma-separated columns, such as `waiting,planned`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "needsPlanning",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "assignee",
+            "in": "query",
+            "description": "Exact assignee name.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "description": "Exact label.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "description": "Case-insensitive text in the key, title or description.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tickets in display order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}": {
+      "get": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "get_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1465,6 +1729,20 @@
           "delete"
         ]
       },
+      "ColumnDto": {
+        "type": "string",
+        "description": "A board column: the statuses plus waiting, which open dependencies derive.",
+        "enum": [
+          "backlog",
+          "waiting",
+          "in-planning",
+          "planned",
+          "in-progress",
+          "blocked",
+          "done",
+          "not-needed"
+        ]
+      },
       "CreateBoard": {
         "type": "object",
         "required": [
@@ -1493,11 +1771,91 @@
         },
         "additionalProperties": false
       },
+      "CreateTicket": {
+        "type": "object",
+        "description": "A new ticket; left out fields take the defaults: backlog, normal, needs planning.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "acceptance": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allowDuplicate": {
+            "type": "boolean",
+            "description": "Allows an open ticket with the same title on the board."
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ticket keys, case and padding do not matter."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Lifts the dependency, question and not-needed locks."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Entries may hold several labels split by commas."
+          },
+          "needsPlanning": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TicketStatusDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetBranch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "EntityDto": {
         "type": "string",
         "enum": [
           "project",
           "board",
+          "ticket",
           "run"
         ]
       },
@@ -1535,6 +1893,50 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "HistoryDto": {
+        "type": "object",
+        "description": "One change in a ticket's history.",
+        "required": [
+          "at",
+          "actorId",
+          "actorName",
+          "field"
+        ],
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actorName": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "field": {
+            "type": "string"
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -1737,6 +2139,15 @@
           "session"
         ]
       },
+      "PriorityDto": {
+        "type": "string",
+        "enum": [
+          "low",
+          "normal",
+          "high",
+          "urgent"
+        ]
+      },
       "Problem": {
         "type": "object",
         "description": "RFC 9457 problem details with a stable `code` extension.",
@@ -1753,6 +2164,13 @@
           },
           "detail": {
             "type": "string"
+          },
+          "existing": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Key of the entity that already exists, such as `ARC-0007` for a duplicate ticket."
           },
           "status": {
             "type": "integer",
@@ -2019,6 +2437,209 @@
             "format": "int64"
           }
         }
+      },
+      "TicketDetailDto": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "history"
+        ],
+        "properties": {
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryDto"
+            },
+            "description": "Oldest first."
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/TicketDto"
+          }
+        }
+      },
+      "TicketDto": {
+        "type": "object",
+        "description": "A ticket as boards show it; timestamps are Unix milliseconds.",
+        "required": [
+          "key",
+          "id",
+          "projectId",
+          "boardId",
+          "number",
+          "title",
+          "description",
+          "acceptance",
+          "plan",
+          "handbook",
+          "diagram",
+          "status",
+          "priority",
+          "labels",
+          "dependsOn",
+          "needsPlanning",
+          "createdById",
+          "createdByName",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "column",
+          "waiting",
+          "dependsOpen",
+          "dependents",
+          "unlocks"
+        ],
+        "properties": {
+          "acceptance": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "blockedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "boardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "column": {
+            "$ref": "#/components/schemas/ColumnDto"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdById": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdByName": {
+            "type": "string"
+          },
+          "dependents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dependsOpen": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "diagram": {
+            "type": "string"
+          },
+          "handbook": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string",
+            "description": "Human key such as `ARC-0007`."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "needsPlanning": {
+            "type": "boolean"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "plan": {
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/PriorityDto"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatusDto"
+          },
+          "targetBranch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Branch the ticket merges into; none means the default branch."
+          },
+          "title": {
+            "type": "string"
+          },
+          "unlocks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Dependents that become ready once this ticket is done."
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "waiting": {
+            "type": "boolean",
+            "description": "Ahead of the work with an open dependency."
+          }
+        }
+      },
+      "TicketList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketDto"
+            }
+          }
+        }
+      },
+      "TicketStatusDto": {
+        "type": "string",
+        "enum": [
+          "backlog",
+          "in-planning",
+          "planned",
+          "in-progress",
+          "blocked",
+          "done",
+          "not-needed"
+        ]
       }
     },
     "securitySchemes": {

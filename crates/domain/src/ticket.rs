@@ -1,413 +1,330 @@
-use std::fmt;
+use crate::{
+    Actor, Board, Id, Priority, Project, TicketError, TicketKey, TicketStatus, Timestamp, Version,
+    required_text, utf16_len,
+};
 
-use strum::{EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
+pub const TITLE_MAX: usize = 400;
+pub const BRANCH_MAX: usize = 400;
 
-use crate::ProjectKey;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TicketTitle(String);
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum TicketError {
-    #[error("{0} is no ticket key, expected something like ARC-0042")]
-    InvalidKey(String),
-    #[error("status {0} is unknown")]
-    InvalidStatus(String),
-    #[error("waiting comes from open dependencies and is no status")]
-    WaitingIsDerived,
-    #[error("priority {0} is unknown, allowed are low, normal, high and urgent")]
-    InvalidPriority(String),
-}
-
-/// The human key of a ticket, such as `ARC-0042`; numbers grow past four digits.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TicketKey {
-    project: ProjectKey,
-    number: u32,
-}
-
-impl TicketKey {
-    #[must_use]
-    pub const fn new(project: ProjectKey, number: u32) -> Self {
-        Self { project, number }
-    }
-
-    /// Accepts any case and unpadded numbers, so `arc-42` is `ARC-0042`.
+impl TicketTitle {
     pub fn parse(text: &str) -> Result<Self, TicketError> {
-        let invalid = || TicketError::InvalidKey(text.to_owned());
-        let (key, number) = text.trim().rsplit_once('-').ok_or_else(invalid)?;
-        if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(invalid());
-        }
-        let number = number.parse::<u32>().map_err(|_| invalid())?;
-        let project = ProjectKey::parse(&key.to_ascii_uppercase()).map_err(|_| invalid())?;
-        Ok(Self { project, number })
+        required_text(text, TITLE_MAX)
+            .map(|title| Self(title.to_owned()))
+            .map_err(TicketError::Title)
     }
 
     #[must_use]
-    pub const fn project(&self) -> &ProjectKey {
-        &self.project
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 
+    /// The title as the duplicate check compares it: case does not count.
     #[must_use]
-    pub const fn number(&self) -> u32 {
-        self.number
+    pub fn folded(&self) -> String {
+        self.0.to_lowercase()
     }
 }
 
-impl fmt::Display for TicketKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}-{:04}", self.project, self.number)
+/// The branch a ticket merges into; none means the default branch of the project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetBranch(String);
+
+impl TargetBranch {
+    /// Blank text is no target; the rules follow `git check-ref-format --branch`.
+    pub fn parse(text: &str) -> Result<Option<Self>, TicketError> {
+        let name = text.trim();
+        if name.is_empty() {
+            return Ok(None);
+        }
+        if utf16_len(name) > BRANCH_MAX {
+            return Err(TicketError::TargetBranchTooLong(BRANCH_MAX));
+        }
+        if !is_branch_name(name) {
+            return Err(TicketError::InvalidTargetBranch(name.to_owned()));
+        }
+        // `ticket` would clash with refs/heads/ticket/*, and Windows ignores the case
+        let lower = name.to_lowercase();
+        if lower == "ticket" || lower.starts_with("ticket/") {
+            return Err(TicketError::TicketBranchTarget(name.to_owned()));
+        }
+        Ok(Some(Self(name.to_owned())))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoStaticStr, EnumString, EnumIter)]
-#[strum(serialize_all = "kebab-case")]
-pub enum TicketStatus {
-    Backlog,
-    InPlanning,
-    Planned,
-    InProgress,
-    Blocked,
-    Done,
-    NotNeeded,
+#[expect(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "git refuses only the exact .lock suffix"
+)]
+fn is_branch_name(name: &str) -> bool {
+    if name.starts_with('-') || name == "@" || name == "HEAD" || name.ends_with('.') {
+        return false;
+    }
+    let forbidden = name.chars().any(|letter| {
+        letter <= ' '
+            || letter == '\u{7f}'
+            || matches!(letter, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+    });
+    if forbidden || name.contains("..") || name.contains("@{") {
+        return false;
+    }
+    name.split('/')
+        .all(|part| !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock"))
 }
 
-impl TicketStatus {
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
+/// What a new ticket brings besides the defaults every ticket starts with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TicketDraft {
+    pub title: TicketTitle,
+    pub description: String,
+    pub acceptance: String,
+    pub status: TicketStatus,
+    pub priority: Priority,
+    /// Already normalized by [`crate::normalize_labels`].
+    pub labels: Vec<String>,
+    /// Already normalized by [`crate::normalize_dependencies`] and validated.
+    pub depends_on: Vec<TicketKey>,
+    pub needs_planning: bool,
+    pub target_branch: Option<TargetBranch>,
+}
 
-    /// Done and not needed close a ticket; every other status keeps it open.
-    #[must_use]
-    pub const fn is_open(self) -> bool {
-        !matches!(self, Self::Done | Self::NotNeeded)
-    }
+/// Every stored field of a ticket.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TicketRecord {
+    pub id: Id<Ticket>,
+    pub key: TicketKey,
+    pub project: Id<Project>,
+    pub board: Id<Board>,
+    pub title: TicketTitle,
+    pub description: String,
+    pub acceptance: String,
+    pub plan: String,
+    pub handbook: String,
+    pub diagram: String,
+    pub status: TicketStatus,
+    pub priority: Priority,
+    pub labels: Vec<String>,
+    pub depends_on: Vec<TicketKey>,
+    /// Place at the end of its column when it got there; the display order ignores it.
+    pub sort_order: i64,
+    pub assignee: Option<String>,
+    pub needs_planning: bool,
+    pub blocked_reason: Option<String>,
+    pub target_branch: Option<TargetBranch>,
+    pub created_by: Id<Actor>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub version: Version,
+}
 
-    /// Reads a column as people type it: any case, spaces or underscores, and legacy names.
-    pub fn parse_loosely(text: &str) -> Result<Self, TicketError> {
-        let dashed = text
-            .trim()
-            .to_lowercase()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join("-");
-        if matches!(dashed.as_str(), "waiting" | "wartet") {
-            return Err(TicketError::WaitingIsDerived);
-        }
-        // underscores only spell the status names; the legacy aliases take dashes alone
-        let named = dashed.replace('_', "-");
-        if let Some(status) = Self::iter().find(|status| status.as_str() == named) {
-            return Ok(status);
-        }
-        Ok(match dashed.as_str() {
-            "in-planung" | "planung" | "verfeinern" => Self::InPlanning,
-            "geplant" | "plan" => Self::Planned,
-            "in-arbeit" | "wip" | "arbeit" => Self::InProgress,
-            "blockiert" => Self::Blocked,
-            "erledigt" | "fertig" => Self::Done,
-            "nicht-mehr-noetig"
-            | "nicht-mehr-n\u{f6}tig"
-            | "nicht-noetig"
-            | "unnoetig"
-            | "hinfaellig" => Self::NotNeeded,
-            _ => return Err(TicketError::InvalidStatus(text.to_owned())),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ticket(TicketRecord);
+
+impl Ticket {
+    /// A ticket placed on `board` at the end of its column, as legacy created them.
+    #[must_use]
+    pub fn new(
+        id: Id<Self>,
+        key: TicketKey,
+        board: &Board,
+        draft: TicketDraft,
+        sort_order: i64,
+        created_by: Id<Actor>,
+        now: Timestamp,
+    ) -> Self {
+        Self(TicketRecord {
+            id,
+            key,
+            project: board.project(),
+            board: board.id(),
+            title: draft.title,
+            description: draft.description,
+            acceptance: draft.acceptance,
+            plan: String::new(),
+            handbook: String::new(),
+            diagram: String::new(),
+            status: draft.status,
+            priority: draft.priority,
+            labels: draft.labels,
+            depends_on: draft.depends_on,
+            sort_order,
+            assignee: None,
+            needs_planning: draft.needs_planning,
+            blocked_reason: None,
+            target_branch: draft.target_branch,
+            created_by,
+            created_at: now,
+            updated_at: now,
+            version: Version::INITIAL,
         })
     }
-}
 
-/// A board column: the statuses plus waiting, which open dependencies derive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, IntoStaticStr, EnumIter)]
-#[strum(serialize_all = "kebab-case")]
-pub enum Column {
-    Backlog,
-    Waiting,
-    InPlanning,
-    Planned,
-    InProgress,
-    Blocked,
-    Done,
-    NotNeeded,
-}
-
-impl Column {
-    /// Only tickets still ahead of the work wait; blocked and later ones never do.
     #[must_use]
-    pub const fn of(status: TicketStatus, has_open_dependency: bool) -> Self {
-        match status {
-            TicketStatus::Backlog | TicketStatus::InPlanning | TicketStatus::Planned
-                if has_open_dependency =>
-            {
-                Self::Waiting
-            }
-            TicketStatus::Backlog => Self::Backlog,
-            TicketStatus::InPlanning => Self::InPlanning,
-            TicketStatus::Planned => Self::Planned,
-            TicketStatus::InProgress => Self::InProgress,
-            TicketStatus::Blocked => Self::Blocked,
-            TicketStatus::Done => Self::Done,
-            TicketStatus::NotNeeded => Self::NotNeeded,
-        }
+    pub const fn restore(record: TicketRecord) -> Self {
+        Self(record)
     }
 
     #[must_use]
-    pub fn as_str(self) -> &'static str {
-        self.into()
+    pub const fn record(&self) -> &TicketRecord {
+        &self.0
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, IntoStaticStr, EnumString, EnumIter)]
-#[strum(serialize_all = "kebab-case")]
-pub enum Priority {
-    Low,
-    #[default]
-    Normal,
-    High,
-    Urgent,
-}
-
-impl Priority {
     #[must_use]
-    pub fn as_str(self) -> &'static str {
-        self.into()
+    pub const fn id(&self) -> Id<Self> {
+        self.0.id
     }
 
-    /// Place in the display order; urgent comes first.
     #[must_use]
-    pub const fn rank(self) -> u8 {
-        match self {
-            Self::Urgent => 0,
-            Self::High => 1,
-            Self::Normal => 2,
-            Self::Low => 3,
+    pub const fn key(&self) -> &TicketKey {
+        &self.0.key
+    }
+
+    #[must_use]
+    pub const fn status(&self) -> TicketStatus {
+        self.0.status
+    }
+}
+
+/// One line of a ticket's history: a field that changed, or a note such as `created`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryEntry {
+    pub id: Id<Self>,
+    pub ticket: Id<Ticket>,
+    pub actor: Id<Actor>,
+    pub at: Timestamp,
+    pub field: &'static str,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub note: Option<String>,
+}
+
+impl HistoryEntry {
+    /// The first entry of every ticket: its status from nothing, noted as created.
+    #[must_use]
+    pub fn created(id: Id<Self>, ticket: &Ticket) -> Self {
+        let record = ticket.record();
+        Self {
+            id,
+            ticket: record.id,
+            actor: record.created_by,
+            at: record.created_at,
+            field: "status",
+            from: None,
+            to: Some(record.status.as_str().to_owned()),
+            note: Some(String::from("created")),
         }
     }
-
-    pub fn parse(text: &str) -> Result<Self, TicketError> {
-        text.parse()
-            .map_err(|_| TicketError::InvalidPriority(text.to_owned()))
-    }
-}
-
-/// Why a status change is refused; the order of the checks follows the legacy board.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum StatusLock {
-    #[error("only a person may decide that a ticket is not needed")]
-    NotNeededByPeople,
-    #[error("a ticket is done only with acceptance criteria")]
-    AcceptanceMissing,
-    #[error("dependencies are still open: {}", join(.0))]
-    DependencyOpen(Vec<TicketKey>),
-    #[error("questions about the ticket are still open: {}", .0.join(", "))]
-    QuestionOpen(Vec<String>),
-}
-
-fn join(keys: &[TicketKey]) -> String {
-    keys.iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// What a status check needs to know about the ticket and its surroundings.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct StatusFacts {
-    /// True when the acceptance criteria are empty after trimming.
-    pub acceptance_blank: bool,
-    pub open_dependencies: Vec<TicketKey>,
-    /// Human keys of open questions that name the ticket.
-    pub open_questions: Vec<String>,
-}
-
-/// Who asks for a status change and whether the locks that allow it are lifted.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct StatusRequest {
-    pub by_person: bool,
-    pub force: bool,
-}
-
-/// Checks a change of status; staying in the same status is never locked.
-pub fn check_status_change(
-    from: Option<TicketStatus>,
-    to: TicketStatus,
-    request: StatusRequest,
-    facts: &StatusFacts,
-) -> Result<(), StatusLock> {
-    if from == Some(to) {
-        return Ok(());
-    }
-    if to == TicketStatus::NotNeeded && !request.by_person && !request.force {
-        return Err(StatusLock::NotNeededByPeople);
-    }
-    // even force cannot finish a ticket nobody can check
-    if to == TicketStatus::Done && facts.acceptance_blank {
-        return Err(StatusLock::AcceptanceMissing);
-    }
-    if matches!(to, TicketStatus::InProgress | TicketStatus::Done) && !request.force {
-        if !facts.open_dependencies.is_empty() {
-            return Err(StatusLock::DependencyOpen(facts.open_dependencies.clone()));
-        }
-        if !facts.open_questions.is_empty() {
-            return Err(StatusLock::QuestionOpen(facts.open_questions.clone()));
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{BoardName, TextError};
 
-    fn key(text: &str) -> TicketKey {
-        TicketKey::parse(text).unwrap()
+    fn id<T>(value: u128) -> Id<T> {
+        Id::from_uuid(uuid::Uuid::from_u128(value))
     }
 
     #[test]
-    fn ticket_keys_read_loosely_and_print_padded() {
-        assert_eq!(key("arc-42").to_string(), "ARC-0042");
-        assert_eq!(key(" ARC-12345 ").to_string(), "ARC-12345");
-        assert_eq!(key("A1B2-7").project().as_str(), "A1B2");
-        assert_eq!(key("ARC-7").number(), 7);
+    fn titles_are_trimmed_bounded_and_fold_their_case() {
+        assert_eq!(TicketTitle::parse("  Fix it ").unwrap().as_str(), "Fix it");
+        assert_eq!(
+            TicketTitle::parse(" "),
+            Err(TicketError::Title(TextError::Empty))
+        );
+        assert_eq!(
+            TicketTitle::parse(&"x".repeat(401)),
+            Err(TicketError::Title(TextError::TooLong(400)))
+        );
+        assert_eq!(
+            TicketTitle::parse("\u{c4}rger").unwrap().folded(),
+            "\u{e4}rger"
+        );
+    }
+
+    #[test]
+    fn target_branches_follow_git_rules_and_skip_ticket_branches() {
+        assert_eq!(TargetBranch::parse("  "), Ok(None));
+        assert_eq!(
+            TargetBranch::parse(" release/2.0 ")
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "release/2.0"
+        );
         for bad in [
-            "ARC",
-            "ARC-",
-            "A-1",
-            "ARCDEFG-1",
-            "1RC-1",
-            "ARC-x1",
-            "ARC-99999999999",
-            "ARC--1",
+            "-x", "@", "HEAD", "a..b", "a b", "a~1", "x.", "a//b", "/a", "a/.b", "a.lock", "a@{1",
+            "a\\b",
         ] {
-            assert!(TicketKey::parse(bad).is_err(), "{bad}");
+            assert_eq!(
+                TargetBranch::parse(bad),
+                Err(TicketError::InvalidTargetBranch(bad.to_owned())),
+                "{bad}"
+            );
         }
-    }
-
-    #[test]
-    fn project_keys_normalize_like_legacy() {
-        assert_eq!(ProjectKey::normalize("Inc-1").unwrap().as_str(), "INC1");
-        assert_eq!(ProjectKey::normalize(" arc ").unwrap().as_str(), "ARC");
-        assert!(ProjectKey::normalize("a!").is_err());
-    }
-
-    #[test]
-    fn statuses_read_wire_names_snake_case_and_legacy_names() {
-        assert_eq!(TicketStatus::InProgress.as_str(), "in-progress");
-        let cases = [
-            ("in-progress", TicketStatus::InProgress),
-            ("In Progress", TicketStatus::InProgress),
-            ("not_needed", TicketStatus::NotNeeded),
-            ("In Arbeit", TicketStatus::InProgress),
-            ("Nicht mehr n\u{f6}tig", TicketStatus::NotNeeded),
-            ("verfeinern", TicketStatus::InPlanning),
-            ("fertig", TicketStatus::Done),
-        ];
-        for (text, status) in cases {
-            assert_eq!(TicketStatus::parse_loosely(text), Ok(status), "{text}");
+        for taken in ["ticket", "Ticket/ARC-1"] {
+            assert_eq!(
+                TargetBranch::parse(taken),
+                Err(TicketError::TicketBranchTarget(taken.to_owned()))
+            );
         }
         assert_eq!(
-            TicketStatus::parse_loosely("Wartet"),
-            Err(TicketError::WaitingIsDerived)
-        );
-        assert!(TicketStatus::parse_loosely("later").is_err());
-        // legacy matches its aliases with dashes only
-        for text in ["in_arbeit", "in_planung", "nicht_mehr_noetig"] {
-            assert!(TicketStatus::parse_loosely(text).is_err(), "{text}");
-        }
-        assert!(!TicketStatus::Done.is_open() && !TicketStatus::NotNeeded.is_open());
-        assert!(TicketStatus::Blocked.is_open());
-    }
-
-    #[test]
-    fn columns_put_waiting_tickets_right_after_the_backlog() {
-        assert_eq!(Column::of(TicketStatus::Planned, true), Column::Waiting);
-        assert_eq!(Column::of(TicketStatus::Blocked, true), Column::Blocked);
-        assert_eq!(Column::of(TicketStatus::Backlog, false), Column::Backlog);
-        let order: Vec<&str> = Column::iter().map(Column::as_str).collect();
-        assert_eq!(
-            order,
-            [
-                "backlog",
-                "waiting",
-                "in-planning",
-                "planned",
-                "in-progress",
-                "blocked",
-                "done",
-                "not-needed"
-            ]
+            TargetBranch::parse(&"b".repeat(401)),
+            Err(TicketError::TargetBranchTooLong(400))
         );
     }
 
     #[test]
-    fn priorities_rank_urgent_first() {
-        assert_eq!(Priority::default(), Priority::Normal);
-        assert_eq!(Priority::parse("urgent"), Ok(Priority::Urgent));
-        assert!(Priority::parse("Urgent").is_err());
-        let mut all: Vec<Priority> = Priority::iter().collect();
-        all.sort_by_key(|priority| priority.rank());
-        assert_eq!(
-            all,
-            [
-                Priority::Urgent,
-                Priority::High,
-                Priority::Normal,
-                Priority::Low
-            ]
+    fn new_tickets_start_on_the_board_with_one_created_entry() {
+        let board = Board::new(
+            id(1),
+            id(2),
+            BoardName::parse("Main").unwrap(),
+            id(3),
+            Timestamp::from_millis(5),
         );
-    }
+        let draft = TicketDraft {
+            title: TicketTitle::parse("Fix it").unwrap(),
+            description: String::new(),
+            acceptance: String::new(),
+            status: TicketStatus::Planned,
+            priority: Priority::High,
+            labels: vec![String::from("ui")],
+            depends_on: Vec::new(),
+            needs_planning: true,
+            target_branch: None,
+        };
+        let key = TicketKey::parse("ARC-7").unwrap();
+        let ticket = Ticket::new(
+            id(4),
+            key.clone(),
+            &board,
+            draft,
+            3,
+            id(3),
+            Timestamp::from_millis(9),
+        );
+        let record = ticket.record();
+        assert_eq!((record.project, record.board), (id(2), id(1)));
+        assert_eq!(record.version, Version::INITIAL);
+        assert_eq!(record.updated_at, record.created_at);
+        assert_eq!(
+            (ticket.key(), ticket.status()),
+            (&key, TicketStatus::Planned)
+        );
 
-    #[test]
-    fn status_locks_follow_the_legacy_order() {
-        let open = StatusFacts {
-            acceptance_blank: true,
-            open_dependencies: vec![key("ARC-1")],
-            open_questions: vec![String::from("ARC-Q0001")],
-        };
-        let agent = StatusRequest::default();
-        let person = StatusRequest {
-            by_person: true,
-            force: false,
-        };
-        let forced = StatusRequest {
-            by_person: false,
-            force: true,
-        };
-        let check = |to, request, facts: &StatusFacts| {
-            check_status_change(Some(TicketStatus::Backlog), to, request, facts)
-        };
-
+        let entry = HistoryEntry::created(id(5), &ticket);
+        assert_eq!(entry.to.as_deref(), Some("planned"));
         assert_eq!(
-            check(TicketStatus::NotNeeded, agent, &open),
-            Err(StatusLock::NotNeededByPeople)
-        );
-        assert_eq!(check(TicketStatus::NotNeeded, person, &open), Ok(()));
-        assert_eq!(
-            check(TicketStatus::Done, person, &open),
-            Err(StatusLock::AcceptanceMissing)
-        );
-        assert_eq!(
-            check(TicketStatus::Done, forced, &open),
-            Err(StatusLock::AcceptanceMissing)
-        );
-        assert_eq!(
-            check(TicketStatus::InProgress, person, &open),
-            Err(StatusLock::DependencyOpen(vec![key("ARC-1")]))
-        );
-        let questions_only = StatusFacts {
-            open_dependencies: Vec::new(),
-            ..open.clone()
-        };
-        assert_eq!(
-            check(TicketStatus::InProgress, agent, &questions_only),
-            Err(StatusLock::QuestionOpen(vec![String::from("ARC-Q0001")]))
-        );
-        assert_eq!(check(TicketStatus::InProgress, forced, &open), Ok(()));
-        assert_eq!(check(TicketStatus::Blocked, agent, &open), Ok(()));
-        assert_eq!(
-            check_status_change(Some(TicketStatus::Done), TicketStatus::Done, agent, &open),
-            Ok(())
-        );
-        assert_eq!(
-            check_status_change(None, TicketStatus::InProgress, agent, &open),
-            Err(StatusLock::DependencyOpen(vec![key("ARC-1")]))
+            (entry.field, entry.from, entry.note.as_deref()),
+            ("status", None, Some("created"))
         );
     }
 }

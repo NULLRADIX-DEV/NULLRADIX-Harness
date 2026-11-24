@@ -2,9 +2,10 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, BoardDto, BoardList, CreateBoard, CreateProject, Handoff, Health,
-    HookEventDto, HookEventList, HookKindDto, HookReplyDto, Problem, ProjectDto, ProjectList,
-    RenameBoard, RenameProject, RunDto, RunList, RunOutput, StartRun,
+    API_PREFIX, API_VERSION, BoardDto, BoardList, CreateBoard, CreateProject, CreateTicket,
+    Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto, Problem, ProjectDto,
+    ProjectList, RenameBoard, RenameProject, RunDto, RunList, RunOutput, StartRun, TicketDetailDto,
+    TicketDto, TicketList,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -244,6 +245,39 @@ impl Client {
         decode(&mut response, 200)
     }
 
+    /// Tickets matching `query`, given as pairs such as `("columns", "planned")`.
+    pub fn list_tickets(&self, query: &[(&str, &str)]) -> Result<TicketList, ClientError> {
+        let mut request = self
+            .agent
+            .get(&self.url("/tickets"))
+            .header("Authorization", &self.authorization()?);
+        for (name, value) in query {
+            request = request.query(*name, *value);
+        }
+        let mut response = request.call().map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn create_ticket(
+        &self,
+        project: Uuid,
+        board: Uuid,
+        input: &CreateTicket,
+    ) -> Result<TicketDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/projects/{project}/boards/{board}/tickets")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    /// `key` must be a ticket key such as `ARC-0007`; it goes into the path as is.
+    pub fn get_ticket(&self, key: &str) -> Result<TicketDetailDto, ClientError> {
+        self.get_json(&format!("/tickets/{key}"))
+    }
+
     pub fn hook_events(&self, limit: u32) -> Result<HookEventList, ClientError> {
         self.get_json(&format!("/hook-events?limit={limit}"))
     }
@@ -384,6 +418,13 @@ mod tests {
                     Arc::new(UuidV7Generator),
                     signal.clone(),
                 ));
+                let tickets = Arc::new(nullradix_app::tickets::TicketService::new(
+                    store.clone(),
+                    store.clone(),
+                    Arc::new(SystemClock),
+                    Arc::new(UuidV7Generator),
+                    signal.clone(),
+                ));
                 let person = nullradix_app::boards::local_person(
                     store.as_ref(),
                     "tester",
@@ -396,6 +437,7 @@ mod tests {
                     auth,
                     projects,
                     boards,
+                    tickets,
                     person: Arc::new(person),
                     runs,
                     hooks,

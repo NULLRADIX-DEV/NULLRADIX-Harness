@@ -11,6 +11,7 @@ use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::runs::RunService;
+use nullradix_app::tickets::TicketService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_domain::Actor;
@@ -91,14 +92,15 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    let (boards, person) = start_boards(&store, &signal).await?;
+    let board = start_board(&store, &signal).await?;
     let runs = start_runs(config, &store, &signal).await?;
     let hooks = start_hooks(config, &store, &shutdown);
     let state = ApiState {
         auth,
         projects,
-        boards,
-        person,
+        boards: board.boards,
+        tickets: board.tickets,
+        person: board.person,
         runs,
         hooks,
         changes: Arc::new(store.clone()),
@@ -139,11 +141,14 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// Board service and the person every token and browser session acts for.
-async fn start_boards(
-    store: &Store,
-    signal: &ChangeSignal,
-) -> anyhow::Result<(Arc<BoardService>, Arc<Actor>)> {
+struct BoardServices {
+    boards: Arc<BoardService>,
+    tickets: Arc<TicketService>,
+    /// The person every token and browser session acts for.
+    person: Arc<Actor>,
+}
+
+async fn start_board(store: &Store, signal: &ChangeSignal) -> anyhow::Result<BoardServices> {
     let person = local_person(store, &person_name(), &UuidV7Generator, &SystemClock)
         .await
         .context("cannot record the local person; NULLRADIX_PERSON takes up to 100 characters")?;
@@ -155,7 +160,18 @@ async fn start_boards(
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    Ok((boards, Arc::new(person)))
+    let tickets = Arc::new(TicketService::new(
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    Ok(BoardServices {
+        boards,
+        tickets,
+        person: Arc::new(person),
+    })
 }
 
 /// `NULLRADIX_PERSON`, else the account name of the operating system.

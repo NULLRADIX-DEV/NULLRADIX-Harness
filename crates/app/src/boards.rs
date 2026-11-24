@@ -51,6 +51,14 @@ fn invalid(error: &BoardError) -> AppError {
 }
 
 #[must_use]
+pub fn has_tickets(id: Id<Board>) -> AppError {
+    AppError::conflict(
+        "board-has-tickets",
+        format!("board {id} still has tickets; delete them first"),
+    )
+}
+
+#[must_use]
 pub fn not_found(id: Id<Board>) -> AppError {
     AppError::not_found("board-not-found", format!("board {id} does not exist"))
 }

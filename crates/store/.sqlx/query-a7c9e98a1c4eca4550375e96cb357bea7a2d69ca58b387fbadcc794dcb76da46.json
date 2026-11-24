@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT b.id AS \"id: Uuid\", b.project_id AS \"project_id: Uuid\", p.key AS project_key,\n                      b.name, b.owner_id AS \"owner_id: Uuid\", a.name AS owner_name,\n                      b.dispatch_enabled,\n                      0 AS \"open_tickets!: i64\", b.created_at, b.updated_at, b.version\n               FROM boards b\n               JOIN projects p ON p.id = b.project_id\n               JOIN actors a ON a.id = b.owner_id\n               WHERE ?1 IS NULL OR b.project_id = ?1\n               ORDER BY p.key, b.name COLLATE NOCASE, b.id",
+  "query": "SELECT b.id AS \"id: Uuid\", b.project_id AS \"project_id: Uuid\", p.key AS project_key,\n                      b.name, b.owner_id AS \"owner_id: Uuid\", a.name AS owner_name,\n                      b.dispatch_enabled,\n                      (SELECT count(*) FROM tickets t\n                       WHERE t.board_id = b.id AND t.status NOT IN ('done', 'not-needed'))\n                        AS \"open_tickets!: i64\",\n                      b.created_at, b.updated_at, b.version\n               FROM boards b\n               JOIN projects p ON p.id = b.project_id\n               JOIN actors a ON a.id = b.owner_id\n               WHERE b.id = ?",
   "describe": {
     "columns": [
       {
@@ -137,5 +137,5 @@
       false
     ]
   },
-  "hash": "32fef3efb3be6c530ec3eea4c76234e3c00f37892574ec4da3055fb0f1959bfe"
+  "hash": "a7c9e98a1c4eca4550375e96cb357bea7a2d69ca58b387fbadcc794dcb76da46"
 }

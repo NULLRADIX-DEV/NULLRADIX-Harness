@@ -7,6 +7,7 @@ mod error;
 mod hooks;
 mod projects;
 mod runs;
+mod tickets;
 
 use std::path::Path;
 use std::time::Duration;
@@ -82,7 +83,7 @@ impl Store {
     }
 
     /// Write transaction that takes the lock up front instead of failing on upgrade.
-    pub(crate) async fn begin(&self) -> Result<Transaction<'_, Sqlite>, StoreError> {
+    pub(crate) async fn begin(&self) -> Result<Transaction<'static, Sqlite>, StoreError> {
         Ok(self.writer.begin_with("BEGIN IMMEDIATE").await?)
     }
 }

@@ -1,0 +1,102 @@
+{
+  "title": "Tickets get numbers, defaults and locks as on the legacy board",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "create",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": {
+          "title": "  Login page ",
+          "labels": ["ui, api", "UI"],
+          "priority": "high",
+          "acceptance": "Users can sign in"
+        }
+      }
+    },
+    {
+      "name": "same title again",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "login PAGE" }
+      }
+    },
+    {
+      "name": "waits on the first",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Logout", "dependsOn": ["arc-1"], "status": "planned" }
+      }
+    },
+    {
+      "name": "agents may not decide not needed",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Old idea", "status": "not-needed" }
+      }
+    },
+    {
+      "name": "done needs acceptance",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Finished", "status": "done" }
+      }
+    },
+    {
+      "name": "unknown dependency",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Lost", "dependsOn": ["ARC-99"] }
+      }
+    },
+    {
+      "name": "create in the CLI",
+      "cli": {
+        "args": ["ticket", "create", "From the CLI", "--board", "{{board}}", "--planned", "--label", "cli"]
+      }
+    },
+    { "name": "list in the CLI", "cli": { "args": ["ticket", "list", "--board", "{{board}}"] } },
+    { "name": "show in the CLI", "cli": { "args": ["ticket", "show", "arc-2"] } },
+    {
+      "name": "waiting column",
+      "http": { "method": "GET", "path": "/api/v1/tickets?columns=waiting" }
+    },
+    { "name": "detail", "http": { "method": "GET", "path": "/api/v1/tickets/arc-1" } },
+    { "name": "missing ticket", "http": { "method": "GET", "path": "/api/v1/tickets/ARC-99" } },
+    { "name": "no ticket key", "http": { "method": "GET", "path": "/api/v1/tickets/nope" } },
+    {
+      "name": "open tickets on the board",
+      "http": { "method": "GET", "path": "/api/v1/projects/{{project}}/boards/{{board}}" }
+    },
+    {
+      "name": "boards keep their tickets",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}?version=1"
+      }
+    }
+  ]
+}

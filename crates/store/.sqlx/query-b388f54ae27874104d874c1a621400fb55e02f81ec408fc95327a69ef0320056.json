@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.id AS \"id: Uuid\" FROM tickets t JOIN projects p ON p.id = t.project_id\n           WHERE p.key = ? AND t.number = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b388f54ae27874104d874c1a621400fb55e02f81ec408fc95327a69ef0320056"
+}

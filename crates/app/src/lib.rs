@@ -9,6 +9,7 @@ pub mod hooks;
 mod ids;
 pub mod projects;
 pub mod runs;
+pub mod tickets;
 
 pub use changes::{Change, ChangeFeed, ChangeOp, ChangeSignal, Entity};
 pub use clock::{Clock, SystemClock};

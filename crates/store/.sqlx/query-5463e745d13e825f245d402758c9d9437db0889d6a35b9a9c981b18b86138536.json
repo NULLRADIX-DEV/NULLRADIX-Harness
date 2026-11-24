@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO ticket_labels (ticket_id, label, position) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "5463e745d13e825f245d402758c9d9437db0889d6a35b9a9c981b18b86138536"
+}

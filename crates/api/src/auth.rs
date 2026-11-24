@@ -106,7 +106,7 @@ pub(crate) async fn authenticate(
             "the credentials are malformed",
         )),
         Credentials::Missing => Err(AppError::unauthorized(
-            "missing-credentials",
+            "credentials-missing",
             "this route needs a token or a session",
         )),
     };
@@ -277,7 +277,7 @@ mod tests {
             .unwrap();
         let (status, _, json) = send(&api.router, request).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert_eq!(json["code"], "missing-credentials");
+        assert_eq!(json["code"], "credentials-missing");
 
         let request = local(Request::get("/api/v1/auth/me"))
             .header(header::AUTHORIZATION, "Bearer nope")

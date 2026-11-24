@@ -1,0 +1,561 @@
+use std::collections::HashMap;
+
+use async_trait::async_trait;
+use nullradix_app::tickets::{HistoryLine, TicketRepository, TicketRow, TicketScope, TicketWrite};
+use nullradix_app::{AppError, Change, ChangeOp, Entity, boards, projects};
+use nullradix_domain::{
+    Board, BoardName, BoardRecord, DependencyIndex, HistoryEntry, Id, Priority, Project,
+    ProjectKey, TargetBranch, Ticket, TicketKey, TicketRecord, TicketStatus, TicketTitle,
+    Timestamp, Version,
+};
+use sqlx::{Sqlite, SqliteConnection, Transaction};
+use uuid::Uuid;
+
+use crate::error::{database, foreign_key_violation};
+use crate::{Store, StoreError, change_feed};
+
+fn corrupt(what: &str) -> StoreError {
+    StoreError::Corrupt(format!("invalid {what}"))
+}
+
+fn ticket_key(project: &str, number: i64) -> Result<TicketKey, StoreError> {
+    let project = ProjectKey::parse(project).map_err(|_| corrupt("project key"))?;
+    let number = u32::try_from(number).map_err(|_| corrupt("ticket number"))?;
+    Ok(TicketKey::new(project, number))
+}
+
+fn status(text: &str) -> Result<TicketStatus, StoreError> {
+    text.parse().map_err(|_| corrupt("ticket status"))
+}
+
+struct Row {
+    id: Uuid,
+    project_key: String,
+    project_id: Uuid,
+    board_id: Uuid,
+    number: i64,
+    title: String,
+    description: String,
+    acceptance: String,
+    plan: String,
+    handbook: String,
+    diagram: String,
+    status: String,
+    priority: String,
+    sort_order: i64,
+    assignee: Option<String>,
+    needs_planning: i64,
+    blocked_reason: Option<String>,
+    target_branch: Option<String>,
+    created_by: Uuid,
+    created_by_name: String,
+    created_at: i64,
+    updated_at: i64,
+    version: i64,
+}
+
+/// Labels and dependency keys of the read tickets, by ticket id.
+#[derive(Default)]
+struct Lists {
+    labels: HashMap<Uuid, Vec<String>>,
+    depends_on: HashMap<Uuid, Vec<TicketKey>>,
+}
+
+impl Row {
+    fn into_ticket_row(self, lists: &mut Lists) -> Result<TicketRow, StoreError> {
+        let target_branch = match self.target_branch.as_deref() {
+            Some(name) => TargetBranch::parse(name).map_err(|_| corrupt("target branch"))?,
+            None => None,
+        };
+        let record = TicketRecord {
+            id: Id::from_uuid(self.id),
+            key: ticket_key(&self.project_key, self.number)?,
+            project: Id::from_uuid(self.project_id),
+            board: Id::from_uuid(self.board_id),
+            title: TicketTitle::parse(&self.title).map_err(|_| corrupt("ticket title"))?,
+            description: self.description,
+            acceptance: self.acceptance,
+            plan: self.plan,
+            handbook: self.handbook,
+            diagram: self.diagram,
+            status: status(&self.status)?,
+            priority: Priority::parse(&self.priority).map_err(|_| corrupt("priority"))?,
+            labels: lists.labels.remove(&self.id).unwrap_or_default(),
+            depends_on: lists.depends_on.remove(&self.id).unwrap_or_default(),
+            sort_order: self.sort_order,
+            assignee: self.assignee,
+            needs_planning: self.needs_planning != 0,
+            blocked_reason: self.blocked_reason,
+            target_branch,
+            created_by: Id::from_uuid(self.created_by),
+            created_at: Timestamp::from_millis(self.created_at),
+            updated_at: Timestamp::from_millis(self.updated_at),
+            version: Version::from_stored(self.version),
+        };
+        Ok(TicketRow {
+            ticket: Ticket::restore(record),
+            created_by_name: self.created_by_name,
+        })
+    }
+}
+
+/// Which tickets a read covers; `None` does not narrow.
+#[derive(Clone, Copy, Default)]
+struct Selection {
+    project: Option<Uuid>,
+    board: Option<Uuid>,
+    ticket: Option<Uuid>,
+}
+
+async fn rows(connection: &mut SqliteConnection, at: Selection) -> Result<Vec<Row>, StoreError> {
+    Ok(sqlx::query_as!(
+        Row,
+        r#"SELECT t.id AS "id: Uuid", p.key AS project_key, t.project_id AS "project_id: Uuid",
+                  t.board_id AS "board_id: Uuid", t.number, t.title, t.description, t.acceptance,
+                  t.plan, t.handbook, t.diagram, t.status, t.priority, t.sort_order, t.assignee,
+                  t.needs_planning, t.blocked_reason, t.target_branch,
+                  t.created_by AS "created_by: Uuid", a.name AS created_by_name, t.created_at,
+                  t.updated_at, t.version
+           FROM tickets t
+           JOIN projects p ON p.id = t.project_id
+           JOIN actors a ON a.id = t.created_by
+           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)
+             AND (?3 IS NULL OR t.id = ?3)"#,
+        at.project,
+        at.board,
+        at.ticket,
+    )
+    .fetch_all(connection)
+    .await?)
+}
+
+async fn lists(connection: &mut SqliteConnection, at: Selection) -> Result<Lists, StoreError> {
+    let mut lists = Lists::default();
+    let labels = sqlx::query!(
+        r#"SELECT l.ticket_id AS "ticket_id: Uuid", l.label
+           FROM ticket_labels l
+           JOIN tickets t ON t.id = l.ticket_id
+           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)
+             AND (?3 IS NULL OR t.id = ?3)
+           ORDER BY l.ticket_id, l.position"#,
+        at.project,
+        at.board,
+        at.ticket,
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    for row in labels {
+        lists
+            .labels
+            .entry(row.ticket_id)
+            .or_default()
+            .push(row.label);
+    }
+    let edges = sqlx::query!(
+        r#"SELECT e.ticket_id AS "ticket_id: Uuid", dp.key AS project_key, d.number
+           FROM ticket_dependencies e
+           JOIN tickets t ON t.id = e.ticket_id
+           JOIN tickets d ON d.id = e.depends_on_id
+           JOIN projects dp ON dp.id = d.project_id
+           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)
+             AND (?3 IS NULL OR t.id = ?3)
+           ORDER BY e.ticket_id, e.position"#,
+        at.project,
+        at.board,
+        at.ticket,
+    )
+    .fetch_all(connection)
+    .await?;
+    for row in edges {
+        lists
+            .depends_on
+            .entry(row.ticket_id)
+            .or_default()
+            .push(ticket_key(&row.project_key, row.number)?);
+    }
+    Ok(lists)
+}
+
+async fn ticket_rows(
+    connection: &mut SqliteConnection,
+    at: Selection,
+) -> Result<Vec<TicketRow>, StoreError> {
+    let rows = rows(&mut *connection, at).await?;
+    let mut lists = lists(connection, at).await?;
+    rows.into_iter()
+        .map(|row| row.into_ticket_row(&mut lists))
+        .collect()
+}
+
+async fn dependency_index(
+    connection: &mut SqliteConnection,
+) -> Result<DependencyIndex, StoreError> {
+    let tickets = sqlx::query!(
+        r#"SELECT t.id AS "id: Uuid", p.key AS project_key, t.number, t.status
+           FROM tickets t JOIN projects p ON p.id = t.project_id"#
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    let lists = lists(connection, Selection::default()).await?;
+    let mut depends_on = lists.depends_on;
+    let mut nodes = Vec::with_capacity(tickets.len());
+    for ticket in tickets {
+        nodes.push((
+            ticket_key(&ticket.project_key, ticket.number)?,
+            status(&ticket.status)?,
+            depends_on.remove(&ticket.id).unwrap_or_default(),
+        ));
+    }
+    Ok(DependencyIndex::new(nodes))
+}
+
+/// The id of the ticket with this key.
+async fn ticket_id(
+    connection: &mut SqliteConnection,
+    key: &TicketKey,
+) -> Result<Option<Uuid>, StoreError> {
+    let project = key.project().as_str();
+    let number = i64::from(key.number());
+    Ok(sqlx::query_scalar!(
+        r#"SELECT t.id AS "id: Uuid" FROM tickets t JOIN projects p ON p.id = t.project_id
+           WHERE p.key = ? AND t.number = ?"#,
+        project,
+        number,
+    )
+    .fetch_optional(connection)
+    .await?)
+}
+
+#[async_trait]
+impl TicketRepository for Store {
+    async fn begin(&self) -> Result<Box<dyn TicketWrite>, AppError> {
+        Ok(Box::new(Write(self.begin().await?)))
+    }
+
+    async fn list(&self, scope: TicketScope) -> Result<Vec<TicketRow>, AppError> {
+        let at = Selection {
+            project: scope.project.map(|id| id.as_uuid()),
+            board: scope.board.map(|id| id.as_uuid()),
+            ticket: None,
+        };
+        let mut connection = self.reader.acquire().await.map_err(database)?;
+        let rows = ticket_rows(&mut connection, at).await?;
+        if rows.is_empty() {
+            missing_scope(&mut connection, scope).await?;
+        }
+        Ok(rows)
+    }
+
+    async fn get(&self, key: &TicketKey) -> Result<Option<TicketRow>, AppError> {
+        let mut connection = self.reader.acquire().await.map_err(database)?;
+        let Some(id) = ticket_id(&mut connection, key).await? else {
+            return Ok(None);
+        };
+        let at = Selection {
+            ticket: Some(id),
+            ..Selection::default()
+        };
+        Ok(ticket_rows(&mut connection, at).await?.pop())
+    }
+
+    async fn dependency_index(&self) -> Result<DependencyIndex, AppError> {
+        let mut connection = self.reader.acquire().await.map_err(database)?;
+        Ok(dependency_index(&mut connection).await?)
+    }
+
+    async fn history(&self, ticket: Id<Ticket>) -> Result<Vec<HistoryLine>, AppError> {
+        let id = ticket.as_uuid();
+        let rows = sqlx::query!(
+            r#"SELECT h.at, h.actor_id AS "actor_id: Uuid", a.name AS actor_name, h.field,
+                      h.from_value, h.to_value, h.note
+               FROM activity h JOIN actors a ON a.id = h.actor_id
+               WHERE h.ticket_id = ?
+               ORDER BY h.at, h.id"#,
+            id,
+        )
+        .fetch_all(&self.reader)
+        .await
+        .map_err(database)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| HistoryLine {
+                at: Timestamp::from_millis(row.at),
+                actor: Id::from_uuid(row.actor_id),
+                actor_name: row.actor_name,
+                field: row.field,
+                from: row.from_value,
+                to: row.to_value,
+                note: row.note,
+            })
+            .collect())
+    }
+}
+
+/// Fails when the scope names a project or board that does not exist.
+async fn missing_scope(
+    connection: &mut SqliteConnection,
+    scope: TicketScope,
+) -> Result<(), AppError> {
+    if let Some(project) = scope.project {
+        let uuid = project.as_uuid();
+        let found = sqlx::query_scalar!("SELECT 1 FROM projects WHERE id = ?", uuid)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(database)?;
+        if found.is_none() {
+            return Err(projects::not_found(project));
+        }
+    }
+    if let Some(board) = scope.board {
+        let uuid = board.as_uuid();
+        let found = sqlx::query_scalar!("SELECT 1 FROM boards WHERE id = ?", uuid)
+            .fetch_optional(connection)
+            .await
+            .map_err(database)?;
+        if found.is_none() {
+            return Err(boards::not_found(board));
+        }
+    }
+    Ok(())
+}
+
+struct Write(Transaction<'static, Sqlite>);
+
+#[async_trait]
+impl TicketWrite for Write {
+    async fn board(&mut self, id: Id<Board>) -> Result<Option<(Board, ProjectKey)>, AppError> {
+        let uuid = id.as_uuid();
+        let Some(row) = sqlx::query!(
+            r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", b.name,
+                      b.owner_id AS "owner_id: Uuid", b.dispatch_enabled, b.created_at,
+                      b.updated_at, b.version, p.key AS project_key
+               FROM boards b JOIN projects p ON p.id = b.project_id
+               WHERE b.id = ?"#,
+            uuid,
+        )
+        .fetch_optional(&mut *self.0)
+        .await
+        .map_err(database)?
+        else {
+            return Ok(None);
+        };
+        let board = Board::restore(BoardRecord {
+            id: Id::from_uuid(row.id),
+            project: Id::from_uuid(row.project_id),
+            name: BoardName::parse(&row.name).map_err(|_| corrupt("board name"))?,
+            owner: Id::from_uuid(row.owner_id),
+            dispatch_enabled: row.dispatch_enabled != 0,
+            created_at: Timestamp::from_millis(row.created_at),
+            updated_at: Timestamp::from_millis(row.updated_at),
+            version: Version::from_stored(row.version),
+        });
+        let key = ProjectKey::parse(&row.project_key).map_err(|_| corrupt("project key"))?;
+        Ok(Some((board, key)))
+    }
+
+    async fn open_titles(
+        &mut self,
+        board: Id<Board>,
+    ) -> Result<Vec<(TicketKey, TicketTitle)>, AppError> {
+        let uuid = board.as_uuid();
+        let rows = sqlx::query!(
+            r#"SELECT p.key AS project_key, t.number, t.title
+               FROM tickets t JOIN projects p ON p.id = t.project_id
+               WHERE t.board_id = ? AND t.status NOT IN ('done', 'not-needed')
+               ORDER BY t.number"#,
+            uuid,
+        )
+        .fetch_all(&mut *self.0)
+        .await
+        .map_err(database)?;
+        rows.into_iter()
+            .map(|row| {
+                let key = ticket_key(&row.project_key, row.number)?;
+                let title = TicketTitle::parse(&row.title).map_err(|_| corrupt("ticket title"))?;
+                Ok((key, title))
+            })
+            .collect::<Result<_, StoreError>>()
+            .map_err(AppError::from)
+    }
+
+    async fn dependency_index(&mut self) -> Result<DependencyIndex, AppError> {
+        Ok(dependency_index(&mut self.0).await?)
+    }
+
+    async fn take_number(&mut self, project: Id<Project>) -> Result<u32, AppError> {
+        let uuid = project.as_uuid();
+        let number = sqlx::query_scalar!(
+            r#"UPDATE projects SET next_ticket_number = next_ticket_number + 1 WHERE id = ?
+               RETURNING next_ticket_number - 1 AS "number!: i64""#,
+            uuid,
+        )
+        .fetch_optional(&mut *self.0)
+        .await
+        .map_err(database)?
+        .ok_or_else(|| projects::not_found(project))?;
+        Ok(u32::try_from(number).map_err(|_| corrupt("ticket counter"))?)
+    }
+
+    async fn next_sort_order(
+        &mut self,
+        board: Id<Board>,
+        status: TicketStatus,
+    ) -> Result<i64, AppError> {
+        let uuid = board.as_uuid();
+        let status = status.as_str();
+        let last = sqlx::query_scalar!(
+            r#"SELECT max(sort_order) AS "last: i64" FROM tickets
+               WHERE board_id = ? AND status = ?"#,
+            uuid,
+            status,
+        )
+        .fetch_one(&mut *self.0)
+        .await
+        .map_err(database)?;
+        Ok(last.map_or(0, |last| last + 1))
+    }
+
+    async fn insert(
+        &mut self,
+        ticket: &Ticket,
+        history: &[HistoryEntry],
+    ) -> Result<Change, AppError> {
+        let record = ticket.record();
+        insert_ticket(&mut self.0, record).await?;
+        insert_lists(&mut self.0, record).await?;
+        insert_history(&mut self.0, history).await?;
+        let change = change_feed::record(
+            &mut self.0,
+            Entity::Ticket,
+            record.id.as_uuid(),
+            ChangeOp::Insert,
+            record.created_at,
+        )
+        .await?;
+        Ok(change)
+    }
+
+    async fn commit(self: Box<Self>) -> Result<(), AppError> {
+        self.0.commit().await.map_err(database)
+    }
+}
+
+async fn insert_ticket(
+    connection: &mut SqliteConnection,
+    record: &TicketRecord,
+) -> Result<(), AppError> {
+    let id = record.id.as_uuid();
+    let project = record.project.as_uuid();
+    let board = record.board.as_uuid();
+    let number = i64::from(record.key.number());
+    let title = record.title.as_str();
+    let status = record.status.as_str();
+    let priority = record.priority.as_str();
+    let needs_planning = i64::from(record.needs_planning);
+    let target_branch = record.target_branch.as_ref().map(TargetBranch::as_str);
+    let created_by = record.created_by.as_uuid();
+    let created_at = record.created_at.as_millis();
+    let updated_at = record.updated_at.as_millis();
+    let version = record.version.value();
+    let inserted = sqlx::query!(
+        "INSERT INTO tickets (id, project_id, board_id, number, title, description, acceptance,
+                              plan, handbook, diagram, status, priority, sort_order, assignee,
+                              needs_planning, blocked_reason, target_branch, created_by,
+                              created_at, updated_at, version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        id,
+        project,
+        board,
+        number,
+        title,
+        record.description,
+        record.acceptance,
+        record.plan,
+        record.handbook,
+        record.diagram,
+        status,
+        priority,
+        record.sort_order,
+        record.assignee,
+        needs_planning,
+        record.blocked_reason,
+        target_branch,
+        created_by,
+        created_at,
+        updated_at,
+        version,
+    )
+    .execute(connection)
+    .await;
+    match inserted {
+        Ok(_) => Ok(()),
+        Err(error) if foreign_key_violation(&error) => Err(boards::not_found(record.board)),
+        Err(error) => Err(database(error)),
+    }
+}
+
+async fn insert_lists(
+    connection: &mut SqliteConnection,
+    record: &TicketRecord,
+) -> Result<(), AppError> {
+    let id = record.id.as_uuid();
+    for (position, label) in (0_i64..).zip(&record.labels) {
+        sqlx::query!(
+            "INSERT INTO ticket_labels (ticket_id, label, position) VALUES (?, ?, ?)",
+            id,
+            label,
+            position,
+        )
+        .execute(&mut *connection)
+        .await
+        .map_err(database)?;
+    }
+    for (position, dependency) in (0_i64..).zip(&record.depends_on) {
+        let project = dependency.project().as_str();
+        let number = i64::from(dependency.number());
+        let added = sqlx::query!(
+            "INSERT INTO ticket_dependencies (ticket_id, depends_on_id, position)
+             SELECT ?, t.id, ? FROM tickets t JOIN projects p ON p.id = t.project_id
+             WHERE p.key = ? AND t.number = ?",
+            id,
+            position,
+            project,
+            number,
+        )
+        .execute(&mut *connection)
+        .await
+        .map_err(database)?;
+        if added.rows_affected() == 0 {
+            return Err(StoreError::Corrupt(format!("dependency {dependency} vanished")).into());
+        }
+    }
+    Ok(())
+}
+
+async fn insert_history(
+    connection: &mut SqliteConnection,
+    history: &[HistoryEntry],
+) -> Result<(), AppError> {
+    for entry in history {
+        let id = entry.id.as_uuid();
+        let ticket = entry.ticket.as_uuid();
+        let actor = entry.actor.as_uuid();
+        let at = entry.at.as_millis();
+        sqlx::query!(
+            "INSERT INTO activity (id, ticket_id, actor_id, at, field, from_value, to_value, note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            id,
+            ticket,
+            actor,
+            at,
+            entry.field,
+            entry.from,
+            entry.to,
+            entry.note,
+        )
+        .execute(&mut *connection)
+        .await
+        .map_err(database)?;
+    }
+    Ok(())
+}

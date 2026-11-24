@@ -1,0 +1,468 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "create",
+    "request": {
+      "body": {
+        "acceptance": "Users can sign in",
+        "labels": [
+          "ui, api",
+          "UI"
+        ],
+        "priority": "high",
+        "title": "  Login page "
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "Users can sign in",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "column": "backlog",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-4>",
+        "key": "ARC-0001",
+        "labels": [
+          "ui",
+          "api"
+        ],
+        "needsPlanning": true,
+        "number": 1,
+        "plan": "",
+        "priority": "high",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "targetBranch": null,
+        "title": "Login page",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false
+      },
+      "location": "/api/v1/tickets/ARC-0001",
+      "status": 201
+    }
+  },
+  {
+    "name": "same title again",
+    "request": {
+      "body": {
+        "title": "login PAGE"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-duplicate",
+        "detail": "the open ticket ARC-0001 already has this title",
+        "existing": "ARC-0001",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:ticket-duplicate"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "waits on the first",
+    "request": {
+      "body": {
+        "dependsOn": [
+          "arc-1"
+        ],
+        "status": "planned",
+        "title": "Logout"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "column": "waiting",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [
+          "ARC-0001"
+        ],
+        "dependsOpen": [
+          "ARC-0001"
+        ],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-5>",
+        "key": "ARC-0002",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 2,
+        "plan": "",
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "planned",
+        "targetBranch": null,
+        "title": "Logout",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": true
+      },
+      "location": "/api/v1/tickets/ARC-0002",
+      "status": 201
+    }
+  },
+  {
+    "name": "agents may not decide not needed",
+    "request": {
+      "body": {
+        "status": "not-needed",
+        "title": "Old idea"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "code": "not-needed-human-only",
+        "detail": "only a person may decide that a ticket is not needed",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:not-needed-human-only"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "done needs acceptance",
+    "request": {
+      "body": {
+        "status": "done",
+        "title": "Finished"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "code": "acceptance-missing",
+        "detail": "a ticket is done only with acceptance criteria",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:acceptance-missing"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "unknown dependency",
+    "request": {
+      "body": {
+        "dependsOn": [
+          "ARC-99"
+        ],
+        "title": "Lost"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "code": "dependency-unknown",
+        "detail": "dependency ARC-0099 does not exist",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:dependency-unknown"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "From the CLI",
+      "--board",
+      "<ID-2>",
+      "--planned",
+      "--label",
+      "cli"
+    ],
+    "exitCode": 0,
+    "name": "create in the CLI",
+    "stderr": "",
+    "stdout": "ARC-0003 created: From the CLI\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "list",
+      "--board",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "list in the CLI",
+    "stderr": "",
+    "stdout": "\nBacklog (2)\n  ARC-0001  Login page  [planning] (high) ui,api\n  ARC-0003  From the CLI  cli\n\nWaiting (1)\n  ARC-0002  Logout  [waiting for ARC-0001] [planning]\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "show",
+      "arc-2"
+    ],
+    "exitCode": 0,
+    "name": "show in the CLI",
+    "stderr": "",
+    "stdout": "ARC-0002  Logout\nStatus planned (waiting) | Priority normal | version 1 | unassigned | needs planning\nDepends on: ARC-0001 (open)\n"
+  },
+  {
+    "name": "waiting column",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets?columns=waiting"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "acceptance": "",
+            "assignee": null,
+            "blockedReason": null,
+            "boardId": "<ID-2>",
+            "column": "waiting",
+            "createdAt": "<TIME>",
+            "createdById": "<ID-3>",
+            "createdByName": "tester",
+            "dependents": [],
+            "dependsOn": [
+              "ARC-0001"
+            ],
+            "dependsOpen": [
+              "ARC-0001"
+            ],
+            "description": "",
+            "diagram": "",
+            "handbook": "",
+            "id": "<ID-5>",
+            "key": "ARC-0002",
+            "labels": [],
+            "needsPlanning": true,
+            "number": 2,
+            "plan": "",
+            "priority": "normal",
+            "projectId": "<ID-1>",
+            "status": "planned",
+            "targetBranch": null,
+            "title": "Logout",
+            "unlocks": [],
+            "updatedAt": "<TIME>",
+            "version": 1,
+            "waiting": true
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "detail",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/arc-1"
+    },
+    "response": {
+      "json": {
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          }
+        ],
+        "ticket": {
+          "acceptance": "Users can sign in",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "column": "backlog",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [
+            "ARC-0002"
+          ],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-4>",
+          "key": "ARC-0001",
+          "labels": [
+            "ui",
+            "api"
+          ],
+          "needsPlanning": true,
+          "number": 1,
+          "plan": "",
+          "priority": "high",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "targetBranch": null,
+          "title": "Login page",
+          "unlocks": [
+            "ARC-0002"
+          ],
+          "updatedAt": "<TIME>",
+          "version": 1,
+          "waiting": false
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "missing ticket",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-99"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-not-found",
+        "detail": "ticket ARC-0099 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:ticket-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "no ticket key",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/nope"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-id-invalid",
+        "detail": "nope is no ticket key, expected something like ARC-0042",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:ticket-id-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "open tickets on the board",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 3,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "boards keep their tickets",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "board-has-tickets",
+        "detail": "board <ID-2> still has tickets; delete them first",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:board-has-tickets"
+      },
+      "status": 409
+    }
+  }
+]

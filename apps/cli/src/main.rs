@@ -11,6 +11,7 @@ mod open;
 mod project;
 mod run;
 mod status;
+mod ticket;
 mod token;
 
 use std::net::IpAddr;
@@ -53,6 +54,9 @@ enum Command {
     /// Manage the boards of projects
     #[command(subcommand)]
     Board(board::BoardCommand),
+    /// Create, list and show tickets
+    #[command(subcommand)]
+    Ticket(ticket::TicketCommand),
     /// Run commands on the daemon's machine
     #[command(subcommand)]
     Run(run::RunCommand),
@@ -114,6 +118,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Board(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             board::run(command, &client)
+        }
+        Command::Ticket(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            ticket::run(command, &client)
         }
         Command::Run(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

@@ -22,11 +22,11 @@
     },
     "response": {
       "json": {
-        "code": "missing-credentials",
+        "code": "credentials-missing",
         "detail": "this route needs a token or a session",
         "status": 401,
         "title": "Unauthorized",
-        "type": "urn:nullradix:problem:missing-credentials"
+        "type": "urn:nullradix:problem:credentials-missing"
       },
       "status": 401
     }

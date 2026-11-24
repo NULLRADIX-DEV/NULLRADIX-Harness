@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.ticket_id AS \"ticket_id: Uuid\", dp.key AS project_key, d.number\n           FROM ticket_dependencies e\n           JOIN tickets t ON t.id = e.ticket_id\n           JOIN tickets d ON d.id = e.depends_on_id\n           JOIN projects dp ON dp.id = d.project_id\n           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)\n             AND (?3 IS NULL OR t.id = ?3)\n           ORDER BY e.ticket_id, e.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "ticket_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "ticket_dependencies",
+            "name": "ticket_id"
+          }
+        }
+      },
+      {
+        "name": "project_key",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "number",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "number"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "916bd635070ef3b858e9962b7571d6956f0f310a8b35b23510120532a8305dbd"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT b.id AS \"id: Uuid\", b.project_id AS \"project_id: Uuid\", p.key AS project_key,\n                      b.name, b.owner_id AS \"owner_id: Uuid\", a.name AS owner_name,\n                      b.dispatch_enabled,\n                      0 AS \"open_tickets!: i64\", b.created_at, b.updated_at, b.version\n               FROM boards b\n               JOIN projects p ON p.id = b.project_id\n               JOIN actors a ON a.id = b.owner_id\n               WHERE b.id = ?",
+  "query": "SELECT b.id AS \"id: Uuid\", b.project_id AS \"project_id: Uuid\", b.name,\n                      b.owner_id AS \"owner_id: Uuid\", b.dispatch_enabled, b.created_at,\n                      b.updated_at, b.version, p.key AS project_key\n               FROM boards b JOIN projects p ON p.id = b.project_id\n               WHERE b.id = ?",
   "describe": {
     "columns": [
       {
@@ -26,19 +26,8 @@
         }
       },
       {
-        "name": "project_key",
-        "ordinal": 2,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "projects",
-            "name": "key"
-          }
-        }
-      },
-      {
         "name": "name",
-        "ordinal": 3,
+        "ordinal": 2,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +38,7 @@
       },
       {
         "name": "owner_id: Uuid",
-        "ordinal": 4,
+        "ordinal": 3,
         "type_info": "Blob",
         "origin": {
           "Table": {
@@ -59,19 +48,8 @@
         }
       },
       {
-        "name": "owner_name",
-        "ordinal": 5,
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "actors",
-            "name": "name"
-          }
-        }
-      },
-      {
         "name": "dispatch_enabled",
-        "ordinal": 6,
+        "ordinal": 4,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -81,14 +59,8 @@
         }
       },
       {
-        "name": "open_tickets!: i64",
-        "ordinal": 7,
-        "type_info": "Integer",
-        "origin": "Expression"
-      },
-      {
         "name": "created_at",
-        "ordinal": 8,
+        "ordinal": 5,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -99,7 +71,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 9,
+        "ordinal": 6,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -110,12 +82,23 @@
       },
       {
         "name": "version",
-        "ordinal": 10,
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
             "table": "boards",
             "name": "version"
+          }
+        }
+      },
+      {
+        "name": "project_key",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
           }
         }
       }
@@ -132,10 +115,8 @@
       false,
       false,
       false,
-      false,
-      false,
       false
     ]
   },
-  "hash": "41b9a12751fc7a0ff15d1ff8a633adc98ba2e413de45007a1fd26a2033d99c79"
+  "hash": "024dc3071e9710c7b6900048ae5015b276cc7375cc589a1cd6f2ddeda7d25bd4"
 }

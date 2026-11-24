@@ -212,6 +212,22 @@ export interface paths {
         patch: operations["rename_board"];
         trace?: never;
     };
+    "/api/v1/projects/{projectId}/boards/{boardId}/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs": {
         parameters: {
             query?: never;
@@ -276,6 +292,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_tickets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{ticketKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_ticket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -321,6 +369,11 @@ export interface components {
         };
         /** @enum {string} */
         ChangeOpDto: "insert" | "update" | "delete";
+        /**
+         * @description A board column: the statuses plus waiting, which open dependencies derive.
+         * @enum {string}
+         */
+        ColumnDto: "backlog" | "waiting" | "in-planning" | "planned" | "in-progress" | "blocked" | "done" | "not-needed";
         CreateBoard: {
             name: string;
         };
@@ -328,8 +381,26 @@ export interface components {
             key: string;
             name: string;
         };
+        /** @description A new ticket; left out fields take the defaults: backlog, normal, needs planning. */
+        CreateTicket: {
+            acceptance?: string | null;
+            /** @description Allows an open ticket with the same title on the board. */
+            allowDuplicate?: boolean;
+            /** @description Ticket keys, case and padding do not matter. */
+            dependsOn?: string[];
+            description?: string | null;
+            /** @description Lifts the dependency, question and not-needed locks. */
+            force?: boolean;
+            /** @description Entries may hold several labels split by commas. */
+            labels?: string[];
+            needsPlanning?: boolean | null;
+            priority?: components["schemas"]["PriorityDto"] | null;
+            status?: components["schemas"]["TicketStatusDto"] | null;
+            targetBranch?: string | null;
+            title: string;
+        };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "run";
+        EntityDto: "project" | "board" | "ticket" | "run";
         /** @description One-time code that opens a browser session. */
         Handoff: {
             code: string;
@@ -340,6 +411,18 @@ export interface components {
             apiVersion: number;
             status: string;
             version: string;
+        };
+        /** @description One change in a ticket's history. */
+        HistoryDto: {
+            /** Format: uuid */
+            actorId: string;
+            actorName: string;
+            /** Format: int64 */
+            at: number;
+            field: string;
+            from?: string | null;
+            note?: string | null;
+            to?: string | null;
         };
         /** @description One hook report; unknown fields are ignored because hooks skip the version handshake. */
         HookEventDto: {
@@ -400,10 +483,14 @@ export interface components {
         OutputStreamDto: "stdout" | "stderr";
         /** @enum {string} */
         PrincipalKind: "token" | "session";
+        /** @enum {string} */
+        PriorityDto: "low" | "normal" | "high" | "urgent";
         /** @description RFC 9457 problem details with a stable `code` extension. */
         Problem: {
             code: string;
             detail: string;
+            /** @description Key of the entity that already exists, such as `ARC-0007` for a duplicate ticket. */
+            existing?: string | null;
             /** Format: int32 */
             status: number;
             title: string;
@@ -488,6 +575,60 @@ export interface components {
             /** Format: int64 */
             seq: number;
         };
+        TicketDetailDto: {
+            /** @description Oldest first. */
+            history: components["schemas"]["HistoryDto"][];
+            ticket: components["schemas"]["TicketDto"];
+        };
+        /** @description A ticket as boards show it; timestamps are Unix milliseconds. */
+        TicketDto: {
+            acceptance: string;
+            assignee?: string | null;
+            blockedReason?: string | null;
+            /** Format: uuid */
+            boardId: string;
+            column: components["schemas"]["ColumnDto"];
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: uuid */
+            createdById: string;
+            createdByName: string;
+            dependents: string[];
+            dependsOn: string[];
+            dependsOpen: string[];
+            description: string;
+            diagram: string;
+            handbook: string;
+            /** Format: uuid */
+            id: string;
+            /** @description Human key such as `ARC-0007`. */
+            key: string;
+            labels: string[];
+            needsPlanning: boolean;
+            /** Format: int32 */
+            number: number;
+            plan: string;
+            priority: components["schemas"]["PriorityDto"];
+            /** Format: uuid */
+            projectId: string;
+            status: components["schemas"]["TicketStatusDto"];
+            /** @description Branch the ticket merges into; none means the default branch. */
+            targetBranch?: string | null;
+            title: string;
+            /** @description Dependents that become ready once this ticket is done. */
+            unlocks: string[];
+            /** Format: int64 */
+            updatedAt: number;
+            /** Format: int64 */
+            version: number;
+            /** @description Ahead of the work with an open dependency. */
+            waiting: boolean;
+        };
+        TicketList: {
+            items: components["schemas"]["TicketDto"][];
+        };
+        /** @enum {string} */
+        TicketStatusDto: "backlog" | "in-planning" | "planned" | "in-progress" | "blocked" | "done" | "not-needed";
     };
     responses: never;
     parameters: never;
@@ -1297,6 +1438,69 @@ export interface operations {
             };
         };
     };
+    create_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+                /** @description Board id. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTicket"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the new ticket */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description An open ticket has the same title */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     list_runs: {
         parameters: {
             query?: {
@@ -1522,6 +1726,108 @@ export interface operations {
                 };
             };
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_tickets: {
+        parameters: {
+            query?: {
+                projectId?: string;
+                boardId?: string;
+                /** @description Comma-separated columns, such as `waiting,planned`. */
+                columns?: string;
+                needsPlanning?: boolean;
+                /** @description Exact assignee name. */
+                assignee?: string;
+                /** @description Exact label. */
+                label?: string;
+                /** @description Case-insensitive text in the key, title or description. */
+                query?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tickets in display order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

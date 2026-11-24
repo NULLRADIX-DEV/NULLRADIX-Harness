@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
-use crate::{TicketKey, utf16_len};
+use crate::{Column, Priority, TicketKey, TicketStatus, utf16_len};
 
 pub const LABEL_MAX: usize = 100;
 /// How much of a too long label an error shows, as in legacy.
@@ -130,6 +130,90 @@ fn path_back<'a, S: BuildHasher>(
     None
 }
 
+/// Status, dependencies and dependents of every ticket, to tell what waits on what.
+#[derive(Debug, Clone, Default)]
+pub struct DependencyIndex {
+    statuses: HashMap<TicketKey, TicketStatus>,
+    edges: HashMap<TicketKey, Vec<TicketKey>>,
+    dependents: HashMap<TicketKey, Vec<TicketKey>>,
+}
+
+impl DependencyIndex {
+    pub fn new(
+        tickets: impl IntoIterator<Item = (TicketKey, TicketStatus, Vec<TicketKey>)>,
+    ) -> Self {
+        let mut index = Self::default();
+        for (key, status, depends_on) in tickets {
+            for dependency in &depends_on {
+                index
+                    .dependents
+                    .entry(dependency.clone())
+                    .or_default()
+                    .push(key.clone());
+            }
+            index.statuses.insert(key.clone(), status);
+            index.edges.insert(key, depends_on);
+        }
+        for dependents in index.dependents.values_mut() {
+            dependents.sort();
+        }
+        index
+    }
+
+    /// Each ticket with its own dependencies, as [`validate_dependencies`] takes them.
+    #[must_use]
+    pub const fn edges(&self) -> &HashMap<TicketKey, Vec<TicketKey>> {
+        &self.edges
+    }
+
+    /// Dependencies neither done nor not needed; deleted ones count as met.
+    #[must_use]
+    pub fn open_dependencies(&self, depends_on: &[TicketKey]) -> Vec<TicketKey> {
+        depends_on
+            .iter()
+            .filter(|key| {
+                self.statuses
+                    .get(*key)
+                    .is_some_and(|status| status.is_open())
+            })
+            .cloned()
+            .collect()
+    }
+
+    #[must_use]
+    pub fn dependents(&self, key: &TicketKey) -> &[TicketKey] {
+        self.dependents.get(key).map_or(&[], Vec::as_slice)
+    }
+
+    /// Dependents still ahead of the work whose only open dependency is `key`.
+    #[must_use]
+    pub fn unlocks(&self, key: &TicketKey) -> Vec<TicketKey> {
+        self.dependents(key)
+            .iter()
+            .filter(|dependent| {
+                matches!(
+                    self.statuses.get(*dependent),
+                    Some(TicketStatus::Backlog | TicketStatus::InPlanning | TicketStatus::Planned)
+                ) && self
+                    .edges
+                    .get(*dependent)
+                    .is_some_and(|edges| self.open_dependencies(edges) == [key.clone()])
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+/// Sort key of the display order: column, priority, number, then the key.
+#[must_use]
+pub fn display_order(
+    column: Column,
+    priority: Priority,
+    key: &TicketKey,
+) -> (Column, u8, u32, String) {
+    (column, priority.rank(), key.number(), key.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,5 +326,46 @@ mod tests {
         let bottom = TicketKey::new(project, 1);
         let result = validate_dependencies(&bottom, &[top], &edges);
         assert!(matches!(&result, Err(RuleError::DependencyCycle(path)) if path.len() == 200_001));
+    }
+
+    #[test]
+    fn the_index_tells_open_dependencies_dependents_and_unlocks() {
+        use TicketStatus::{Backlog, Blocked, Done, InProgress, Planned};
+        let index = DependencyIndex::new([
+            (key("ARC-1"), InProgress, Vec::new()),
+            (key("ARC-2"), Done, Vec::new()),
+            (
+                key("ARC-3"),
+                Planned,
+                vec![key("ARC-1"), key("ARC-2"), key("ARC-9")],
+            ),
+            (key("ARC-4"), Backlog, vec![key("ARC-1"), key("ARC-3")]),
+            (key("ARC-5"), Blocked, vec![key("ARC-1")]),
+        ]);
+        assert_eq!(
+            index.open_dependencies(&[key("ARC-1"), key("ARC-2"), key("ARC-9")]),
+            [key("ARC-1")]
+        );
+        assert_eq!(
+            index.dependents(&key("ARC-1")),
+            [key("ARC-3"), key("ARC-4"), key("ARC-5")]
+        );
+        assert_eq!(index.unlocks(&key("ARC-1")), [key("ARC-3")]);
+        assert_eq!(index.unlocks(&key("ARC-2")), Vec::<TicketKey>::new());
+        assert_eq!(index.dependents(&key("ARC-5")), []);
+        assert!(validate_dependencies(&key("ARC-1"), &[key("ARC-4")], index.edges()).is_err());
+    }
+
+    #[test]
+    fn display_order_sorts_by_column_priority_and_number() {
+        let mut keys = [
+            display_order(Column::Planned, Priority::Low, &key("ARC-1")),
+            display_order(Column::Waiting, Priority::Low, &key("ARC-5")),
+            display_order(Column::Planned, Priority::Urgent, &key("ARC-9")),
+            display_order(Column::Planned, Priority::Urgent, &key("ARC-3")),
+        ];
+        keys.sort();
+        let numbers: Vec<u32> = keys.iter().map(|order| order.2).collect();
+        assert_eq!(numbers, [5, 3, 9, 1]);
     }
 }
