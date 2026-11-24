@@ -1,25 +1,19 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::panic,
-    reason = "integration tests fail loudly"
-)]
+#![allow(clippy::unwrap_used, reason = "integration tests fail loudly")]
 
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use nullradix_app::projects::ProjectService;
 use nullradix_app::{
-    Change, ChangeFeed, ChangeOp, Entity, ErrorKind, EventBus, SystemClock, UuidV7Generator,
+    ChangeFeed, ChangeOp, ChangeSignal, Entity, ErrorKind, SystemClock, UuidV7Generator,
 };
 use nullradix_domain::{Id, Version};
 use nullradix_store::Store;
-use tokio::sync::broadcast::Receiver;
-use tokio::sync::broadcast::error::TryRecvError;
+use tokio::sync::watch::Receiver;
 
 struct Fixture {
     projects: ProjectService,
     store: Arc<Store>,
-    events: Receiver<Change>,
+    head: Receiver<i64>,
 }
 
 impl Fixture {
@@ -33,29 +27,29 @@ impl Fixture {
             .collect()
     }
 
-    fn next_event(&mut self) -> Option<Change> {
-        match self.events.try_recv() {
-            Ok(change) => Some(change),
-            Err(TryRecvError::Empty) => None,
-            Err(error) => panic!("{error}"),
-        }
+    /// The head seq the signal announced since the last call, if it moved.
+    fn signalled(&mut self) -> Option<i64> {
+        self.head
+            .has_changed()
+            .unwrap()
+            .then(|| *self.head.borrow_and_update())
     }
 }
 
 async fn fixture() -> Fixture {
     let store = Arc::new(Store::in_memory().await.unwrap());
-    let bus = EventBus::new(NonZeroUsize::new(16).unwrap());
-    let events = bus.subscribe();
+    let signal = ChangeSignal::new();
+    let head = signal.subscribe();
     let projects = ProjectService::new(
         store.clone(),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
-        bus,
+        signal,
     );
     Fixture {
         projects,
         store,
-        events,
+        head,
     }
 }
 
@@ -81,14 +75,13 @@ async fn creates_lists_and_reads_projects() {
     assert_eq!(fx.projects.get(arc.id()).await.unwrap(), arc);
     assert_eq!(arc.name().as_str(), "Arches");
 
-    let first = fx.next_event().unwrap();
-    assert_eq!(
-        (first.entity, first.entity_id, first.op),
-        (Entity::Project, zed.id().as_uuid(), ChangeOp::Insert)
-    );
     let feed = fx.store.changes_since(0, 10).await.unwrap();
     assert_eq!(feed.len(), 2);
-    assert_eq!(feed[0], first);
+    assert_eq!(
+        (feed[0].entity, feed[0].entity_id, feed[0].op),
+        (Entity::Project, zed.id().as_uuid(), ChangeOp::Insert)
+    );
+    assert_eq!(fx.signalled(), Some(feed[1].seq));
 }
 
 #[tokio::test]
@@ -112,7 +105,7 @@ async fn rejects_invalid_input_and_taken_keys() {
 async fn renames_with_optimistic_concurrency() {
     let mut fx = fixture().await;
     let project = fx.projects.create("ARC", "Arches").await.unwrap();
-    fx.next_event();
+    fx.signalled();
     let renamed = fx
         .projects
         .rename(project.id(), "Arches 2", project.version())
@@ -121,7 +114,7 @@ async fn renames_with_optimistic_concurrency() {
     assert_eq!(renamed.name().as_str(), "Arches 2");
     assert_eq!(renamed.version(), Version::from_stored(2));
     assert_eq!(fx.projects.get(project.id()).await.unwrap(), renamed);
-    assert_eq!(fx.next_event().unwrap().op, ChangeOp::Update);
+    assert_eq!(fx.signalled(), Some(2));
 
     let stale = fx
         .projects
@@ -137,14 +130,14 @@ async fn renames_with_optimistic_concurrency() {
         .unwrap_err();
     assert_eq!(missing.code(), "project-not-found");
     assert_eq!(fx.ops().await, vec![ChangeOp::Insert, ChangeOp::Update]);
-    assert_eq!(fx.next_event(), None);
+    assert_eq!(fx.signalled(), None);
 }
 
 #[tokio::test]
 async fn renaming_to_the_same_name_changes_nothing() {
     let mut fx = fixture().await;
     let project = fx.projects.create("ARC", "Arches").await.unwrap();
-    fx.next_event();
+    fx.signalled();
     let same = fx
         .projects
         .rename(project.id(), " Arches ", project.version())
@@ -152,14 +145,14 @@ async fn renaming_to_the_same_name_changes_nothing() {
         .unwrap();
     assert_eq!(same, project);
     assert_eq!(fx.ops().await, vec![ChangeOp::Insert]);
-    assert_eq!(fx.next_event(), None);
+    assert_eq!(fx.signalled(), None);
 }
 
 #[tokio::test]
 async fn deletes_with_optimistic_concurrency() {
     let mut fx = fixture().await;
     let project = fx.projects.create("ARC", "Arches").await.unwrap();
-    fx.next_event();
+    fx.signalled();
     let stale = fx
         .projects
         .delete(project.id(), Version::from_stored(5))
@@ -178,7 +171,7 @@ async fn deletes_with_optimistic_concurrency() {
         .delete(project.id(), project.version())
         .await
         .unwrap();
-    assert_eq!(fx.next_event().unwrap().op, ChangeOp::Delete);
+    assert_eq!(fx.signalled(), Some(2));
     assert_eq!(
         fx.projects.get(project.id()).await.unwrap_err().code(),
         "project-not-found"

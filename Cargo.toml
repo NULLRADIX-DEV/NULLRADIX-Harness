@@ -24,6 +24,8 @@ axum = "0.8.9"
 axum-extra = { version = "0.12.6", features = ["cookie"] }
 clap = { version = "4.6.9", features = ["derive", "env"] }
 directories = "6.0.0"
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+http-body-util = "0.1.3"
 getrandom = "0.4.3"
 open = "5.4.5"
 parking_lot = "0.13.0"
@@ -35,6 +37,7 @@ sqlx = { version = "0.9.1", default-features = false, features = ["macros", "mig
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 tokio = "1.54.1"
+tokio-util = "0.7.20"
 toml = "1.2.2"
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["fs", "request-id", "set-header", "trace", "util"] }

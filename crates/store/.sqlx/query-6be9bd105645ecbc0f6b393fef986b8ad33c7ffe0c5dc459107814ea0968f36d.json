@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT coalesce(max(seq), 0) AS \"head!: i64\" FROM change_feed",
+  "describe": {
+    "columns": [
+      {
+        "name": "head!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6be9bd105645ecbc0f6b393fef986b8ad33c7ffe0c5dc459107814ea0968f36d"
+}

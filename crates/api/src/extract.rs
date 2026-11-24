@@ -1,6 +1,6 @@
 use axum::Json;
-use axum::extract::rejection::{JsonRejection, QueryRejection};
-use axum::extract::{FromRequest, FromRequestParts, Query, Request};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
+use axum::extract::{FromRequest, FromRequestParts, Path, Query, Request};
 use axum::http::request::Parts;
 use nullradix_app::AppError;
 
@@ -40,6 +40,25 @@ where
         match Query::<T>::from_request_parts(parts, state).await {
             Ok(Query(value)) => Ok(Self(value)),
             Err(rejection) => Err(AppError::invalid("invalid-query", rejection.body_text()).into()),
+        }
+    }
+}
+
+/// Path parameters whose rejections are rendered as problem details.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ApiPath<T>(pub T);
+
+impl<T, S> FromRequestParts<S> for ApiPath<T>
+where
+    Path<T>: FromRequestParts<S, Rejection = PathRejection>,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        match Path::<T>::from_request_parts(parts, state).await {
+            Ok(Path(value)) => Ok(Self(value)),
+            Err(rejection) => Err(AppError::invalid("invalid-path", rejection.body_text()).into()),
         }
     }
 }
