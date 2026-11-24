@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO runners (id, name, os, created_at, updated_at, version)\n             VALUES (?, ?, ?, ?, ?, ?)\n             ON CONFLICT (name) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "a1f4c50a547f03189ae12b199fa3f1b05358e7ef84c4200b88b47a580a9f484a"
+}

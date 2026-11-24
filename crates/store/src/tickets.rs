@@ -432,7 +432,8 @@ impl TicketWrite for Write {
         let uuid = id.as_uuid();
         let Some(row) = sqlx::query!(
             r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", b.name,
-                      b.owner_id AS "owner_id: Uuid", b.dispatch_enabled, b.created_at,
+                      b.owner_id AS "owner_id: Uuid", b.dispatch_enabled,
+                      b.repository_id AS "repository_id?: Uuid", b.created_at,
                       b.updated_at, b.version, p.key AS project_key
                FROM boards b JOIN projects p ON p.id = b.project_id
                WHERE b.id = ?"#,
@@ -450,6 +451,7 @@ impl TicketWrite for Write {
             name: BoardName::parse(&row.name).map_err(|_| corrupt("board name"))?,
             owner: Id::from_uuid(row.owner_id),
             dispatch_enabled: row.dispatch_enabled != 0,
+            repository: row.repository_id.map(Id::from_uuid),
             created_at: Timestamp::from_millis(row.created_at),
             updated_at: Timestamp::from_millis(row.updated_at),
             version: Version::from_stored(row.version),

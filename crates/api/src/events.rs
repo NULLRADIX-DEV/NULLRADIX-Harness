@@ -29,6 +29,8 @@ pub enum EntityDto {
     Board,
     Ticket,
     Run,
+    Runner,
+    Repository,
 }
 
 impl From<Entity> for EntityDto {
@@ -38,6 +40,8 @@ impl From<Entity> for EntityDto {
             Entity::Board => Self::Board,
             Entity::Ticket => Self::Ticket,
             Entity::Run => Self::Run,
+            Entity::Runner => Self::Runner,
+            Entity::Repository => Self::Repository,
         }
     }
 }
@@ -290,8 +294,9 @@ mod tests {
         let mut body = open(&api, "/api/v1/events", None).await;
         let mut text = String::new();
         read_until(&mut body, &mut text, "event: ready").await;
-        assert!(text.contains("id: 1"));
-        assert!(text.contains("{\"seq\":1}"));
+        // the local runner took seq 1
+        assert!(text.contains("id: 2"));
+        assert!(text.contains("{\"seq\":2}"));
     }
 
     #[tokio::test]
@@ -338,7 +343,7 @@ mod tests {
         let mut body = open(&api, "/api/v1/events", Some("99")).await;
         let mut text = String::new();
         read_until(&mut body, &mut text, "event: reset").await;
-        assert!(text.contains("id: 0"));
+        assert!(text.contains("id: 1"));
     }
 
     #[tokio::test]
@@ -378,7 +383,7 @@ mod tests {
         assert_eq!(
             plan(feed, None, 10).await.unwrap(),
             Resume {
-                after: 3,
+                after: 4,
                 reset: false
             }
         );
@@ -392,7 +397,7 @@ mod tests {
         assert_eq!(
             plan(feed, Some(0), 2).await.unwrap(),
             Resume {
-                after: 3,
+                after: 4,
                 reset: true
             }
         );

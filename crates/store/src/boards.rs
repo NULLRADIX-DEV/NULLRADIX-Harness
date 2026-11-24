@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use nullradix_app::boards::{self, ActorRepository, BoardRepository, BoardSummary};
 use nullradix_app::{AppError, Change, ChangeOp, Entity, projects};
 use nullradix_domain::{
-    Actor, ActorKind, ActorName, Board, BoardName, BoardRecord, Id, Project, Timestamp, Version,
+    Actor, ActorKind, ActorName, Board, BoardName, BoardRecord, CheckoutPath, Id, Project, Runner,
+    Timestamp, Version,
 };
 use sqlx::SqliteConnection;
 use uuid::Uuid;
@@ -79,6 +80,8 @@ struct Row {
     owner_id: Uuid,
     owner_name: String,
     dispatch_enabled: i64,
+    repository_id: Option<Uuid>,
+    repository_name: Option<String>,
     open_tickets: i64,
     created_at: i64,
     updated_at: i64,
@@ -94,6 +97,7 @@ impl Row {
             name,
             owner: Id::from_uuid(self.owner_id),
             dispatch_enabled: self.dispatch_enabled != 0,
+            repository: self.repository_id.map(Id::from_uuid),
             created_at: Timestamp::from_millis(self.created_at),
             updated_at: Timestamp::from_millis(self.updated_at),
             version: Version::from_stored(self.version),
@@ -102,6 +106,7 @@ impl Row {
             board,
             project_key: self.project_key,
             owner_name: self.owner_name,
+            repository_name: self.repository_name,
             open_tickets: u32::try_from(self.open_tickets).map_err(|_| corrupt("ticket count"))?,
         })
     }
@@ -191,7 +196,8 @@ impl BoardRepository for Store {
             Row,
             r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", p.key AS project_key,
                       b.name, b.owner_id AS "owner_id: Uuid", a.name AS owner_name,
-                      b.dispatch_enabled,
+                      b.dispatch_enabled, b.repository_id AS "repository_id?: Uuid",
+                      r.name AS "repository_name?",
                       (SELECT count(*) FROM tickets t
                        WHERE t.board_id = b.id AND t.status NOT IN ('done', 'not-needed'))
                         AS "open_tickets!: i64",
@@ -199,6 +205,7 @@ impl BoardRepository for Store {
                FROM boards b
                JOIN projects p ON p.id = b.project_id
                JOIN actors a ON a.id = b.owner_id
+               LEFT JOIN repositories r ON r.id = b.repository_id
                WHERE ?1 IS NULL OR b.project_id = ?1
                ORDER BY p.key, b.name COLLATE NOCASE, b.id"#,
             project,
@@ -215,7 +222,8 @@ impl BoardRepository for Store {
             Row,
             r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", p.key AS project_key,
                       b.name, b.owner_id AS "owner_id: Uuid", a.name AS owner_name,
-                      b.dispatch_enabled,
+                      b.dispatch_enabled, b.repository_id AS "repository_id?: Uuid",
+                      r.name AS "repository_name?",
                       (SELECT count(*) FROM tickets t
                        WHERE t.board_id = b.id AND t.status NOT IN ('done', 'not-needed'))
                         AS "open_tickets!: i64",
@@ -223,6 +231,7 @@ impl BoardRepository for Store {
                FROM boards b
                JOIN projects p ON p.id = b.project_id
                JOIN actors a ON a.id = b.owner_id
+               LEFT JOIN repositories r ON r.id = b.repository_id
                WHERE b.id = ?"#,
             uuid,
         )
@@ -236,15 +245,18 @@ impl BoardRepository for Store {
         let id = board.id().as_uuid();
         let name = board.name().as_str();
         let dispatch = i64::from(board.dispatch_enabled());
+        let repository = board.repository().map(|id| id.as_uuid());
         let updated_at = board.updated_at().as_millis();
         let version = board.version().value();
         let expected = expected.value();
         let mut tx = self.begin().await?;
         let updated = sqlx::query!(
-            "UPDATE boards SET name = ?, dispatch_enabled = ?, updated_at = ?, version = ?
+            "UPDATE boards SET name = ?, dispatch_enabled = ?, repository_id = ?, updated_at = ?,
+                               version = ?
              WHERE id = ? AND version = ?",
             name,
             dispatch,
+            repository,
             updated_at,
             version,
             id,
@@ -266,5 +278,38 @@ impl BoardRepository for Store {
         .await?;
         tx.commit().await.map_err(database)?;
         Ok(change)
+    }
+
+    async fn list_by_checkout(
+        &self,
+        runner: Id<Runner>,
+        key: &CheckoutPath,
+    ) -> Result<Vec<BoardSummary>, AppError> {
+        let runner = runner.as_uuid();
+        let key = key.as_str();
+        let rows = sqlx::query_as!(
+            Row,
+            r#"SELECT b.id AS "id: Uuid", b.project_id AS "project_id: Uuid", p.key AS project_key,
+                      b.name, b.owner_id AS "owner_id: Uuid", a.name AS owner_name,
+                      b.dispatch_enabled, b.repository_id AS "repository_id?: Uuid",
+                      r.name AS "repository_name?",
+                      (SELECT count(*) FROM tickets t
+                       WHERE t.board_id = b.id AND t.status NOT IN ('done', 'not-needed'))
+                        AS "open_tickets!: i64",
+                      b.created_at, b.updated_at, b.version
+               FROM boards b
+               JOIN projects p ON p.id = b.project_id
+               JOIN actors a ON a.id = b.owner_id
+               JOIN repositories r ON r.id = b.repository_id
+               JOIN checkouts c ON c.repository_id = r.id
+               WHERE c.runner_id = ? AND c.path_key = ?
+               ORDER BY p.key, b.name COLLATE NOCASE, b.id"#,
+            runner,
+            key,
+        )
+        .fetch_all(&self.reader)
+        .await
+        .map_err(database)?;
+        summaries(rows)
     }
 }

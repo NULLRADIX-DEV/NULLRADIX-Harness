@@ -1,0 +1,158 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT c.id AS \"id: Uuid\", c.repository_id AS \"repository_id: Uuid\",\n                      r.name AS repository_name, r.created_at AS repository_created_at,\n                      r.updated_at AS repository_updated_at, r.version AS repository_version,\n                      c.runner_id AS \"runner_id: Uuid\", c.path, c.path_key, c.created_at,\n                      c.updated_at, c.version\n               FROM checkouts c\n               JOIN repositories r ON r.id = c.repository_id\n               ORDER BY c.path_key, c.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "checkouts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "repository_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "checkouts",
+            "name": "repository_id"
+          }
+        }
+      },
+      {
+        "name": "repository_name",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repositories",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "repository_created_at",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "repositories",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "repository_updated_at",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "repositories",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "repository_version",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "repositories",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "name": "runner_id: Uuid",
+        "ordinal": 6,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "checkouts",
+            "name": "runner_id"
+          }
+        }
+      },
+      {
+        "name": "path",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "checkouts",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "name": "path_key",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "checkouts",
+            "name": "path_key"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "checkouts",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "checkouts",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "checkouts",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0258ab071c54a9d8e1fbe3ce7c766bd3f2516a564ecae9f5af4328124d1ea7b8"
+}

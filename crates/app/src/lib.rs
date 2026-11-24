@@ -8,6 +8,7 @@ mod error;
 pub mod hooks;
 mod ids;
 pub mod projects;
+pub mod repositories;
 pub mod runs;
 pub mod tickets;
 

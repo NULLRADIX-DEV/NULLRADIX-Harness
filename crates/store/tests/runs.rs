@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use nullradix_app::repositories::{Located, not_a_git_project};
 use nullradix_app::runs::{RunProgress, RunReport, RunRepository, RunService, RunSpec, RunnerPort};
 use nullradix_app::{AppError, ChangeSignal, SystemClock, UuidV7Generator};
 use nullradix_domain::{Id, Run, RunEnd, RunLabel, RunOutcome, RunStatus, Timestamp};
@@ -87,6 +88,10 @@ impl RunnerPort for ScriptedRunner {
             report,
             alive,
         })
+    }
+
+    async fn locate(&self, path: &str) -> Result<Located, AppError> {
+        Err(not_a_git_project(path))
     }
 }
 

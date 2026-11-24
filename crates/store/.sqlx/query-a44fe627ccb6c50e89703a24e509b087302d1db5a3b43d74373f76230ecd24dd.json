@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE boards SET name = ?, dispatch_enabled = ?, repository_id = ?, updated_at = ?,\n                               version = ?\n             WHERE id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "a44fe627ccb6c50e89703a24e509b087302d1db5a3b43d74373f76230ecd24dd"
+}

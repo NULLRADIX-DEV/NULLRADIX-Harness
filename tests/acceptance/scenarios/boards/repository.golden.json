@@ -1,0 +1,351 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "field": "items.0.local",
+    "name": "the local runner",
+    "reached": true,
+    "wait": "/api/v1/runners"
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "no repository yet",
+    "stderr": "",
+    "stdout": "board <ID-2> has no repository\n"
+  },
+  {
+    "name": "a folder outside any repository",
+    "request": {
+      "body": {
+        "path": "<WORK>",
+        "runnerId": "<ID-5>",
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/repository"
+    },
+    "response": {
+      "json": {
+        "code": "not-a-git-project",
+        "detail": "<WORK> is not inside a git repository",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:not-a-git-project"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a relative path",
+    "request": {
+      "body": {
+        "path": "arches",
+        "runnerId": "<ID-5>",
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/repository"
+    },
+    "response": {
+      "json": {
+        "code": "path-relative",
+        "detail": "arches is not an absolute path",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:path-relative"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "an unknown runner",
+    "request": {
+      "body": {
+        "path": "<WORK>/arches",
+        "runnerId": "<ID-6>",
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/repository"
+    },
+    "response": {
+      "json": {
+        "code": "runner-not-found",
+        "detail": "runner <ID-6> does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:runner-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "set",
+    "request": {
+      "body": {
+        "path": "<WORK>/arches",
+        "runnerId": "<ID-5>",
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/repository"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": "<ID-7>",
+        "repositoryName": "arches",
+        "updatedAt": "<TIME>",
+        "version": 2
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "stale version",
+    "request": {
+      "body": {
+        "path": "<WORK>/arches",
+        "runnerId": "<ID-5>",
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/repository"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "board <ID-2> was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "repositories",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/repositories"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "checkouts": [
+              {
+                "path": "<WORK>/arches",
+                "runnerId": "<ID-5>"
+              }
+            ],
+            "id": "<ID-7>",
+            "name": "arches"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "show in the CLI",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "board",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "list in the CLI",
+    "stderr": "",
+    "stdout": "<ID-2>  ARC     Main  (0 open)  [arches]\n"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "--clear"
+    ],
+    "exitCode": 0,
+    "name": "clear in the CLI",
+    "stderr": "",
+    "stdout": "board <ID-2> has no repository\n"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "set again in the CLI",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "name": "clear",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/repository?version=4"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 5
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "board without repository",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/boards"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatchEnabled": true,
+            "id": "<ID-2>",
+            "name": "Main",
+            "openTickets": 0,
+            "ownerId": "<ID-3>",
+            "ownerName": "tester",
+            "projectId": "<ID-1>",
+            "projectKey": "ARC",
+            "repositoryId": null,
+            "repositoryName": null,
+            "updatedAt": "<TIME>",
+            "version": 5
+          }
+        ]
+      },
+      "status": 200
+    }
+  }
+]

@@ -244,6 +244,22 @@ export interface paths {
         patch: operations["rename_board"];
         trace?: never;
     };
+    "/api/v1/projects/{projectId}/boards/{boardId}/repository": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_board_repository"];
+        post?: never;
+        delete: operations["clear_board_repository"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{projectId}/boards/{boardId}/ticket-imports": {
         parameters: {
             query?: never;
@@ -270,6 +286,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["create_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_repositories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_runners"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -567,6 +615,12 @@ export interface components {
             /** Format: uuid */
             projectId: string;
             projectKey: string;
+            /**
+             * Format: uuid
+             * @description Repository the board's work happens in.
+             */
+            repositoryId?: string | null;
+            repositoryName?: string | null;
             /** Format: int64 */
             updatedAt: number;
             /** Format: int64 */
@@ -597,6 +651,13 @@ export interface components {
             text?: string | null;
             /** Format: int64 */
             version?: number | null;
+        };
+        /** @description Where a repository is checked out. */
+        CheckoutDto: {
+            /** @description Root of the main checkout with forward slashes. */
+            path: string;
+            /** Format: uuid */
+            runnerId: string;
         };
         ClaimPlanning: {
             agent: string;
@@ -643,7 +704,7 @@ export interface components {
             title: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository";
         /** @description One-time code that opens a browser session. */
         Handoff: {
             code: string;
@@ -817,6 +878,15 @@ export interface components {
              */
             version: number;
         };
+        RepositoryDto: {
+            checkouts: components["schemas"]["CheckoutDto"][];
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        RepositoryList: {
+            items: components["schemas"]["RepositoryDto"][];
+        };
         /** @description A run as the API shows it; timestamps are Unix milliseconds. */
         RunDto: {
             /** Format: int64 */
@@ -845,6 +915,32 @@ export interface components {
         };
         /** @enum {string} */
         RunStatusDto: "starting" | "running" | "succeeded" | "failed" | "cancelled" | "timed-out" | "lost";
+        /** @description A machine that checks out repositories. */
+        RunnerDto: {
+            /** Format: uuid */
+            id: string;
+            /** @description Whether this is the daemon's own machine. */
+            local: boolean;
+            name: string;
+            os: components["schemas"]["RunnerOsDto"];
+        };
+        RunnerList: {
+            items: components["schemas"]["RunnerDto"][];
+        };
+        /** @enum {string} */
+        RunnerOsDto: "windows" | "linux";
+        /** @description Points a board to the repository checked out at a folder on a runner. */
+        SetBoardRepository: {
+            /** @description Absolute folder on the runner; any folder inside the checkout or a worktree of it. */
+            path: string;
+            /** Format: uuid */
+            runnerId: string;
+            /**
+             * Format: int64
+             * @description Version the change is based on.
+             */
+            version: number;
+        };
         /** @description A command to run on the daemon's machine; only token holders may start runs. */
         StartRun: {
             args?: string[];
@@ -1107,14 +1203,19 @@ export interface operations {
     };
     list_all_boards: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description With `path`: only boards of the repository checked out there on this runner. */
+                runnerId?: string;
+                /** @description With `runnerId`: a folder inside the checkout. */
+                path?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Boards of every project */
+            /** @description Boards of every project, or of one checkout */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1124,6 +1225,23 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown runner */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1887,6 +2005,139 @@ export interface operations {
             };
         };
     };
+    set_board_repository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+                /** @description Board id. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetBoardRepository"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown project, board or runner */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The path is no folder inside a git repository */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner is not connected */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    clear_board_repository: {
+        parameters: {
+            query: {
+                /** @description Version the change is based on. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+                /** @description Board id. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board without a repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     import_tickets: {
         parameters: {
             query?: never;
@@ -1994,6 +2245,60 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_repositories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_runners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerList"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

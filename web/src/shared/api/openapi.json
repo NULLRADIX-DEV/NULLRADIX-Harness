@@ -150,9 +150,30 @@
           "boards"
         ],
         "operationId": "list_all_boards",
+        "parameters": [
+          {
+            "name": "runnerId",
+            "in": "query",
+            "description": "With `path`: only boards of the repository checked out there on this runner.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "With `runnerId`: a folder inside the checkout.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Boards of every project",
+            "description": "Boards of every project, or of one checkout",
             "content": {
               "application/json": {
                 "schema": {
@@ -162,6 +183,25 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown runner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1172,6 +1212,193 @@
         }
       }
     },
+    "/api/v1/projects/{projectId}/boards/{boardId}/repository": {
+      "put": {
+        "tags": [
+          "boards"
+        ],
+        "operationId": "set_board_repository",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "boardId",
+            "in": "path",
+            "description": "Board id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBoardRepository"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown project, board or runner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The path is no folder inside a git repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "boards"
+        ],
+        "operationId": "clear_board_repository",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "boardId",
+            "in": "path",
+            "description": "Board id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Version the change is based on.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The board without a repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{projectId}/boards/{boardId}/ticket-imports": {
       "post": {
         "tags": [
@@ -1336,6 +1563,62 @@
             }
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories": {
+      "get": {
+        "tags": [
+          "repositories"
+        ],
+        "operationId": "list_repositories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runners": {
+      "get": {
+        "tags": [
+          "repositories"
+        ],
+        "operationId": "list_runners",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunnerList"
+                }
+              }
+            }
+          },
+          "401": {
             "content": {
               "application/json": {
                 "schema": {
@@ -2947,6 +3230,20 @@
           "projectKey": {
             "type": "string"
           },
+          "repositoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Repository the board's work happens in."
+          },
+          "repositoryName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "updatedAt": {
             "type": "integer",
             "format": "int64"
@@ -3048,6 +3345,24 @@
           }
         },
         "additionalProperties": false
+      },
+      "CheckoutDto": {
+        "type": "object",
+        "description": "Where a repository is checked out.",
+        "required": [
+          "runnerId",
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Root of the main checkout with forward slashes."
+          },
+          "runnerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "ClaimPlanning": {
         "type": "object",
@@ -3232,7 +3547,9 @@
           "project",
           "board",
           "ticket",
-          "run"
+          "run",
+          "runner",
+          "repository"
         ]
       },
       "Handoff": {
@@ -3816,6 +4133,43 @@
         },
         "additionalProperties": false
       },
+      "RepositoryDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "checkouts"
+        ],
+        "properties": {
+          "checkouts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckoutDto"
+            }
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "RepositoryList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RepositoryDto"
+            }
+          }
+        }
+      },
       "RunDto": {
         "type": "object",
         "description": "A run as the API shows it; timestamps are Unix milliseconds.",
@@ -3918,6 +4272,78 @@
           "timed-out",
           "lost"
         ]
+      },
+      "RunnerDto": {
+        "type": "object",
+        "description": "A machine that checks out repositories.",
+        "required": [
+          "id",
+          "name",
+          "os",
+          "local"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "local": {
+            "type": "boolean",
+            "description": "Whether this is the daemon's own machine."
+          },
+          "name": {
+            "type": "string"
+          },
+          "os": {
+            "$ref": "#/components/schemas/RunnerOsDto"
+          }
+        }
+      },
+      "RunnerList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunnerDto"
+            }
+          }
+        }
+      },
+      "RunnerOsDto": {
+        "type": "string",
+        "enum": [
+          "windows",
+          "linux"
+        ]
+      },
+      "SetBoardRepository": {
+        "type": "object",
+        "description": "Points a board to the repository checked out at a folder on a runner.",
+        "required": [
+          "runnerId",
+          "path",
+          "version"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute folder on the runner; any folder inside the checkout or a worktree of it."
+          },
+          "runnerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version the change is based on."
+          }
+        },
+        "additionalProperties": false
       },
       "StartRun": {
         "type": "object",

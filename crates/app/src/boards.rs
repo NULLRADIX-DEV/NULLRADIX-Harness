@@ -4,11 +4,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Actor, ActorKind, ActorName, Board, BoardError, BoardName, Id, Project, Ticket, TicketKey,
-    Version,
+    Actor, ActorKind, ActorName, Board, BoardError, BoardName, CheckoutPath, Id, Project,
+    Repository, Runner, Ticket, TicketKey, Version,
 };
 
 use crate::projects::{self, ProjectRepository};
+use crate::repositories::RunnerService;
 use crate::tickets::{self, TicketRepository};
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
@@ -24,6 +25,8 @@ pub struct BoardSummary {
     pub board: Board,
     pub project_key: String,
     pub owner_name: String,
+    /// Name of the repository the board points to.
+    pub repository_name: Option<String>,
     /// Tickets that are neither done nor not needed.
     pub open_tickets: u32,
 }
@@ -36,6 +39,12 @@ pub trait BoardRepository: Send + Sync {
     async fn list(&self, project: Option<Id<Project>>) -> Result<Vec<BoardSummary>, AppError>;
     async fn get(&self, id: Id<Board>) -> Result<Option<BoardSummary>, AppError>;
     async fn update(&self, board: &Board, expected: Version) -> Result<Change, AppError>;
+    /// Boards pointing to the repository checked out on `runner` at `key`.
+    async fn list_by_checkout(
+        &self,
+        runner: Id<Runner>,
+        key: &CheckoutPath,
+    ) -> Result<Vec<BoardSummary>, AppError>;
 }
 
 fn invalid(error: &BoardError) -> AppError {
@@ -85,6 +94,7 @@ pub struct BoardService {
     repository: Arc<dyn BoardRepository>,
     projects: Arc<dyn ProjectRepository>,
     tickets: Arc<dyn TicketRepository>,
+    runners: Arc<RunnerService>,
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     signal: ChangeSignal,
@@ -102,6 +112,7 @@ impl BoardService {
         repository: Arc<dyn BoardRepository>,
         projects: Arc<dyn ProjectRepository>,
         tickets: Arc<dyn TicketRepository>,
+        runners: Arc<RunnerService>,
         clock: Arc<dyn Clock>,
         ids: Arc<dyn IdGenerator>,
         signal: ChangeSignal,
@@ -110,6 +121,7 @@ impl BoardService {
             repository,
             projects,
             tickets,
+            runners,
             clock,
             ids,
             signal,
@@ -175,6 +187,70 @@ impl BoardService {
             board: renamed,
             ..current
         })
+    }
+
+    /// Points the board to the repository checked out at `path` on `runner`.
+    pub async fn set_repository(
+        &self,
+        project: Id<Project>,
+        id: Id<Board>,
+        runner: Id<Runner>,
+        path: &str,
+        expected: Version,
+    ) -> Result<BoardSummary, AppError> {
+        let current = self.get(project, id).await?;
+        if current.board.version() != expected {
+            return Err(AppError::version_conflict("board", id));
+        }
+        let repository = self.runners.checkout(runner, path).await?;
+        let name = repository.name().as_str().to_owned();
+        self.point(current, Some(repository.id()), Some(name), expected)
+            .await
+    }
+
+    /// The board without a repository; one without returns unchanged.
+    pub async fn clear_repository(
+        &self,
+        project: Id<Project>,
+        id: Id<Board>,
+        expected: Version,
+    ) -> Result<BoardSummary, AppError> {
+        let current = self.get(project, id).await?;
+        if current.board.version() != expected {
+            return Err(AppError::version_conflict("board", id));
+        }
+        self.point(current, None, None, expected).await
+    }
+
+    async fn point(
+        &self,
+        current: BoardSummary,
+        repository: Option<Id<Repository>>,
+        repository_name: Option<String>,
+        expected: Version,
+    ) -> Result<BoardSummary, AppError> {
+        let Some(next) = current.board.with_repository(repository, self.clock.now()) else {
+            return Ok(current);
+        };
+        let change = self.repository.update(&next, expected).await?;
+        self.signal.notify(&change);
+        Ok(BoardSummary {
+            board: next,
+            repository_name,
+            ..current
+        })
+    }
+
+    /// Boards pointing to the repository `path` on `runner` is in; none outside of one.
+    pub async fn list_by_checkout(
+        &self,
+        runner: Id<Runner>,
+        path: &str,
+    ) -> Result<Vec<BoardSummary>, AppError> {
+        match self.runners.key(runner, path).await? {
+            Some(key) => self.repository.list_by_checkout(runner, &key).await,
+            None => Ok(Vec::new()),
+        }
     }
 
     /// Deletes the board with its tickets; open ones only with `delete_open`, as in legacy.

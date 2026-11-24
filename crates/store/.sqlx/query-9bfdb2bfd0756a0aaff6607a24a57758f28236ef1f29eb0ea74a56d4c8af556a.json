@@ -1,0 +1,165 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT b.id AS \"id: Uuid\", b.project_id AS \"project_id: Uuid\", p.key AS project_key,\n                      b.name, b.owner_id AS \"owner_id: Uuid\", a.name AS owner_name,\n                      b.dispatch_enabled, b.repository_id AS \"repository_id?: Uuid\",\n                      r.name AS \"repository_name?\",\n                      (SELECT count(*) FROM tickets t\n                       WHERE t.board_id = b.id AND t.status NOT IN ('done', 'not-needed'))\n                        AS \"open_tickets!: i64\",\n                      b.created_at, b.updated_at, b.version\n               FROM boards b\n               JOIN projects p ON p.id = b.project_id\n               JOIN actors a ON a.id = b.owner_id\n               LEFT JOIN repositories r ON r.id = b.repository_id\n               WHERE b.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "project_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "name": "project_key",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "owner_id: Uuid",
+        "ordinal": 4,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "owner_id"
+          }
+        }
+      },
+      {
+        "name": "owner_name",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "dispatch_enabled",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "dispatch_enabled"
+          }
+        }
+      },
+      {
+        "name": "repository_id?: Uuid",
+        "ordinal": 7,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "repository_id"
+          }
+        }
+      },
+      {
+        "name": "repository_name?",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "repositories",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "open_tickets!: i64",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": "Expression"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9bfdb2bfd0756a0aaff6607a24a57758f28236ef1f29eb0ea74a56d4c8af556a"
+}

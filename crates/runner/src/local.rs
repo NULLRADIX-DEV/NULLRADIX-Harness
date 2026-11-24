@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use nullradix_app::AppError;
+use nullradix_app::repositories::Located;
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
 use nullradix_domain::{Id, Run};
 use nullradix_os::{spawn_detached, write_atomic};
@@ -123,6 +124,10 @@ impl RunnerPort for LocalRunner {
             })
         })
         .await
+    }
+
+    async fn locate(&self, path: &str) -> Result<Located, AppError> {
+        crate::git::locate(path).await
     }
 }
 

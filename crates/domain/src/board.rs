@@ -1,6 +1,6 @@
 use strum::{EnumIter, EnumString, IntoStaticStr};
 
-use crate::{Id, Project, TextError, Timestamp, Version, required_text};
+use crate::{Id, Project, Repository, TextError, Timestamp, Version, required_text};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BoardError {
@@ -115,6 +115,7 @@ pub struct BoardRecord {
     pub name: BoardName,
     pub owner: Id<Actor>,
     pub dispatch_enabled: bool,
+    pub repository: Option<Id<Repository>>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
     pub version: Version,
@@ -128,6 +129,7 @@ pub struct Board {
     name: BoardName,
     owner: Id<Actor>,
     dispatch_enabled: bool,
+    repository: Option<Id<Repository>>,
     created_at: Timestamp,
     updated_at: Timestamp,
     version: Version,
@@ -148,6 +150,7 @@ impl Board {
             name,
             owner,
             dispatch_enabled: true,
+            repository: None,
             created_at: now,
             updated_at: now,
             version: Version::INITIAL,
@@ -162,6 +165,7 @@ impl Board {
             name: record.name,
             owner: record.owner,
             dispatch_enabled: record.dispatch_enabled,
+            repository: record.repository,
             created_at: record.created_at,
             updated_at: record.updated_at,
             version: record.version,
@@ -179,6 +183,17 @@ impl Board {
     pub fn with_dispatch(&self, enabled: bool, now: Timestamp) -> Option<Self> {
         (enabled != self.dispatch_enabled)
             .then(|| self.changed(now, |board| board.dispatch_enabled = enabled))
+    }
+
+    /// The board pointing to `repository`, or `None` when it already does.
+    #[must_use]
+    pub fn with_repository(
+        &self,
+        repository: Option<Id<Repository>>,
+        now: Timestamp,
+    ) -> Option<Self> {
+        (repository != self.repository)
+            .then(|| self.changed(now, |board| board.repository = repository))
     }
 
     fn changed(&self, now: Timestamp, change: impl FnOnce(&mut Self)) -> Self {
@@ -212,6 +227,12 @@ impl Board {
     #[must_use]
     pub const fn dispatch_enabled(&self) -> bool {
         self.dispatch_enabled
+    }
+
+    /// The repository the board's work happens in, if any.
+    #[must_use]
+    pub const fn repository(&self) -> Option<Id<Repository>> {
+        self.repository
     }
 
     #[must_use]
@@ -294,10 +315,37 @@ mod tests {
             name: board.name().clone(),
             owner: board.owner(),
             dispatch_enabled: board.dispatch_enabled(),
+            repository: board.repository(),
             created_at: board.created_at(),
             updated_at: board.updated_at(),
             version: board.version(),
         });
         assert_eq!(restored, board);
+    }
+
+    #[test]
+    fn pointing_to_a_repository_bumps_the_version_once() {
+        let board = board();
+        assert_eq!(board.repository(), None);
+        assert_eq!(
+            board.with_repository(None, Timestamp::from_millis(20)),
+            None
+        );
+        let repository = Id::from_uuid(uuid::Uuid::from_u128(5));
+        let bound = board
+            .with_repository(Some(repository), Timestamp::from_millis(20))
+            .unwrap();
+        assert_eq!(bound.repository(), Some(repository));
+        assert_eq!(bound.version(), Version::INITIAL.next());
+        assert_eq!(bound.updated_at(), Timestamp::from_millis(20));
+        assert_eq!(
+            bound.with_repository(Some(repository), Timestamp::from_millis(30)),
+            None
+        );
+        let cleared = bound
+            .with_repository(None, Timestamp::from_millis(30))
+            .unwrap();
+        assert_eq!(cleared.repository(), None);
+        assert_eq!(cleared.version(), Version::INITIAL.next().next());
     }
 }
