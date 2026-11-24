@@ -29,6 +29,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       web: ${{ steps.filter.outputs.web }}
+      desktop: ${{ steps.filter.outputs.desktop }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -48,6 +49,17 @@ jobs:
               - crates/store/migrations/**
               - crates/store/.sqlx/**
               - tests/acceptance/scenarios/**
+              - .github/workflows/ci.yml
+            desktop:
+              - 'apps/desktop/**'
+              - 'crates/api/**'
+              - 'crates/app/**'
+              - 'crates/client/**'
+              - 'crates/domain/**'
+              - 'crates/os/**'
+              - rust-toolchain.toml
+              - clippy.toml
+              - deny.toml
               - .github/workflows/ci.yml
             web:
               - 'web/**'
@@ -173,9 +185,39 @@ jobs:
       - run: cargo xtask codegen
       - run: git status --porcelain && test -z "$(git status --porcelain)"
 
+  # the desktop shell is its own workspace with the webview stack, checked only when it may change
+  desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/desktop
+      - run: cargo fmt --manifest-path apps/desktop/Cargo.toml --check
+      - run: cargo clippy --manifest-path apps/desktop/Cargo.toml --all-targets --locked
+      - run: cargo test --manifest-path apps/desktop/Cargo.toml --locked
+      - if: runner.os == 'Linux'
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-deny
+      - if: runner.os == 'Linux'
+        run: cargo deny --manifest-path apps/desktop/Cargo.toml check
+
   ci-ok:
     if: always()
-    needs: [changes, lint, deny, test-linux, test-windows, query-cache, web, codegen]
+    needs: [changes, lint, deny, test-linux, test-windows, query-cache, web, codegen, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
