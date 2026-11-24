@@ -320,29 +320,29 @@ impl Client {
     pub fn change_step(
         &self,
         key: &str,
-        number: u32,
+        step: Uuid,
         input: &ChangeStep,
     ) -> Result<TicketDetailDto, ClientError> {
         let mut response = self
             .agent
-            .patch(&self.url(&format!("/tickets/{key}/steps/{number}")))
+            .patch(&self.url(&format!("/tickets/{key}/steps/{step}")))
             .header("Authorization", &self.authorization()?)
             .send_json(input)
             .map_err(|source| self.unreachable(source))?;
         decode(&mut response, 200)
     }
 
-    /// Removes step `number`; `expect_text` must hold what the step said when it was read.
+    /// Removes the step; `expect_text` must hold what the step said when it was read.
     pub fn remove_step(
         &self,
         key: &str,
-        number: u32,
+        step: Uuid,
         version: Option<i64>,
         expect_text: Option<&str>,
     ) -> Result<TicketDetailDto, ClientError> {
         let mut request = self
             .agent
-            .delete(&self.url(&format!("/tickets/{key}/steps/{number}")))
+            .delete(&self.url(&format!("/tickets/{key}/steps/{step}")))
             .header("Authorization", &self.authorization()?);
         if let Some(version) = version {
             request = request.query("version", version.to_string());
@@ -357,12 +357,12 @@ impl Client {
     pub fn move_step(
         &self,
         key: &str,
-        number: u32,
+        step: Uuid,
         input: &MoveStep,
     ) -> Result<TicketDetailDto, ClientError> {
         let mut response = self
             .agent
-            .post(&self.url(&format!("/tickets/{key}/steps/{number}/move")))
+            .post(&self.url(&format!("/tickets/{key}/steps/{step}/move")))
             .header("Authorization", &self.authorization()?)
             .send_json(input)
             .map_err(|source| self.unreachable(source))?;

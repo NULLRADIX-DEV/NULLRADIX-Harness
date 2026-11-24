@@ -1,6 +1,6 @@
 //! Work steps of a ticket, numbered from 1, with the history lines legacy wrote for them.
 
-use crate::{TextError, required_text, utf16_prefix};
+use crate::{Id, TextError, required_text, utf16_prefix};
 
 pub const STEP_MAX: usize = 1000;
 /// How much of a step's text the history note of a check keeps, as in legacy.
@@ -8,6 +8,8 @@ const NOTE_MAX: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {
+    /// Stays with the step while its number changes.
+    pub id: Id<Step>,
     pub text: String,
     pub done: bool,
     /// Guidance for the step; blank guidance is none.
@@ -20,6 +22,8 @@ pub enum StepError {
     Text(TextError),
     #[error("there is no step {number} ({})", range(*.count))]
     NotFound { number: i64, count: usize },
+    #[error("the ticket has no step {0}")]
+    Unknown(Id<Step>),
     #[error("position {at} does not exist (1 to {})", .count + 1)]
     NoPosition { at: i64, count: usize },
     #[error("the change names neither text nor detail")]
@@ -68,12 +72,25 @@ fn index(steps: &[Step], number: i64) -> Result<usize, StepError> {
         })
 }
 
-/// New steps from their texts, none done.
-pub fn new_steps<S: AsRef<str>>(texts: &[S]) -> Result<Vec<Step>, StepError> {
+/// The number of the step with this id.
+pub fn number(steps: &[Step], id: Id<Step>) -> Result<i64, StepError> {
+    steps
+        .iter()
+        .position(|step| step.id == id)
+        .and_then(|at| i64::try_from(at + 1).ok())
+        .ok_or(StepError::Unknown(id))
+}
+
+/// New steps from their texts, none done; `ids` names each one.
+pub fn new_steps<S: AsRef<str>>(
+    texts: &[S],
+    mut ids: impl FnMut() -> Id<Step>,
+) -> Result<Vec<Step>, StepError> {
     texts
         .iter()
         .map(|value| {
             Ok(Step {
+                id: ids(),
                 text: text(value.as_ref())?,
                 done: false,
                 detail: None,
@@ -100,6 +117,7 @@ pub fn expect(steps: &[Step], number: i64, expected: Option<&str>) -> Result<(),
 /// Appends a step, or inserts it at position `at` from 1 to the count plus one.
 pub fn add(
     steps: &[Step],
+    id: Id<Step>,
     value: &str,
     guidance: Option<&str>,
     at: Option<i64>,
@@ -111,6 +129,7 @@ pub fn add(
         .filter(|at| (1..=count + 1).contains(at))
         .ok_or(StepError::NoPosition { at, count })?;
     let step = Step {
+        id,
         text: text(value)?,
         done: false,
         detail: detail(guidance),
@@ -138,6 +157,7 @@ pub fn edit(
     let at = index(steps, number)?;
     let old = &steps[at];
     let step = Step {
+        id: old.id,
         text: match value {
             Some(value) => text(value)?,
             None => old.text.clone(),
@@ -208,30 +228,55 @@ mod tests {
     use super::*;
 
     fn steps(texts: &[&str]) -> Vec<Step> {
-        new_steps(texts).unwrap()
+        let mut next = 0;
+        new_steps(texts, || {
+            next += 1;
+            Id::from_uuid(uuid::Uuid::from_u128(next))
+        })
+        .unwrap()
+    }
+
+    fn texts(steps: &[Step]) -> Vec<&str> {
+        steps.iter().map(|step| step.text.as_str()).collect()
+    }
+
+    fn id(value: u128) -> Id<Step> {
+        Id::from_uuid(uuid::Uuid::from_u128(value))
     }
 
     #[test]
     fn steps_are_added_at_the_end_or_a_free_position() {
         let list = steps(&["a", "b"]);
-        let appended = add(&list, " c ", Some(" "), None).unwrap();
-        assert_eq!(appended.steps[2].text, "c");
+        let appended = add(&list, id(9), " c ", Some(" "), None).unwrap();
+        assert_eq!(
+            (appended.steps[2].id, appended.steps[2].text.as_str()),
+            (id(9), "c")
+        );
         assert_eq!(appended.steps[2].detail, None);
         assert_eq!(appended.to.as_deref(), Some("3: c"));
-        let first = add(&list, "z", Some("how"), Some(1)).unwrap();
+        let first = add(&list, id(9), "z", Some("how"), Some(1)).unwrap();
         assert_eq!(first.steps[0].detail.as_deref(), Some("how"));
         assert_eq!(
-            add(&list, "x", None, Some(4)),
+            add(&list, id(9), "x", None, Some(4)),
             Err(StepError::NoPosition { at: 4, count: 2 })
         );
         assert_eq!(
-            add(&list, " ", None, None),
+            add(&list, id(9), " ", None, None),
             Err(StepError::Text(TextError::Empty))
         );
         assert_eq!(
-            add(&list, &"x".repeat(1001), None, None),
+            add(&list, id(9), &"x".repeat(1001), None, None),
             Err(StepError::Text(TextError::TooLong(1000)))
         );
+    }
+
+    #[test]
+    fn ids_find_steps_wherever_they_moved() {
+        let list = steps(&["a", "b", "c"]);
+        let moved = move_step(&list, 3, 1).unwrap();
+        assert_eq!(number(&moved.steps, id(3)), Ok(1));
+        assert_eq!(number(&moved.steps, id(1)), Ok(2));
+        assert_eq!(number(&list, id(7)), Err(StepError::Unknown(id(7))));
     }
 
     #[test]
@@ -244,7 +289,10 @@ mod tests {
             (true, "detail changed")
         );
         let renamed = edit(&guidance.steps, 2, Some("c"), Some(None)).unwrap();
-        assert_eq!(renamed.steps[1].detail, None);
+        assert_eq!(
+            (renamed.steps[1].id, renamed.steps[1].detail.as_ref()),
+            (id(2), None)
+        );
         assert_eq!(
             (renamed.from.as_deref(), renamed.to.as_deref()),
             (Some("2: b"), Some("2: c"))
@@ -263,9 +311,9 @@ mod tests {
     fn removal_moves_and_checks_keep_numbers_dense() {
         let list = steps(&["a", "b", "c"]);
         let removed = remove(&list, 1).unwrap();
-        assert_eq!(removed.steps, steps(&["b", "c"]));
+        assert_eq!(texts(&removed.steps), ["b", "c"]);
         let moved = move_step(&list, 3, 1).unwrap();
-        assert_eq!(moved.steps, steps(&["c", "a", "b"]));
+        assert_eq!(texts(&moved.steps), ["c", "a", "b"]);
         assert_eq!(
             move_step(&list, 1, 4),
             Err(StepError::NotFound {

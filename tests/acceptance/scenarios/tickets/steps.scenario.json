@@ -6,18 +6,27 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/projects",
-        "body": { "key": "ARC", "name": "Arches" }
+        "body": {
+          "key": "ARC",
+          "name": "Arches"
+        }
       },
-      "save": { "project": "json.id" }
+      "save": {
+        "project": "json.id"
+      }
     },
     {
       "name": "board",
       "http": {
         "method": "POST",
         "path": "/api/v1/projects/{{project}}/boards",
-        "body": { "name": "Main" }
+        "body": {
+          "name": "Main"
+        }
       },
-      "save": { "board": "json.id" }
+      "save": {
+        "board": "json.id"
+      }
     },
     {
       "name": "create with steps",
@@ -35,37 +44,114 @@
         ]
       }
     },
-    { "name": "check the first", "cli": { "args": ["step", "check", "ARC-1", "1"] } },
+    {
+      "name": "check the first",
+      "cli": {
+        "args": ["step", "check", "ARC-1", "1"]
+      }
+    },
     {
       "name": "add at the front",
-      "cli": { "args": ["step", "add", "ARC-1", "Plan", "--at", "1", "--detail", "Think first"] }
+      "cli": {
+        "args": ["step", "add", "ARC-1", "Plan", "--at", "1", "--detail", "Think first"]
+      }
+    },
+    {
+      "name": "read the steps",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1"
+      },
+      "save": {
+        "plan": "json.steps.0.id"
+      }
     },
     {
       "name": "a step that moved",
       "http": {
         "method": "PATCH",
-        "path": "/api/v1/tickets/ARC-1/steps/1",
-        "body": { "done": true, "expectText": "Write" }
+        "path": "/api/v1/tickets/ARC-1/steps/{{plan}}",
+        "body": {
+          "done": true,
+          "expectText": "Write"
+        }
       }
     },
     {
       "name": "no such step",
       "http": {
         "method": "PATCH",
-        "path": "/api/v1/tickets/ARC-1/steps/9",
-        "body": { "done": true }
+        "path": "/api/v1/tickets/ARC-1/steps/0190a0b0-0000-7000-8000-00000000dead",
+        "body": {
+          "done": true
+        }
+      }
+    },
+    {
+      "name": "stale add",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/steps",
+        "body": {
+          "text": "Late",
+          "version": 1
+        }
       }
     },
     {
       "name": "edit the guidance away",
-      "cli": { "args": ["step", "edit", "ARC-1", "1", "--text", "Plan it", "--detail", ""] }
+      "cli": {
+        "args": ["step", "edit", "ARC-1", "1", "--text", "Plan it", "--detail", ""]
+      }
     },
-    { "name": "move to the end", "cli": { "args": ["step", "move", "ARC-1", "1", "3"] } },
+    {
+      "name": "move to the end",
+      "cli": {
+        "args": ["step", "move", "ARC-1", "1", "3"]
+      }
+    },
     {
       "name": "remove one",
-      "cli": { "args": ["step", "remove", "ARC-1", "2", "--expect", "Test"] }
+      "cli": {
+        "args": ["step", "remove", "ARC-1", "2", "--expect", "Test"]
+      }
     },
-    { "name": "list shows progress", "cli": { "args": ["ticket", "list"] } },
-    { "name": "detail", "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1" } }
+    {
+      "name": "read what is left",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1"
+      },
+      "save": {
+        "last": "json.steps.1.id"
+      }
+    },
+    {
+      "name": "remove with a wrong text",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/v1/tickets/ARC-1/steps/{{last}}?expectText=Other"
+      }
+    },
+    {
+      "name": "remove with version and text",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/v1/tickets/ARC-1/steps/{{last}}?version=6&expectText=Plan%20it"
+      }
+    },
+    {
+      "name": "list shows progress",
+      "cli": {
+        "args": ["ticket", "list"]
+      }
+    },
+    {
+      "name": "detail",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1"
+      }
+    }
   ]
 }

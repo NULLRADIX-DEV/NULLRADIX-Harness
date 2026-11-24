@@ -368,7 +368,7 @@ fn step_error(error: &StepError) -> AppError {
     let message = error.to_string();
     match error {
         StepError::Text(text) => AppError::text(*text, "step-empty", message),
-        StepError::NotFound { .. } | StepError::NoPosition { .. } => {
+        StepError::NotFound { .. } | StepError::NoPosition { .. } | StepError::Unknown(_) => {
             AppError::not_found("step-not-found", message)
         }
         StepError::NothingChanged => AppError::invalid("nothing-changed", message),
@@ -487,7 +487,8 @@ impl TicketService {
         };
         let title = TicketTitle::parse(&input.title).map_err(|error| invalid(&error))?;
         let depends_on = dependency_keys(&input.depends_on)?;
-        let steps = step::new_steps(&input.steps).map_err(|error| step_error(&error))?;
+        let steps = step::new_steps(&input.steps, || self.ids.next())
+            .map_err(|error| step_error(&error))?;
         let key = TicketKey::new(project_key, write.take_number(project).await?);
         let index = write.dependency_index().await?;
         if !depends_on.is_empty() {
@@ -682,11 +683,12 @@ impl TicketService {
         guard: &StepGuard,
         actor: &Actor,
     ) -> Result<TicketDetail, AppError> {
+        let id = self.ids.next();
         self.change_steps(key, guard.version, actor, |steps| {
             if let Some(at) = at {
                 step::expect(steps, at, guard.expect_text.as_deref())?;
             }
-            Ok(vec![step::add(steps, text, detail, at)?])
+            Ok(vec![step::add(steps, id, text, detail, at)?])
         })
         .await
     }
@@ -695,16 +697,17 @@ impl TicketService {
     pub async fn change_step(
         &self,
         key: &str,
-        number: i64,
+        id: Id<Step>,
         patch: &StepPatch,
         guard: &StepGuard,
         actor: &Actor,
     ) -> Result<TicketDetail, AppError> {
-        if patch.text.is_none() && patch.detail.is_none() && patch.done.is_none() {
-            return Err(step_error(&StepError::NothingChanged));
-        }
         self.change_steps(key, guard.version, actor, |steps| {
+            let number = step::number(steps, id)?;
             step::expect(steps, number, guard.expect_text.as_deref())?;
+            if patch.text.is_none() && patch.detail.is_none() && patch.done.is_none() {
+                return Err(StepError::NothingChanged);
+            }
             let mut edits = Vec::new();
             let mut current = steps.to_vec();
             if patch.text.is_some() || patch.detail.is_some() {
@@ -724,26 +727,29 @@ impl TicketService {
     pub async fn remove_step(
         &self,
         key: &str,
-        number: i64,
+        id: Id<Step>,
         guard: &StepGuard,
         actor: &Actor,
     ) -> Result<TicketDetail, AppError> {
         self.change_steps(key, guard.version, actor, |steps| {
+            let number = step::number(steps, id)?;
             step::expect(steps, number, guard.expect_text.as_deref())?;
             Ok(vec![step::remove(steps, number)?])
         })
         .await
     }
 
+    /// Moves the step to number `to`, counted from 1.
     pub async fn move_step(
         &self,
         key: &str,
-        from: i64,
+        id: Id<Step>,
         to: i64,
         guard: &StepGuard,
         actor: &Actor,
     ) -> Result<TicketDetail, AppError> {
         self.change_steps(key, guard.version, actor, |steps| {
+            let from = step::number(steps, id)?;
             step::expect(steps, from, guard.expect_text.as_deref())?;
             Ok(vec![step::move_step(steps, from, to)?])
         })

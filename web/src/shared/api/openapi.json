@@ -1926,7 +1926,7 @@
         }
       }
     },
-    "/api/v1/tickets/{ticketKey}/steps/{stepNumber}": {
+    "/api/v1/tickets/{ticketKey}/steps/{stepId}": {
       "delete": {
         "tags": [
           "tickets"
@@ -1943,13 +1943,13 @@
             }
           },
           {
-            "name": "stepNumber",
+            "name": "stepId",
             "in": "path",
-            "description": "Step number from 1.",
+            "description": "Step id; it stays while the step's number changes.",
             "required": true,
             "schema": {
-              "type": "integer",
-              "format": "int64"
+              "type": "string",
+              "format": "uuid"
             }
           },
           {
@@ -2037,13 +2037,13 @@
             }
           },
           {
-            "name": "stepNumber",
+            "name": "stepId",
             "in": "path",
-            "description": "Step number from 1.",
+            "description": "Step id; it stays while the step's number changes.",
             "required": true,
             "schema": {
-              "type": "integer",
-              "format": "int64"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -2107,7 +2107,7 @@
         }
       }
     },
-    "/api/v1/tickets/{ticketKey}/steps/{stepNumber}/move": {
+    "/api/v1/tickets/{ticketKey}/steps/{stepId}/move": {
       "post": {
         "tags": [
           "tickets"
@@ -2124,13 +2124,13 @@
             }
           },
           {
-            "name": "stepNumber",
+            "name": "stepId",
             "in": "path",
-            "description": "Step number from 1.",
+            "description": "Step id; it stays while the step's number changes.",
             "required": true,
             "schema": {
-              "type": "integer",
-              "format": "int64"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -3182,6 +3182,7 @@
         "type": "object",
         "description": "A work step; numbers count from 1.",
         "required": [
+          "id",
           "number",
           "text",
           "done"
@@ -3195,6 +3196,10 @@
           },
           "done": {
             "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
           },
           "number": {
             "type": "integer",

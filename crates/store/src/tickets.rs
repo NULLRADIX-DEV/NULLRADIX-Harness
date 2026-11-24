@@ -220,7 +220,8 @@ async fn progress(
 
 async fn steps(connection: &mut SqliteConnection, ticket: Uuid) -> Result<Vec<Step>, StoreError> {
     let rows = sqlx::query!(
-        "SELECT text, done, detail FROM ticket_steps WHERE ticket_id = ? ORDER BY position",
+        r#"SELECT id AS "id: Uuid", text, done, detail FROM ticket_steps
+           WHERE ticket_id = ? ORDER BY position"#,
         ticket,
     )
     .fetch_all(connection)
@@ -228,6 +229,7 @@ async fn steps(connection: &mut SqliteConnection, ticket: Uuid) -> Result<Vec<St
     Ok(rows
         .into_iter()
         .map(|row| Step {
+            id: Id::from_uuid(row.id),
             text: row.text,
             done: row.done != 0,
             detail: row.detail,
@@ -655,9 +657,11 @@ impl TicketWrite for Write {
             .map_err(database)?;
         for (position, step) in (0_i64..).zip(steps) {
             let done = i64::from(step.done);
+            let step_id = step.id.as_uuid();
             sqlx::query!(
-                "INSERT INTO ticket_steps (ticket_id, position, text, done, detail)
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO ticket_steps (id, ticket_id, position, text, done, detail)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+                step_id,
                 id,
                 position,
                 step.text,

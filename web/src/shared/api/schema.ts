@@ -356,7 +356,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{ticketKey}/steps/{stepNumber}": {
+    "/api/v1/tickets/{ticketKey}/steps/{stepId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -372,7 +372,7 @@ export interface paths {
         patch: operations["change_step"];
         trace?: never;
     };
-    "/api/v1/tickets/{ticketKey}/steps/{stepNumber}/move": {
+    "/api/v1/tickets/{ticketKey}/steps/{stepId}/move": {
         parameters: {
             query?: never;
             header?: never;
@@ -693,6 +693,8 @@ export interface components {
         StepDto: {
             detail?: string | null;
             done: boolean;
+            /** Format: uuid */
+            id: string;
             /** Format: int32 */
             number: number;
             text: string;
@@ -2252,8 +2254,8 @@ export interface operations {
             path: {
                 /** @description Ticket key such as `ARC-0007`. */
                 ticketKey: string;
-                /** @description Step number from 1. */
-                stepNumber: number;
+                /** @description Step id; it stays while the step's number changes. */
+                stepId: string;
             };
             cookie?: never;
         };
@@ -2310,8 +2312,8 @@ export interface operations {
             path: {
                 /** @description Ticket key such as `ARC-0007`. */
                 ticketKey: string;
-                /** @description Step number from 1. */
-                stepNumber: number;
+                /** @description Step id; it stays while the step's number changes. */
+                stepId: string;
             };
             cookie?: never;
         };
@@ -2371,8 +2373,8 @@ export interface operations {
             path: {
                 /** @description Ticket key such as `ARC-0007`. */
                 ticketKey: string;
-                /** @description Step number from 1. */
-                stepNumber: number;
+                /** @description Step id; it stays while the step's number changes. */
+                stepId: string;
             };
             cookie?: never;
         };

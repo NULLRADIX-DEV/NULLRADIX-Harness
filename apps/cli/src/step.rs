@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use anyhow::bail;
 use clap::Subcommand;
 use nullradix_api::{AddStep, ChangeStep, MoveStep, TicketDetailDto};
 use nullradix_client::Client;
 use nullradix_domain::TicketKey;
+use uuid::Uuid;
 
 use crate::ticket::text;
 
@@ -92,7 +94,7 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
                 expect_text: guard.expect,
                 ..ChangeStep::default()
             };
-            let detail = client.change_step(&key, number, &input)?;
+            let detail = client.change_step(&key, step_id(client, &key, number)?, &input)?;
             println!(
                 "{key}: {}/{} steps done.",
                 detail.ticket.steps_done, detail.ticket.steps_total
@@ -136,13 +138,17 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
                 expect_text: guard.expect,
                 ..ChangeStep::default()
             };
-            let detail = client.change_step(&key, number, &input)?;
+            let detail = client.change_step(&key, step_id(client, &key, number)?, &input)?;
             print(&detail, &format!("step {number} changed"));
         }
         StepCommand::Remove { key, number, guard } => {
             let key = canonical(&key)?;
-            let detail =
-                client.remove_step(&key, number, guard.version, guard.expect.as_deref())?;
+            let detail = client.remove_step(
+                &key,
+                step_id(client, &key, number)?,
+                guard.version,
+                guard.expect.as_deref(),
+            )?;
             print(&detail, &format!("step {number} removed"));
         }
         StepCommand::Move {
@@ -157,7 +163,7 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
                 version: guard.version,
                 expect_text: guard.expect,
             };
-            let detail = client.move_step(&key, from, &input)?;
+            let detail = client.move_step(&key, step_id(client, &key, from)?, &input)?;
             print(&detail, &format!("step {from} -> {to}"));
         }
     }
@@ -166,6 +172,19 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
 
 fn canonical(key: &str) -> anyhow::Result<String> {
     Ok(TicketKey::parse(key)?.to_string())
+}
+
+/// The id of step `number` as the ticket reads now; later changes follow the step, not the number.
+fn step_id(client: &Client, key: &str, number: u32) -> anyhow::Result<Uuid> {
+    match client
+        .get_ticket(key)?
+        .steps
+        .into_iter()
+        .find(|step| step.number == number)
+    {
+        Some(step) => Ok(step.id),
+        None => bail!("{key} has no step {number}"),
+    }
 }
 
 fn print(detail: &TicketDetailDto, what: &str) {

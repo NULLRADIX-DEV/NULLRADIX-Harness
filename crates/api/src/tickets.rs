@@ -236,6 +236,7 @@ impl From<HistoryLine> for HistoryDto {
 /// A work step; numbers count from 1.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct StepDto {
+    pub id: Uuid,
     pub number: u32,
     pub text: String,
     pub done: bool,
@@ -258,6 +259,7 @@ impl From<TicketDetail> for TicketDetailDto {
             steps: (1..)
                 .zip(detail.steps)
                 .map(|(number, step)| StepDto {
+                    id: step.id.as_uuid(),
                     number,
                     text: step.text,
                     done: step.done,
@@ -455,8 +457,8 @@ pub struct MoveStep {
 pub(crate) struct StepPath {
     /// Ticket key such as `ARC-0007`.
     ticket_key: String,
-    /// Step number from 1.
-    step_number: i64,
+    /// Step id; it stays while the step's number changes.
+    step_id: Uuid,
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -783,7 +785,7 @@ pub(crate) async fn add_step(
 
 #[utoipa::path(
     patch,
-    path = "/tickets/{ticketKey}/steps/{stepNumber}",
+    path = "/tickets/{ticketKey}/steps/{stepId}",
     tag = "tickets",
     params(StepPath),
     request_body = ChangeStep,
@@ -809,7 +811,7 @@ pub(crate) async fn change_step(
         .tickets
         .change_step(
             &path.ticket_key,
-            path.step_number,
+            Id::from_uuid(path.step_id),
             &step,
             &guard(input.version, input.expect_text)?,
             &state.person,
@@ -820,7 +822,7 @@ pub(crate) async fn change_step(
 
 #[utoipa::path(
     delete,
-    path = "/tickets/{ticketKey}/steps/{stepNumber}",
+    path = "/tickets/{ticketKey}/steps/{stepId}",
     tag = "tickets",
     params(StepPath, RemoveStepQuery),
     responses(
@@ -840,7 +842,7 @@ pub(crate) async fn remove_step(
         .tickets
         .remove_step(
             &path.ticket_key,
-            path.step_number,
+            Id::from_uuid(path.step_id),
             &guard(query.version, query.expect_text)?,
             &state.person,
         )
@@ -850,7 +852,7 @@ pub(crate) async fn remove_step(
 
 #[utoipa::path(
     post,
-    path = "/tickets/{ticketKey}/steps/{stepNumber}/move",
+    path = "/tickets/{ticketKey}/steps/{stepId}/move",
     tag = "tickets",
     params(StepPath),
     request_body = MoveStep,
@@ -871,7 +873,7 @@ pub(crate) async fn move_step(
         .tickets
         .move_step(
             &path.ticket_key,
-            path.step_number,
+            Id::from_uuid(path.step_id),
             input.to,
             &guard(input.version, input.expect_text)?,
             &state.person,

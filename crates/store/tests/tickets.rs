@@ -9,7 +9,7 @@ use nullradix_app::tickets::{
     TicketService, WriteOptions,
 };
 use nullradix_app::{ChangeFeed, ChangeOp, ChangeSignal, Entity, SystemClock, UuidV7Generator};
-use nullradix_domain::{Actor, Board, Column, Id, Priority, Project, TicketStatus, Version};
+use nullradix_domain::{Actor, Board, Column, Id, Priority, Project, Step, TicketStatus, Version};
 use nullradix_store::Store;
 use tokio::sync::watch::Receiver;
 
@@ -107,6 +107,11 @@ impl Fixture {
             )
             .await
             .map_err(|error| error.code().to_owned())
+    }
+
+    /// The id of step `number` of the ticket, as a caller reads it before a change.
+    async fn step(&self, key: &str, number: usize) -> Id<Step> {
+        self.tickets.get(key).await.unwrap().steps[number - 1].id
     }
 
     async fn keys(&self, filter: TicketFilter) -> Vec<String> {
@@ -1017,7 +1022,7 @@ async fn steps_start_with_the_ticket_and_count_on_the_board() {
         .tickets
         .change_step(
             "ARC-1",
-            2,
+            fx.step("ARC-1", 2).await,
             &StepPatch {
                 done: Some(true),
                 ..StepPatch::default()
@@ -1080,13 +1085,19 @@ async fn step_changes_follow_the_legacy_guards() {
     };
     let changed = fx
         .tickets
-        .remove_step("ARC-1", 1, &moved_away, &fx.person)
+        .remove_step("ARC-1", fx.step("ARC-1", 1).await, &moved_away, &fx.person)
         .await;
     assert_eq!(code(changed), Err(String::from("conflict")));
 
     let nothing = fx
         .tickets
-        .change_step("ARC-1", 1, &StepPatch::default(), &none, &fx.person)
+        .change_step(
+            "ARC-1",
+            fx.step("ARC-1", 1).await,
+            &StepPatch::default(),
+            &none,
+            &fx.person,
+        )
         .await;
     assert_eq!(code(nothing), Err(String::from("nothing-changed")));
     let both = StepPatch {
@@ -1096,7 +1107,7 @@ async fn step_changes_follow_the_legacy_guards() {
     };
     let edited = fx
         .tickets
-        .change_step("ARC-1", 1, &both, &none, &fx.person)
+        .change_step("ARC-1", fx.step("ARC-1", 1).await, &both, &none, &fx.person)
         .await
         .unwrap();
     assert_eq!(edited.view.ticket.record().version.value(), 3);
@@ -1116,27 +1127,95 @@ async fn step_changes_follow_the_legacy_guards() {
     };
     let same = fx
         .tickets
-        .change_step("ARC-1", 1, &again, &none, &fx.person)
+        .change_step(
+            "ARC-1",
+            fx.step("ARC-1", 1).await,
+            &again,
+            &none,
+            &fx.person,
+        )
         .await
         .unwrap();
     assert_eq!(same.view.ticket.record().version.value(), 3);
+}
 
+#[tokio::test]
+async fn steps_go_by_id_whatever_their_number() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    let input = NewTicket {
+        steps: vec![String::from("a"), String::from("b"), String::from("c")],
+        ..titled("Stepped")
+    };
+    fx.create(&board, input, AGENT).await.unwrap();
+    let none = StepGuard::default();
+    let first = fx.step("ARC-1", 1).await;
     let moved = fx
         .tickets
-        .move_step("ARC-1", 1, 3, &none, &fx.person)
+        .move_step("ARC-1", first, 3, &none, &fx.person)
         .await
         .unwrap();
     let texts: Vec<&str> = moved.steps.iter().map(|step| step.text.as_str()).collect();
-    assert_eq!(texts, ["a", "b", "zz"]);
+    assert_eq!(texts, ["b", "c", "a"]);
+    assert_eq!(moved.steps[2].id, first);
+    let checked = fx
+        .tickets
+        .change_step(
+            "ARC-1",
+            first,
+            &StepPatch {
+                done: Some(true),
+                ..StepPatch::default()
+            },
+            &none,
+            &fx.person,
+        )
+        .await
+        .unwrap();
+    let line = checked.history.last().unwrap();
+    assert_eq!(line.from.as_deref(), Some("3: open"));
     let removed = fx
         .tickets
-        .remove_step("ARC-1", 2, &none, &fx.person)
+        .remove_step("ARC-1", first, &none, &fx.person)
         .await
         .unwrap();
     assert_eq!(removed.steps.len(), 2);
     assert_eq!(
         removed.history.last().unwrap().from.as_deref(),
-        Some("2: b")
+        Some("3: a")
     );
-    assert_eq!(removed.view.ticket.record().version.value(), 5);
+
+    let gone = fx
+        .tickets
+        .change_step("ARC-1", first, &StepPatch::default(), &none, &fx.person)
+        .await
+        .unwrap_err();
+    assert_eq!(gone.code(), "step-not-found");
+    let missing = fx
+        .tickets
+        .change_step("ARC-9", first, &StepPatch::default(), &none, &fx.person)
+        .await
+        .unwrap_err();
+    assert_eq!(missing.code(), "ticket-not-found");
+    let stale = StepGuard {
+        version: Some(Version::INITIAL),
+        expect_text: None,
+    };
+    let second = fx.step("ARC-1", 1).await;
+    let outdated = fx
+        .tickets
+        .change_step("ARC-1", second, &StepPatch::default(), &stale, &fx.person)
+        .await
+        .unwrap_err();
+    assert_eq!(outdated.code(), "version-conflict");
+    let changed = StepGuard {
+        version: None,
+        expect_text: Some(String::from("z")),
+    };
+    let conflict = fx
+        .tickets
+        .change_step("ARC-1", second, &StepPatch::default(), &changed, &fx.person)
+        .await
+        .unwrap_err();
+    assert_eq!(conflict.code(), "conflict");
 }
