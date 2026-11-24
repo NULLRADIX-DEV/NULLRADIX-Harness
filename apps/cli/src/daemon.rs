@@ -1,5 +1,4 @@
 use std::fs::{self, File, TryLockError};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -42,13 +41,21 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
     ));
     ensure_local_token(config, &auth).await?;
+    let pruned = auth.prune_expired_sessions().await?;
+    tracing::debug!(pruned, "expired sessions removed");
+    if !config.address.ip().is_loopback() {
+        bail!(
+            "refusing to listen on {}: credentials would travel unencrypted, use a loopback address",
+            config.address
+        );
+    }
     let listener = TcpListener::bind(config.address)
         .await
         .with_context(|| format!("cannot listen on {}", config.address))?;
     let address = listener.local_addr()?;
     let record = Discovery {
         pid: std::process::id(),
-        address: advertised(address),
+        address,
         version: String::from(env!("CARGO_PKG_VERSION")),
         api_version: API_VERSION,
         started_at: SystemClock.now().as_millis(),
@@ -61,9 +68,6 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         data = %config.paths.data.display(),
         "daemon started"
     );
-    if !address.ip().is_loopback() {
-        tracing::warn!(%address, "listening beyond loopback without authentication");
-    }
     let state = ApiState {
         auth,
         allowed_hosts: AllowedHosts::loopback_and(config.allowed_hosts.iter().cloned()),
@@ -98,16 +102,6 @@ async fn ensure_local_token(config: &Config, auth: &AuthService) -> anyhow::Resu
             .with_context(|| format!("cannot write {}", path.display()))?;
     }
     Ok(())
-}
-
-/// Address clients should dial; a wildcard bind is reachable through loopback.
-fn advertised(address: SocketAddr) -> SocketAddr {
-    let ip = match address.ip() {
-        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
-        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
-        ip => ip,
-    };
-    SocketAddr::new(ip, address.port())
 }
 
 /// Holds an exclusive lock so only one daemon serves a profile.
@@ -174,19 +168,4 @@ async fn shutdown_signal() {
         () = terminate => {},
     }
     tracing::info!("shutdown requested");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn advertises_loopback_for_wildcard_binds() {
-        let v4: SocketAddr = "0.0.0.0:4711".parse().unwrap();
-        let v6: SocketAddr = "[::]:4711".parse().unwrap();
-        let fixed: SocketAddr = "192.168.1.5:4711".parse().unwrap();
-        assert_eq!(advertised(v4), "127.0.0.1:4711".parse().unwrap());
-        assert_eq!(advertised(v6), "[::1]:4711".parse().unwrap());
-        assert_eq!(advertised(fixed), fixed);
-    }
 }

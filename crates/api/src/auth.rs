@@ -27,7 +27,7 @@ fn credentials(headers: &HeaderMap) -> Credentials {
         return value
             .to_str()
             .ok()
-            .and_then(|value| value.strip_prefix("Bearer "))
+            .and_then(bearer_secret)
             .and_then(Secret::parse)
             .map_or(Credentials::Malformed, Credentials::Bearer);
     }
@@ -39,17 +39,27 @@ fn credentials(headers: &HeaderMap) -> Credentials {
     }
 }
 
-/// Cookie-authenticated writes must come from a page served by this daemon.
-fn same_origin(headers: &HeaderMap, state: &ApiState) -> bool {
-    headers
+fn bearer_secret(value: &str) -> Option<&str> {
+    let (scheme, secret) = value.split_once(' ')?;
+    scheme
+        .eq_ignore_ascii_case("bearer")
+        .then_some(secret.trim())
+}
+
+/// Cookie-authenticated writes must come from a page of this very origin, port included.
+fn same_origin(headers: &HeaderMap) -> bool {
+    let origin = headers
         .get(header::ORIGIN)
         .and_then(|origin| origin.to_str().ok())
         .and_then(|origin| {
             origin
                 .strip_prefix("http://")
                 .or_else(|| origin.strip_prefix("https://"))
-        })
-        .is_some_and(|authority| state.allowed_hosts.allows(authority))
+        });
+    let host = headers
+        .get(header::HOST)
+        .and_then(|host| host.to_str().ok());
+    matches!((origin, host), (Some(origin), Some(host)) if origin.eq_ignore_ascii_case(host))
 }
 
 pub(crate) async fn authenticate(
@@ -70,7 +80,7 @@ pub(crate) async fn authenticate(
                 *request.method(),
                 Method::GET | Method::HEAD | Method::OPTIONS
             );
-            if safe || same_origin(request.headers(), &state) {
+            if safe || same_origin(request.headers()) {
                 state.auth.authenticate_session(&secret).await
             } else {
                 Err(AppError::forbidden(
@@ -160,6 +170,12 @@ pub(crate) async fn redeem_handoff(
         AppError::unauthorized("invalid-handoff", "the handoff code is unknown or expired")
     })?;
     let session = state.auth.redeem_handoff(&code).await?;
+    if let Some(previous) = jar
+        .get(SESSION_COOKIE)
+        .and_then(|cookie| Secret::parse(cookie.value()))
+    {
+        state.auth.end_session(&previous).await?;
+    }
     let cookie = Cookie::build((SESSION_COOKIE, session.expose().to_owned()))
         .http_only(true)
         .same_site(SameSite::Strict)
@@ -319,7 +335,12 @@ mod tests {
     async fn session_writes_need_a_same_origin_request() {
         let api = test_api().await;
         let cookie = open_session(&api).await;
-        for origin in [None, Some("http://attacker.example.com")] {
+        for origin in [
+            None,
+            Some("http://attacker.example.com"),
+            Some("http://127.0.0.1:9999"),
+            Some("http://localhost:4711"),
+        ] {
             let mut request =
                 local(Request::post("/api/v1/auth/logout")).header(header::COOKIE, &cookie);
             if let Some(origin) = origin {
@@ -350,6 +371,34 @@ mod tests {
         let (status, _, json) = send(&api.router, request).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert_eq!(json["code"], "invalid-session");
+    }
+
+    #[tokio::test]
+    async fn the_bearer_scheme_is_case_insensitive() {
+        let api = test_api().await;
+        let request = local(Request::get("/api/v1/auth/me"))
+            .header(
+                header::AUTHORIZATION,
+                format!("bearer {}", api.token.expose()),
+            )
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, _) = send(&api.router, request).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn path_tricks_do_not_skip_authentication() {
+        let api = test_api().await;
+        for path in [
+            "/api/v1//auth/me",
+            "/api/v1/auth/me/",
+            "/api/v1/../v1/auth/me",
+        ] {
+            let request = local(Request::get(path)).body(Body::empty()).unwrap();
+            let (status, _, _) = send(&api.router, request).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}");
+        }
     }
 
     #[tokio::test]

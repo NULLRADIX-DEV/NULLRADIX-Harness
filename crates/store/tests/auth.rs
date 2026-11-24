@@ -41,6 +41,11 @@ async fn local_token_is_created_once_and_then_kept() {
     let unknown = Secret::parse(&"a".repeat(64)).unwrap();
     let replaced = auth.local_token(Some(unknown.clone())).await.unwrap();
     assert_ne!(replaced, unknown);
+    assert!(auth.authenticate_token(&replaced).await.is_ok());
+    assert_eq!(
+        auth.authenticate_token(&first).await.unwrap_err().code(),
+        "invalid-token"
+    );
 }
 
 #[tokio::test]
@@ -98,6 +103,8 @@ async fn sessions_expire_and_can_be_ended() {
         .redeem_handoff(&auth.create_handoff().unwrap())
         .await
         .unwrap();
+    let pruned_early = auth.prune_expired_sessions().await.unwrap();
+    assert_eq!(pruned_early, 0);
     clock.advance(Duration::from_hours(31 * 24));
     assert_eq!(
         auth.authenticate_session(&session)
@@ -106,6 +113,24 @@ async fn sessions_expire_and_can_be_ended() {
             .code(),
         "session-expired"
     );
+    assert_eq!(
+        auth.authenticate_session(&session)
+            .await
+            .unwrap_err()
+            .code(),
+        "invalid-session"
+    );
+}
+
+#[tokio::test]
+async fn expired_sessions_are_pruned() {
+    let (auth, clock) = service().await;
+    let session = auth
+        .redeem_handoff(&auth.create_handoff().unwrap())
+        .await
+        .unwrap();
+    clock.advance(Duration::from_hours(31 * 24));
+    assert_eq!(auth.prune_expired_sessions().await.unwrap(), 1);
     assert_eq!(
         auth.authenticate_session(&session)
             .await

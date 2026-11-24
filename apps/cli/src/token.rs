@@ -18,16 +18,19 @@ pub(crate) fn read(path: &Path) -> io::Result<Option<Secret>> {
     }
 }
 
-/// Writes the token so only the current user can read it.
+/// Writes the token so only the current user can read it; on Windows the profile ACL applies.
 pub(crate) fn write(path: &Path, secret: &Secret) -> io::Result<()> {
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        private_dir(dir)?;
     }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(path)?;
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -35,6 +38,17 @@ pub(crate) fn write(path: &Path, secret: &Secret) -> io::Result<()> {
     }
     file.write_all(secret.expose().as_bytes())?;
     file.sync_all()
+}
+
+fn private_dir(dir: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(dir)
 }
 
 #[cfg(test)]

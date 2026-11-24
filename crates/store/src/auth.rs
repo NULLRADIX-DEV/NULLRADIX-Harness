@@ -36,11 +36,20 @@ impl AuthRepository for Store {
         }))
     }
 
-    async fn insert_token(&self, token: &ApiToken) -> Result<(), AppError> {
+    async fn replace_tokens(&self, token: &ApiToken) -> Result<(), AppError> {
         let id = token.id.as_uuid();
         let kind = token.kind.as_str();
         let hash = token.hash.as_str();
         let created_at = token.created_at.as_millis();
+        let mut tx = self.begin().await?;
+        sqlx::query!(
+            "DELETE FROM api_tokens WHERE kind = ? AND name = ?",
+            kind,
+            token.name,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(database)?;
         sqlx::query!(
             "INSERT INTO api_tokens (id, name, kind, hash, created_at) VALUES (?, ?, ?, ?, ?)",
             id,
@@ -49,9 +58,10 @@ impl AuthRepository for Store {
             hash,
             created_at,
         )
-        .execute(&self.writer)
+        .execute(&mut *tx)
         .await
         .map_err(database)?;
+        tx.commit().await.map_err(database)?;
         Ok(())
     }
 
@@ -98,5 +108,14 @@ impl AuthRepository for Store {
             .await
             .map_err(database)?;
         Ok(())
+    }
+
+    async fn delete_expired_sessions(&self, now: Timestamp) -> Result<u64, AppError> {
+        let now = now.as_millis();
+        let result = sqlx::query!("DELETE FROM sessions WHERE expires_at <= ?", now)
+            .execute(&self.writer)
+            .await
+            .map_err(database)?;
+        Ok(result.rows_affected())
     }
 }

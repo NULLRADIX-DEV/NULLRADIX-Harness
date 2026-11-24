@@ -130,10 +130,12 @@ pub enum Principal {
 #[async_trait]
 pub trait AuthRepository: Send + Sync {
     async fn token_by_hash(&self, hash: &SecretHash) -> Result<Option<ApiToken>, AppError>;
-    async fn insert_token(&self, token: &ApiToken) -> Result<(), AppError>;
+    /// Revokes every token with the same kind and name, then stores `token`.
+    async fn replace_tokens(&self, token: &ApiToken) -> Result<(), AppError>;
     async fn session_by_hash(&self, hash: &SecretHash) -> Result<Option<Session>, AppError>;
     async fn insert_session(&self, session: &Session) -> Result<(), AppError>;
     async fn delete_session(&self, id: Id<Session>) -> Result<(), AppError>;
+    async fn delete_expired_sessions(&self, now: Timestamp) -> Result<u64, AppError>;
 }
 
 pub struct AuthService {
@@ -173,7 +175,7 @@ impl AuthService {
         }
     }
 
-    /// Keeps a still-registered local token or registers a new one for the caller to persist.
+    /// Keeps a still-registered local token or replaces all local tokens with a new one.
     pub async fn local_token(&self, existing: Option<Secret>) -> Result<Secret, AppError> {
         if let Some(secret) = existing
             && self
@@ -192,7 +194,7 @@ impl AuthService {
             hash: secret.hash(),
             created_at: self.clock.now(),
         };
-        self.repository.insert_token(&token).await?;
+        self.repository.replace_tokens(&token).await?;
         Ok(secret)
     }
 
@@ -250,6 +252,13 @@ impl AuthService {
             return Err(unauthorized("session-expired", "the session has expired"));
         }
         Ok(Principal::Session { id: session.id })
+    }
+
+    /// Removes sessions that can no longer be used; returns how many were removed.
+    pub async fn prune_expired_sessions(&self) -> Result<u64, AppError> {
+        self.repository
+            .delete_expired_sessions(self.clock.now())
+            .await
     }
 
     pub async fn end_session(&self, secret: &Secret) -> Result<(), AppError> {

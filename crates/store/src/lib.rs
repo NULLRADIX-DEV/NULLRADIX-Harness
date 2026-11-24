@@ -79,13 +79,6 @@ impl Store {
     }
 
     /// Write transaction that takes the lock up front instead of failing on upgrade.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "repositories open write transactions once they exist"
-        )
-    )]
     pub(crate) async fn begin(&self) -> Result<Transaction<'_, Sqlite>, StoreError> {
         Ok(self.writer.begin_with("BEGIN IMMEDIATE").await?)
     }
