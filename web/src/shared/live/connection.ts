@@ -30,6 +30,7 @@ export interface ChangeStreamOptions {
   queryClient: QueryClient;
   registry: ChangeRegistry;
   path?: string;
+  onError?: () => void;
 }
 
 export class ChangeStreamConnection {
@@ -85,6 +86,7 @@ export class ChangeStreamConnection {
       if (this.source !== source) return;
       source.close();
       this.source = null;
+      this.options.onError?.();
       this.scheduleReconnect();
     });
   }
@@ -109,7 +111,13 @@ export class ChangeStreamConnection {
   }
 
   private invalidateEntity(entity: string): void {
-    for (const queryKey of this.options.registry[entity] ?? []) {
+    const keys = this.options.registry[entity];
+    if (!keys) {
+      if (import.meta.env.DEV)
+        console.warn(`change stream: no query keys registered for ${entity}`);
+      return;
+    }
+    for (const queryKey of keys) {
       void this.options.queryClient.invalidateQueries({ queryKey });
     }
   }

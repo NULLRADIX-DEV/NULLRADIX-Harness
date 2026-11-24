@@ -21,9 +21,10 @@ function change(seq: number, entity = 'project') {
 function setup() {
   const queryClient = new QueryClient();
   const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined);
-  const connection = new ChangeStreamConnection({ queryClient, registry });
+  const onError = vi.fn();
+  const connection = new ChangeStreamConnection({ queryClient, registry, onError });
   connection.open();
-  return { invalidate, connection, source: FakeEventSource.latest() };
+  return { invalidate, onError, connection, source: FakeEventSource.latest() };
 }
 
 describe('defineChangeRegistry', () => {
@@ -84,11 +85,44 @@ describe('ChangeStreamConnection', () => {
     ]);
   });
 
-  it('ignores unknown entities and malformed changes', () => {
+  it('ignores malformed changes', () => {
     const { invalidate, source } = setup();
-    source.emit('change', change(5, 'runner'), '5');
     source.dispatchEvent(new MessageEvent('change', { data: '{', lastEventId: '6' }));
     expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('warns about changes of unregistered entities in dev builds', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { invalidate, source } = setup();
+    source.emit('change', change(5, 'runner'), '5');
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('change stream: no query keys registered for runner');
+  });
+
+  it('reports every stream error', () => {
+    const { onError, source } = setup();
+    source.fail();
+    expect(onError).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(1_000);
+    FakeEventSource.latest().fail();
+    expect(onError).toHaveBeenCalledTimes(2);
+  });
+
+  it('resets the backoff after a successful open', () => {
+    const { source } = setup();
+    source.fail();
+    vi.advanceTimersByTime(1_000);
+    FakeEventSource.latest().fail();
+    vi.advanceTimersByTime(2_000);
+    expect(FakeEventSource.instances).toHaveLength(3);
+
+    const opened = FakeEventSource.latest();
+    opened.open();
+    opened.fail();
+    vi.advanceTimersByTime(999);
+    expect(FakeEventSource.instances).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(FakeEventSource.instances).toHaveLength(4);
   });
 
   it('invalidates everything on reset', () => {
@@ -114,12 +148,7 @@ describe('ChangeStreamConnection', () => {
     vi.advanceTimersByTime(1_999);
     expect(FakeEventSource.instances).toHaveLength(2);
     vi.advanceTimersByTime(1);
-    const third = FakeEventSource.latest();
-
-    third.open();
-    third.fail();
-    vi.advanceTimersByTime(1_000);
-    expect(FakeEventSource.instances).toHaveLength(4);
+    expect(FakeEventSource.instances).toHaveLength(3);
   });
 
   it('closes the stream and cancels a pending reconnect', () => {
