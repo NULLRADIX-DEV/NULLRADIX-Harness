@@ -4,6 +4,7 @@ mod auth;
 mod change_feed;
 mod error;
 mod projects;
+mod runs;
 
 use std::path::Path;
 use std::time::Duration;

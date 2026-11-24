@@ -18,8 +18,9 @@ ureq.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-tokio-util.workspace = true
+nullradix-runner.workspace = true
 nullradix-store.workspace = true
+tokio-util.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["net", "rt-multi-thread", "sync"] }
 

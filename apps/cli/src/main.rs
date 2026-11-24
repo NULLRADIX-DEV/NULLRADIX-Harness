@@ -6,6 +6,7 @@ mod daemon;
 mod logging;
 mod open;
 mod project;
+mod run;
 mod status;
 mod token;
 
@@ -13,6 +14,7 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 
 use crate::config::{Config, Overrides, Profile};
@@ -45,6 +47,12 @@ enum Command {
     /// Manage projects
     #[command(subcommand)]
     Project(project::ProjectCommand),
+    /// Run commands on the daemon's machine
+    #[command(subcommand)]
+    Run(run::RunCommand),
+    /// Supervise one run; the daemon starts this, not people
+    #[command(hide = true)]
+    RunSupervisor { dir: PathBuf },
 }
 
 #[derive(Args)]
@@ -92,6 +100,15 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Project(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             project::run(command, &client)
+        }
+        Command::Run(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            run::run(command, &client)
+        }
+        Command::RunSupervisor { dir } => {
+            nullradix_runner::supervise(&dir)
+                .with_context(|| format!("cannot record the result in {}", dir.display()))?;
+            Ok(ExitCode::SUCCESS)
         }
     }
 }

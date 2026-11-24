@@ -13,6 +13,7 @@ use crate::AppError;
 #[strum(serialize_all = "kebab-case")]
 pub enum Entity {
     Project,
+    Run,
 }
 
 impl Entity {

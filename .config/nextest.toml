@@ -1,3 +1,7 @@
+[profile.default]
+# a test that leaves pipes open has leaked a process; detached runs must not
+leak-timeout = { period = "500ms", result = "fail" }
+
 [profile.ci]
 fail-fast = false
 failure-output = "immediate-final"

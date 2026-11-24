@@ -16,6 +16,7 @@ thiserror.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+uuid = { workspace = true, features = ["v7"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 

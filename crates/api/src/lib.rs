@@ -7,6 +7,7 @@ mod health;
 mod host;
 mod problem;
 mod projects;
+mod runs;
 mod web;
 
 use std::future::Future;
@@ -21,6 +22,7 @@ use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use nullradix_app::auth::AuthService;
 use nullradix_app::projects::ProjectService;
+use nullradix_app::runs::RunService;
 use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -40,6 +42,9 @@ pub use health::Health;
 pub use host::AllowedHosts;
 pub use problem::{ApiError, Problem};
 pub use projects::{CreateProject, ProjectDto, ProjectList, RenameProject};
+pub use runs::{
+    OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
+};
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
 pub const API_VERSION: u32 = 1;
@@ -83,6 +88,7 @@ impl std::fmt::Debug for ApiState {
 pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub projects: Arc<ProjectService>,
+    pub runs: Arc<RunService>,
     pub changes: Arc<dyn ChangeFeed>,
     pub signal: ChangeSignal,
     /// Cancelled when the daemon stops; long-lived responses end with it.
@@ -106,7 +112,11 @@ fn routes() -> OpenApiRouter<ApiState> {
             projects::get_project,
             projects::rename_project,
             projects::delete_project
-        ));
+        ))
+        .routes(routes!(runs::list_runs, runs::start_run))
+        .routes(routes!(runs::get_run))
+        .routes(routes!(runs::cancel_run))
+        .routes(routes!(runs::run_output));
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
@@ -239,9 +249,24 @@ pub(crate) mod tests {
             signal.clone(),
         ));
         let changes: Arc<dyn ChangeFeed> = store.clone();
+        let runs = RunService::new(
+            store.clone(),
+            Arc::new(nullradix_runner::LocalRunner::new(
+                std::env::temp_dir().join("nullradix-api-tests"),
+                nullradix_runner::SupervisorCommand {
+                    program: PathBuf::from("nullradix-missing-supervisor"),
+                    args: Vec::new(),
+                },
+            )),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+            std::time::Duration::from_millis(50),
+        );
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
+            runs,
             changes: changes.clone(),
             signal,
             shutdown: shutdown.clone(),

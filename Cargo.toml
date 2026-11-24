@@ -16,6 +16,7 @@ nullradix-app = { path = "crates/app" }
 nullradix-client = { path = "crates/client" }
 nullradix-domain = { path = "crates/domain" }
 nullradix-os = { path = "crates/os" }
+nullradix-runner = { path = "crates/runner" }
 nullradix-store = { path = "crates/store" }
 
 anyhow = "1.0.105"
@@ -49,6 +50,7 @@ utoipa = { version = "6.0.0", features = ["uuid"] }
 utoipa-axum = "0.3.0"
 uuid = "1.29.3"
 windows-sys = "0.61.2"
+nix = { version = "0.32.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

@@ -18,6 +18,7 @@ nullradix-api.workspace = true
 nullradix-app.workspace = true
 nullradix-client.workspace = true
 nullradix-os.workspace = true
+nullradix-runner.workspace = true
 nullradix-store.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -28,6 +29,7 @@ toml.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

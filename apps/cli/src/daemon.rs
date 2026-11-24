@@ -7,8 +7,10 @@ use anyhow::{Context, bail};
 use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
 use nullradix_app::auth::AuthService;
 use nullradix_app::projects::ProjectService;
+use nullradix_app::runs::RunService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile};
+use nullradix_runner::{LocalRunner, SupervisorCommand};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
 use tokio::task;
@@ -20,6 +22,8 @@ use crate::token;
 
 /// Time open connections get to finish once a shutdown is requested.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+/// How often the daemon checks on active runs.
+const RUN_POLL: Duration = Duration::from_millis(500);
 
 pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
     let _logging = logging::init(&config.paths.logs, &config.log_filter)?;
@@ -82,9 +86,11 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
+    let runs = start_runs(config, &store, &signal).await?;
     let state = ApiState {
         auth,
         projects,
+        runs,
         changes: Arc::new(store.clone()),
         signal,
         shutdown: shutdown.clone(),
@@ -121,6 +127,31 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     served?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+/// Run service on the local runner, watching runs that outlived the previous daemon.
+async fn start_runs(
+    config: &Config,
+    store: &Store,
+    signal: &ChangeSignal,
+) -> anyhow::Result<Arc<RunService>> {
+    let supervisor = SupervisorCommand {
+        program: std::env::current_exe().context("cannot locate the nullradix binary")?,
+        args: vec![String::from("run-supervisor")],
+    };
+    let runs = RunService::new(
+        Arc::new(store.clone()),
+        Arc::new(LocalRunner::new(config.paths.data.join("runs"), supervisor)),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+        RUN_POLL,
+    );
+    let recovered = runs.recover().await.context("cannot recover active runs")?;
+    if recovered > 0 {
+        tracing::info!(recovered, "watching runs from before the restart");
+    }
+    Ok(runs)
 }
 
 /// Makes sure the token file holds a token the daemon accepts.
