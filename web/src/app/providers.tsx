@@ -1,14 +1,6 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { ThemeProvider } from '../shared/ui/ThemeProvider';
-
-export function createQueryClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { staleTime: 5_000, refetchOnWindowFocus: false },
-    },
-  });
-}
 
 export function AppProviders({
   queryClient,

@@ -7,21 +7,33 @@ import '@fontsource/geist-mono/latin-500.css';
 import '@fontsource/geist-mono/latin-ext-500.css';
 import './app/styles/variables.css';
 import './app/styles/base.css';
-import { StrictMode } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider, createBrowserRouter } from 'react-router';
-import { AppProviders, createQueryClient } from './app/providers';
+import { AppProviders } from './app/providers';
+import { createQueryClient } from './app/queryClient';
 import { routes } from './app/routes';
+import { dismissStartOverlay } from './shared/lib/startOverlay';
 
 const container = document.getElementById('root');
 if (!container) throw new Error('missing #root element');
 
 const router = createBrowserRouter(routes);
+const queryClient = createQueryClient();
+
+function Root() {
+  useEffect(() => {
+    dismissStartOverlay();
+  }, []);
+  return (
+    <AppProviders queryClient={queryClient}>
+      <RouterProvider router={router} />
+    </AppProviders>
+  );
+}
 
 createRoot(container).render(
   <StrictMode>
-    <AppProviders queryClient={createQueryClient()}>
-      <RouterProvider router={router} />
-    </AppProviders>
+    <Root />
   </StrictMode>,
 );
