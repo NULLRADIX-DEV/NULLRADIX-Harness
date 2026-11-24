@@ -486,6 +486,7 @@
             "to": "release/2"
           }
         ],
+        "steps": [],
         "ticket": {
           "acceptance": "",
           "assignee": null,
@@ -514,6 +515,8 @@
           "priority": "normal",
           "projectId": "<ID-1>",
           "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
           "targetBranch": "release/2",
           "title": "Top",
           "unlocks": [],
@@ -604,6 +607,7 @@
             "to": null
           }
         ],
+        "steps": [],
         "ticket": {
           "acceptance": "",
           "assignee": null,
@@ -632,6 +636,8 @@
           "priority": "normal",
           "projectId": "<ID-1>",
           "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
           "targetBranch": null,
           "title": "Top",
           "unlocks": [],
