@@ -44,7 +44,11 @@ impl Client {
     }
 
     pub fn health(&self) -> Result<Health, ClientError> {
-        let url = format!("http://{}/health", self.address);
+        let url = format!(
+            "http://{}{}/health",
+            self.address,
+            nullradix_api::API_PREFIX
+        );
         let mut response =
             self.agent
                 .get(&url)
@@ -102,7 +106,10 @@ mod tests {
                 let shutdown = async {
                     let _ = stopped.await;
                 };
-                nullradix_api::serve(listener, nullradix_api::router(), shutdown)
+                let config = nullradix_api::ApiConfig {
+                    allowed_hosts: nullradix_api::AllowedHosts::loopback_and([]),
+                };
+                nullradix_api::serve(listener, nullradix_api::router(&config), shutdown)
                     .await
                     .unwrap();
             });

@@ -49,6 +49,7 @@ struct FileConfig {
 struct ServerSection {
     bind: Option<IpAddr>,
     port: Option<u16>,
+    allowed_hosts: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -70,6 +71,7 @@ pub(crate) struct Config {
     pub(crate) profile: Profile,
     pub(crate) paths: Paths,
     pub(crate) address: SocketAddr,
+    pub(crate) allowed_hosts: Vec<String>,
     pub(crate) log_filter: String,
 }
 
@@ -115,10 +117,18 @@ impl Config {
             .log
             .or(file.log.filter)
             .unwrap_or_else(|| String::from("info"));
+        let mut allowed_hosts = file.server.allowed_hosts;
+        if !bind.is_unspecified() && !bind.is_loopback() {
+            allowed_hosts.push(match bind {
+                IpAddr::V4(ip) => ip.to_string(),
+                IpAddr::V6(ip) => format!("[{ip}]"),
+            });
+        }
         Self {
             profile,
             paths,
             address: SocketAddr::new(bind, port),
+            allowed_hosts,
             log_filter,
         }
     }
@@ -183,6 +193,21 @@ mod tests {
         let overridden = Config::load(Profile::Release, Some(home.path()), overrides).unwrap();
         assert_eq!(overridden.address, "0.0.0.0:9100".parse().unwrap());
         assert_eq!(overridden.log_filter, "warn");
+    }
+
+    #[test]
+    fn allows_configured_hosts_and_a_specific_bind_address() {
+        let home = tempfile::tempdir().unwrap();
+        write_config(
+            home.path(),
+            "[server]
+bind = \"192.168.1.5\"
+allowed_hosts = [\"workbench.lan\"]
+",
+        );
+        let config =
+            Config::load(Profile::Release, Some(home.path()), Overrides::default()).unwrap();
+        assert_eq!(config.allowed_hosts, vec!["workbench.lan", "192.168.1.5"]);
     }
 
     #[test]
