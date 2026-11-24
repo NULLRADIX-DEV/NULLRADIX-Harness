@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { useId, useState, type SubmitEvent } from 'react';
-import { ApiProblemError, isProblemCode } from '../../shared/api/errors';
+import { useEffect, useId, useRef, useState, type SubmitEvent } from 'react';
+import { problemMessage } from '../../shared/api/problemMessage';
+import { FormError } from '../../shared/ui/FormError';
 import {
   projectsQuery,
   useCreateProject,
@@ -15,24 +16,10 @@ export const NAME_MAX_LENGTH = 200;
 export const CONFLICT_MESSAGE = 'This project changed in the meantime. The list is up to date now.';
 export const GONE_MESSAGE = 'This project no longer exists.';
 
-function errorMessage(error: unknown, fallback: string): string | null {
-  if (!error) return null;
-  if (isProblemCode(error, 'version-conflict')) return CONFLICT_MESSAGE;
-  if (isProblemCode(error, 'project-not-found')) return GONE_MESSAGE;
-  if (error instanceof ApiProblemError && error.status < 500 && error.status !== 401) {
-    return error.detail;
-  }
-  return fallback;
-}
-
-function FormError({ message }: { message: string | null }) {
-  if (!message) return null;
-  return (
-    <p className="form-error" role="alert">
-      {message}
-    </p>
-  );
-}
+const MESSAGES = {
+  'version-conflict': CONFLICT_MESSAGE,
+  'project-not-found': GONE_MESSAGE,
+};
 
 function CreateProjectForm() {
   const [key, setKey] = useState('');
@@ -92,7 +79,9 @@ function CreateProjectForm() {
       <p id={hintId} className="field-hint muted">
         2 to 6 characters, a letter first, then letters or digits.
       </p>
-      <FormError message={errorMessage(create.error, 'Could not create the project.')} />
+      <FormError
+        message={problemMessage(create.error, MESSAGES, 'Could not create the project.')}
+      />
     </form>
   );
 }
@@ -100,6 +89,8 @@ function CreateProjectForm() {
 function RenameForm({ project, onDone }: { project: Project; onDone: () => void }) {
   const [name, setName] = useState(project.name);
   const rename = useRenameProject();
+  const trimmed = name.trim();
+  const unchanged = trimmed === '' || trimmed === project.name;
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,22 +115,37 @@ function RenameForm({ project, onDone }: { project: Project; onDone: () => void 
             }}
           />
         </label>
-        <button type="submit" className="btn primary" disabled={rename.isPending}>
+        <button type="submit" className="btn primary" disabled={rename.isPending || unchanged}>
           Save
         </button>
         <button type="button" className="btn" onClick={onDone}>
           Cancel
         </button>
       </div>
-      <FormError message={errorMessage(rename.error, 'Could not rename the project.')} />
+      <FormError
+        message={problemMessage(rename.error, MESSAGES, 'Could not rename the project.')}
+      />
     </form>
   );
 }
 
 function DeleteConfirm({ project, onDone }: { project: Project; onDone: () => void }) {
   const remove = useDeleteProject();
+  const cancelButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    cancelButton.current?.focus();
+  }, []);
+
   return (
-    <div className="project-confirm" role="group" aria-label={`Delete ${project.key}`}>
+    <div
+      className="project-confirm"
+      role="group"
+      aria-label={`Delete ${project.key}`}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onDone();
+      }}
+    >
       <p>
         Delete <strong>{project.name}</strong>? This cannot be undone.
       </p>
@@ -154,11 +160,13 @@ function DeleteConfirm({ project, onDone }: { project: Project; onDone: () => vo
         >
           Delete
         </button>
-        <button type="button" className="btn" onClick={onDone}>
+        <button ref={cancelButton} type="button" className="btn" onClick={onDone}>
           Cancel
         </button>
       </div>
-      <FormError message={errorMessage(remove.error, 'Could not delete the project.')} />
+      <FormError
+        message={problemMessage(remove.error, MESSAGES, 'Could not delete the project.')}
+      />
     </div>
   );
 }
@@ -167,9 +175,19 @@ type RowMode = 'view' | 'rename' | 'delete';
 
 function ProjectRow({ project }: { project: Project }) {
   const [mode, setMode] = useState<RowMode>('view');
+  const previousMode = useRef<RowMode>('view');
+  const renameButton = useRef<HTMLButtonElement>(null);
+  const deleteButton = useRef<HTMLButtonElement>(null);
   const back = () => {
     setMode('view');
   };
+
+  useEffect(() => {
+    // hand focus back to the button that opened the form
+    if (mode === 'view' && previousMode.current === 'rename') renameButton.current?.focus();
+    if (mode === 'view' && previousMode.current === 'delete') deleteButton.current?.focus();
+    previousMode.current = mode;
+  }, [mode]);
   return (
     <li className="project-row">
       <div className="project-line">
@@ -178,6 +196,7 @@ function ProjectRow({ project }: { project: Project }) {
         {mode === 'view' && (
           <span className="project-actions">
             <button
+              ref={renameButton}
               type="button"
               className="btn"
               aria-label={`Rename ${project.key}`}
@@ -188,6 +207,7 @@ function ProjectRow({ project }: { project: Project }) {
               Rename
             </button>
             <button
+              ref={deleteButton}
               type="button"
               className="btn"
               aria-label={`Delete ${project.key}`}

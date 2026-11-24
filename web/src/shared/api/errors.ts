@@ -50,10 +50,6 @@ export function unwrapEmpty(result: FetchResult<unknown>): void {
   unwrap(result);
 }
 
-export function isProblemCode(error: unknown, code: string): error is ApiProblemError {
-  return error instanceof ApiProblemError && error.code === code;
-}
-
 export function isUnauthorized(error: unknown): error is ApiProblemError {
   return error instanceof ApiProblemError && error.status === 401;
 }

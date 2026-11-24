@@ -228,4 +228,58 @@ describe('ProjectsSection', () => {
     expect(await screen.findByText('Arches live')).toBeInTheDocument();
     expect(projectKeys.list()).toEqual(['projects', 'list']);
   });
+
+  it('only saves a changed, non-empty name', async () => {
+    projectsServer();
+    renderApp('/settings');
+    await projectList();
+    await userEvent.click(screen.getByRole('button', { name: 'Rename ARC' }));
+    const form = within(screen.getByRole('form', { name: 'Rename ARC' }));
+    const input = form.getByRole('textbox', { name: 'Name' });
+    const save = form.getByRole('button', { name: 'Save' });
+    expect(input).toHaveFocus();
+    expect(save).toBeDisabled();
+
+    await userEvent.clear(input);
+    await userEvent.type(input, '   ');
+    expect(save).toBeDisabled();
+
+    await userEvent.type(input, 'New');
+    expect(save).toBeEnabled();
+  });
+
+  it('returns focus to the rename button after escape and after saving', async () => {
+    projectsServer();
+    renderApp('/settings');
+    await projectList();
+    const trigger = screen.getByRole('button', { name: 'Rename ARC' });
+    await userEvent.click(trigger);
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('form', { name: 'Rename ARC' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rename ARC' })).toHaveFocus();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rename ARC' }));
+    await userEvent.keyboard('{Control>}a{/Control}Renamed{Enter}');
+    expect(await screen.findByText('Renamed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rename ARC' })).toHaveFocus();
+  });
+
+  it('focuses cancel in the delete confirmation and returns focus on escape or cancel', async () => {
+    const { api } = projectsServer();
+    renderApp('/settings');
+    await projectList();
+    await userEvent.click(screen.getByRole('button', { name: 'Delete ARC' }));
+    const confirm = within(screen.getByRole('group', { name: 'Delete ARC' }));
+    expect(confirm.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('group', { name: 'Delete ARC' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete ARC' })).toHaveFocus();
+
+    await userEvent.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: 'Delete ARC' })).toHaveFocus();
+    expect(api.requests(`DELETE /api/v1/projects/${ARC_ID}`)).toHaveLength(0);
+  });
 });

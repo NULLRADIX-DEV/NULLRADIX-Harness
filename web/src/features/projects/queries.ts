@@ -1,7 +1,8 @@
-import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryOptions, useMutation } from '@tanstack/react-query';
 import { api, type components } from '../../shared/api/client';
 import { unwrap, unwrapEmpty } from '../../shared/api/errors';
 import type { ChangeRegistry } from '../../shared/live/registry';
+import { useInvalidate } from '../../shared/query/useInvalidate';
 
 export type Project = components['schemas']['ProjectDto'];
 export type CreateProjectInput = components['schemas']['CreateProject'];
@@ -33,22 +34,17 @@ export function projectsQuery() {
   });
 }
 
-function useInvalidateProjects() {
-  const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: projectKeys.all });
-}
-
 export function useCreateProject() {
-  const invalidate = useInvalidateProjects();
+  const invalidate = useInvalidate(projectKeys.all);
   return useMutation({
     mutationFn: async (input: CreateProjectInput) =>
       unwrap(await api.POST('/api/v1/projects', { body: input })),
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
 }
 
 export function useRenameProject() {
-  const invalidate = useInvalidateProjects();
+  const invalidate = useInvalidate(projectKeys.all);
   return useMutation({
     mutationFn: async ({ id, name, version }: RenameProjectInput) =>
       unwrap(
@@ -62,7 +58,7 @@ export function useRenameProject() {
 }
 
 export function useDeleteProject() {
-  const invalidate = useInvalidateProjects();
+  const invalidate = useInvalidate(projectKeys.all);
   return useMutation({
     mutationFn: async ({ id, version }: DeleteProjectInput) => {
       unwrapEmpty(
