@@ -5,6 +5,7 @@
   <img src="assets/brand/nullradix-logo-light.svg" alt="NULLRADIX" width="420">
 </picture>
 
+<h1>HIER BEI HANDELT ES SICH UM EIN REWORK EINES BESTEHENDEN HARNESS. DER GROßTEIL DES HARNESS IST NOCH DER ALTE<h1>
 <h3>Die lokale Werkbank für viele Claude-Code-Sessions gleichzeitig</h3>
 
 Kanban-Board mit Tickets, Fragen und Notizen · konfliktfreie Parallelarbeit in Branches und Worktrees · ein Dispatcher, der geplante Tickets selbst umsetzen lässt
