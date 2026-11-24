@@ -22,20 +22,26 @@ const DRAIN: Duration = Duration::from_secs(10);
 /// Executes the run described in `dir` and always leaves a `result.json` behind.
 pub fn supervise(dir: &Path) -> io::Result<()> {
     let files = RunFiles::at(dir);
-    // released by the exit, which is how the runner learns that this process is gone
-    let _lock = hold_lock(&files);
-    let result = match read_json::<SpecFile>(&files.spec()) {
-        Ok(Some(spec)) => execute(&files, &spec),
-        Ok(None) => Err(io::Error::new(
+    // held until the exit, which is how the runner learns that this process is gone
+    let lock = hold_lock(&files);
+    let result = match (&lock, read_json::<SpecFile>(&files.spec())) {
+        (Err(error), _) => Err(io::Error::new(
+            error.kind(),
+            format!("cannot take the supervisor lock: {error}"),
+        )),
+        (Ok(_), Ok(Some(spec))) => execute(&files, &spec),
+        (Ok(_), Ok(None)) => Err(io::Error::new(
             io::ErrorKind::NotFound,
             "spec.json is missing",
         )),
-        Err(error) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
     };
     let report =
         result.unwrap_or_else(|error| failure(None, &format!("supervisor failed: {error}")));
     let json = serde_json::to_vec(&report).map_err(io::Error::other)?;
-    write_atomic(&files.result(), &json)
+    write_atomic(&files.result(), &json)?;
+    drop(lock);
+    Ok(())
 }
 
 fn failure(exit_code: Option<i32>, error: &str) -> ResultFile {
@@ -63,6 +69,10 @@ fn program(spec: &SpecFile) -> PathBuf {
 }
 
 fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
+    // a start the daemon gave up on is cancelled before the command can do anything
+    if files.cancel().exists() {
+        return Ok(Ending::Cancelled.into_result());
+    }
     let mut command = Command::new(program(spec));
     command
         .args(&spec.args)
@@ -80,10 +90,10 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
         }
     };
     let (sender, lines) = mpsc::channel();
-    if let Some(stdout) = tree.child_mut().stdout.take() {
+    if let Some(stdout) = tree.take_stdout() {
         forward(stdout, "stdout", sender.clone());
     }
-    if let Some(stderr) = tree.child_mut().stderr.take() {
+    if let Some(stderr) = tree.take_stderr() {
         forward(stderr, "stderr", sender);
     }
     let mut output = OutputWriter::create(files)?;
@@ -99,76 +109,115 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
             Err(RecvTimeoutError::Disconnected) => thread::sleep(TICK),
         }
         output.drain(&lines)?;
-        if let Some(status) = tree.child_mut().try_wait()? {
-            // the run ends with its main process; leftovers would hold the pipes open
-            tree.kill()?;
+        // the run ends with its main process, the tree kills what it left behind
+        if let Some(status) = tree.try_wait()? {
             break Ending::Exited(status);
         }
         if files.cancel().exists() {
             tree.kill()?;
-            tree.child_mut().wait()?;
+            tree.wait()?;
             break Ending::Cancelled;
         }
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             tree.kill()?;
-            tree.child_mut().wait()?;
+            tree.wait()?;
             break Ending::TimedOut;
         }
     };
     output.finish(&lines)?;
-    Ok(match ending {
-        Ending::Exited(status) if status.success() => ResultFile {
-            outcome: RunOutcome::Succeeded.as_str().to_owned(),
-            exit_code: status.code(),
-            error: None,
-        },
-        Ending::Exited(status) => ResultFile {
-            outcome: RunOutcome::Failed.as_str().to_owned(),
-            exit_code: status.code(),
-            error: None,
-        },
-        Ending::Cancelled => ResultFile {
-            outcome: RunOutcome::Cancelled.as_str().to_owned(),
-            exit_code: None,
-            error: None,
-        },
-        Ending::TimedOut => ResultFile {
-            outcome: RunOutcome::TimedOut.as_str().to_owned(),
-            exit_code: None,
-            error: Some(String::from("the run exceeded its timeout")),
-        },
-    })
+    Ok(ending.into_result())
 }
 
-/// Sends complete lines of `pipe`; bytes are decoded per line so split characters survive.
+impl Ending {
+    fn into_result(self) -> ResultFile {
+        let (outcome, exit_code, error) = match self {
+            Self::Exited(status) if status.success() => {
+                (RunOutcome::Succeeded, status.code(), None)
+            }
+            Self::Exited(status) => (RunOutcome::Failed, status.code(), None),
+            Self::Cancelled => (RunOutcome::Cancelled, None, None),
+            Self::TimedOut => (
+                RunOutcome::TimedOut,
+                None,
+                Some(String::from("the run exceeded its timeout")),
+            ),
+        };
+        ResultFile {
+            outcome: outcome.as_str().to_owned(),
+            exit_code,
+            error,
+        }
+    }
+}
+
+/// Sends the lines of `pipe` until it closes.
 fn forward(
     pipe: impl Read + Send + 'static,
     stream: &'static str,
     sender: Sender<(&'static str, String)>,
 ) {
     thread::spawn(move || {
-        let mut reader = BufReader::new(pipe);
-        let mut buffer = Vec::new();
-        loop {
-            buffer.clear();
-            match reader
-                .by_ref()
-                .take(MAX_LINE)
-                .read_until(b'\n', &mut buffer)
-            {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {
-                    while matches!(buffer.last(), Some(b'\n' | b'\r')) {
-                        buffer.pop();
-                    }
-                    let text = String::from_utf8_lossy(&buffer).into_owned();
-                    if sender.send((stream, text)).is_err() {
-                        break;
-                    }
-                }
+        let mut lines = Lines::new(pipe);
+        while let Ok(Some(text)) = lines.next_line() {
+            if sender.send((stream, text)).is_err() {
+                break;
             }
         }
     });
+}
+
+/// Cuts a byte stream into lines of at most `MAX_LINE` bytes without breaking characters.
+struct Lines<R> {
+    reader: BufReader<R>,
+    // the start of a character cut off at the end of the previous part
+    carry: Vec<u8>,
+    // whether the previous part ended without its line ending
+    split: bool,
+}
+
+impl<R: Read> Lines<R> {
+    fn new(pipe: R) -> Self {
+        Self {
+            reader: BufReader::new(pipe),
+            carry: Vec::new(),
+            split: false,
+        }
+    }
+
+    /// The next line without its line ending, or `None` once the stream ended.
+    fn next_line(&mut self) -> io::Result<Option<String>> {
+        loop {
+            let mut buffer = std::mem::take(&mut self.carry);
+            let read = (&mut self.reader)
+                .take(MAX_LINE)
+                .read_until(b'\n', &mut buffer)?;
+            if read == 0 {
+                return Ok(
+                    (!buffer.is_empty()).then(|| String::from_utf8_lossy(&buffer).into_owned())
+                );
+            }
+            if buffer.last() == Some(&b'\n') {
+                // only the line ending of a line already sent in parts
+                if self.split && buffer == b"\n" {
+                    self.split = false;
+                    continue;
+                }
+                self.split = false;
+                buffer.pop();
+            } else {
+                if let Err(error) = std::str::from_utf8(&buffer)
+                    && error.error_len().is_none()
+                {
+                    self.carry = buffer.split_off(error.valid_up_to());
+                }
+                self.split = true;
+            }
+            if buffer.last() == Some(&b'\r') {
+                buffer.pop();
+            }
+            return Ok(Some(String::from_utf8_lossy(&buffer).into_owned()));
+        }
+    }
 }
 
 /// Appends output lines and their offsets; a reader trusts a line once it has an index entry.
@@ -312,6 +361,55 @@ mod tests {
         let files = RunFiles::at(dir.path());
         supervise(files.dir()).unwrap();
         assert!(result(&files).error.unwrap().contains("spec.json"));
+    }
+
+    fn all_lines(bytes: &[u8]) -> Vec<String> {
+        let mut lines = Lines::new(bytes);
+        let mut all = Vec::new();
+        while let Some(line) = lines.next_line().unwrap() {
+            all.push(line);
+        }
+        all
+    }
+
+    #[test]
+    fn cuts_lines_at_any_line_ending() {
+        assert_eq!(all_lines(b"a\r\nb\n\nc"), vec!["a", "b", "", "c"]);
+    }
+
+    #[test]
+    fn splits_long_lines_without_breaking_characters_or_line_endings() {
+        let limit = usize::try_from(MAX_LINE).unwrap();
+        let mut long = vec![b'x'; limit + 10];
+        long.push(b'\n');
+        let lengths: Vec<usize> = all_lines(&long).iter().map(String::len).collect();
+        assert_eq!(lengths, vec![limit, 10]);
+
+        let mut accent = vec![b'x'; limit - 1];
+        accent.extend_from_slice("\u{e9}!\n".as_bytes());
+        let lines = all_lines(&accent);
+        assert_eq!(lines[0].len(), limit - 1);
+        assert_eq!(lines[1], "\u{e9}!");
+
+        let mut crlf = vec![b'x'; limit - 1];
+        crlf.extend_from_slice(b"\r\nnext\n");
+        let lines = all_lines(&crlf);
+        assert_eq!((lines.len(), lines[1].as_str()), (2, "next"));
+    }
+
+    #[test]
+    fn a_cancelled_start_never_runs_the_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("ran");
+        let files = prepare(
+            dir.path(),
+            &format!("echo ran> \"{}\"", marker.display()),
+            None,
+        );
+        fs::write(files.cancel(), b"").unwrap();
+        supervise(files.dir()).unwrap();
+        assert_eq!(result(&files).outcome, "cancelled");
+        assert!(!marker.exists());
     }
 
     #[test]

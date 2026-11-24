@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 
 /// Bytes per entry of the output index: the offset of one line as little-endian u64.
 pub(crate) const INDEX_ENTRY: u64 = 8;
+/// How long a supervisor may take to show up before its run counts as lost.
+const START_GRACE: Duration = Duration::from_secs(30);
 
 /// Paths inside the directory of one run.
 #[derive(Debug, Clone)]
@@ -79,13 +81,24 @@ pub(crate) fn supervisor_alive(files: &RunFiles) -> io::Result<bool> {
             Err(TryLockError::WouldBlock) => Ok(true),
             Err(TryLockError::Error(error)) => Err(error),
         },
-        // the supervisor has not taken its lock yet, so its fresh pid is still reliable
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            Ok(fs::read_to_string(files.supervisor())
-                .ok()
-                .and_then(|pid| pid.trim().parse::<u32>().ok())
-                .is_some_and(process_alive))
-        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => starting(files),
+        Err(error) => Err(error),
+    }
+}
+
+/// A supervisor without its lock yet is starting while its fresh pid lives, or briefly without one.
+fn starting(files: &RunFiles) -> io::Result<bool> {
+    match fs::read_to_string(files.supervisor()) {
+        Ok(pid) => Ok(pid.trim().parse::<u32>().is_ok_and(process_alive)),
+        // the daemon may have died between starting the supervisor and noting its pid
+        Err(error) if error.kind() == io::ErrorKind::NotFound => match fs::metadata(files.spec()) {
+            Ok(spec) => Ok(spec
+                .modified()?
+                .elapsed()
+                .is_ok_and(|age| age < START_GRACE)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error),
+        },
         Err(error) => Err(error),
     }
 }
@@ -276,9 +289,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let files = RunFiles::at(dir.path());
         write_lines(&files, 2);
+        assert_eq!(read_output(&files, 2, 10).unwrap(), Vec::new());
         let mut index = File::options().append(true).open(files.index()).unwrap();
         index.write_all(&[0; 5]).unwrap();
-        // the index already points at the torn line, which has no newline yet
+        // now the index points at the torn line, which has no newline yet
+        assert_eq!(read_output(&files, 2, 10).unwrap(), Vec::new());
         assert_eq!(read_output(&files, 0, 10).unwrap().len(), 2);
     }
 
@@ -300,6 +315,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let files = RunFiles::at(dir.path());
         assert!(!supervisor_alive(&files).unwrap());
+        fs::write(files.spec(), b"{}").unwrap();
+        assert!(
+            supervisor_alive(&files).unwrap(),
+            "a fresh spec means starting"
+        );
+        fs::write(files.supervisor(), b"4294967295").unwrap();
+        assert!(
+            !supervisor_alive(&files).unwrap(),
+            "a dead pid without lock is gone"
+        );
         fs::write(files.supervisor(), std::process::id().to_string()).unwrap();
         assert!(supervisor_alive(&files).unwrap());
         let lock = hold_lock(&files).unwrap();

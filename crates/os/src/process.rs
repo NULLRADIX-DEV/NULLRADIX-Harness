@@ -3,7 +3,7 @@ use std::io;
 use std::path::Path;
 #[cfg(unix)]
 use std::process::Stdio;
-use std::process::{Child, Command};
+use std::process::{Child, ChildStderr, ChildStdout, Command, ExitStatus};
 
 /// Whether a process with this id currently exists.
 #[must_use]
@@ -42,10 +42,12 @@ pub fn spawn_detached(program: &Path, args: &[OsString], cwd: &Path) -> io::Resu
     }
 }
 
-/// A child process together with everything it starts, killed as one.
+/// A process with all it starts, ended with it; only on Windows it also dies with its holder.
 #[derive(Debug)]
 pub struct ProcessTree {
     child: Child,
+    // once reaped, the id of the main process may belong to an unrelated process
+    reaped: bool,
     #[cfg(windows)]
     job: crate::windows::Job,
 }
@@ -56,12 +58,19 @@ impl ProcessTree {
         {
             use std::os::unix::process::CommandExt;
             let child = command.process_group(0).spawn()?;
-            Ok(Self { child })
+            Ok(Self {
+                child,
+                reaped: false,
+            })
         }
         #[cfg(windows)]
         {
             let (child, job) = crate::windows::Job::spawn(command)?;
-            Ok(Self { child, job })
+            Ok(Self {
+                child,
+                reaped: false,
+                job,
+            })
         }
     }
 
@@ -70,37 +79,112 @@ impl ProcessTree {
         self.child.id()
     }
 
-    pub fn child_mut(&mut self) -> &mut Child {
-        &mut self.child
+    pub fn take_stdout(&mut self) -> Option<ChildStdout> {
+        self.child.stdout.take()
     }
 
-    /// Kills the whole tree; an already finished tree is not an error.
-    pub fn kill(&mut self) -> io::Result<()> {
-        #[cfg(unix)]
-        {
-            use nix::errno::Errno;
-            use nix::sys::signal::{Signal, killpg};
-            use nix::unistd::Pid;
-            let group = i32::try_from(self.child.id())
-                .map_err(|_| io::Error::other("process id out of range"))?;
-            match killpg(Pid::from_raw(group), Signal::SIGKILL) {
-                Ok(()) | Err(Errno::ESRCH) => {}
-                Err(error) => return Err(io::Error::from(error)),
-            }
+    pub fn take_stderr(&mut self) -> Option<ChildStderr> {
+        self.child.stderr.take()
+    }
+
+    /// The exit status once the main process ended, after killing what it left running.
+    pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        if self.main_exited(false)? {
+            self.finish().map(Some)
+        } else {
+            Ok(None)
         }
-        #[cfg(windows)]
-        self.job.terminate()?;
+    }
+
+    /// Waits for the main process, then kills what it left running.
+    pub fn wait(&mut self) -> io::Result<ExitStatus> {
+        self.main_exited(true)?;
+        self.finish()
+    }
+
+    /// Kills the whole tree without waiting; an already finished tree is not an error.
+    pub fn kill(&mut self) -> io::Result<()> {
+        if self.reaped {
+            return Ok(());
+        }
+        self.kill_rest()?;
         match self.child.kill() {
             Err(error) if error.kind() != io::ErrorKind::InvalidInput => Err(error),
             _ => Ok(()),
         }
     }
+
+    fn finish(&mut self) -> io::Result<ExitStatus> {
+        if !self.reaped {
+            // stragglers die while the unreaped main process still reserves their group id
+            let _ = self.kill_rest();
+        }
+        let status = self.child.wait()?;
+        self.reaped = true;
+        Ok(status)
+    }
+
+    /// Whether the main process exited, without reaping it.
+    #[cfg(unix)]
+    fn main_exited(&mut self, block: bool) -> io::Result<bool> {
+        use nix::errno::Errno;
+        use nix::sys::wait::{Id, WaitPidFlag, WaitStatus, waitid};
+        if self.reaped {
+            return Ok(true);
+        }
+        let mut flags = WaitPidFlag::WEXITED | WaitPidFlag::WNOWAIT;
+        if !block {
+            flags |= WaitPidFlag::WNOHANG;
+        }
+        loop {
+            match waitid(Id::Pid(self.pid()?), flags) {
+                Ok(WaitStatus::StillAlive) => return Ok(false),
+                Ok(_) => return Ok(true),
+                Err(Errno::EINTR) => {}
+                Err(error) => return Err(io::Error::from(error)),
+            }
+        }
+    }
+
+    /// Whether the main process exited; Windows keeps its id while we hold its handle.
+    #[cfg(windows)]
+    fn main_exited(&mut self, block: bool) -> io::Result<bool> {
+        if block {
+            self.child.wait()?;
+            Ok(true)
+        } else {
+            Ok(self.child.try_wait()?.is_some())
+        }
+    }
+
+    #[cfg(unix)]
+    fn pid(&self) -> io::Result<nix::unistd::Pid> {
+        let raw = i32::try_from(self.child.id())
+            .map_err(|_| io::Error::other("process id out of range"))?;
+        Ok(nix::unistd::Pid::from_raw(raw))
+    }
+
+    #[cfg(unix)]
+    fn kill_rest(&self) -> io::Result<()> {
+        use nix::errno::Errno;
+        use nix::sys::signal::{Signal, killpg};
+        match killpg(self.pid()?, Signal::SIGKILL) {
+            Ok(()) | Err(Errno::ESRCH) => Ok(()),
+            Err(error) => Err(io::Error::from(error)),
+        }
+    }
+
+    #[cfg(windows)]
+    fn kill_rest(&self) -> io::Result<()> {
+        self.job.terminate()
+    }
 }
 
 impl Drop for ProcessTree {
-    /// Whatever the tree left running dies with it, on every platform alike.
     fn drop(&mut self) {
-        let _ = self.kill();
+        if !self.reaped && self.kill().is_ok() {
+            let _ = self.child.wait();
+        }
     }
 }
 
@@ -135,24 +219,36 @@ mod tests {
         }
     }
 
-    /// A child that starts a long-running grandchild and writes its pid to `pid_file`.
-    fn parent_of_grandchild(pid_file: &std::path::Path) -> Command {
+    /// A child that starts a long-running grandchild, writes its pid and maybe waits for it.
+    fn parent_of_grandchild(pid_file: &std::path::Path, wait: bool) -> Command {
         if cfg!(windows) {
-            let script = format!(
+            let mut script = format!(
                 "$p = Start-Process ping -ArgumentList '-n','60','127.0.0.1' -PassThru -WindowStyle Hidden; \
-                 Set-Content -Path '{}' -Value $p.Id; Wait-Process -Id $p.Id",
+                 Set-Content -Path '{}' -Value $p.Id",
                 pid_file.display()
             );
+            if wait {
+                script.push_str("; Wait-Process -Id $p.Id");
+            }
             let mut command = Command::new("powershell");
             command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
             command
         } else {
+            let mut script = format!("sleep 60 & echo $! > '{}'", pid_file.display());
+            if wait {
+                script.push_str("; wait");
+            }
             let mut command = Command::new("sh");
-            command.args([
-                "-c",
-                &format!("sleep 60 & echo $! > '{}'; wait", pid_file.display()),
-            ]);
+            command.args(["-c", &script]);
             command
+        }
+    }
+
+    fn assert_dies(pid: u32) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while process_alive(pid) {
+            assert!(Instant::now() < deadline, "process {pid} survived");
+            thread::sleep(Duration::from_millis(50));
         }
     }
 
@@ -192,36 +288,40 @@ mod tests {
     fn killing_a_tree_also_kills_the_grandchild() {
         let dir = tempfile::tempdir().unwrap();
         let pid_file = dir.path().join("grandchild.pid");
-        let mut tree = ProcessTree::spawn(&mut parent_of_grandchild(&pid_file)).unwrap();
+        let mut tree = ProcessTree::spawn(&mut parent_of_grandchild(&pid_file, true)).unwrap();
         let grandchild: u32 = wait_for_file(&pid_file).parse().unwrap();
         assert!(process_alive(grandchild));
         tree.kill().unwrap();
-        tree.child_mut().wait().unwrap();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while process_alive(grandchild) {
-            assert!(Instant::now() < deadline, "grandchild survived the kill");
-            thread::sleep(Duration::from_millis(50));
-        }
+        tree.wait().unwrap();
+        assert_dies(grandchild);
     }
 
     #[test]
-    fn dropping_a_tree_kills_what_it_left_running() {
+    fn waiting_ends_what_the_main_process_left_behind() {
         let dir = tempfile::tempdir().unwrap();
         let pid_file = dir.path().join("grandchild.pid");
-        let tree = ProcessTree::spawn(&mut parent_of_grandchild(&pid_file)).unwrap();
+        let mut tree = ProcessTree::spawn(&mut parent_of_grandchild(&pid_file, false)).unwrap();
+        assert!(tree.wait().unwrap().success());
+        assert_dies(wait_for_file(&pid_file).parse().unwrap());
+        tree.kill().unwrap();
+    }
+
+    #[test]
+    fn dropping_a_running_tree_kills_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("grandchild.pid");
+        let tree = ProcessTree::spawn(&mut parent_of_grandchild(&pid_file, true)).unwrap();
         let grandchild: u32 = wait_for_file(&pid_file).parse().unwrap();
+        let parent = tree.id();
         drop(tree);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while process_alive(grandchild) {
-            assert!(Instant::now() < deadline, "grandchild survived the drop");
-            thread::sleep(Duration::from_millis(50));
-        }
+        assert_dies(grandchild);
+        assert_dies(parent);
     }
 
     #[test]
     fn killing_a_finished_tree_is_silent() {
         let mut tree = ProcessTree::spawn(&mut quick_exit()).unwrap();
-        tree.child_mut().wait().unwrap();
+        tree.wait().unwrap();
         tree.kill().unwrap();
     }
 }
