@@ -1821,7 +1821,8 @@
           "priority": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/PriorityDto"
+                "$ref": "#/components/schemas/PriorityDto",
+                "description": "Read as text, so an unknown priority is `priority-invalid`."
               },
               {
                 "type": "null"
@@ -1831,7 +1832,8 @@
           "status": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/TicketStatusDto"
+                "$ref": "#/components/schemas/TicketStatusDto",
+                "description": "Read as text, so an unknown status is `status-invalid` as on the legacy board."
               },
               {
                 "type": "null"
