@@ -5,8 +5,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 mod checks;
-mod db;
 mod codegen;
+mod db;
 mod files;
 
 #[derive(Parser)]
