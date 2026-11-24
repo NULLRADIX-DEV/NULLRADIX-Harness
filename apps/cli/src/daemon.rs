@@ -1,11 +1,13 @@
 use std::fs::{self, File, TryLockError};
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, bail};
 use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
 use nullradix_app::auth::AuthService;
-use nullradix_app::{Clock, SystemClock, UuidV7Generator};
+use nullradix_app::projects::ProjectService;
+use nullradix_app::{Clock, EventBus, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -14,6 +16,8 @@ use tokio::task;
 use crate::config::Config;
 use crate::logging;
 use crate::token;
+
+const EVENT_CAPACITY: NonZeroUsize = NonZeroUsize::new(256).expect("non-zero");
 
 pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
     let _logging = logging::init(&config.paths.logs, &config.log_filter)?;
@@ -68,8 +72,18 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         data = %config.paths.data.display(),
         "daemon started"
     );
+    let events = EventBus::new(EVENT_CAPACITY);
+    let projects = Arc::new(ProjectService::new(
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        events.clone(),
+    ));
     let state = ApiState {
         auth,
+        projects,
+        changes: Arc::new(store.clone()),
+        events,
         allowed_hosts: AllowedHosts::loopback_and(config.allowed_hosts.iter().cloned()),
         secure_cookies: false,
         web_dir: config.web_dir.clone(),

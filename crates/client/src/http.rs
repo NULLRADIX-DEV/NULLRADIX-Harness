@@ -138,7 +138,8 @@ mod tests {
 
     use nullradix_api::{AllowedHosts, ApiState};
     use nullradix_app::auth::AuthService;
-    use nullradix_app::{SystemClock, UuidV7Generator};
+    use nullradix_app::projects::ProjectService;
+    use nullradix_app::{EventBus, SystemClock, UuidV7Generator};
     use nullradix_store::Store;
 
     use super::*;
@@ -174,13 +175,23 @@ mod tests {
             runtime.block_on(async move {
                 let store = Arc::new(Store::in_memory().await.unwrap());
                 let auth = Arc::new(AuthService::new(
-                    store,
+                    store.clone(),
                     Arc::new(SystemClock),
                     Arc::new(UuidV7Generator),
                 ));
                 ready.send(auth.local_token(None).await.unwrap()).unwrap();
+                let events = EventBus::new(std::num::NonZeroUsize::new(16).unwrap());
+                let projects = Arc::new(ProjectService::new(
+                    store.clone(),
+                    Arc::new(SystemClock),
+                    Arc::new(UuidV7Generator),
+                    events.clone(),
+                ));
                 let state = ApiState {
                     auth,
+                    projects,
+                    changes: store,
+                    events,
                     allowed_hosts: AllowedHosts::loopback_and([]),
                     secure_cookies: false,
                     web_dir: None,

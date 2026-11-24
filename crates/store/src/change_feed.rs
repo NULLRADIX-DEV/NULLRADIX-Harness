@@ -67,6 +67,15 @@ impl ChangeFeed for Store {
                 .collect::<Result<Vec<_>, StoreError>>()?;
         Ok(changes)
     }
+
+    async fn head(&self) -> Result<i64, AppError> {
+        let head =
+            sqlx::query_scalar!(r#"SELECT coalesce(max(seq), 0) AS "head!: i64" FROM change_feed"#)
+                .fetch_one(&self.reader)
+                .await
+                .map_err(StoreError::from)?;
+        Ok(head)
+    }
 }
 
 #[cfg(test)]
@@ -100,10 +109,11 @@ mod tests {
 
         assert_eq!(
             store.changes_since(first.seq, 10).await.unwrap(),
-            vec![second]
+            vec![second.clone()]
         );
         assert_eq!(store.changes_since(0, 10).await.unwrap().len(), 2);
         assert_eq!(store.changes_since(0, 1).await.unwrap().len(), 1);
+        assert_eq!(store.head().await.unwrap(), second.seq);
     }
 
     #[tokio::test]

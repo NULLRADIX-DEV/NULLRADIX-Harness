@@ -1103,17 +1103,22 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "axum-extra",
+ "futures-util",
+ "http-body-util",
  "nullradix-app",
+ "nullradix-domain",
  "nullradix-store",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
  "tracing",
  "utoipa",
  "utoipa-axum",
+ "uuid",
 ]
 
 [[package]]
@@ -2012,6 +2017,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

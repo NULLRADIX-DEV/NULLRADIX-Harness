@@ -1,10 +1,12 @@
 //! HTTP API served by the daemon.
 
 mod auth;
+mod events;
 mod extract;
 mod health;
 mod host;
 mod problem;
+mod projects;
 mod web;
 
 use std::future::Future;
@@ -17,8 +19,9 @@ use axum::extract::State;
 use axum::http::{HeaderValue, Request, StatusCode, header};
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
-use nullradix_app::AppError;
 use nullradix_app::auth::AuthService;
+use nullradix_app::projects::ProjectService;
+use nullradix_app::{AppError, Change, ChangeFeed, EventBus};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
@@ -30,10 +33,12 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
-pub use extract::{ApiJson, ApiQuery};
+pub use events::ChangeDto;
+pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
 pub use host::AllowedHosts;
 pub use problem::{ApiError, Problem};
+pub use projects::{ProjectDto, ProjectList};
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
 pub const API_VERSION: u32 = 1;
@@ -66,10 +71,19 @@ impl Modify for SecuritySchemes {
     }
 }
 
+impl std::fmt::Debug for ApiState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApiState").finish_non_exhaustive()
+    }
+}
+
 /// Everything the handlers need, built by the composition root.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ApiState {
     pub auth: Arc<AuthService>,
+    pub projects: Arc<ProjectService>,
+    pub changes: Arc<dyn ChangeFeed>,
+    pub events: EventBus<Change>,
     pub allowed_hosts: AllowedHosts,
     pub secure_cookies: bool,
     /// Built web UI to serve next to the API, if any.
@@ -82,7 +96,14 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(auth::create_handoff))
         .routes(routes!(auth::redeem_handoff))
         .routes(routes!(auth::logout))
-        .routes(routes!(auth::me));
+        .routes(routes!(auth::me))
+        .routes(routes!(events::events))
+        .routes(routes!(projects::list_projects, projects::create_project))
+        .routes(routes!(
+            projects::get_project,
+            projects::rename_project,
+            projects::delete_project
+        ));
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
@@ -189,6 +210,8 @@ pub(crate) mod tests {
         pub(crate) router: Router,
         pub(crate) token: Secret,
         pub(crate) auth: Arc<AuthService>,
+        pub(crate) projects: Arc<ProjectService>,
+        pub(crate) changes: Arc<dyn ChangeFeed>,
     }
 
     pub(crate) async fn test_api() -> TestApi {
@@ -198,13 +221,24 @@ pub(crate) mod tests {
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
-            store,
+            store.clone(),
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
         ));
         let token = auth.local_token(None).await.unwrap();
+        let events = EventBus::new(std::num::NonZeroUsize::new(64).unwrap());
+        let projects = Arc::new(ProjectService::new(
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            events.clone(),
+        ));
+        let changes: Arc<dyn ChangeFeed> = store.clone();
         let router = router(ApiState {
             auth: auth.clone(),
+            projects: projects.clone(),
+            changes: changes.clone(),
+            events,
             allowed_hosts: AllowedHosts::loopback_and([]),
             secure_cookies: false,
             web_dir,
@@ -213,6 +247,8 @@ pub(crate) mod tests {
             router,
             token,
             auth,
+            projects,
+            changes,
         }
     }
 

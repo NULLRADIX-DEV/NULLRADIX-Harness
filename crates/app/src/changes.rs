@@ -48,6 +48,8 @@ pub struct Change {
 pub trait ChangeFeed: Send + Sync {
     /// Changes committed after `seq`, oldest first, at most `limit`.
     async fn changes_since(&self, seq: i64, limit: u32) -> Result<Vec<Change>, AppError>;
+    /// Sequence number of the newest change, or 0 when there is none.
+    async fn head(&self) -> Result<i64, AppError>;
 }
 
 #[cfg(test)]
