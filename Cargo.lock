@@ -1210,6 +1210,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nullradix-fake-claude"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "serde_json",
+]
+
+[[package]]
 name = "nullradix-os"
 version = "0.1.0"
 dependencies = [

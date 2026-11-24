@@ -1,0 +1,21 @@
+[package]
+name = "nullradix-fake-claude"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nullradix-fake-claude"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, features = ["process"] }
+
+[lints]
+workspace = true
