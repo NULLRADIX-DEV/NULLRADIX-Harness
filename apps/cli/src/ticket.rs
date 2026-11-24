@@ -74,9 +74,6 @@ pub(crate) enum TicketCommand {
         key: String,
         #[arg(long)]
         version: Option<i64>,
-        /// Lift the dependency and question locks
-        #[arg(long)]
-        force: bool,
     },
     /// Delete a ticket for good
     Delete {
@@ -305,18 +302,15 @@ pub(crate) fn run(command: TicketCommand, client: &Client) -> anyhow::Result<Exi
                 force,
             };
             let ticket = client.claim_ticket(&canonical(&key)?, &input)?;
-            report(&ticket, &format!("claimed by {agent}"));
+            let name = ticket.assignee.clone().unwrap_or(agent);
+            report(&ticket, &format!("claimed by {name}"));
         }
         TicketCommand::Release { key, status } => {
             let ticket = client.release_ticket(&canonical(&key)?, &ReleaseTicket { status })?;
             report(&ticket, "released");
         }
-        TicketCommand::Accept {
-            key,
-            version,
-            force,
-        } => {
-            let input = AcceptTicket { version, force };
+        TicketCommand::Accept { key, version } => {
+            let input = AcceptTicket { version };
             report(
                 &client.accept_ticket(&canonical(&key)?, &input)?,
                 "accepted",

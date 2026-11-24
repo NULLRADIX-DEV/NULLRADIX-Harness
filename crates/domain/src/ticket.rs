@@ -363,6 +363,17 @@ pub fn planning_claim_alive(record: &TicketRecord, now: Timestamp) -> bool {
         .is_some_and(|(_, at)| now.saturating_since(*at) < PLANNING_CLAIM_TTL)
 }
 
+/// Needs planning, is neither in planning nor not needed, and nobody holds a live claim.
+#[must_use]
+pub fn planning_candidate(record: &TicketRecord, now: Timestamp) -> bool {
+    record.needs_planning
+        && !matches!(
+            record.status,
+            TicketStatus::InPlanning | TicketStatus::NotNeeded
+        )
+        && !planning_claim_alive(record, now)
+}
+
 /// Prefix of a block reason that waits for a person, such as a review before merge.
 pub const HUMAN_INTERACTION: &str = "Human Interaction:";
 

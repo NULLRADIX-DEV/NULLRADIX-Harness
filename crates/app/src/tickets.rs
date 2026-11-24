@@ -10,8 +10,8 @@ use nullradix_domain::{
     StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError, Ticket, TicketDraft,
     TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle, Timestamp, Tombstone, Version,
     changes, check_status_change, display_order, normalize_dependencies, normalize_labels,
-    optional_text, planning_claim_alive, step, strip_fence, validate_dependencies,
-    waits_for_a_person,
+    optional_text, planning_candidate, planning_claim_alive, step, strip_fence,
+    validate_dependencies, waits_for_a_person,
 };
 
 use crate::projects::ProjectRepository;
@@ -779,8 +779,12 @@ impl TicketService {
         key: &str,
         actor: &Actor,
         expected: Option<Version>,
-        options: WriteOptions,
+        by_person: bool,
     ) -> Result<TicketView, AppError> {
+        let options = WriteOptions {
+            by_person,
+            ..WriteOptions::default()
+        };
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let before = load(write.as_mut(), &key, expected).await?;
@@ -943,7 +947,13 @@ impl TicketService {
             let Some(before) = write.ticket(candidate.ticket.key()).await? else {
                 continue;
             };
-            if !planning_candidate(before.record(), now) {
+            // and it must still sit where the caller looked
+            let record = before.record();
+            let in_scope = scope.board.is_none_or(|board| record.board == board)
+                && scope
+                    .project
+                    .is_none_or(|project| record.project == project);
+            if !in_scope || !planning_candidate(record, now) {
                 continue;
             }
             let mut after = before.record().clone();
@@ -1117,16 +1127,6 @@ impl TicketService {
             })
             .collect()
     }
-}
-
-/// Needs planning, is neither in planning nor not needed, and nobody holds a live claim.
-fn planning_candidate(record: &TicketRecord, now: Timestamp) -> bool {
-    record.needs_planning
-        && !matches!(
-            record.status,
-            TicketStatus::InPlanning | TicketStatus::NotNeeded
-        )
-        && !planning_claim_alive(record, now)
 }
 
 fn optional_status(text: Option<&str>) -> Result<Option<TicketStatus>, AppError> {

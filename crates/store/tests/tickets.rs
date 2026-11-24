@@ -6,13 +6,14 @@ use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::tickets::{
     NewTicket, PlanInput, StepGuard, StepPatch, TicketDetail, TicketFilter, TicketPatch,
-    TicketScope, TicketService, WriteOptions,
+    TicketRead, TicketRepository, TicketScope, TicketService, TicketSnapshot, TicketView,
+    TicketWrite, WriteOptions,
 };
 use nullradix_app::{
-    ChangeFeed, ChangeOp, ChangeSignal, Clock, Entity, SystemClock, UuidV7Generator,
+    AppError, ChangeFeed, ChangeOp, ChangeSignal, Clock, Entity, SystemClock, UuidV7Generator,
 };
 use nullradix_domain::{
-    Actor, Board, Column, Id, Priority, Project, Step, TicketStatus, Timestamp, Version,
+    Actor, Board, Column, Id, Priority, Project, Step, TicketKey, TicketStatus, Timestamp, Version,
 };
 use nullradix_store::Store;
 use tokio::sync::watch::Receiver;
@@ -1300,7 +1301,7 @@ async fn people_accept_tickets_that_wait_for_them() {
         ..titled("Review me")
     };
     fx.create(&board, input, AGENT).await.unwrap();
-    let not_yet = fx.tickets.accept("ARC-1", &fx.person, None, PERSON).await;
+    let not_yet = fx.tickets.accept("ARC-1", &fx.person, None, true).await;
     assert_eq!(not_yet.unwrap_err().code(), "accept-not-possible");
     let waiting = TicketPatch {
         status: Some(String::from("blocked")),
@@ -1310,7 +1311,7 @@ async fn people_accept_tickets_that_wait_for_them() {
     fx.update("ARC-1", waiting, 1, AGENT).await.unwrap();
     let accepted = fx
         .tickets
-        .accept("ARC-1", &fx.person, None, PERSON)
+        .accept("ARC-1", &fx.person, None, true)
         .await
         .unwrap();
     let record = accepted.ticket.record();
@@ -1329,7 +1330,7 @@ async fn people_accept_tickets_that_wait_for_them() {
         ..patch()
     };
     fx.update("ARC-2", reason, 1, AGENT).await.unwrap();
-    let refused = fx.tickets.accept("ARC-2", &fx.person, None, PERSON).await;
+    let refused = fx.tickets.accept("ARC-2", &fx.person, None, true).await;
     assert_eq!(refused.unwrap_err().code(), "acceptance-missing");
 }
 
@@ -1425,4 +1426,179 @@ async fn plans_and_planning_claims_follow_the_legacy_rules() {
         .await
         .unwrap();
     assert_eq!(next.unwrap().ticket.key().to_string(), "ARC-0002");
+}
+
+/// Hands out the store's writes, but lets a rival change ARC-1 just before the first one.
+struct Rival {
+    store: Arc<Store>,
+    moves_to: Option<Id<Board>>,
+    armed: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl TicketRepository for Rival {
+    async fn begin(&self) -> Result<Box<dyn TicketWrite>, AppError> {
+        if self.armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            let mut write = TicketRepository::begin(self.store.as_ref()).await?;
+            let key = TicketKey::parse("ARC-1").unwrap();
+            let before = write.ticket(&key).await?.unwrap();
+            let mut after = before.record().clone();
+            match self.moves_to {
+                Some(board) => after.board = board,
+                None => after.planning_claim = Some((String::from("rival"), SystemClock.now())),
+            }
+            let revised = before.revised(after, SystemClock.now());
+            write.update(&revised, before.record().version, &[]).await?;
+            write.commit().await?;
+        }
+        TicketRepository::begin(self.store.as_ref()).await
+    }
+
+    async fn list(&self, scope: TicketScope) -> Result<TicketSnapshot, AppError> {
+        self.store.list(scope).await
+    }
+
+    async fn get(&self, key: &TicketKey) -> Result<Option<TicketRead>, AppError> {
+        self.store.get(key).await
+    }
+}
+
+#[tokio::test]
+async fn the_planning_queue_checks_again_under_the_write() {
+    for moves in [false, true] {
+        let fx = fixture().await;
+        let (project, board) = fx.board("ARC").await;
+        let other = fx
+            .boards
+            .create(project.id(), "Other", &fx.person)
+            .await
+            .unwrap()
+            .board;
+        fx.create(&board, titled("One"), AGENT).await.unwrap();
+        fx.create(&board, titled("Two"), AGENT).await.unwrap();
+        let rival = Rival {
+            store: fx.store.clone(),
+            moves_to: moves.then(|| other.id()),
+            armed: std::sync::atomic::AtomicBool::new(true),
+        };
+        let tickets = TicketService::new(
+            Arc::new(rival),
+            fx.store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            ChangeSignal::new(),
+        );
+        let scope = TicketScope {
+            board: Some(board.id()),
+            ..TicketScope::default()
+        };
+        let claimed = tickets
+            .next_planning(scope, Some("planner"), &fx.person)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            claimed.ticket.key().to_string(),
+            "ARC-0002",
+            "moves: {moves}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn claims_and_plans_keep_versions_columns_and_history_like_legacy() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    for title in ["One", "Two", "Three"] {
+        let input = NewTicket {
+            status: Some(String::from("planned")),
+            acceptance: Some(String::from("works")),
+            ..titled(title)
+        };
+        fx.create(&board, input, AGENT).await.unwrap();
+    }
+    let stale = fx
+        .tickets
+        .claim(
+            "ARC-1",
+            "claude",
+            None,
+            &fx.person,
+            Some(Version::INITIAL.next()),
+            false,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code(), "version-conflict");
+    let first = fx
+        .tickets
+        .claim("ARC-1", "claude", None, &fx.person, None, false)
+        .await
+        .unwrap();
+    let second = fx
+        .tickets
+        .claim("ARC-2", "claude", None, &fx.person, None, false)
+        .await
+        .unwrap();
+    let order = |view: &TicketView| view.ticket.record().sort_order;
+    assert_eq!((order(&first), order(&second)), (0, 1));
+    let same = fx
+        .tickets
+        .claim("ARC-3", "claude", Some("planned"), &fx.person, None, false)
+        .await
+        .unwrap();
+    assert_eq!(order(&same), 2);
+    let released = fx
+        .tickets
+        .release("ARC-3", Some("in-progress"), &fx.person)
+        .await
+        .unwrap();
+    assert_eq!(order(&released), 2);
+
+    let base = NewTicket {
+        status: Some(String::from("planned")),
+        ..titled("Base")
+    };
+    fx.create(&board, base, AGENT).await.unwrap();
+    let waiting = TicketPatch {
+        status: Some(String::from("blocked")),
+        blocked_reason: Some(Some(String::from("Human Interaction: review"))),
+        depends_on: Some(vec![String::from("ARC-4")]),
+        ..patch()
+    };
+    let version = first.ticket.record().version.value();
+    fx.update("ARC-1", waiting, version, AGENT).await.unwrap();
+    let open = fx
+        .tickets
+        .accept("ARC-1", &fx.person, None, true)
+        .await
+        .unwrap_err();
+    assert_eq!(open.code(), "dependency-open");
+    let stale = fx
+        .tickets
+        .accept("ARC-1", &fx.person, Some(Version::INITIAL), true)
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code(), "version-conflict");
+
+    let claimed = fx
+        .tickets
+        .claim_planning("ARC-4", "planner", &fx.person)
+        .await
+        .unwrap();
+    let renewed = fx
+        .tickets
+        .claim_planning("ARC-4", "planner", &fx.person)
+        .await
+        .unwrap();
+    assert_eq!(
+        renewed.ticket.record().version.value(),
+        claimed.ticket.record().version.value() + 1
+    );
+    let history = fx.tickets.get("ARC-4").await.unwrap().history;
+    let claims = history
+        .iter()
+        .filter(|line| line.field == "planningClaimBy")
+        .count();
+    assert_eq!(claims, 1);
 }

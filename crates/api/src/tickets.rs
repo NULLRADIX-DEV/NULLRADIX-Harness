@@ -512,9 +512,6 @@ pub struct ReleaseTicket {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AcceptTicket {
     pub version: Option<i64>,
-    /// Lifts the dependency and question locks, never the acceptance lock.
-    #[serde(default)]
-    pub force: bool,
 }
 
 /// A plan; at least one of plan, handbook and diagram.
@@ -1063,7 +1060,7 @@ pub(crate) async fn accept_ticket(
             &path.ticket_key,
             &state.person,
             version(input.version)?,
-            writer(&principal, input.force),
+            matches!(principal, Principal::Session { .. }),
         )
         .await?;
     Ok(Json(view.into()))
@@ -1160,6 +1157,7 @@ pub(crate) async fn release_planning(
         (status = 200, description = "The next ticket that needs planning", body = NextPlanning),
         (status = 401, body = Problem),
         (status = 404, body = Problem),
+        (status = 422, body = Problem),
     )
 )]
 pub(crate) async fn next_planning(
