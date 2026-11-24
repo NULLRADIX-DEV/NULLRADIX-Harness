@@ -51,6 +51,19 @@ pub fn not_found(id: Id<Board>) -> AppError {
     AppError::not_found("board-not-found", format!("board {id} does not exist"))
 }
 
+/// The error for a board that is missing from `project`: the project itself, or the board.
+pub(crate) async fn missing(
+    projects: &dyn ProjectRepository,
+    project: Id<Project>,
+    board: Id<Board>,
+) -> AppError {
+    match projects.get(project).await {
+        Ok(Some(_)) => not_found(board),
+        Ok(None) => projects::not_found(project),
+        Err(error) => error,
+    }
+}
+
 /// The person at this machine, as the actor every token and browser session acts for.
 pub async fn local_person(
     actors: &dyn ActorRepository,
@@ -178,14 +191,13 @@ impl BoardService {
             Some((board, _)) if board.project() == project => board,
             _ => {
                 drop(write);
-                return Err(self.missing(project, id).await);
+                return Err(missing(self.projects.as_ref(), project, id).await);
             }
         };
         if board.version() != expected {
             return Err(AppError::version_conflict("board", id));
         }
-        let mut doomed = write.board_tickets(id).await?;
-        doomed.sort_by_key(|ticket| ticket.key().number());
+        let doomed = write.board_tickets(id).await?;
         let open: Vec<&TicketKey> = doomed
             .iter()
             .filter(|ticket| ticket.status().is_open())
@@ -203,14 +215,6 @@ impl BoardService {
             self.signal.notify(last);
         }
         Ok(doomed.iter().map(|ticket| ticket.key().clone()).collect())
-    }
-
-    async fn missing(&self, project: Id<Project>, id: Id<Board>) -> AppError {
-        match self.projects.get(project).await {
-            Ok(Some(_)) => not_found(id),
-            Ok(None) => projects::not_found(project),
-            Err(error) => error,
-        }
     }
 }
 

@@ -110,7 +110,7 @@ pub(crate) struct SetArgs {
     status: Option<String>,
     #[arg(long)]
     priority: Option<String>,
-    /// Name of the assignee; empty clears it
+    /// Name of the assignee; empty or none clears it
     #[arg(long)]
     assignee: Option<String>,
     /// Replaces the labels; one flag may hold several split by commas
@@ -127,7 +127,7 @@ pub(crate) struct SetArgs {
     #[arg(long)]
     needs_planning: Option<String>,
     /// Replaces the dependencies with these comma-separated keys; none clears them
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["depends_on_add", "depends_on_remove"])]
     depends_on: Option<String>,
     /// Adds dependencies
     #[arg(long)]
@@ -135,7 +135,7 @@ pub(crate) struct SetArgs {
     /// Removes dependencies
     #[arg(long)]
     depends_on_remove: Vec<String>,
-    /// Branch to merge into; empty means the default branch
+    /// Branch to merge into; empty or none means the default branch
     #[arg(long)]
     target_branch: Option<String>,
     /// Board of the same project to move the ticket to
@@ -190,6 +190,11 @@ pub(crate) struct CreateArgs {
     /// Print JSON instead of text
     #[arg(long)]
     json: bool,
+}
+
+/// The value, or none for a literal `none` as legacy read it.
+fn none_or(value: &str) -> Option<String> {
+    (!value.trim().eq_ignore_ascii_case("none")).then(|| value.to_owned())
 }
 
 /// Comma-separated ticket keys; blank entries drop out and `none` means no dependency.
@@ -301,10 +306,7 @@ pub(crate) fn run(command: TicketCommand, client: &Client) -> anyhow::Result<Exi
 
 fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
     let key = TicketKey::parse(&args.key)?.to_string();
-    let version = match args.version {
-        Some(version) => version,
-        None => client.get_ticket(&key)?.ticket.version,
-    };
+    let version = args.version;
     let keys = |texts: Vec<String>| {
         (!texts.is_empty()).then(|| {
             texts
@@ -313,8 +315,8 @@ fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
                 .collect()
         })
     };
-    let input = UpdateTicket {
-        version,
+    let mut input = UpdateTicket {
+        version: version.unwrap_or(1),
         title: args.title,
         description: text(args.description, args.description_file.as_deref())?,
         plan: text(args.plan, args.plan_file.as_deref())?,
@@ -323,7 +325,7 @@ fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
         status: args.status,
         priority: args.priority,
         labels: (!args.labels.is_empty()).then_some(args.labels),
-        assignee: args.assignee.map(Some),
+        assignee: args.assignee.as_deref().map(none_or),
         needs_planning: args
             .needs_planning
             .map(|value| !value.trim().eq_ignore_ascii_case("false")),
@@ -333,9 +335,19 @@ fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
         depends_on_add: keys(args.depends_on_add),
         depends_on_remove: keys(args.depends_on_remove),
         board_id: args.to_board,
-        target_branch: args.target_branch.map(Some),
+        target_branch: args.target_branch.as_deref().map(none_or),
         force: args.force,
     };
+    // without fields the daemon answers nothing-changed before it looks at the version
+    let names_a_field = input
+        != UpdateTicket {
+            version: input.version,
+            force: input.force,
+            ..UpdateTicket::default()
+        };
+    if version.is_none() && names_a_field {
+        input.version = client.get_ticket(&key)?.ticket.version;
+    }
     let detail = client.update_ticket(&key, &input)?;
     println!(
         "{} changed (version {})",

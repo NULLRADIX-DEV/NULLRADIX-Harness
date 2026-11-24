@@ -818,3 +818,166 @@ async fn deleted_tickets_free_their_dependents_and_leave_the_numbers_unused() {
         "ticket-not-found"
     );
 }
+
+#[tokio::test]
+async fn checks_run_in_the_legacy_order_and_skip_blank_dependencies() {
+    let fx = fixture().await;
+    let (project, board) = fx.board("ARC").await;
+    let first = NewTicket {
+        depends_on: vec![String::new(), String::from(" ")],
+        ..titled("Login page")
+    };
+    assert_eq!(
+        fx.create(&board, first, AGENT).await,
+        Ok(String::from("ARC-0001"))
+    );
+    let blank_entries = NewTicket {
+        depends_on: vec![String::from("ARC-1"), String::new()],
+        ..titled("Logout")
+    };
+    assert_eq!(
+        fx.create(&board, blank_entries, AGENT).await,
+        Ok(String::from("ARC-0002"))
+    );
+
+    let duplicate_first = NewTicket {
+        labels: vec!["x".repeat(101)],
+        ..titled("login PAGE")
+    };
+    assert_eq!(
+        fx.create(&board, duplicate_first, AGENT).await,
+        Err(String::from("ticket-duplicate"))
+    );
+    let dependency_before_branch = NewTicket {
+        depends_on: vec![String::from("ARC-99")],
+        target_branch: Some(String::from("ticket")),
+        ..titled("Lost")
+    };
+    assert_eq!(
+        fx.create(&board, dependency_before_branch, AGENT).await,
+        Err(String::from("dependency-unknown"))
+    );
+    let missing: Id<Board> = Id::from_uuid(uuid::Uuid::from_u128(9));
+    let error = fx
+        .tickets
+        .create(project.id(), missing, &titled(" "), &fx.person, AGENT)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "board-not-found");
+    let other_column = NewTicket {
+        status: Some(String::from("planned")),
+        ..titled("Planned")
+    };
+    fx.create(&board, other_column, AGENT).await.unwrap();
+    let mut orders = Vec::new();
+    for key in ["ARC-2", "ARC-3"] {
+        let view = fx.tickets.get(key).await.unwrap().view;
+        orders.push(view.ticket.record().sort_order);
+    }
+    assert_eq!(orders, [1, 0]);
+}
+
+#[tokio::test]
+async fn updates_clear_the_block_reason_and_lock_not_needed_like_legacy() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("One"), AGENT).await.unwrap();
+    fx.create(&board, titled("Two"), AGENT).await.unwrap();
+    let blocked = TicketPatch {
+        status: Some(String::from("blocked")),
+        blocked_reason: Some(Some(String::from("waits"))),
+        ..patch()
+    };
+    fx.update("ARC-1", blocked, 1, AGENT).await.unwrap();
+    let kept = TicketPatch {
+        status: Some(String::from("planned")),
+        blocked_reason: Some(Some(String::from("still noted"))),
+        ..patch()
+    };
+    let detail = fx.update("ARC-1", kept, 2, AGENT).await.unwrap();
+    assert_eq!(
+        detail.view.ticket.record().blocked_reason.as_deref(),
+        Some("still noted")
+    );
+    let again = TicketPatch {
+        status: Some(String::from("blocked")),
+        ..patch()
+    };
+    fx.update("ARC-1", again, 3, AGENT).await.unwrap();
+    let left = TicketPatch {
+        status: Some(String::from("backlog")),
+        ..patch()
+    };
+    let detail = fx.update("ARC-1", left, 4, AGENT).await.unwrap();
+    let record = detail.view.ticket.record();
+    assert_eq!(record.blocked_reason, None);
+    // ARC-2 holds place 1 in the backlog, so ARC-1 comes after it
+    assert_eq!(record.sort_order, 2);
+
+    let unneeded = TicketPatch {
+        status: Some(String::from("not-needed")),
+        ..patch()
+    };
+    let refused = fx.update("ARC-2", unneeded.clone(), 1, AGENT).await;
+    assert_eq!(refused.unwrap_err(), "not-needed-human-only");
+    fx.update("ARC-2", unneeded, 1, PERSON).await.unwrap();
+    let moved = fx
+        .tickets
+        .move_to("ARC-1", Some("not-needed"), None, &fx.person, None, AGENT)
+        .await
+        .unwrap_err();
+    assert_eq!(moved.code(), "not-needed-human-only");
+}
+
+#[tokio::test]
+async fn dependency_lists_replace_add_and_remove_in_the_legacy_order() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    for title in ["A", "B", "C", "Top"] {
+        fx.create(&board, titled(title), AGENT).await.unwrap();
+    }
+    let keys = |detail: &TicketDetail| -> Vec<String> {
+        detail
+            .view
+            .ticket
+            .record()
+            .depends_on
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    };
+    let joined = TicketPatch {
+        depends_on: Some(vec![String::from("ARC-1, ARC-2")]),
+        ..patch()
+    };
+    let refused = fx.update("ARC-4", joined, 1, AGENT).await;
+    assert_eq!(refused.unwrap_err(), "ticket-id-invalid");
+    let replaced = TicketPatch {
+        depends_on: Some(vec![
+            String::from("ARC-1"),
+            String::from("ARC-2"),
+            String::from("ARC-3"),
+        ]),
+        depends_on_remove: Some(vec![String::from("arc-2")]),
+        ..patch()
+    };
+    let detail = fx.update("ARC-4", replaced, 1, AGENT).await.unwrap();
+    assert_eq!(keys(&detail), ["ARC-0001", "ARC-0003"]);
+    let added = TicketPatch {
+        depends_on_add: Some(vec![String::from("ARC-2")]),
+        ..patch()
+    };
+    let detail = fx.update("ARC-4", added, 2, AGENT).await.unwrap();
+    assert_eq!(keys(&detail), ["ARC-0001", "ARC-0003", "ARC-0002"]);
+
+    fx.tickets.delete("ARC-1", &fx.person, None).await.unwrap();
+    let top = fx.tickets.get("ARC-4").await.unwrap();
+    let last = top.history.last().unwrap();
+    assert_eq!(
+        (last.from.as_deref(), last.to.as_deref()),
+        (
+            Some(r#"["ARC-0003","ARC-0002","ARC-0001"]"#),
+            Some(r#"["ARC-0003","ARC-0002"]"#)
+        )
+    );
+}

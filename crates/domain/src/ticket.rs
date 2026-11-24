@@ -278,23 +278,27 @@ pub fn changes(before: &TicketRecord, after: &TicketRecord) -> Vec<FieldChange> 
             Some(json_list(&keys(&before.depends_on))),
             Some(json_list(&keys(&after.depends_on))),
         ),
-        (
-            "description",
-            length(&before.description),
-            length(&after.description),
-        ),
-        ("plan", length(&before.plan), length(&after.plan)),
-        (
-            "handbook",
-            length(&before.handbook),
-            length(&after.handbook),
-        ),
-        ("diagram", length(&before.diagram), length(&after.diagram)),
     ];
     let mut changes = Vec::new();
     for (field, from, to) in pairs {
         if from != to {
             changes.push(FieldChange { field, from, to });
+        }
+    }
+    // long texts compare by content but show only their length
+    let texts = [
+        ("description", &before.description, &after.description),
+        ("plan", &before.plan, &after.plan),
+        ("handbook", &before.handbook, &after.handbook),
+        ("diagram", &before.diagram, &after.diagram),
+    ];
+    for (field, from, to) in texts {
+        if from != to {
+            changes.push(FieldChange {
+                field,
+                from: length(from),
+                to: length(to),
+            });
         }
     }
     changes
@@ -315,6 +319,8 @@ fn json_list(items: &[String]) -> String {
                 '\n' => json.push_str("\\n"),
                 '\r' => json.push_str("\\r"),
                 '\t' => json.push_str("\\t"),
+                '\u{8}' => json.push_str("\\b"),
+                '\u{c}' => json.push_str("\\f"),
                 control if u32::from(control) < 0x20 => {
                     let code = u32::from(control);
                     json.push_str("\\u00");
@@ -571,7 +577,7 @@ mod tests {
         let mut after = before.record().clone();
         after.status = TicketStatus::Planned;
         after.needs_planning = false;
-        after.labels = vec![String::from("ui"), String::from("a\"b\u{1}")];
+        after.labels = vec![String::from("ui"), String::from("a\"b\u{1}\u{8}")];
         after.depends_on = vec![TicketKey::parse("ARC-1").unwrap()];
         after.description = String::from("xyz");
         after.plan = String::from("\u{1f600}");
@@ -587,8 +593,9 @@ mod tests {
                 ("status", Some("backlog"), Some("planned")),
                 ("assignee", None, Some("claude")),
                 ("needsPlanning", Some("true"), Some("false")),
-                ("labels", Some("[]"), Some(r#"["ui","a\"b\u0001"]"#)),
+                ("labels", Some("[]"), Some(r#"["ui","a\"b\u0001\b"]"#)),
                 ("dependsOn", Some("[]"), Some(r#"["ARC-0001"]"#)),
+                ("description", Some("3 characters"), Some("3 characters")),
                 ("plan", Some("0 characters"), Some("2 characters")),
             ]
         );

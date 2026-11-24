@@ -672,7 +672,7 @@ export interface components {
              * @description Moves the ticket to another board of its project.
              */
             boardId?: string | null;
-            /** @description Replaces the dependencies; the add and remove lists apply to the result. */
+            /** @description Replaces the dependencies and then ignores the add list; the remove list applies last. */
             dependsOn?: string[] | null;
             dependsOnAdd?: string[] | null;
             dependsOnRemove?: string[] | null;

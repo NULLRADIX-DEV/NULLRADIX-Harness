@@ -467,15 +467,23 @@ impl TicketWrite for Write {
             board: Some(board.as_uuid()),
             ..Selection::default()
         };
-        let rows = ticket_rows(&mut self.0, at).await?;
-        Ok(rows.into_iter().map(|row| row.ticket).collect())
+        let mut tickets: Vec<Ticket> = ticket_rows(&mut self.0, at)
+            .await?
+            .into_iter()
+            .map(|row| row.ticket)
+            .collect();
+        tickets.sort_by_key(|ticket| ticket.key().number());
+        Ok(tickets)
     }
 
     async fn dependents(&mut self, ticket: Id<Ticket>) -> Result<Vec<Ticket>, AppError> {
         let uuid = ticket.as_uuid();
         let ids = sqlx::query_scalar!(
-            r#"SELECT ticket_id AS "ticket_id: Uuid" FROM ticket_dependencies
-               WHERE depends_on_id = ?"#,
+            r#"SELECT e.ticket_id AS "ticket_id: Uuid" FROM ticket_dependencies e
+               JOIN tickets t ON t.id = e.ticket_id
+               JOIN projects p ON p.id = t.project_id
+               WHERE e.depends_on_id = ?
+               ORDER BY p.key, t.number"#,
             uuid,
         )
         .fetch_all(&mut *self.0)

@@ -340,7 +340,7 @@ pub struct UpdateTicket {
     pub blocked_reason: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acceptance: Option<String>,
-    /// Replaces the dependencies; the add and remove lists apply to the result.
+    /// Replaces the dependencies and then ignores the add list; the remove list applies last.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depends_on: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

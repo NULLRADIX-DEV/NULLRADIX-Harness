@@ -12,7 +12,7 @@ use nullradix_domain::{
     normalize_dependencies, normalize_labels, optional_text, validate_dependencies,
 };
 
-use crate::projects::{self, ProjectRepository};
+use crate::projects::ProjectRepository;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator, boards};
 
 /// A ticket with the name of the actor who created it.
@@ -183,7 +183,7 @@ pub struct TicketPatch {
     pub needs_planning: Option<bool>,
     pub blocked_reason: Option<Option<String>>,
     pub acceptance: Option<String>,
-    /// Replaces the dependencies; the add and remove lists apply to the result.
+    /// Replaces the dependencies and then ignores the add list; the remove list applies last.
     pub depends_on: Option<Vec<String>>,
     pub depends_on_add: Option<Vec<String>>,
     pub depends_on_remove: Option<Vec<String>>,
@@ -429,7 +429,7 @@ impl TicketService {
         }
         let Some((board, project_key)) = found else {
             drop(write);
-            return Err(self.missing_board(project, board).await);
+            return Err(boards::missing(self.projects.as_ref(), project, board).await);
         };
         let title = TicketTitle::parse(&input.title).map_err(|error| invalid(&error))?;
         let depends_on = dependency_keys(&input.depends_on)?;
@@ -524,7 +524,6 @@ impl TicketService {
         expected: Version,
         options: WriteOptions,
     ) -> Result<TicketDetail, AppError> {
-        let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let status = optional_status(patch.status.as_deref())?;
         let priority = match patch.priority.as_deref() {
             Some(text) => Some(Priority::parse(text).map_err(|error| invalid(&error))?),
@@ -533,6 +532,7 @@ impl TicketService {
         if patch.is_empty() {
             return Err(nothing_changed());
         }
+        let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let before = load(write.as_mut(), &key, Some(expected)).await?;
         let index = write.dependency_index().await?;
@@ -628,14 +628,6 @@ impl TicketService {
                 HistoryEntry::of(self.ids.next(), before.id(), actor.id(), at, change, note)
             })
             .collect()
-    }
-
-    async fn missing_board(&self, project: Id<Project>, board: Id<Board>) -> AppError {
-        match self.projects.get(project).await {
-            Ok(Some(_)) => boards::not_found(board),
-            Ok(None) => projects::not_found(project),
-            Err(error) => error,
-        }
     }
 }
 
@@ -806,8 +798,11 @@ pub(crate) async fn remove(
             }
             let mut after = dependent.record().clone();
             after.depends_on.retain(|key| key != ticket.key());
+            // legacy rebuilt the old list by appending the removed key at its end
+            let mut shown = after.clone();
+            shown.depends_on.push(ticket.key().clone());
             let revised = dependent.revised(after, at);
-            let history: Vec<HistoryEntry> = changes(dependent.record(), revised.record())
+            let history: Vec<HistoryEntry> = changes(&shown, revised.record())
                 .into_iter()
                 .map(|change| {
                     HistoryEntry::of(

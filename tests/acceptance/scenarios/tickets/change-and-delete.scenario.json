@@ -78,6 +78,28 @@
       }
     },
     {
+      "name": "block with a reason and a target",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-2",
+        "body": {
+          "version": 1,
+          "status": "blocked",
+          "blockedReason": "waits",
+          "targetBranch": "release/2"
+        }
+      }
+    },
+    {
+      "name": "clear reason and target with null",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-2",
+        "body": { "version": 2, "status": "backlog", "blockedReason": null, "targetBranch": null }
+      }
+    },
+    { "name": "set without fields", "cli": { "args": ["ticket", "set", "ARC-2"] } },
+    {
       "name": "move without status",
       "http": { "method": "POST", "path": "/api/v1/tickets/ARC-2/move", "body": {} }
     },
@@ -98,6 +120,10 @@
       "cli": { "args": ["ticket", "move", "arc-1", "done", "--acceptance", "Base works"] }
     },
     { "name": "show with history", "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1" } },
+    {
+      "name": "stale delete",
+      "http": { "method": "DELETE", "path": "/api/v1/tickets/ARC-1?version=1" }
+    },
     { "name": "delete in the CLI", "cli": { "args": ["ticket", "delete", "ARC-1"] } },
     {
       "name": "dependent lost the edge",

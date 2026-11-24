@@ -425,6 +425,226 @@
     }
   },
   {
+    "name": "block with a reason and a target",
+    "request": {
+      "body": {
+        "blockedReason": "waits",
+        "status": "blocked",
+        "targetBranch": "release/2",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-2"
+    },
+    "response": {
+      "json": {
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "waits"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "targetBranch",
+            "from": null,
+            "note": null,
+            "to": "release/2"
+          }
+        ],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": "waits",
+          "boardId": "<ID-2>",
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [
+            "ARC-0001"
+          ],
+          "dependsOpen": [
+            "ARC-0001"
+          ],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-5>",
+          "key": "ARC-0002",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 2,
+          "plan": "",
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "targetBranch": "release/2",
+          "title": "Top",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waiting": false
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "clear reason and target with null",
+    "request": {
+      "body": {
+        "blockedReason": null,
+        "status": "backlog",
+        "targetBranch": null,
+        "version": 2
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-2"
+    },
+    "response": {
+      "json": {
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "waits"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "targetBranch",
+            "from": null,
+            "note": null,
+            "to": "release/2"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": null,
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "waits",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "targetBranch",
+            "from": "release/2",
+            "note": null,
+            "to": null
+          }
+        ],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "column": "waiting",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [
+            "ARC-0001"
+          ],
+          "dependsOpen": [
+            "ARC-0001"
+          ],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-5>",
+          "key": "ARC-0002",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 2,
+          "plan": "",
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "targetBranch": null,
+          "title": "Top",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 3,
+          "waiting": true
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-2"
+    ],
+    "exitCode": 1,
+    "name": "set without fields",
+    "stderr": "error: the daemon refused the request: the change names no field (nothing-changed)\n",
+    "stdout": ""
+  },
+  {
     "name": "move without status",
     "request": {
       "body": {},
@@ -620,6 +840,23 @@
     }
   },
   {
+    "name": "stale delete",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/tickets/ARC-1?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "ticket ARC-0001 was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
     "cli": [
       "ticket",
       "delete",
@@ -647,6 +884,60 @@
             "from": null,
             "note": "created",
             "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "waits"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "targetBranch",
+            "from": null,
+            "note": null,
+            "to": "release/2"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": null,
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "waits",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "targetBranch",
+            "from": "release/2",
+            "note": null,
+            "to": null
           },
           {
             "actorId": "<ID-3>",
@@ -686,7 +977,7 @@
           "title": "Top",
           "unlocks": [],
           "updatedAt": "<TIME>",
-          "version": 2,
+          "version": 4,
           "waiting": false
         }
       },
