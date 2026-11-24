@@ -47,6 +47,7 @@ jobs:
               - .config/nextest.toml
               - crates/store/migrations/**
               - crates/store/.sqlx/**
+              - tests/acceptance/scenarios/**
               - .github/workflows/ci.yml
             web:
               - 'web/**'
@@ -98,7 +99,7 @@ jobs:
       - name: Domain and app coverage of at least 80 percent
         run: >-
           cargo llvm-cov report --summary-only --fail-under-lines 80
-          --ignore-filename-regex '(apps|xtask|crates[/\\](api|client|os|runner|store))[/\\]'
+          --ignore-filename-regex '(apps|tests|xtask|crates[/\\](api|client|os|runner|store))[/\\]'
 
   query-cache:
     needs: changes

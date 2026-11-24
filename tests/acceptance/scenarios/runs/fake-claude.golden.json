@@ -1,0 +1,138 @@
+[
+  {
+    "name": "start",
+    "request": {
+      "body": {
+        "args": [
+          "-p",
+          "--output-format",
+          "stream-json"
+        ],
+        "cwd": "<WORK>",
+        "label": "fake claude",
+        "program": "<FAKE_CLAUDE>",
+        "timeoutSeconds": 60
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-1>",
+        "label": "fake claude",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "finished",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-1>"
+  },
+  {
+    "name": "the run",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-1>"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": 0,
+        "finishedAt": "<TIME>",
+        "id": "<ID-1>",
+        "label": "fake claude",
+        "startedAt": "<TIME>",
+        "status": "succeeded",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "its output",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-1>/output"
+    },
+    "response": {
+      "json": {
+        "finished": true,
+        "lines": [
+          {
+            "seq": 1,
+            "stream": "stdout",
+            "text": "{\"model\":\"fake-opus\",\"subtype\":\"init\",\"type\":\"system\"}"
+          },
+          {
+            "seq": 2,
+            "stream": "stdout",
+            "text": "{\"message\":{\"content\":[{\"text\":\"Reading the ticket.\",\"type\":\"text\"},{\"input\":{\"command\":\"nullradix ticket show ARC-0007\"},\"name\":\"Bash\",\"type\":\"tool_use\"}]},\"type\":\"assistant\"}"
+          },
+          {
+            "seq": 3,
+            "stream": "stdout",
+            "text": "{\"message\":{\"content\":[{\"content\":\"denied\",\"is_error\":true,\"type\":\"tool_result\"}]},\"type\":\"user\"}"
+          },
+          {
+            "seq": 4,
+            "stream": "stdout",
+            "text": "{\"duration_ms\":60000,\"is_error\":false,\"num_turns\":3,\"permission_denials\":[{\"tool_input\":{\"command\":\"git push\"},\"tool_name\":\"Bash\"}],\"result\":\"done\",\"subtype\":\"success\",\"type\":\"result\"}"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "output after the second line",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-1>/output?after=2&limit=1"
+    },
+    "response": {
+      "json": {
+        "finished": false,
+        "lines": [
+          {
+            "seq": 3,
+            "stream": "stdout",
+            "text": "{\"message\":{\"content\":[{\"content\":\"denied\",\"is_error\":true,\"type\":\"tool_result\"}]},\"type\":\"user\"}"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "run",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "list in the CLI",
+    "stderr": "",
+    "stdout": "<ID-1>  succeeded   fake claude\n"
+  },
+  {
+    "cli": [
+      "run",
+      "logs",
+      "<ID-1>"
+    ],
+    "exitCode": 0,
+    "name": "logs in the CLI",
+    "stderr": "",
+    "stdout": "{\"model\":\"fake-opus\",\"subtype\":\"init\",\"type\":\"system\"}\n{\"message\":{\"content\":[{\"text\":\"Reading the ticket.\",\"type\":\"text\"},{\"input\":{\"command\":\"nullradix ticket show ARC-0007\"},\"name\":\"Bash\",\"type\":\"tool_use\"}]},\"type\":\"assistant\"}\n{\"message\":{\"content\":[{\"content\":\"denied\",\"is_error\":true,\"type\":\"tool_result\"}]},\"type\":\"user\"}\n{\"duration_ms\":60000,\"is_error\":false,\"num_turns\":3,\"permission_denials\":[{\"tool_input\":{\"command\":\"git push\"},\"tool_name\":\"Bash\"}],\"result\":\"done\",\"subtype\":\"success\",\"type\":\"result\"}\n"
+  }
+]

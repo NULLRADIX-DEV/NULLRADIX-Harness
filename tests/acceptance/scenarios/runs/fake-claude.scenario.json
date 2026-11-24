@@ -1,0 +1,33 @@
+{
+  "title": "A fake Claude run streams its output through the runner",
+  "env": { "FAKE_CLAUDE_MODE": "stream", "NULLRADIX_TICKET": "ARC-0007" },
+  "steps": [
+    {
+      "name": "start",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "fake claude",
+          "program": "{{FAKE_CLAUDE}}",
+          "args": ["-p", "--output-format", "stream-json"],
+          "cwd": "{{WORK}}",
+          "timeoutSeconds": 60
+        }
+      },
+      "save": { "run": "json.id" }
+    },
+    {
+      "name": "finished",
+      "wait": { "path": "/api/v1/runs/{{run}}", "field": "status", "equals": "succeeded" }
+    },
+    { "name": "the run", "http": { "method": "GET", "path": "/api/v1/runs/{{run}}" } },
+    { "name": "its output", "http": { "method": "GET", "path": "/api/v1/runs/{{run}}/output" } },
+    {
+      "name": "output after the second line",
+      "http": { "method": "GET", "path": "/api/v1/runs/{{run}}/output?after=2&limit=1" }
+    },
+    { "name": "list in the CLI", "cli": { "args": ["run", "list"] } },
+    { "name": "logs in the CLI", "cli": { "args": ["run", "logs", "{{run}}"] } }
+  ]
+}

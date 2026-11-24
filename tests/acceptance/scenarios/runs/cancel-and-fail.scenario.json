@@ -1,0 +1,57 @@
+{
+  "title": "Runs can be cancelled, fail with their exit code and refuse bad input",
+  "env": { "FAKE_CLAUDE_MODE": "sleep" },
+  "steps": [
+    {
+      "name": "start a sleeper",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": { "label": "sleeper", "program": "{{FAKE_CLAUDE}}", "cwd": "{{WORK}}" }
+      },
+      "save": { "run": "json.id" }
+    },
+    { "name": "cancel", "http": { "method": "POST", "path": "/api/v1/runs/{{run}}/cancel" } },
+    {
+      "name": "cancelled",
+      "wait": { "path": "/api/v1/runs/{{run}}", "field": "status", "equals": "cancelled" }
+    },
+    { "name": "cancel again", "http": { "method": "POST", "path": "/api/v1/runs/{{run}}/cancel" } },
+    {
+      "name": "a missing program fails",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": { "label": "missing", "program": "nullradix-no-such-program", "cwd": "{{WORK}}" }
+      },
+      "save": { "missing": "json.id" }
+    },
+    {
+      "name": "failed",
+      "wait": { "path": "/api/v1/runs/{{missing}}", "field": "status", "equals": "failed" }
+    },
+    { "name": "the failed run", "http": { "method": "GET", "path": "/api/v1/runs/{{missing}}" } },
+    {
+      "name": "a relative directory",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": { "label": "relative", "program": "{{FAKE_CLAUDE}}", "cwd": "work" }
+      }
+    },
+    {
+      "name": "a timeout of zero",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "zero",
+          "program": "{{FAKE_CLAUDE}}",
+          "cwd": "{{WORK}}",
+          "timeoutSeconds": 0
+        }
+      }
+    },
+    { "name": "only two runs exist", "cli": { "args": ["run", "list"] } }
+  ]
+}

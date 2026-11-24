@@ -1,0 +1,130 @@
+[
+  {
+    "cli": [
+      "hook",
+      "session-start"
+    ],
+    "exitCode": 0,
+    "name": "session start",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "hook",
+      "user-prompt"
+    ],
+    "exitCode": 0,
+    "name": "prompt",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "hook",
+      "stop"
+    ],
+    "exitCode": 0,
+    "name": "garbage",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "hook",
+      "no-such-hook"
+    ],
+    "exitCode": 0,
+    "name": "unknown hook",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "name": "same event twice",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "id": "<ID-1>",
+        "occurredAt": "<TIME>",
+        "sessionId": "s-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/hooks/stop"
+    },
+    "response": {
+      "json": {
+        "additionalContext": null,
+        "env": {}
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "same event again",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "id": "<ID-1>",
+        "occurredAt": "<TIME>",
+        "sessionId": "s-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/hooks/stop"
+    },
+    "response": {
+      "json": {
+        "additionalContext": null,
+        "env": {}
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "recorded events",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/hook-events"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "event": {
+              "cwd": "<WORK>",
+              "entrypoint": "cli",
+              "id": "<ID-2>",
+              "occurredAt": "<TIME>",
+              "prompt": "fix the login",
+              "sessionId": "s-1",
+              "ticket": "ARC-0007"
+            },
+            "kind": "user-prompt"
+          },
+          {
+            "event": {
+              "cwd": "<WORK>",
+              "entrypoint": "cli",
+              "id": "<ID-3>",
+              "model": "fake-opus",
+              "occurredAt": "<TIME>",
+              "sessionId": "s-1",
+              "source": "startup",
+              "ticket": "ARC-0007"
+            },
+            "kind": "session-start"
+          },
+          {
+            "event": {
+              "cwd": "<WORK>",
+              "id": "<ID-1>",
+              "occurredAt": "<TIME>",
+              "sessionId": "s-1"
+            },
+            "kind": "stop"
+          }
+        ]
+      },
+      "status": 200
+    }
+  }
+]
