@@ -486,6 +486,19 @@ fn guard(version: Option<i64>, expect_text: Option<String>) -> Result<StepGuard,
     })
 }
 
+/// Tickets of other boards of the same project to bring onto this board.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportTickets {
+    /// 1 to 200 ticket keys; all move or none.
+    pub ticket_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ImportedTickets {
+    pub moved: Vec<TicketDto>,
+}
+
 /// A claim of a ticket for an agent.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1199,6 +1212,38 @@ pub(crate) async fn claim_next_planning(
         .await?;
     Ok(Json(NextPlanning {
         ticket: ticket.map(TicketDto::from),
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/projects/{projectId}/boards/{boardId}/ticket-imports",
+    tag = "tickets",
+    params(BoardTicketsPath),
+    request_body = ImportTickets,
+    responses(
+        (status = 200, description = "The tickets on their new board", body = ImportedTickets),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn import_tickets(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<BoardTicketsPath>,
+    ApiJson(input): ApiJson<ImportTickets>,
+) -> Result<Json<ImportedTickets>, ApiError> {
+    let moved = state
+        .tickets
+        .move_to_board(
+            Id::from_uuid(path.project_id),
+            Id::from_uuid(path.board_id),
+            &input.ticket_keys,
+            &state.person,
+        )
+        .await?;
+    Ok(Json(ImportedTickets {
+        moved: moved.into_iter().map(TicketDto::from).collect(),
     }))
 }
 

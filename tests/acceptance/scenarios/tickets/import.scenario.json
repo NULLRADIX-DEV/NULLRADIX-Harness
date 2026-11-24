@@ -1,0 +1,65 @@
+{
+  "title": "Tickets move between boards of one project, all or none",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "source board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Old" }
+      },
+      "save": { "source": "json.id" }
+    },
+    {
+      "name": "target board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "New" }
+      },
+      "save": { "target": "json.id" }
+    },
+    {
+      "name": "ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{source}}/tickets",
+        "body": { "title": "Move me" }
+      }
+    },
+    {
+      "name": "nothing to move",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{target}}/ticket-imports",
+        "body": { "ticketKeys": [] }
+      }
+    },
+    {
+      "name": "move",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{target}}/ticket-imports",
+        "body": { "ticketKeys": ["arc-1"] }
+      }
+    },
+    {
+      "name": "already there",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{target}}/ticket-imports",
+        "body": { "ticketKeys": ["ARC-1"] }
+      }
+    },
+    { "name": "boards after", "http": { "method": "GET", "path": "/api/v1/boards" } }
+  ]
+}

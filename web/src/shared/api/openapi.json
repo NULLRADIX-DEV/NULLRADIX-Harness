@@ -1172,6 +1172,85 @@
         }
       }
     },
+    "/api/v1/projects/{projectId}/boards/{boardId}/ticket-imports": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "import_tickets",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "boardId",
+            "in": "path",
+            "description": "Board id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportTickets"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The tickets on their new board",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportedTickets"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{projectId}/boards/{boardId}/tickets": {
       "post": {
         "tags": [
@@ -3386,6 +3465,37 @@
             },
             "propertyNames": {
               "type": "string"
+            }
+          }
+        }
+      },
+      "ImportTickets": {
+        "type": "object",
+        "description": "Tickets of other boards of the same project to bring onto this board.",
+        "required": [
+          "ticketKeys"
+        ],
+        "properties": {
+          "ticketKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "1 to 200 ticket keys; all move or none."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ImportedTickets": {
+        "type": "object",
+        "required": [
+          "moved"
+        ],
+        "properties": {
+          "moved": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketDto"
             }
           }
         }

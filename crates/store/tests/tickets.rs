@@ -1602,3 +1602,66 @@ async fn claims_and_plans_keep_versions_columns_and_history_like_legacy() {
         .count();
     assert_eq!(claims, 1);
 }
+
+#[tokio::test]
+async fn tickets_move_between_boards_of_one_project_all_or_none() {
+    let fx = fixture().await;
+    let (project, board) = fx.board("ARC").await;
+    let target = fx
+        .boards
+        .create(project.id(), "Target", &fx.person)
+        .await
+        .unwrap()
+        .board;
+    let (_, foreign) = fx.board("ZED").await;
+    fx.create(&board, titled("One"), AGENT).await.unwrap();
+    fx.create(&board, titled("Two"), AGENT).await.unwrap();
+    fx.create(&target, titled("Here"), AGENT).await.unwrap();
+    fx.create(&foreign, titled("Away"), AGENT).await.unwrap();
+    let project_id = project.id();
+    let import = |keys: &[&str]| {
+        let keys: Vec<String> = keys.iter().map(|key| (*key).to_owned()).collect();
+        let fx = &fx;
+        let target = &target;
+        async move {
+            fx.tickets
+                .move_to_board(project_id, target.id(), &keys, &fx.person)
+                .await
+                .map_err(|error| error.code().to_owned())
+        }
+    };
+
+    assert_eq!(import(&[]).await.unwrap_err(), "input-invalid");
+    let too_many: Vec<String> = (1..=201).map(|number| format!("ARC-{number}")).collect();
+    let refs: Vec<&str> = too_many.iter().map(String::as_str).collect();
+    assert_eq!(import(&refs).await.unwrap_err(), "input-invalid");
+    assert_eq!(
+        import(&["ARC-1", "ARC-3"]).await.unwrap_err(),
+        "ticket-already-on-board"
+    );
+    assert_eq!(
+        import(&["ARC-1", "ZED-1"]).await.unwrap_err(),
+        "board-other-project"
+    );
+    assert_eq!(import(&["ARC-9"]).await.unwrap_err(), "ticket-not-found");
+    let still = fx.tickets.get("ARC-1").await.unwrap().view;
+    assert_eq!(still.ticket.record().board, board.id());
+
+    let moved = import(&["arc-2", "ARC-1", "ARC-0002"]).await.unwrap();
+    let keys: Vec<String> = moved
+        .iter()
+        .map(|view| view.ticket.key().to_string())
+        .collect();
+    assert_eq!(keys, ["ARC-0002", "ARC-0001"]);
+    let orders: Vec<i64> = moved
+        .iter()
+        .map(|view| view.ticket.record().sort_order)
+        .collect();
+    assert_eq!(orders, [1, 2]);
+    let history = fx.tickets.get("ARC-1").await.unwrap().history;
+    let last = history.last().unwrap();
+    assert_eq!(
+        (last.field.as_str(), last.note.as_deref()),
+        ("boardId", Some("taken from board Main"))
+    );
+}
