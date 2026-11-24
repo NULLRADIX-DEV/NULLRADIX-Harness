@@ -1,0 +1,833 @@
+{
+  "title": "Hilfetexte aller Befehle und die Fehlermeldungen von commander",
+  "steps": [
+    {
+      "name": "nullradix",
+      "kind": "cli",
+      "args": [
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix init",
+      "kind": "cli",
+      "args": [
+        "init",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board",
+      "kind": "cli",
+      "args": [
+        "board",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board project",
+      "kind": "cli",
+      "args": [
+        "board",
+        "project",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board project list",
+      "kind": "cli",
+      "args": [
+        "board",
+        "project",
+        "list",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board project create",
+      "kind": "cli",
+      "args": [
+        "board",
+        "project",
+        "create",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board project rename",
+      "kind": "cli",
+      "args": [
+        "board",
+        "project",
+        "rename",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board boards",
+      "kind": "cli",
+      "args": [
+        "board",
+        "boards",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board boards list",
+      "kind": "cli",
+      "args": [
+        "board",
+        "boards",
+        "list",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board boards create",
+      "kind": "cli",
+      "args": [
+        "board",
+        "boards",
+        "create",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board boards rename",
+      "kind": "cli",
+      "args": [
+        "board",
+        "boards",
+        "rename",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board boards use",
+      "kind": "cli",
+      "args": [
+        "board",
+        "boards",
+        "use",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board boards repo",
+      "kind": "cli",
+      "args": [
+        "board",
+        "boards",
+        "repo",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board boards delete",
+      "kind": "cli",
+      "args": [
+        "board",
+        "boards",
+        "delete",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board list",
+      "kind": "cli",
+      "args": [
+        "board",
+        "list",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board show",
+      "kind": "cli",
+      "args": [
+        "board",
+        "show",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board create",
+      "kind": "cli",
+      "args": [
+        "board",
+        "create",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board set",
+      "kind": "cli",
+      "args": [
+        "board",
+        "set",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board move",
+      "kind": "cli",
+      "args": [
+        "board",
+        "move",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board delete",
+      "kind": "cli",
+      "args": [
+        "board",
+        "delete",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board claim",
+      "kind": "cli",
+      "args": [
+        "board",
+        "claim",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board release",
+      "kind": "cli",
+      "args": [
+        "board",
+        "release",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board start",
+      "kind": "cli",
+      "args": [
+        "board",
+        "start",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board done",
+      "kind": "cli",
+      "args": [
+        "board",
+        "done",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board step",
+      "kind": "cli",
+      "args": [
+        "board",
+        "step",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board step done",
+      "kind": "cli",
+      "args": [
+        "board",
+        "step",
+        "done",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board step add",
+      "kind": "cli",
+      "args": [
+        "board",
+        "step",
+        "add",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board step edit",
+      "kind": "cli",
+      "args": [
+        "board",
+        "step",
+        "edit",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board step rm",
+      "kind": "cli",
+      "args": [
+        "board",
+        "step",
+        "rm",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board step move",
+      "kind": "cli",
+      "args": [
+        "board",
+        "step",
+        "move",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board plan",
+      "kind": "cli",
+      "args": [
+        "board",
+        "plan",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board plan-json",
+      "kind": "cli",
+      "args": [
+        "board",
+        "plan-json",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board next-planning",
+      "kind": "cli",
+      "args": [
+        "board",
+        "next-planning",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board comment",
+      "kind": "cli",
+      "args": [
+        "board",
+        "comment",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board note",
+      "kind": "cli",
+      "args": [
+        "board",
+        "note",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board note add",
+      "kind": "cli",
+      "args": [
+        "board",
+        "note",
+        "add",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board note seen",
+      "kind": "cli",
+      "args": [
+        "board",
+        "note",
+        "seen",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board note list",
+      "kind": "cli",
+      "args": [
+        "board",
+        "note",
+        "list",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board note show",
+      "kind": "cli",
+      "args": [
+        "board",
+        "note",
+        "show",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board note take",
+      "kind": "cli",
+      "args": [
+        "board",
+        "note",
+        "take",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board note drop",
+      "kind": "cli",
+      "args": [
+        "board",
+        "note",
+        "drop",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board inbox",
+      "kind": "cli",
+      "args": [
+        "board",
+        "inbox",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question add",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "add",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question research",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "research",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question comment",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "comment",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question list",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "list",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question show",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "show",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question answer",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "answer",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question discard",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "discard",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question reopen",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "reopen",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question link",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "link",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question depends",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "depends",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board question research-start",
+      "kind": "cli",
+      "args": [
+        "board",
+        "question",
+        "research-start",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board dispatch",
+      "kind": "cli",
+      "args": [
+        "board",
+        "dispatch",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board dispatch status",
+      "kind": "cli",
+      "args": [
+        "board",
+        "dispatch",
+        "status",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board dispatch run",
+      "kind": "cli",
+      "args": [
+        "board",
+        "dispatch",
+        "run",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board dispatch pause",
+      "kind": "cli",
+      "args": [
+        "board",
+        "dispatch",
+        "pause",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board dispatch resume",
+      "kind": "cli",
+      "args": [
+        "board",
+        "dispatch",
+        "resume",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board dispatch enable",
+      "kind": "cli",
+      "args": [
+        "board",
+        "dispatch",
+        "enable",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board dispatch disable",
+      "kind": "cli",
+      "args": [
+        "board",
+        "dispatch",
+        "disable",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board dispatch-runs",
+      "kind": "cli",
+      "args": [
+        "board",
+        "dispatch-runs",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board dispatch-runs backfill",
+      "kind": "cli",
+      "args": [
+        "board",
+        "dispatch-runs",
+        "backfill",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board merge",
+      "kind": "cli",
+      "args": [
+        "board",
+        "merge",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board accept",
+      "kind": "cli",
+      "args": [
+        "board",
+        "accept",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix board plan-start",
+      "kind": "cli",
+      "args": [
+        "board",
+        "plan-start",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix serve",
+      "kind": "cli",
+      "args": [
+        "serve",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix spec",
+      "kind": "cli",
+      "args": [
+        "spec",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix spec comments",
+      "kind": "cli",
+      "args": [
+        "spec",
+        "comments",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix spec resolve",
+      "kind": "cli",
+      "args": [
+        "spec",
+        "resolve",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix theme",
+      "kind": "cli",
+      "args": [
+        "theme",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix theme install",
+      "kind": "cli",
+      "args": [
+        "theme",
+        "install",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix theme list",
+      "kind": "cli",
+      "args": [
+        "theme",
+        "list",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix theme remove",
+      "kind": "cli",
+      "args": [
+        "theme",
+        "remove",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix theme pack",
+      "kind": "cli",
+      "args": [
+        "theme",
+        "pack",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix stop",
+      "kind": "cli",
+      "args": [
+        "stop",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix install",
+      "kind": "cli",
+      "args": [
+        "install",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix migrate",
+      "kind": "cli",
+      "args": [
+        "migrate",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix hook",
+      "kind": "cli",
+      "args": [
+        "hook",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix customize",
+      "kind": "cli",
+      "args": [
+        "customize",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix customize apply",
+      "kind": "cli",
+      "args": [
+        "customize",
+        "apply",
+        "--help"
+      ]
+    },
+    {
+      "name": "nullradix customize overview",
+      "kind": "cli",
+      "args": [
+        "customize",
+        "overview",
+        "--help"
+      ]
+    },
+    {
+      "name": "unbekannter Befehl",
+      "kind": "cli",
+      "args": [
+        "quatsch"
+      ]
+    },
+    {
+      "name": "unbekannter Befehl mit Vorschlag",
+      "kind": "cli",
+      "args": [
+        "bord"
+      ]
+    },
+    {
+      "name": "unbekannter Unterbefehl",
+      "kind": "cli",
+      "args": [
+        "board",
+        "quatsch"
+      ]
+    },
+    {
+      "name": "fehlendes Pflichtargument",
+      "kind": "cli",
+      "args": [
+        "board",
+        "show"
+      ]
+    },
+    {
+      "name": "unbekannte Option des Programms",
+      "kind": "cli",
+      "args": [
+        "--quatsch"
+      ]
+    },
+    {
+      "name": "unbekannte Option eines Befehls",
+      "kind": "cli",
+      "args": [
+        "board",
+        "list",
+        "--quatsch"
+      ]
+    },
+    {
+      "name": "Option ohne Wert",
+      "kind": "cli",
+      "args": [
+        "board",
+        "set",
+        "ARC-0001",
+        "--title"
+      ]
+    },
+    {
+      "name": "Hilfe über den Befehl help",
+      "kind": "cli",
+      "args": [
+        "help",
+        "board"
+      ]
+    }
+  ]
+}

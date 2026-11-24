@@ -1,0 +1,249 @@
+// Eine Instanz und nullradix://-Links: Ein zweiter Start holt das vorhandene Fenster nach vorn,
+// ein Link der Form nullradix://ticket/ARC-0042 führt dort auf die Weiterleitungsseite der Oberfläche.
+// Systemmeldungen der App tragen nullradix://open/<Pfad der Oberfläche>; ein Klick öffnet diesen Pfad.
+use tauri::{AppHandle, Runtime};
+use tauri_plugin_deep_link::DeepLinkExt;
+
+use crate::lifecycle;
+use crate::server;
+
+// Schema, unter dem die App bei den Betriebssystemen angemeldet ist
+const SCHEMA: &str = "nullradix://";
+// Vorsatz der Links aus Systemmeldungen; dahinter steht ein Pfad der Oberfläche
+const OPEN: &str = "nullradix://open";
+// Längste ID, die noch plausibel ist; schützt vor aufgeblähten Links
+const ID_MAX: usize = 40;
+// Längster Pfad aus einer Meldung; Projekt, Reiter und Ticket passen weit darunter
+const PFAD_MAX: usize = 300;
+
+// Wandelt einen nullradix://-Link in eine Seitenadresse der Oberfläche um; None bei unbekannten Links.
+// Die ID landet in einer Adresse, darum nur Großbuchstaben, Ziffern und Bindestriche durchlassen.
+pub fn deep_link_path(url: &str) -> Option<String> {
+    if let Some(pfad) = url.strip_prefix(OPEN) {
+        return meldungs_pfad(pfad);
+    }
+    let rest = url.strip_prefix(SCHEMA)?.trim_end_matches('/');
+    let (kind, id) = rest.split_once('/')?;
+    if !matches!(kind, "ticket" | "question") {
+        return None;
+    }
+    if id.is_empty() || id.len() > ID_MAX {
+        return None;
+    }
+    if !id
+        .chars()
+        .all(|zeichen| zeichen.is_ascii_uppercase() || zeichen.is_ascii_digit() || zeichen == '-')
+    {
+        return None;
+    }
+    Some(format!("/open/{kind}/{id}"))
+}
+
+// Pfad hinter nullradix://open, so wie ihn die Adresszeile des Fensters bekommt. Erlaubt sind nur
+// Abschnitte aus Buchstaben, Ziffern und `-_.~%` – keine Abfrage, kein Anker, kein `//` und keine
+// Abschnitte aus Punkten (auch nicht kodiert), damit der Link nie aus der Oberfläche hinausführt.
+fn meldungs_pfad(pfad: &str) -> Option<String> {
+    if pfad.is_empty() || pfad == "/" {
+        return Some("/".to_string());
+    }
+    let rest = pfad.strip_prefix('/')?.trim_end_matches('/');
+    if rest.len() > PFAD_MAX {
+        return None;
+    }
+    let erlaubt = |zeichen: char| zeichen.is_ascii_alphanumeric() || "-_.~%".contains(zeichen);
+    for abschnitt in rest.split('/') {
+        if abschnitt.is_empty() || !abschnitt.chars().all(erlaubt) {
+            return None;
+        }
+        // „..“ ist auch als „%2e%2e“ oder „.%2E“ ein Schritt nach oben
+        if abschnitt
+            .to_ascii_lowercase()
+            .replace("%2e", ".")
+            .chars()
+            .all(|zeichen| zeichen == '.')
+        {
+            return None;
+        }
+    }
+    Some(format!("/{rest}"))
+}
+
+// Erster nullradix://-Link in den Argumenten eines Starts; None, wenn keiner dabei ist
+pub fn deep_link_in_args<S: AsRef<str>>(argv: &[S]) -> Option<String> {
+    argv.iter().find_map(|arg| deep_link_path(arg.as_ref()))
+}
+
+// Zeigt das Hauptfenster, holt es nach vorn und folgt dabei einem Link, wenn einer dabei ist
+pub fn focus_main<R: Runtime>(app: &AppHandle<R>, path: Option<String>) {
+    lifecycle::fenster_zeigen(app);
+    if let Some(path) = path {
+        log::info!("Deep-Link öffnet {path}");
+        server::open_path(app, &path);
+    }
+}
+
+// Nimmt nullradix://-Links an: einen, mit dem die App gerade gestartet wurde, und jeden weiteren im Lauf.
+// Unter Windows und Linux meldet sich die App im Debug-Build selbst beim System an, damit Links
+// auch ohne Installer ankommen.
+pub fn setup<R: Runtime>(app: &AppHandle<R>) {
+    #[cfg(all(debug_assertions, any(windows, target_os = "linux")))]
+    if let Err(error) = app.deep_link().register_all() {
+        log::warn!("Das Schema nullradix:// ließ sich nicht anmelden: {error}");
+    }
+    let handle = app.clone();
+    app.deep_link().on_open_url(move |event| {
+        let urls: Vec<String> = event.urls().iter().map(|url| url.to_string()).collect();
+        focus_main(&handle, deep_link_in_args(&urls));
+    });
+    // Kaltstart über einen Link: der Link steht schon beim Start bereit
+    match app.deep_link().get_current() {
+        Ok(Some(urls)) => {
+            let urls: Vec<String> = urls.iter().map(|url| url.to_string()).collect();
+            if let Some(path) = deep_link_in_args(&urls) {
+                focus_main(app, Some(path));
+            }
+        }
+        Ok(None) => {}
+        Err(error) => log::warn!("Der Start-Link ist nicht lesbar: {error}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ticket_link() {
+        assert_eq!(
+            deep_link_path("nullradix://ticket/ARC-0042").as_deref(),
+            Some("/open/ticket/ARC-0042")
+        );
+    }
+
+    #[test]
+    fn frage_link() {
+        assert_eq!(
+            deep_link_path("nullradix://question/ARC-F0001").as_deref(),
+            Some("/open/question/ARC-F0001")
+        );
+    }
+
+    #[test]
+    fn unbekannte_art() {
+        assert_eq!(deep_link_path("nullradix://doc/ARC-0042"), None);
+        assert_eq!(deep_link_path("nullradix://ticket"), None);
+        assert_eq!(deep_link_path("nullradix://ticket/"), None);
+    }
+
+    #[test]
+    fn fremdes_schema() {
+        assert_eq!(deep_link_path("http://ticket/ARC-0042"), None);
+        assert_eq!(deep_link_path("harness://ticket/ARC-0042"), None);
+        assert_eq!(deep_link_path("/open/ticket/ARC-0042"), None);
+    }
+
+    #[test]
+    fn id_mit_sonderzeichen_wird_abgelehnt() {
+        for link in [
+            "nullradix://ticket/../etc/passwd",
+            "nullradix://ticket/ARC-0042?x=1",
+            "nullradix://ticket/arc-0042",
+            "nullradix://ticket/ARC 0042",
+            "nullradix://ticket/ARC-0042/mehr",
+        ] {
+            assert_eq!(deep_link_path(link), None, "{link} sollte abgelehnt werden");
+        }
+    }
+
+    #[test]
+    fn id_bleibt_kurz() {
+        let lang = "A".repeat(ID_MAX + 1);
+        assert_eq!(deep_link_path(&format!("nullradix://ticket/{lang}")), None);
+    }
+
+    #[test]
+    fn link_mit_schraegstrich_am_ende() {
+        assert_eq!(
+            deep_link_path("nullradix://ticket/ARC-0042/").as_deref(),
+            Some("/open/ticket/ARC-0042")
+        );
+    }
+
+    // Ohne das Schema in der Konfiguration meldet der Installer nullradix:// nicht beim Betriebssystem an
+    #[test]
+    fn konfiguration_meldet_das_schema_an() {
+        let datei: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let schemes = datei["plugins"]["deep-link"]["desktop"]["schemes"]
+            .as_array()
+            .unwrap();
+        assert_eq!(schemes, &[serde_json::json!("nullradix")]);
+    }
+
+    // Der Klick auf eine Systemmeldung der App öffnet die Stelle, die die Meldung nennt
+    #[test]
+    fn link_einer_meldung_oeffnet_ihren_pfad() {
+        for (link, pfad) in [
+            (
+                "nullradix://open/p/webshop/board/t/ARC-0042",
+                "/p/webshop/board/t/ARC-0042",
+            ),
+            ("nullradix://open/p/webshop/sessions", "/p/webshop/sessions"),
+            (
+                "nullradix://open/p/webshop/questions/ARC-F0001",
+                "/p/webshop/questions/ARC-F0001",
+            ),
+            (
+                "nullradix://open/p/web_shop.2/board/t/A%20B~1",
+                "/p/web_shop.2/board/t/A%20B~1",
+            ),
+            ("nullradix://open/", "/"),
+            ("nullradix://open", "/"),
+        ] {
+            assert_eq!(deep_link_path(link).as_deref(), Some(pfad), "{link}");
+        }
+    }
+
+    // Der Pfad landet in der Adresszeile des Fensters: nur Pfade der Oberfläche, nichts, was
+    // aus ihr hinausführt oder Abfrage und Anker mitbringt
+    #[test]
+    fn link_einer_meldung_bleibt_in_der_oberflaeche() {
+        for link in [
+            "nullradix://openx/p/webshop",
+            "nullradix://open/p/../../etc",
+            "nullradix://open/p/./x",
+            "nullradix://open/p/%2e%2e/x",
+            "nullradix://open/p/.%2E/x",
+            "nullradix://open//evil.example/x",
+            "nullradix://open/p/x//y",
+            "nullradix://open/p/x?y=1",
+            "nullradix://open/p/x#anker",
+            "nullradix://open/p/x\\y",
+            "nullradix://open/javascript:alert(1)",
+            "nullradix://open/p/x y",
+            "nullradix://open/p/ä",
+        ] {
+            assert_eq!(deep_link_path(link), None, "{link} sollte abgelehnt werden");
+        }
+    }
+
+    #[test]
+    fn link_einer_meldung_bleibt_kurz() {
+        let lang = format!("nullradix://open/p/{}", "a".repeat(PFAD_MAX));
+        assert_eq!(deep_link_path(&lang), None);
+    }
+
+    #[test]
+    fn link_aus_den_argumenten() {
+        let argv = [
+            "nullradix-desktop",
+            "--flag",
+            "nullradix://question/ARC-F0001",
+        ];
+        assert_eq!(
+            deep_link_in_args(&argv).as_deref(),
+            Some("/open/question/ARC-F0001")
+        );
+        assert_eq!(deep_link_in_args(&["nullradix-desktop"]), None);
+    }
+}

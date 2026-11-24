@@ -1,0 +1,294 @@
+# Release von Hand starten: Version erhöhen, Tag setzen, Entwurfs-Release anlegen, bauen und veröffentlichen.
+# Die Logik steckt in scripts/release/*.sh, damit sie lesbar bleibt und sich lokal durchspielen lässt.
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Art der Änderungen
+        type: choice
+        options: [patch, minor, major]
+        required: true
+      dry_run:
+        description: Probelauf ohne Push und ohne Release
+        type: boolean
+        default: false
+      skip_ci:
+        description: CI nicht laufen lassen (sonst läuft sie parallel zu den Builds, und veröffentlicht wird erst, wenn sie grün ist)
+        type: boolean
+        default: false
+# Immer nur ein Release zur Zeit, und keines abbrechen: ein halber Release-Lauf hinterlässt Tag ohne Artefakte
+concurrency: release
+permissions:
+  # Commit und Tag schreiben (der Push selbst läuft über RELEASE_TOKEN), CI-Läufe lesen
+  contents: write
+  actions: read
+jobs:
+  # Prüft den Branch, setzt die Version, committet, taggt und legt den Entwurf des Releases an
+  version:
+    name: Version und Entwurf
+    runs-on: ubuntu-latest
+    # „release“ trägt das RELEASE_TOKEN und lässt nur den Branch „main“ zu.
+    # Die Freigabe ist der Start von Hand (workflow_dispatch mit patch/minor/major), keine Required reviewers
+    environment: release
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      release_id: ${{ steps.r.outputs.release_id }}
+    steps:
+      # Volle Historie samt Tags: bump.mjs rechnet die nächste Version aus dem höchsten Tag „v*“.
+      # Das Token muss RELEASE_TOKEN sein, sonst löst der Push keine weiteren Workflows aus
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: Branch prüfen
+        run: scripts/release/check-branch.sh "${{ github.ref }}" "${{ inputs.dry_run }}"
+      - name: Version setzen
+        id: v
+        run: scripts/release/version-job.sh "${{ inputs.bump }}" "${{ inputs.dry_run }}"
+      - name: Entwurfs-Release
+        id: r
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release/draft-release.sh "${{ steps.v.outputs.tag }}" "${{ steps.v.outputs.version }}"
+
+  # Die CI für den gestarteten Commit, parallel zu „version“ und „build“; entfällt mit skip_ci.
+  # Getestet wird der Stand vor dem Versions-Commit, der nur Versionsnummern und den Changelog ändert.
+  # Scheitert sie, bleibt das Release ein Entwurf; Tag und Versions-Commit sind dann schon gepusht
+  # (wie bei einem gescheiterten Build), der nächste Lauf nimmt die nächste Version
+  ci:
+    name: CI
+    if: ${{ !inputs.skip_ci }}
+    uses: ./.github/workflows/ci.yml
+    # Die CI wählt ihre Runner selbst und braucht dafür RUNNER_TOKEN bzw. RELEASE_TOKEN
+    secrets: inherit
+    permissions:
+      contents: read
+
+  # Wie in der CI: eigene Runner für macOS und Windows, wenn einer online ist, sonst die von GitHub.
+  # Siehe scripts/ci/pick-runners.mjs
+  runners:
+    name: Runner wählen
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      windows: ${{ steps.pick.outputs.windows }}
+      macos: ${{ steps.pick.outputs.macos }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/ci
+      - id: pick
+        env:
+          RUNNER_TOKEN: ${{ secrets.RUNNER_TOKEN || secrets.RELEASE_TOKEN }}
+        run: node scripts/ci/pick-runners.mjs
+
+  # Baut je Plattform die Installer, hängt sie an den Entwurf und legt ein CLI-Archiv dazu
+  build:
+    name: Installer (${{ matrix.target }})
+    needs: [version, runners]
+    # „release“ trägt die Signatur-Secrets: Apple, Azure und den privaten Schlüssel des Updaters
+    environment: release
+    strategy:
+      # Jede Plattform läuft zu Ende, damit ein Fehler auf einer die anderen nicht verdeckt
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-26, target: aarch64-apple-darwin, bundles: 'app,dmg' }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc, bundles: 'nsis' }
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, bundles: 'appimage,deb,rpm' }
+    # macOS und Windows nach der Wahl von „runners“; matrix.runner bleibt der gehostete Name
+    runs-on: ${{ fromJSON(matrix.runner == 'windows-latest' && needs.runners.outputs.windows || matrix.runner == 'macos-26' && needs.runners.outputs.macos || format('"{0}"', matrix.runner)) }}
+    timeout-minutes: 60
+    # copy-server.mjs baut den Server damit wie die App mit --target: beide teilen sich
+    # target/<ziel>/release, und das CLI-Archiv findet den Server dort
+    env:
+      NULLRADIX_RELEASE_TARGET: ${{ matrix.target }}
+    steps:
+      # Gebaut wird das Tag aus dem Job „version“, nicht der Stand des Branches. Im Probelauf
+      # bleibt das Tag lokal im Job „version“; gebaut wird dann der gestartete Commit
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.dry_run && github.sha || needs.version.outputs.tag }}
+      # Windows baut auf einem Dev Drive (ReFS, ohne Echtzeit-Scan von Defender) spürbar schneller als auf
+      # NTFS. target/ wird per Junction dorthin umgelenkt: copy-server.mjs und cli-archive.mjs erwarten
+      # den Ordner fest unter <repo>/target, und rust-cache stellt ihn durch die Junction hindurch wieder her.
+      # Nur auf den Runnern von GitHub: auf einem eigenen Rechner soll kein Lauf ein virtuelles Laufwerk anlegen
+      - name: Dev Drive für target/ anlegen
+        if: runner.os == 'Windows' && runner.environment == 'github-hosted'
+        uses: samypr100/setup-dev-drive@v3
+        with:
+          drive-size: 40GB
+      - name: target/ auf das Dev Drive umlenken
+        if: runner.os == 'Windows' && runner.environment == 'github-hosted'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:DEV_DRIVE\target" | Out-Null
+          New-Item -ItemType Junction -Path target -Target "$env:DEV_DRIVE\target" | Out-Null
+      # Version absichtlich wie in rust-toolchain.toml; beim Anheben beide Stellen ändern
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      # Node baut die Oberfläche und das Plugin
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+      # Nur Linux braucht die Systembibliotheken von Tauri; rpm ist für das .rpm-Paket nötig
+      - name: Systempakete für Tauri installieren
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf rpm
+      # Oberfläche und Server baut der Tauri-Build über beforeBuildCommand (prepare-binaries)
+      # genau einmal; das CLI-Archiv nimmt beides danach von dort
+      - run: npm ci
+      # Der Notarisierungs-Schlüssel muss als Datei vorliegen; ohne Secret entfällt die Notarisierung
+      - name: API-Key für Notarisierung
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APPLE_API_PRIVATE_KEY" ]; then
+            echo "Kein API-Key: Notarisierung entfällt"
+            exit 0
+          fi
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+      # Tauri signiert, sobald APPLE_CERTIFICATE gesetzt ist, auch wenn es leer ist. Ein fehlendes
+      # Secret wird in env: zum leeren String, deshalb landen die Variablen nur mit Zertifikat im Job
+      - name: Zertifikat für die Apple-Signatur
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "Kein Zertifikat: macOS-Build bleibt unsigniert"
+            exit 0
+          fi
+          {
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+          } >> "$GITHUB_ENV"
+      # signCommand ruft trusted-signing-cli auf. Das Übersetzen kostet rund 5 Minuten, und rust-cache
+      # deckt ~/.cargo/bin nicht ab: deshalb hat das fertige Programm einen eigenen Cache, der Schlüssel
+      # hängt an der Version. Beim Anheben der Version beide Stellen ändern
+      - name: trusted-signing-cli aus dem Cache
+        id: tsc-cache
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/trusted-signing-cli.exe
+          key: trusted-signing-cli-0.11.0-${{ runner.os }}
+      - name: trusted-signing-cli installieren
+        if: runner.os == 'Windows' && steps.tsc-cache.outputs.cache-hit != 'true'
+        run: cargo install trusted-signing-cli --version 0.11.0 --locked
+      # Tauri lädt das NSIS-Werkzeug sonst erst beim Bündeln, nach dem ganzen Build, anonym und ohne
+      # zweiten Versuch: ein HTTP 504 von GitHub kostet dann den ganzen Lauf. Deshalb liegt es vorher in
+      # %LOCALAPPDATA%\tauri\NSIS, aus dem Cache oder angemeldet und mit Wiederholungen geladen. Der
+      # Schlüssel hängt am Skript, das die Versionen aus tauri-bundler festhält
+      - name: NSIS-Werkzeug aus dem Cache
+        id: nsis-cache
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/tauri/NSIS
+          key: tauri-nsis-${{ runner.os }}-${{ hashFiles('scripts/ci/prefetch-nsis.mjs') }}
+      - name: NSIS-Werkzeug laden
+        if: runner.os == 'Windows' && steps.nsis-cache.outputs.cache-hit != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/prefetch-nsis.mjs
+      # Baut die App und lädt dmg, NSIS-Installer, AppImage, deb und rpm an den Entwurf des Releases.
+      # Die Apple-Zertifikatsvariablen setzt der Schritt oben nur, wenn es ein Zertifikat gibt; die übrigen
+      # Signatur-Variablen dürfen leer sein (Fork, Probelauf), dann überspringt sign-windows.mjs die Signatur.
+      # Der Updater-Schlüssel ist davon getrennt (M4): mit ihm entstehen über
+      # src-tauri/tauri.release.conf.json die Updater-Artefakte und je Matrix-Job ein Stück von
+      # latest.json, das tauri-action am Entwurf zusammenführt.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        with:
+          projectPath: apps/desktop
+          releaseId: ${{ needs.version.outputs.release_id }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.release.conf.json
+          includeUpdaterJson: true
+          # Unter Windows wird nur der NSIS-Installer gebaut; latest.json soll auf ihn zeigen
+          updaterJsonPreferNsis: true
+      # CLI und Plugin für den Betrieb ohne App; im Probelauf gibt es keinen Entwurf zum Hochladen
+      - name: CLI-Archiv
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          file=$(node scripts/release/cli-archive.mjs --version "${{ needs.version.outputs.version }}" --target "${{ matrix.target }}")
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "Probelauf: $file wird nicht hochgeladen"
+            exit 0
+          fi
+          gh release upload "${{ needs.version.outputs.tag }}" "$file" --clobber
+
+  # Prüft, dass alle erwarteten Dateien am Entwurf hängen, hängt die Prüfsummen an und veröffentlicht das Release
+  publish:
+    name: Veröffentlichen
+    needs: [version, build, ci]
+    # Im Probelauf gibt es weder Tag bei GitHub noch Entwurf. „ci“ darf nur fehlen, wenn skip_ci sie
+    # abgeschaltet hat; !cancelled() ist nötig, weil ein übersprungenes needs den Job sonst mit überspringt
+    if: >-
+      ${{ !cancelled() && !inputs.dry_run
+        && needs.version.result == 'success' && needs.build.result == 'success'
+        && (needs.ci.result == 'success' || (inputs.skip_ci && needs.ci.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      # Mitgelieferte Themes als Pakete plus Store-Index nullradix-themes.json; die Store-URL
+      # …/releases/latest/download/nullradix-themes.json zeigt danach auf dieses Release
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+      - uses: Swatinem/rust-cache@v2
+      - name: Theme-Pakete und Store-Index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm ci
+          cargo build -p nullradix-cli --bin nullradix
+          NULLRADIX_BIN="$PWD/target/debug/nullradix" npm run build:themes
+          tag="${{ needs.version.outputs.tag }}"
+          node scripts/release/theme-index.mjs dist/themes "https://github.com/${{ github.repository }}/releases/download/$tag" dist/release-themes
+          gh release upload "$tag" dist/release-themes/* --clobber
+      - name: Dateien prüfen, Prüfsummen, veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release/publish.sh "${{ needs.version.outputs.tag }}" "${{ needs.version.outputs.version }}"

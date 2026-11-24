@@ -1,0 +1,39 @@
+{
+  "name": "ai-harness",
+  "private": true,
+  "description": "Lokale Werkbank für viele Claude-Code-Sessions gleichzeitig: Board, Worktrees und Dispatcher",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NULLRADIX-DEV/NULLRADIX-Harness.git"
+  },
+  "homepage": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness#readme",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run typecheck && npm run build -w packages/web",
+    "typecheck": "tsc --noEmit -p packages/web && tsc --noEmit -p packages/theme-sdk && tsc --noEmit -p themes/_template && tsc --noEmit -p themes/minecraft && tsc --noEmit -p themes/win95 && tsc --noEmit -p themes/terminal && tsc --noEmit -p themes/synthwave && tsc --noEmit -p themes/dracula && tsc --noEmit -p themes/alucard && tsc --noEmit -p themes/gta",
+    "lint": "npm run typecheck",
+    "test": "vitest run",
+    "dev": "node scripts/dev.mjs",
+    "desktop": "npm run tauri -w apps/desktop --",
+    "dev:web": "npm run dev -w packages/web",
+    "build:plugin": "node packages/plugin/scripts/build-plugin.mjs",
+    "build:themes": "node scripts/build-themes.mjs",
+    "contract": "node contract/run.mjs",
+    "test:unit": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3",
+    "yaml": "^2.5.0"
+  }
+}

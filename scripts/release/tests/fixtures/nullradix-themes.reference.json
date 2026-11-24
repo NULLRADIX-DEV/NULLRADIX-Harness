@@ -1,0 +1,100 @@
+[
+  {
+    "id": "alucard",
+    "name": "Alucard",
+    "version": "1.1.0",
+    "sdkVersion": "^1.3",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/alucard-1.1.0.nullradix",
+    "sha256": "f623cea2787285c33bf55262bdfb4c871e094ba9747d0b95c6fa71fab8115ebd",
+    "preview": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/alucard-1.1.0-preview.png",
+    "claudeTheme": true
+  },
+  {
+    "id": "catppuccin",
+    "name": "Catppuccin",
+    "version": "1.1.0",
+    "sdkVersion": "^1.3",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/catppuccin-1.1.0.nullradix",
+    "sha256": "4f3f3366d582d2aa87b25b7682dd44d4568d020bc2a5806decdb83e3cd4a37de",
+    "preview": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/catppuccin-1.1.0-preview.png",
+    "claudeTheme": true
+  },
+  {
+    "id": "dracula",
+    "name": "Dracula",
+    "version": "1.1.0",
+    "sdkVersion": "^1.3",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/dracula-1.1.0.nullradix",
+    "sha256": "fce5ba18139e112e9293c082866445ec9f35f3c3eb1be9f1a6197b5ad756f563",
+    "preview": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/dracula-1.1.0-preview.png",
+    "claudeTheme": true
+  },
+  {
+    "id": "gta",
+    "name": "GTA",
+    "version": "1.1.0",
+    "sdkVersion": "^1.3",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/gta-1.1.0.nullradix",
+    "sha256": "d093ac22633d223778fe9a02bf5e498fb05b7356b897245d5b81c488123eef28",
+    "preview": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/gta-1.1.0-preview.png",
+    "claudeTheme": true
+  },
+  {
+    "id": "minecraft",
+    "name": "Minecraft",
+    "version": "0.2.0",
+    "sdkVersion": "^1.1",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/minecraft-0.2.0.nullradix",
+    "sha256": "f0493952bb70cb128e56a6d4a631e2a3d7fc425034d2d0fb2d2a5d6668353c54"
+  },
+  {
+    "id": "pastel",
+    "name": "Paper Notes",
+    "version": "2.1.0",
+    "sdkVersion": "^1.3",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/pastel-2.1.0.nullradix",
+    "sha256": "479dc1155ba5912063dd1d6c0cd68f68d7be7b1600a30cedbce8fb4c184f6510",
+    "preview": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/pastel-2.1.0-preview.png",
+    "claudeTheme": true
+  },
+  {
+    "id": "signal",
+    "name": "Signal",
+    "version": "1.1.0",
+    "sdkVersion": "^1.3",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/signal-1.1.0.nullradix",
+    "sha256": "cf35cbedccd762b8da54e92b3be9600123d8cc9614626990507ad9ebc80ce92e",
+    "preview": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/signal-1.1.0-preview.png",
+    "claudeTheme": true
+  },
+  {
+    "id": "synthwave",
+    "name": "Synthwave",
+    "version": "1.2.0",
+    "sdkVersion": "^1.3",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/synthwave-1.2.0.nullradix",
+    "sha256": "1eee2270ed452a60b244ffd2385e43fee6fa6782925c24390a3396a919123274",
+    "preview": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/synthwave-1.2.0-preview.png",
+    "claudeTheme": true
+  },
+  {
+    "id": "terminal",
+    "name": "Terminal",
+    "version": "2.2.0",
+    "sdkVersion": "^1.3",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/terminal-2.2.0.nullradix",
+    "sha256": "6c31f72f548fa2f4c1e757b042075f9e2b3829333bd4da07f5b49be096d883d4",
+    "preview": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/terminal-2.2.0-preview.png",
+    "claudeTheme": true
+  },
+  {
+    "id": "win95",
+    "name": "Windows 95",
+    "version": "1.4.0",
+    "sdkVersion": "^1.3",
+    "downloadUrl": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/win95-1.4.0.nullradix",
+    "sha256": "d380de253663d35d7ab818e289b201e3f7fb0eba1671d6c80754dd3423ac5049",
+    "preview": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases/download/v0.0.0/win95-1.4.0-preview.png",
+    "claudeTheme": true
+  }
+]

@@ -1,0 +1,877 @@
+[
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "GET",
+    "pattern": "/api/accounts"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "POST",
+    "pattern": "/api/accounts"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "DELETE",
+    "pattern": "/api/accounts/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "PATCH",
+    "pattern": "/api/accounts/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "DELETE",
+    "pattern": "/api/accounts/:id/login"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "POST",
+    "pattern": "/api/accounts/:id/login"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "POST",
+    "pattern": "/api/accounts/:id/login/code"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "POST",
+    "pattern": "/api/accounts/:id/plugin"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "POST",
+    "pattern": "/api/accounts/:id/resume"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "DELETE",
+    "pattern": "/api/accounts/:id/run-token"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "PUT",
+    "pattern": "/api/accounts/:id/run-token"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "POST",
+    "pattern": "/api/accounts/login"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/accounts.rs",
+    "method": "GET",
+    "pattern": "/api/accounts/names"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/claude_theme.rs",
+    "method": "GET",
+    "pattern": "/api/claude-theme"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "GET",
+    "pattern": "/api/db/active"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "GET",
+    "pattern": "/api/db/boards"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "POST",
+    "pattern": "/api/db/boards"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "DELETE",
+    "pattern": "/api/db/boards/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "PATCH",
+    "pattern": "/api/db/boards/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "POST",
+    "pattern": "/api/db/boards/:id/activate"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "GET",
+    "pattern": "/api/db/boards/:id/branches"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "POST",
+    "pattern": "/api/db/boards/:id/branches"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "GET",
+    "pattern": "/api/db/boards/:id/view"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "POST",
+    "pattern": "/api/db/pick-folder"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "GET",
+    "pattern": "/api/db/projects"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "POST",
+    "pattern": "/api/db/projects"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_boards.rs",
+    "method": "PATCH",
+    "pattern": "/api/db/projects/:key"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "GET",
+    "pattern": "/api/db/boards/:id/notes"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "POST",
+    "pattern": "/api/db/boards/:id/notes"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "GET",
+    "pattern": "/api/db/boards/:id/spec-progress"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "GET",
+    "pattern": "/api/db/graph"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "GET",
+    "pattern": "/api/db/inbox"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "DELETE",
+    "pattern": "/api/db/inbox/order"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "PUT",
+    "pattern": "/api/db/inbox/order"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "POST",
+    "pattern": "/api/db/notes/:id/drop"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "POST",
+    "pattern": "/api/db/notes/:id/seen"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "POST",
+    "pattern": "/api/db/notes/:id/take"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "GET",
+    "pattern": "/api/db/search"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_misc.rs",
+    "method": "GET",
+    "pattern": "/api/db/stats/dispatch"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "POST",
+    "pattern": "/api/db/boards/:id/import"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "POST",
+    "pattern": "/api/db/boards/:id/tickets"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "DELETE",
+    "pattern": "/api/db/tickets/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "GET",
+    "pattern": "/api/db/tickets/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "PATCH",
+    "pattern": "/api/db/tickets/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "POST",
+    "pattern": "/api/db/tickets/:id/comments"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "POST",
+    "pattern": "/api/db/tickets/:id/move"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "POST",
+    "pattern": "/api/db/tickets/:id/steps"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "DELETE",
+    "pattern": "/api/db/tickets/:id/steps/:n"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "PATCH",
+    "pattern": "/api/db/tickets/:id/steps/:n"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "POST",
+    "pattern": "/api/db/tickets/:id/steps/:n"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "POST",
+    "pattern": "/api/db/tickets/:id/steps/:n/move"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/db_tickets.rs",
+    "method": "GET",
+    "pattern": "/api/db/tickets/:id/timeline"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch_runs.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/runs/:name/shots"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch_runs.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/runs/:name/shots/:file"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch_runs.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/runs/:name/transcript"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch_suggestions.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/suggestions"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch_suggestions.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/suggestions/:id/apply"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch_suggestions.rs",
+    "method": "DELETE",
+    "pattern": "/api/dispatch/suggestions/:id/dismiss"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch_suggestions.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/suggestions/:id/dismiss"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch_suggestions.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/suggestions/analyze"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/accept/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/config"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "PUT",
+    "pattern": "/api/dispatch/config"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/disable"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/enable"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/logs"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/logs/:name"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/merge/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/pause"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/plan/:ticket_id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/plan/:ticket_id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/prompts/preview"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/research/:question_id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/research/:question_id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/resume"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/return/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/review/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/review/:id/file"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "POST",
+    "pattern": "/api/dispatch/run"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/runs"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/runs/:name"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/dispatch.rs",
+    "method": "GET",
+    "pattern": "/api/dispatch/status"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/doc_comments.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/docs/comments"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/doc_comments.rs",
+    "method": "POST",
+    "pattern": "/api/projects/:pid/docs/comments"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/doc_comments.rs",
+    "method": "DELETE",
+    "pattern": "/api/projects/:pid/docs/comments/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/doc_comments.rs",
+    "method": "PATCH",
+    "pattern": "/api/projects/:pid/docs/comments/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs_claude.rs",
+    "method": "DELETE",
+    "pattern": "/api/projects/:pid/docs/question-drafts"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs_claude.rs",
+    "method": "POST",
+    "pattern": "/api/projects/:pid/docs/question-drafts"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs_claude.rs",
+    "method": "POST",
+    "pattern": "/api/projects/:pid/docs/questions"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs_claude.rs",
+    "method": "POST",
+    "pattern": "/api/projects/:pid/docs/revise"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs_claude.rs",
+    "method": "DELETE",
+    "pattern": "/api/projects/:pid/docs/ticket-drafts"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs_claude.rs",
+    "method": "POST",
+    "pattern": "/api/projects/:pid/docs/ticket-drafts"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/docs"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/docs/file"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "POST",
+    "pattern": "/api/projects/:pid/docs/open"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/docs/search"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "PUT",
+    "pattern": "/api/projects/:pid/docs/section"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "DELETE",
+    "pattern": "/api/projects/:pid/docs/ticket-drafts/saved"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/docs/ticket-drafts/saved"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "PUT",
+    "pattern": "/api/projects/:pid/docs/ticket-drafts/saved"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/docs/tickets"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/docs.rs",
+    "method": "POST",
+    "pattern": "/api/projects/:pid/docs/tickets"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/events.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/events"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/favorites.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/favorites"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/favorites.rs",
+    "method": "DELETE",
+    "pattern": "/api/projects/:pid/favorites/:sid"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/favorites.rs",
+    "method": "PUT",
+    "pattern": "/api/projects/:pid/favorites/:sid"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/health.rs",
+    "method": "GET",
+    "pattern": "/api/health"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/hook.rs",
+    "method": "POST",
+    "pattern": "/api/hook"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/mod.rs",
+    "method": "GET",
+    "pattern": "/"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/mod.rs",
+    "method": "GET",
+    "pattern": "/*"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/notifications.rs",
+    "method": "POST",
+    "pattern": "/api/user-settings/test-notification"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/notifications.rs",
+    "method": "POST",
+    "pattern": "/api/user-settings/test-ntfy"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "GET",
+    "pattern": "/api/db/projects/:key/questions"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "POST",
+    "pattern": "/api/db/projects/:key/questions"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "GET",
+    "pattern": "/api/db/questions/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "PATCH",
+    "pattern": "/api/db/questions/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "POST",
+    "pattern": "/api/db/questions/:id/comments"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "POST",
+    "pattern": "/api/db/questions/:id/decision"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "PUT",
+    "pattern": "/api/db/questions/:id/depends"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "POST",
+    "pattern": "/api/db/questions/:id/discard"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "POST",
+    "pattern": "/api/db/questions/:id/reopen"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/questions.rs",
+    "method": "PUT",
+    "pattern": "/api/db/questions/:id/tickets"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/session_detail.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/sessions/:sid/changes"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/session_detail.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/sessions/:sid/changes/file"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/session_detail.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/sessions/:sid/detail"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/session_detail.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/sessions/:sid/transcript"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/sessions.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/sessions"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/sessions.rs",
+    "method": "POST",
+    "pattern": "/api/projects/:pid/sessions/:sid/claim"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/settings.rs",
+    "method": "GET",
+    "pattern": "/api/board-config"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/settings.rs",
+    "method": "PUT",
+    "pattern": "/api/board-config"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/settings.rs",
+    "method": "POST",
+    "pattern": "/api/board-config/test"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/settings.rs",
+    "method": "GET",
+    "pattern": "/api/projects"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/settings.rs",
+    "method": "POST",
+    "pattern": "/api/projects"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/settings.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/settings"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/settings.rs",
+    "method": "GET",
+    "pattern": "/api/user-settings"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/settings.rs",
+    "method": "PUT",
+    "pattern": "/api/user-settings"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/setup.rs",
+    "method": "GET",
+    "pattern": "/api/db/boards/:id/migration"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/setup.rs",
+    "method": "POST",
+    "pattern": "/api/db/boards/:id/migration"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/setup.rs",
+    "method": "GET",
+    "pattern": "/api/setup/plugin"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/setup.rs",
+    "method": "POST",
+    "pattern": "/api/setup/plugin"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/setup.rs",
+    "method": "GET",
+    "pattern": "/api/setup/plugin/progress"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/snippets.rs",
+    "method": "GET",
+    "pattern": "/api/snippets"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/snippets.rs",
+    "method": "DELETE",
+    "pattern": "/api/snippets/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/snippets.rs",
+    "method": "PATCH",
+    "pattern": "/api/snippets/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/snippets.rs",
+    "method": "PUT",
+    "pattern": "/api/snippets/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/snippets.rs",
+    "method": "GET",
+    "pattern": "/snippets/active.css"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/store_index.rs",
+    "method": "GET",
+    "pattern": "/api/themes/store/index"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/store_install.rs",
+    "method": "POST",
+    "pattern": "/api/themes/store/install"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/store_preview.rs",
+    "method": "GET",
+    "pattern": "/api/themes/store/preview"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/store_repos.rs",
+    "method": "GET",
+    "pattern": "/api/themes/store/repos"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/store_repos.rs",
+    "method": "POST",
+    "pattern": "/api/themes/store/repos"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/store_repos.rs",
+    "method": "DELETE",
+    "pattern": "/api/themes/store/repos/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/store_updates.rs",
+    "method": "GET",
+    "pattern": "/api/themes/store/updates"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/store_updates.rs",
+    "method": "POST",
+    "pattern": "/api/themes/store/update"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/spec.rs",
+    "method": "GET",
+    "pattern": "/api/projects/:pid/spec-progress"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/speech.rs",
+    "method": "GET",
+    "pattern": "/api/speech/status"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/speech.rs",
+    "method": "POST",
+    "pattern": "/api/speech/test"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/telegram.rs",
+    "method": "DELETE",
+    "pattern": "/api/telegram/chats/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/telegram.rs",
+    "method": "GET",
+    "pattern": "/api/telegram/config"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/telegram.rs",
+    "method": "PUT",
+    "pattern": "/api/telegram/config"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/telegram.rs",
+    "method": "POST",
+    "pattern": "/api/telegram/pair"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/telegram.rs",
+    "method": "POST",
+    "pattern": "/api/telegram/profile"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/telegram.rs",
+    "method": "GET",
+    "pattern": "/api/telegram/status"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/telegram.rs",
+    "method": "POST",
+    "pattern": "/api/telegram/test"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/theme_fetch.rs",
+    "method": "GET",
+    "pattern": "/api/themes/:id/fetch"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/theme_packages.rs",
+    "method": "GET",
+    "pattern": "/api/themes"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/theme_packages.rs",
+    "method": "DELETE",
+    "pattern": "/api/themes/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/theme_packages.rs",
+    "method": "POST",
+    "pattern": "/api/themes/install"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/themes.rs",
+    "method": "GET",
+    "pattern": "/themes/:id"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/themes.rs",
+    "method": "GET",
+    "pattern": "/themes/:id/"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/themes.rs",
+    "method": "GET",
+    "pattern": "/themes/:id/:*path"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/usage.rs",
+    "method": "GET",
+    "pattern": "/api/claude-usage"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/usage.rs",
+    "method": "GET",
+    "pattern": "/api/claude-usage/accounts"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/workflow.rs",
+    "method": "GET",
+    "pattern": "/api/customizations"
+  },
+  {
+    "file": "crates/nullradix-server/src/routes/workflow.rs",
+    "method": "GET",
+    "pattern": "/api/workflow"
+  }
+]

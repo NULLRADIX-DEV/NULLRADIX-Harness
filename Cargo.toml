@@ -1,0 +1,128 @@
+# Cargo-Workspace von NULLRADIX: Fachkern, Datenzugriff und die Tauri-Desktop-App teilen sich
+# ein Cargo.lock und ein target/. Neue Rust-Crates werden hier als Mitglied eingetragen.
+[workspace]
+resolver = "2"
+members = [
+    "crates/nullradix-core",
+    "crates/nullradix-db",
+    "crates/nullradix-server",
+    "crates/nullradix-platform",
+    "crates/nullradix-cli",
+    "apps/desktop/src-tauri",
+]
+
+# Gemeinsame Angaben, die jedes Mitglied mit `*.workspace = true` erbt.
+[workspace.package]
+edition = "2021"
+version = "0.3.6"
+rust-version = "1.99"
+license = "MIT"
+repository = "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness"
+
+# Gemeinsame Lints für die NULLRADIX-Crates; die Desktop-App bleibt davon unberührt,
+# weil Tauri dort eigene Anforderungen mitbringt.
+# `unsafe` ist verboten. `deny` statt `forbid`, damit genau eine Stelle es mit
+# `#[allow(unsafe_code)]` erlauben kann: nullradix-platform/src/stdio.rs (SetHandleInformation
+# unter Windows, solange `CommandExt::inherit_handles` instabil ist).
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+# Versionen aller Abhängigkeiten stehen nur hier; die Mitglieder nennen mit
+# `{ workspace = true }` nur noch, was sie wirklich brauchen.
+[workspace.dependencies]
+# Die Kommandozeile baut ihren Befehlsbaum mit clap, rendert Hilfe und Fehler aber selbst
+# (deutsches commander-Layout): deshalb ohne Farben und ohne clap-eigenen Zeilenumbruch.
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
+assert_cmd = "2"
+predicates = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+thiserror = "2"
+async-trait = "0.1"
+futures = "0.3"
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "net", "fs", "process", "io-util", "signal"] }
+regex = "1"
+semver = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+uuid = { version = "1", features = ["v4"] }
+ts-rs = "12"
+rusqlite = { version = "0.41", features = ["bundled", "functions"] }
+# bb8-tiberius 0.16 verlangt tiberius 0.12 und bb8 0.9; die drei Versionen gehören zusammen.
+tiberius = { version = "0.12", default-features = false, features = ["rustls", "tds73", "chrono"] }
+bb8 = "0.9"
+bb8-tiberius = "0.16"
+tokio-util = { version = "0.7", features = ["compat"] }
+tempfile = "3"
+# Entpacken der Theme-Pakete (`.nullradix` = ZIP); nur Deflate, keine Verschlüsselung
+zip = { version = "9", default-features = false, features = ["deflate"] }
+# Zufall, SHA-1 und Prozessprüfung für Sperren, Token und Projekt-IDs. Der Workspace verbietet
+# `unsafe`, deshalb kommt der Blick auf fremde Prozesse aus Bibliotheken mit sicherer
+# Schnittstelle: unter Unix `nix`, unter Windows `sysinfo`.
+getrandom = "0.3"
+sha1_smol = "1"
+# SHA-256 für den Fingerabdruck der Dispatcher-Einstellung (16 Hex-Zeichen wie in TypeScript)
+sha2 = "0.10"
+# Base64 der sha256-Hashes, mit denen die CSP die Inline-Skripte der Oberfläche erlaubt
+base64 = "0.22"
+# Prüft die optionale minisign-Signatur (Ed25519) der Theme-Pakete aus dem Store
+minisign-verify = "0.3"
+# Nur für Tests: minisign-Signaturen erzeugen (Ed25519 über den BLAKE2b-Hash des Pakets)
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+blake2 = "0.10"
+# Karte mit erhaltener Reihenfolge: die Profile der Dispatcher-Einstellung stehen in der
+# Reihenfolge der Datei (defaultProfile und die Eskalationsleiter hängen daran)
+indexmap = { version = "2", features = ["serde"] }
+nix = { version = "0.31", default-features = false, features = ["signal"] }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+# Job-Objekte unter Windows (Prozessbaum beenden) mit sicherer Schnittstelle, damit der
+# Workspace ohne eigenes `unsafe` auskommt.
+win32job = "2"
+# HTTP-Schicht des Servers: axum als Router, tower-http für statische Dateien und Panik-Fang,
+# http-body-util für das stückweise Lesen der Ströme in Tests.
+axum = { version = "0.8", features = ["http1", "tokio", "json", "query"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs", "catch-panic"] }
+http-body-util = "0.1"
+# ntfy schickt seine Push-Meldungen über HTTP; rustls statt OpenSSL, damit nichts vom System
+# gebraucht wird.
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "charset"] }
+# Adressen der Store-Repos prüfen und normalisieren (reqwest nutzt dieselbe Crate)
+url = "2"
+# Systemmeldungen auf macOS und Linux (unter Windows geht es über WinRT)
+notify-rust = "4"
+# WinRT-Toasts und die AUMID-Registrierung unter Windows
+windows = { version = "0.62", features = ["UI_Notifications", "Data_Xml_Dom"] }
+windows-registry = "0.6"
+nullradix-core = { path = "crates/nullradix-core" }
+nullradix-db = { path = "crates/nullradix-db" }
+nullradix-server = { path = "crates/nullradix-server" }
+nullradix-platform = { path = "crates/nullradix-platform" }
+
+# Auslieferungsprofil: kleine Binärdateien ohne Einbußen bei der Laufzeit. `lto = "fat"` und
+# `codegen-units = 1` lassen den Optimierer über alle Crates hinweg arbeiten, `strip` wirft die
+# Debug-Symbole weg (sie machen bei uns mehr als ein Drittel der Datei aus).
+[profile.release]
+opt-level = 3
+# Thin-LTO mit den üblichen 16 Codegen-Units: Release-Builds (zweimal je Plattform: Server und App)
+# werden damit deutlich schneller, das Binary wird nur wenig größer. Vorher „fat“ mit codegen-units = 1
+lto = "thin"
+codegen-units = 16
+strip = true
+panic = "abort"
+
+# Entwicklungsprofil: fremde Crates (SQL-Treiber, TLS, JSON) optimiert, die eigenen bleiben
+# schnell übersetzt und gut zu debuggen. Ohne das ist jeder Server-Aufruf in `tauri dev` etwa
+# dreimal so langsam wie im Release-Build.
+[profile.dev.package."*"]
+opt-level = 2
+# Fremde Crates ohne Debug-Infos: in ihnen setzt niemand Haltepunkte, sie machten aber einen
+# großen Teil von target/ aus.
+debug = false
+
+# Eigene Crates mit reduzierten Debug-Infos: Funktionen und Zeilennummern für Backtraces und
+# Haltepunkte bleiben, die vollständigen Typ- und Variableninfos fallen weg. Das schrumpft
+# rlibs, PDBs und incremental/ auf einen Bruchteil. Wer für eine Sitzung Variablen im Debugger
+# sehen will: CARGO_PROFILE_DEV_DEBUG=full setzen. Gilt auch für `cargo test` (erbt von dev).
+[profile.dev]
+debug = "limited"

@@ -1,0 +1,34 @@
+[package]
+name = "nullradix-db"
+description = "Datenzugriff von NULLRADIX (SQLite und SQL Server)"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Alle Abhängigkeiten, die SQLite (P2-5 ff.) und SQL Server (P2-11 ff.) brauchen, stehen hier
+# schon vollständig: so müssen die beiden Tickets diese Datei nicht mehr ändern und laufen
+# sich beim Mergen nicht in die Quere.
+[dependencies]
+async-trait = { workspace = true }
+bb8 = { workspace = true }
+bb8-tiberius = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+nullradix-core = { workspace = true }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tiberius = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+# Die gemeinsamen Vertrags-Makros stecken im Merkmal `testing` des Fachkerns.
+nullradix-core = { workspace = true, features = ["testing"] }
+serde = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

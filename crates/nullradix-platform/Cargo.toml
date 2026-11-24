@@ -1,0 +1,32 @@
+[package]
+name = "nullradix-platform"
+description = "Systemfunktionen des Rechners: Ordnerdialog, Dateien öffnen, Systemmeldungen"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+nullradix-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+tokio = { workspace = true }
+# WinRT-Toasts samt AUMID-Eintrag in der Registrierung; Win32_Foundation für
+# SetHandleInformation (stdio)
+windows = { workspace = true, features = ["Win32_Foundation"] }
+windows-registry = { workspace = true }
+
+# Systemmeldungen über D-Bus (Linux) bzw. das Mitteilungszentrum (macOS)
+[target.'cfg(not(windows))'.dependencies]
+notify-rust = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lints]
+workspace = true

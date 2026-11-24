@@ -1,0 +1,235 @@
+//! Prozessangaben des laufenden Servers (`server.json`); nur ein Hinweis, maßgeblich ist
+//! der Health-Aufruf.
+
+use std::fs;
+
+use serde::{Deserialize, Serialize};
+
+use crate::error::{Error, Result};
+use crate::locking::AtomicWriter;
+use crate::process::is_alive;
+use crate::registry::{AppToken, HarnessHome};
+
+/// Prozessangaben des laufenden Servers
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerInfo {
+    pub pid: u32,
+    pub port: u16,
+    pub started_at: String,
+    /// Start-Token, mit dem sich die Oberfläche der Desktop-App ausweist. Ältere Server
+    /// schreiben es nicht, und CLI und Hooks brauchen es nicht – deshalb freiwillig.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_token: Option<AppToken>,
+}
+
+/// Liest und schreibt `server.json`.
+#[derive(Debug, Clone)]
+pub struct ServerInfoFile {
+    home: HarnessHome,
+    writer: AtomicWriter,
+}
+
+impl ServerInfoFile {
+    /// Datei im angegebenen Benutzerordner
+    pub fn new(home: HarnessHome) -> Self {
+        Self {
+            home,
+            writer: AtomicWriter::new(),
+        }
+    }
+
+    /// Liest die Angaben (None, wenn es sie nicht gibt oder sie unlesbar sind)
+    pub fn read(&self) -> Option<ServerInfo> {
+        let text = fs::read_to_string(self.home.server_file()).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    /// Schreibt die Angaben. Die Datei trägt das Start-Token und ist deshalb nur für den
+    /// Benutzer lesbar; unter Windows schützt schon das Benutzerprofil.
+    pub fn write(&self, info: &ServerInfo) -> Result<()> {
+        fs::create_dir_all(self.home.dir()).map_err(Error::unexpected)?;
+        let json = serde_json::to_string(info).map_err(Error::unexpected)?;
+        self.writer.write_private(&self.home.server_file(), &json)
+    }
+
+    /// Löscht die Angaben (`stop`, nachdem es den eingetragenen Server beendet hat)
+    pub fn remove(&self) -> Result<()> {
+        match fs::remove_file(self.home.server_file()) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(Error::unexpected(error)),
+        }
+    }
+
+    /// Trägt den startenden Server ein – außer ein anderer, noch laufender Server steht schon
+    /// darin (etwa wenn ein Testserver versehentlich mit dem echten Benutzerordner startet).
+    /// `false`: nicht eingetragen
+    pub fn claim(&self, info: &ServerInfo) -> Result<bool> {
+        if let Some(current) = self.read() {
+            if current.pid != info.pid && is_alive(current.pid) {
+                return Ok(false);
+            }
+        }
+        self.write(info)?;
+        Ok(true)
+    }
+
+    /// Steht der Server `pid` in `server.json`? Liest nur: fehlende oder verwaiste Angaben
+    /// übernimmt nur ein Start (`claim`), sonst sprächen CLI und App einen anderen Server an
+    pub fn owned_by(&self, pid: u32) -> bool {
+        self.read().is_some_and(|current| current.pid == pid)
+    }
+
+    /// Löscht die Angaben beim Beenden, aber nur, wenn sie zu diesem Server (`pid`) gehören
+    pub fn release(&self, pid: u32) -> Result<()> {
+        match self.read() {
+            Some(current) if current.pid == pid => self.remove(),
+            _ => Ok(()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schreibt_liest_und_loscht_die_prozessangaben() {
+        let dir = tempfile::Builder::new()
+            .prefix("harness-info-")
+            .tempdir()
+            .unwrap();
+        let home = HarnessHome::at(dir.path());
+        let file = ServerInfoFile::new(home.clone());
+        let info = ServerInfo {
+            pid: 42,
+            port: 4710,
+            started_at: "2026-10-09T10:00:00.000Z".into(),
+            app_token: None,
+        };
+
+        assert_eq!(file.read(), None);
+        file.write(&info).unwrap();
+        assert_eq!(file.read(), Some(info));
+
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(home.server_file()).unwrap()).unwrap();
+        assert_eq!(json["port"], serde_json::json!(4710));
+        assert_eq!(
+            json["startedAt"],
+            serde_json::json!("2026-10-09T10:00:00.000Z")
+        );
+
+        file.remove().unwrap();
+        assert!(!home.server_file().exists());
+        // Zweimal löschen ist kein Fehler
+        file.remove().unwrap();
+    }
+
+    /// Ein Benutzerordner mit `server.json`
+    fn datei() -> (tempfile::TempDir, ServerInfoFile) {
+        let dir = tempfile::tempdir().unwrap();
+        let file = ServerInfoFile::new(HarnessHome::at(dir.path()));
+        (dir, file)
+    }
+
+    fn angaben(pid: u32, port: u16) -> ServerInfo {
+        ServerInfo {
+            pid,
+            port,
+            started_at: "2026-10-29T10:00:00.000Z".into(),
+            app_token: None,
+        }
+    }
+
+    #[test]
+    fn schreibt_das_start_token_als_app_token_und_liest_es_zurueck() {
+        let (_dir, file) = datei();
+        let token = AppToken::new();
+        let mut info = angaben(std::process::id(), 4710);
+        info.app_token = Some(token.clone());
+
+        file.write(&info).unwrap();
+
+        assert_eq!(file.read().unwrap().app_token, Some(token.clone()));
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(file.home.server_file()).unwrap()).unwrap();
+        assert_eq!(json["appToken"], serde_json::json!(token.as_str()));
+    }
+
+    #[test]
+    fn liest_eine_datei_ohne_app_token_wie_bisher() {
+        let (dir, file) = datei();
+        fs::write(
+            HarnessHome::at(dir.path()).server_file(),
+            r#"{"pid":7,"port":4710,"startedAt":"2026-10-29T10:00:00.000Z"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(file.read(), Some(angaben(7, 4710)));
+    }
+
+    /// Eine Prozessnummer, die nie vergeben ist
+    const TOTE_PID: u32 = 2_147_483_646;
+
+    #[test]
+    fn traegt_ein_wenn_die_datei_fehlt_oder_ein_beendeter_server_darin_steht() {
+        let (_dir, file) = datei();
+        assert!(file.claim(&angaben(std::process::id(), 4710)).unwrap());
+        assert_eq!(file.read().unwrap().port, 4710);
+
+        file.write(&angaben(TOTE_PID, 4711)).unwrap();
+        assert!(file.claim(&angaben(std::process::id(), 4712)).unwrap());
+        assert_eq!(file.read().unwrap().port, 4712);
+    }
+
+    #[test]
+    fn ueberschreibt_keinen_anderen_laufenden_server() {
+        let (_dir, file) = datei();
+        let mut anderer = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        file.write(&angaben(anderer.id(), 4710)).unwrap();
+
+        let eingetragen = file.claim(&angaben(std::process::id(), 4719)).unwrap();
+        let gelesen = file.read();
+        let _ = anderer.kill();
+        let _ = anderer.wait();
+
+        assert!(!eingetragen);
+        assert_eq!(gelesen, Some(angaben(anderer.id(), 4710)));
+    }
+
+    #[test]
+    fn loescht_beim_beenden_nur_die_eigenen_angaben() {
+        let (_dir, file) = datei();
+        file.write(&angaben(TOTE_PID, 4710)).unwrap();
+
+        file.release(std::process::id()).unwrap();
+        assert!(file.read().is_some());
+
+        file.release(TOTE_PID).unwrap();
+        assert_eq!(file.read(), None);
+    }
+
+    #[test]
+    fn gehoert_nur_dem_eingetragenen_server_und_schreibt_nie() {
+        let (_dir, file) = datei();
+        let ich = std::process::id();
+        assert!(!file.owned_by(ich), "ohne Datei gehört sie niemandem");
+        assert_eq!(
+            file.read(),
+            None,
+            "fehlende Angaben werden nicht übernommen"
+        );
+
+        file.write(&angaben(TOTE_PID, 4711)).unwrap();
+        assert!(!file.owned_by(ich), "auch verwaiste Angaben nicht");
+        assert_eq!(file.read(), Some(angaben(TOTE_PID, 4711)));
+
+        file.write(&angaben(ich, 4712)).unwrap();
+        assert!(file.owned_by(ich));
+    }
+}

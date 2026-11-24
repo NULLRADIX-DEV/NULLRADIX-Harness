@@ -1,0 +1,81 @@
+[package]
+name = "nullradix-server"
+description = "HTTP-API, Dispatch-Worker und Benachrichtigungen von NULLRADIX"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Gibt Test-Attrappen (z. B. telegram::fake) auch außerhalb der Modultests frei
+testing = []
+
+[dependencies]
+axum = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+# Pfadmuster der freigegebenen Dokumente und die Quellenzeile der Docs-Tickets
+regex = { workspace = true }
+nullradix-core = { workspace = true }
+nullradix-db = { workspace = true }
+nullradix-platform = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+# Fingerabdruck des Bot-Profils (Bild und Texte)
+sha1_smol = { workspace = true }
+# Hashes der Inline-Skripte von index.html für die Content-Security-Policy
+sha2 = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+# Vorschlags-GUID der noch nicht eingerichteten Board-Konfig
+uuid = { workspace = true }
+# Push-Meldungen an ntfy
+reqwest = { workspace = true }
+# Reihenfolge des ersten Auftretens wie bei einer `Map` in JavaScript
+indexmap = { workspace = true }
+
+# Der Test-Ersatz nullradix-fake-claude legt sich für einen Modus in eine eigene Prozessgruppe
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, features = ["process"] }
+
+[dev-dependencies]
+# Die Standardwerte für Läufe des Dispatchers stecken im Merkmal `testing` des Fachkerns.
+nullradix-core = { workspace = true, features = ["testing"] }
+# Die eigenen Attrappen (telegram::fake) stecken im Merkmal `testing`; die Tests im Ordner
+# `tests/` sind eigene Crates und brauchen es ausdrücklich
+nullradix-server = { workspace = true, features = ["testing"] }
+tempfile = { workspace = true }
+# Die Tests des Asset-Proxys und der Theme-Routen bauen ZIP-Archive (Upstream bzw. Pakete)
+zip = { workspace = true }
+# Die Watcher-Tests lassen die Uhr springen (`#[tokio::test(start_paused = true)]`)
+tokio = { workspace = true, features = ["test-util"] }
+# Der Golden-Vergleich des Lauf-Protokolls ersetzt Zeitstempel und Pfade
+regex = { workspace = true }
+# Die portierten Tests des BoardRuntimeHolder bauen die Treiberfehler selbst, nach denen die
+# Laufzeit als verloren gilt (SQLite-Dateifehler, Socket des SQL Servers)
+rusqlite = { workspace = true }
+tiberius = { workspace = true }
+# Die Tests der Ereignisströme lesen den Körper der Antwort Stück für Stück
+futures = { workspace = true }
+http-body-util = { workspace = true }
+tower = { workspace = true }
+
+# Ersatz für Claude Code in Tests; wird nicht ausgeliefert (P5-4 prüft das).
+[[bin]]
+name = "nullradix-fake-claude"
+path = "src/bin/nullradix_fake_claude.rs"
+
+# Entwicklungs-Binary: startet den Rust-Server mit --port und --web-dir
+[[bin]]
+name = "nullradix-server"
+path = "src/bin/nullradix_server.rs"
+
+[lints]
+workspace = true
