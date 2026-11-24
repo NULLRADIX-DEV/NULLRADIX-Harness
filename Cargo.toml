@@ -13,6 +13,7 @@ publish = false
 [workspace.dependencies]
 nullradix-api = { path = "crates/api" }
 nullradix-app = { path = "crates/app" }
+nullradix-client = { path = "crates/client" }
 nullradix-domain = { path = "crates/domain" }
 nullradix-os = { path = "crates/os" }
 nullradix-store = { path = "crates/store" }
@@ -33,9 +34,11 @@ tower-http = { version = "0.7.1", features = ["request-id", "trace", "util"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+ureq = { version = "3.5.2", default-features = false, features = ["json"] }
 utoipa = { version = "6.0.0", features = ["uuid"] }
 utoipa-axum = "0.3.0"
 uuid = "1.29.3"
+windows-sys = "0.61.2"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

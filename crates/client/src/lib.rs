@@ -1,0 +1,7 @@
+//! Finding and calling the daemon from the CLI, hooks and the desktop shell.
+
+mod discovery;
+mod http;
+
+pub use discovery::{Discovery, DiscoveryError, DiscoveryFile};
+pub use http::{Client, ClientError};
