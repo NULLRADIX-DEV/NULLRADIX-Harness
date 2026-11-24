@@ -4,7 +4,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
 use nullradix_app::tickets::{
-    HistoryLine, NewTicket, TicketDetail, TicketFilter, TicketScope, TicketView, WriteOptions,
+    self, HistoryLine, NewTicket, TicketDetail, TicketFilter, TicketScope, TicketView, WriteOptions,
 };
 use nullradix_domain::{Column, Id, Priority, TicketKey, TicketStatus};
 use serde::{Deserialize, Serialize};
@@ -251,8 +251,12 @@ pub struct CreateTicket {
     pub title: String,
     pub description: Option<String>,
     pub acceptance: Option<String>,
-    pub status: Option<TicketStatusDto>,
-    pub priority: Option<PriorityDto>,
+    /// Read as text, so an unknown status is `status-invalid` as on the legacy board.
+    #[schema(value_type = Option<TicketStatusDto>)]
+    pub status: Option<String>,
+    /// Read as text, so an unknown priority is `priority-invalid`.
+    #[schema(value_type = Option<PriorityDto>)]
+    pub priority: Option<String>,
     /// Entries may hold several labels split by commas.
     #[serde(default)]
     pub labels: Vec<String>,
@@ -304,18 +308,6 @@ pub(crate) struct TicketQuery {
     query: Option<String>,
 }
 
-fn columns(text: &str) -> Result<Vec<Column>, AppError> {
-    text.split(',')
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(|name| {
-            name.parse().map_err(|_| {
-                AppError::invalid("status-invalid", format!("column {name} is unknown"))
-            })
-        })
-        .collect()
-}
-
 impl TicketQuery {
     fn into_filter(self) -> Result<TicketFilter, AppError> {
         Ok(TicketFilter {
@@ -323,7 +315,10 @@ impl TicketQuery {
                 project: self.project_id.map(Id::from_uuid),
                 board: self.board_id.map(Id::from_uuid),
             },
-            columns: self.columns.as_deref().map(columns).transpose()?,
+            columns: match self.columns.as_deref() {
+                Some(text) => tickets::columns(text)?,
+                None => None,
+            },
             needs_planning: self.needs_planning,
             assignee: self.assignee,
             label: self.label,
@@ -389,8 +384,8 @@ pub(crate) async fn create_ticket(
         title: input.title,
         description: input.description,
         acceptance: input.acceptance,
-        status: input.status.map(TicketStatus::from),
-        priority: input.priority.map(Priority::from),
+        status: input.status,
+        priority: input.priority,
         labels: input.labels,
         depends_on: input.depends_on,
         needs_planning: input.needs_planning,
@@ -440,21 +435,9 @@ mod tests {
     use axum::http::Request;
     use serde_json::json;
 
-    use super::*;
-    use crate::tests::{bearer, send, test_api};
+    use crate::tests::{TestApi, bearer, local, open_session, send, test_api};
 
-    #[test]
-    fn columns_parse_from_a_comma_list() {
-        assert_eq!(
-            columns(" waiting, planned ,").unwrap(),
-            [Column::Waiting, Column::Planned]
-        );
-        assert_eq!(columns("later").unwrap_err().code(), "status-invalid");
-    }
-
-    #[tokio::test]
-    async fn tickets_are_created_on_a_board_and_read_by_key() {
-        let api = test_api().await;
+    async fn board_path(api: &TestApi) -> String {
         let project = api.projects.create("ARC", "Arches").await.unwrap();
         let board = api
             .boards
@@ -462,11 +445,17 @@ mod tests {
             .await
             .unwrap()
             .board;
-        let path = format!(
+        format!(
             "/api/v1/projects/{}/boards/{}/tickets",
             project.id().as_uuid(),
             board.id().as_uuid()
-        );
+        )
+    }
+
+    #[tokio::test]
+    async fn tickets_are_created_on_a_board_and_read_by_key() {
+        let api = test_api().await;
+        let path = board_path(&api).await;
         let body = json!({ "title": "Fix it", "labels": ["ui, api"], "priority": "high" });
         let request = bearer(Request::post(path.as_str()), &api.token)
             .header("content-type", "application/json")
@@ -519,5 +508,72 @@ mod tests {
             .unwrap();
         let (_, _, list) = send(&api.router, request).await;
         assert_eq!(list["items"].as_array().map(Vec::len), Some(1));
+    }
+
+    #[tokio::test]
+    async fn a_browser_session_writes_as_the_person() {
+        let api = test_api().await;
+        let path = board_path(&api).await;
+        let cookie = open_session(&api).await;
+        let request = local(Request::post(path.as_str()))
+            .header(axum::http::header::COOKIE, &cookie)
+            .header(axum::http::header::ORIGIN, "http://127.0.0.1:4711")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "title": "Old idea", "status": "not-needed" }).to_string(),
+            ))
+            .unwrap();
+        let (status, _, ticket) = send(&api.router, request).await;
+        assert_eq!(
+            (status.as_u16(), ticket["status"].as_str()),
+            (201, Some("not-needed"))
+        );
+    }
+
+    #[tokio::test]
+    async fn bad_filters_and_fields_name_the_legacy_codes() {
+        let api = test_api().await;
+        let path = board_path(&api).await;
+        let cases = [
+            ("/api/v1/tickets?columns=bogus", None, 422, "status-invalid"),
+            (
+                "/api/v1/tickets?projectId=0190a0b0-0000-7000-8000-00000000dead",
+                None,
+                404,
+                "project-not-found",
+            ),
+            (
+                path.as_str(),
+                Some(json!({ "title": "x", "status": "waiting" })),
+                422,
+                "status-invalid",
+            ),
+            (
+                path.as_str(),
+                Some(json!({ "title": "x", "priority": "critical" })),
+                422,
+                "priority-invalid",
+            ),
+        ];
+        for (uri, body, expected, code) in cases {
+            let request = match body {
+                Some(body) => bearer(Request::post(uri), &api.token)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string())),
+                None => bearer(Request::get(uri), &api.token).body(Body::empty()),
+            }
+            .unwrap();
+            let (status, _, problem) = send(&api.router, request).await;
+            assert_eq!(
+                (status.as_u16(), problem["code"].as_str()),
+                (expected, Some(code)),
+                "{uri}"
+            );
+        }
+        let request = bearer(Request::get("/api/v1/tickets?columns="), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, _) = send(&api.router, request).await;
+        assert_eq!(status, 200);
     }
 }

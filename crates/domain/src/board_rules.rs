@@ -154,8 +154,9 @@ impl DependencyIndex {
             index.statuses.insert(key.clone(), status);
             index.edges.insert(key, depends_on);
         }
+        // legacy sorted the key text, so ARC-10000 comes before ARC-9999
         for dependents in index.dependents.values_mut() {
-            dependents.sort();
+            dependents.sort_by_cached_key(ToString::to_string);
         }
         index
     }

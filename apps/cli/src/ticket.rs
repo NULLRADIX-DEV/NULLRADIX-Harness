@@ -4,9 +4,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context, bail};
 use clap::Subcommand;
-use nullradix_api::{
-    ColumnDto, CreateTicket, PriorityDto, TicketDetailDto, TicketDto, TicketStatusDto,
-};
+use nullradix_api::{ColumnDto, CreateTicket, PriorityDto, TicketDetailDto, TicketDto};
 use nullradix_client::Client;
 use nullradix_domain::{Priority, TicketKey, TicketStatus, Timestamp};
 use uuid::Uuid;
@@ -69,11 +67,11 @@ pub(crate) struct CreateArgs {
     #[arg(long)]
     description_file: Option<PathBuf>,
     /// Status to start in, backlog when left out
-    #[arg(long, value_parser = status)]
-    status: Option<TicketStatusDto>,
+    #[arg(long)]
+    status: Option<String>,
     /// low, normal, high or urgent
-    #[arg(long, value_parser = priority)]
-    priority: Option<PriorityDto>,
+    #[arg(long)]
+    priority: Option<String>,
     /// Labels; one flag may hold several split by commas
     #[arg(long = "label")]
     labels: Vec<String>,
@@ -92,7 +90,7 @@ pub(crate) struct CreateArgs {
     /// Branch to merge into instead of the default branch
     #[arg(long)]
     target_branch: Option<String>,
-    /// Lift the dependency and not-needed locks and allow a duplicate title
+    /// Lift the dependency, question and not-needed locks and allow a duplicate title
     #[arg(long)]
     force: bool,
     /// Print JSON instead of text
@@ -100,20 +98,16 @@ pub(crate) struct CreateArgs {
     json: bool,
 }
 
-fn status(text: &str) -> Result<TicketStatusDto, String> {
-    text.parse::<TicketStatus>()
-        .map(TicketStatusDto::from)
-        .map_err(|_| {
-            String::from(
-                "use backlog, in-planning, planned, in-progress, blocked, done or not-needed",
-            )
-        })
-}
-
-fn priority(text: &str) -> Result<PriorityDto, String> {
-    Priority::parse(text)
-        .map(PriorityDto::from)
-        .map_err(|error| error.to_string())
+/// Comma-separated ticket keys; blank entries drop out and `none` means no dependency.
+fn dependency_list(text: &str) -> Vec<String> {
+    if text.trim().eq_ignore_ascii_case("none") {
+        return Vec::new();
+    }
+    text.split(',')
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn text(inline: Option<String>, file: Option<&Path>) -> anyhow::Result<Option<String>> {
@@ -200,9 +194,10 @@ fn create(args: CreateArgs, client: &Client) -> anyhow::Result<()> {
         status: args.status,
         priority: args.priority,
         labels: args.labels,
-        depends_on: args.depends_on.map_or_else(Vec::new, |keys| {
-            keys.split(',').map(str::to_owned).collect()
-        }),
+        depends_on: args
+            .depends_on
+            .as_deref()
+            .map_or_else(Vec::new, dependency_list),
         needs_planning: args.planned.then_some(false),
         target_branch: args.target_branch,
         force: args.force,
@@ -368,4 +363,15 @@ fn show_lines(detail: &TicketDetailDto, history: bool) -> Vec<String> {
         }
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dependency_lists_drop_blanks_and_read_none_as_empty() {
+        assert_eq!(dependency_list("ARC-1, ,arc-2,"), ["ARC-1", "arc-2"]);
+        assert_eq!(dependency_list(" None "), Vec::<String>::new());
+    }
 }

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use nullradix_app::tickets::{HistoryLine, TicketRepository, TicketRow, TicketScope, TicketWrite};
+use nullradix_app::tickets::{
+    HistoryLine, TicketRead, TicketRepository, TicketRow, TicketScope, TicketSnapshot, TicketWrite,
+};
 use nullradix_app::{AppError, Change, ChangeOp, Entity, boards, projects};
 use nullradix_domain::{
     Board, BoardName, BoardRecord, DependencyIndex, HistoryEntry, Id, Priority, Project,
@@ -11,7 +13,7 @@ use nullradix_domain::{
 use sqlx::{Sqlite, SqliteConnection, Transaction};
 use uuid::Uuid;
 
-use crate::error::{database, foreign_key_violation};
+use crate::error::database;
 use crate::{Store, StoreError, change_feed};
 
 fn corrupt(what: &str) -> StoreError {
@@ -129,9 +131,11 @@ async fn rows(connection: &mut SqliteConnection, at: Selection) -> Result<Vec<Ro
     .await?)
 }
 
-async fn lists(connection: &mut SqliteConnection, at: Selection) -> Result<Lists, StoreError> {
-    let mut lists = Lists::default();
-    let labels = sqlx::query!(
+async fn labels(
+    connection: &mut SqliteConnection,
+    at: Selection,
+) -> Result<HashMap<Uuid, Vec<String>>, StoreError> {
+    let rows = sqlx::query!(
         r#"SELECT l.ticket_id AS "ticket_id: Uuid", l.label
            FROM ticket_labels l
            JOIN tickets t ON t.id = l.ticket_id
@@ -142,16 +146,20 @@ async fn lists(connection: &mut SqliteConnection, at: Selection) -> Result<Lists
         at.board,
         at.ticket,
     )
-    .fetch_all(&mut *connection)
+    .fetch_all(connection)
     .await?;
-    for row in labels {
-        lists
-            .labels
-            .entry(row.ticket_id)
-            .or_default()
-            .push(row.label);
+    let mut labels: HashMap<Uuid, Vec<String>> = HashMap::new();
+    for row in rows {
+        labels.entry(row.ticket_id).or_default().push(row.label);
     }
-    let edges = sqlx::query!(
+    Ok(labels)
+}
+
+async fn dependencies(
+    connection: &mut SqliteConnection,
+    at: Selection,
+) -> Result<HashMap<Uuid, Vec<TicketKey>>, StoreError> {
+    let rows = sqlx::query!(
         r#"SELECT e.ticket_id AS "ticket_id: Uuid", dp.key AS project_key, d.number
            FROM ticket_dependencies e
            JOIN tickets t ON t.id = e.ticket_id
@@ -166,14 +174,14 @@ async fn lists(connection: &mut SqliteConnection, at: Selection) -> Result<Lists
     )
     .fetch_all(connection)
     .await?;
-    for row in edges {
-        lists
-            .depends_on
+    let mut dependencies: HashMap<Uuid, Vec<TicketKey>> = HashMap::new();
+    for row in rows {
+        dependencies
             .entry(row.ticket_id)
             .or_default()
             .push(ticket_key(&row.project_key, row.number)?);
     }
-    Ok(lists)
+    Ok(dependencies)
 }
 
 async fn ticket_rows(
@@ -181,7 +189,10 @@ async fn ticket_rows(
     at: Selection,
 ) -> Result<Vec<TicketRow>, StoreError> {
     let rows = rows(&mut *connection, at).await?;
-    let mut lists = lists(connection, at).await?;
+    let mut lists = Lists {
+        labels: labels(&mut *connection, at).await?,
+        depends_on: dependencies(connection, at).await?,
+    };
     rows.into_iter()
         .map(|row| row.into_ticket_row(&mut lists))
         .collect()
@@ -196,8 +207,7 @@ async fn dependency_index(
     )
     .fetch_all(&mut *connection)
     .await?;
-    let lists = lists(connection, Selection::default()).await?;
-    let mut depends_on = lists.depends_on;
+    let mut depends_on = dependencies(connection, Selection::default()).await?;
     let mut nodes = Vec::with_capacity(tickets.len());
     for ticket in tickets {
         nodes.push((
@@ -226,68 +236,77 @@ async fn ticket_id(
     .await?)
 }
 
+async fn history(
+    connection: &mut SqliteConnection,
+    ticket: Uuid,
+) -> Result<Vec<HistoryLine>, StoreError> {
+    let rows = sqlx::query!(
+        r#"SELECT h.at, h.actor_id AS "actor_id: Uuid", a.name AS actor_name, h.field,
+                  h.from_value, h.to_value, h.note
+           FROM activity h JOIN actors a ON a.id = h.actor_id
+           WHERE h.ticket_id = ?
+           ORDER BY h.at, h.id"#,
+        ticket,
+    )
+    .fetch_all(connection)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| HistoryLine {
+            at: Timestamp::from_millis(row.at),
+            actor: Id::from_uuid(row.actor_id),
+            actor_name: row.actor_name,
+            field: row.field,
+            from: row.from_value,
+            to: row.to_value,
+            note: row.note,
+        })
+        .collect())
+}
+
 #[async_trait]
 impl TicketRepository for Store {
     async fn begin(&self) -> Result<Box<dyn TicketWrite>, AppError> {
         Ok(Box::new(Write(self.begin().await?)))
     }
 
-    async fn list(&self, scope: TicketScope) -> Result<Vec<TicketRow>, AppError> {
+    async fn list(&self, scope: TicketScope) -> Result<TicketSnapshot, AppError> {
         let at = Selection {
             project: scope.project.map(|id| id.as_uuid()),
             board: scope.board.map(|id| id.as_uuid()),
             ticket: None,
         };
-        let mut connection = self.reader.acquire().await.map_err(database)?;
-        let rows = ticket_rows(&mut connection, at).await?;
+        // one read transaction keeps rows, lists and the index on the same snapshot
+        let mut read = self.reader.begin().await.map_err(database)?;
+        let rows = ticket_rows(&mut read, at).await?;
         if rows.is_empty() {
-            missing_scope(&mut connection, scope).await?;
+            missing_scope(&mut read, scope).await?;
         }
-        Ok(rows)
+        let index = dependency_index(&mut read).await?;
+        read.commit().await.map_err(database)?;
+        Ok(TicketSnapshot { rows, index })
     }
 
-    async fn get(&self, key: &TicketKey) -> Result<Option<TicketRow>, AppError> {
-        let mut connection = self.reader.acquire().await.map_err(database)?;
-        let Some(id) = ticket_id(&mut connection, key).await? else {
+    async fn get(&self, key: &TicketKey) -> Result<Option<TicketRead>, AppError> {
+        let mut read = self.reader.begin().await.map_err(database)?;
+        let Some(id) = ticket_id(&mut read, key).await? else {
             return Ok(None);
         };
         let at = Selection {
             ticket: Some(id),
             ..Selection::default()
         };
-        Ok(ticket_rows(&mut connection, at).await?.pop())
-    }
-
-    async fn dependency_index(&self) -> Result<DependencyIndex, AppError> {
-        let mut connection = self.reader.acquire().await.map_err(database)?;
-        Ok(dependency_index(&mut connection).await?)
-    }
-
-    async fn history(&self, ticket: Id<Ticket>) -> Result<Vec<HistoryLine>, AppError> {
-        let id = ticket.as_uuid();
-        let rows = sqlx::query!(
-            r#"SELECT h.at, h.actor_id AS "actor_id: Uuid", a.name AS actor_name, h.field,
-                      h.from_value, h.to_value, h.note
-               FROM activity h JOIN actors a ON a.id = h.actor_id
-               WHERE h.ticket_id = ?
-               ORDER BY h.at, h.id"#,
-            id,
-        )
-        .fetch_all(&self.reader)
-        .await
-        .map_err(database)?;
-        Ok(rows
-            .into_iter()
-            .map(|row| HistoryLine {
-                at: Timestamp::from_millis(row.at),
-                actor: Id::from_uuid(row.actor_id),
-                actor_name: row.actor_name,
-                field: row.field,
-                from: row.from_value,
-                to: row.to_value,
-                note: row.note,
-            })
-            .collect())
+        let Some(row) = ticket_rows(&mut read, at).await?.pop() else {
+            return Ok(None);
+        };
+        let index = dependency_index(&mut read).await?;
+        let history = history(&mut read, id).await?;
+        read.commit().await.map_err(database)?;
+        Ok(Some(TicketRead {
+            row,
+            index,
+            history,
+        }))
     }
 }
 
@@ -487,11 +506,7 @@ async fn insert_ticket(
     )
     .execute(connection)
     .await;
-    match inserted {
-        Ok(_) => Ok(()),
-        Err(error) if foreign_key_violation(&error) => Err(boards::not_found(record.board)),
-        Err(error) => Err(database(error)),
-    }
+    inserted.map(|_| ()).map_err(database)
 }
 
 async fn insert_lists(

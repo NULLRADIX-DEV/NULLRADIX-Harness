@@ -346,6 +346,27 @@ pub(crate) mod tests {
         }
     }
 
+    /// Redeems a handoff and returns the session cookie as `name=value`.
+    pub(crate) async fn open_session(api: &TestApi) -> String {
+        let code = api.auth.create_handoff().unwrap();
+        let request = local(Request::get(format!(
+            "/api/v1/auth/handoff?code={}",
+            code.expose()
+        )))
+        .body(Body::empty())
+        .unwrap();
+        let response = api.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[header::LOCATION], "/");
+        let cookie = response.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("SameSite=Strict"));
+        cookie.split(';').next().unwrap().to_owned()
+    }
+
     pub(crate) fn local(request: axum::http::request::Builder) -> axum::http::request::Builder {
         request.header(header::HOST, "127.0.0.1:4711")
     }

@@ -90,34 +90,17 @@ impl TicketStatus {
         !matches!(self, Self::Done | Self::NotNeeded)
     }
 
-    /// Reads a column as people type it: any case, spaces or underscores, and legacy names.
-    pub fn parse_loosely(text: &str) -> Result<Self, TicketError> {
-        let dashed = text
-            .trim()
-            .to_lowercase()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join("-");
-        if matches!(dashed.as_str(), "waiting" | "wartet") {
-            return Err(TicketError::WaitingIsDerived);
-        }
-        // underscores only spell the status names; the legacy aliases take dashes alone
-        let named = dashed.replace('_', "-");
-        if let Some(status) = Self::iter().find(|status| status.as_str() == named) {
-            return Ok(status);
-        }
-        Ok(match dashed.as_str() {
-            "in-planung" | "planung" | "verfeinern" => Self::InPlanning,
-            "geplant" | "plan" => Self::Planned,
-            "in-arbeit" | "wip" | "arbeit" => Self::InProgress,
-            "blockiert" => Self::Blocked,
-            "erledigt" | "fertig" => Self::Done,
-            "nicht-mehr-noetig"
-            | "nicht-mehr-n\u{f6}tig"
-            | "nicht-noetig"
-            | "unnoetig"
-            | "hinfaellig" => Self::NotNeeded,
-            _ => return Err(TicketError::InvalidStatus(text.to_owned())),
+    /// Reads a status in any case, with spaces or underscores for dashes; waiting is no status.
+    pub fn parse(text: &str) -> Result<Self, TicketError> {
+        Ok(match Column::parse(text)? {
+            Column::Waiting => return Err(TicketError::WaitingIsDerived),
+            Column::Backlog => Self::Backlog,
+            Column::InPlanning => Self::InPlanning,
+            Column::Planned => Self::Planned,
+            Column::InProgress => Self::InProgress,
+            Column::Blocked => Self::Blocked,
+            Column::Done => Self::Done,
+            Column::NotNeeded => Self::NotNeeded,
         })
     }
 }
@@ -161,6 +144,20 @@ impl Column {
     #[must_use]
     pub fn as_str(self) -> &'static str {
         self.into()
+    }
+
+    /// Reads a column in any case, with spaces or underscores for dashes.
+    pub fn parse(text: &str) -> Result<Self, TicketError> {
+        let dashed = text
+            .trim()
+            .to_lowercase()
+            .replace('_', " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join("-");
+        Self::iter()
+            .find(|column| column.as_str() == dashed)
+            .ok_or_else(|| TicketError::InvalidStatus(text.to_owned()))
     }
 }
 
@@ -298,28 +295,29 @@ mod tests {
     }
 
     #[test]
-    fn statuses_read_wire_names_snake_case_and_legacy_names() {
+    fn statuses_and_columns_read_their_english_names_in_any_spelling() {
         assert_eq!(TicketStatus::InProgress.as_str(), "in-progress");
         let cases = [
             ("in-progress", TicketStatus::InProgress),
-            ("In Progress", TicketStatus::InProgress),
+            (" In Progress ", TicketStatus::InProgress),
             ("not_needed", TicketStatus::NotNeeded),
-            ("In Arbeit", TicketStatus::InProgress),
-            ("Nicht mehr n\u{f6}tig", TicketStatus::NotNeeded),
-            ("verfeinern", TicketStatus::InPlanning),
-            ("fertig", TicketStatus::Done),
+            ("BACKLOG", TicketStatus::Backlog),
         ];
         for (text, status) in cases {
-            assert_eq!(TicketStatus::parse_loosely(text), Ok(status), "{text}");
+            assert_eq!(TicketStatus::parse(text), Ok(status), "{text}");
         }
         assert_eq!(
-            TicketStatus::parse_loosely("Wartet"),
+            TicketStatus::parse("Waiting"),
             Err(TicketError::WaitingIsDerived)
         );
-        assert!(TicketStatus::parse_loosely("later").is_err());
-        // legacy matches its aliases with dashes only
-        for text in ["in_arbeit", "in_planung", "nicht_mehr_noetig"] {
-            assert!(TicketStatus::parse_loosely(text).is_err(), "{text}");
+        assert_eq!(Column::parse("waiting"), Ok(Column::Waiting));
+        // the German legacy aliases are gone, as the terms table decided
+        for text in ["later", "in Arbeit", "fertig", "wip", ""] {
+            assert_eq!(
+                TicketStatus::parse(text),
+                Err(TicketError::InvalidStatus(text.to_owned())),
+                "{text}"
+            );
         }
         assert!(!TicketStatus::Done.is_open() && !TicketStatus::NotNeeded.is_open());
         assert!(TicketStatus::Blocked.is_open());

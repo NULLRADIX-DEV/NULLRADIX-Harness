@@ -87,6 +87,21 @@
         ]
       }
     },
+    {
+      "name": "force allows the same title and skips blank dependencies",
+      "cli": {
+        "args": [
+          "ticket",
+          "create",
+          "Login page",
+          "--board",
+          "{{board}}",
+          "--depends-on",
+          "ARC-3, ,",
+          "--force"
+        ]
+      }
+    },
     { "name": "list in the CLI", "cli": { "args": ["ticket", "list", "--board", "{{board}}"] } },
     { "name": "show in the CLI", "cli": { "args": ["ticket", "show", "arc-2"] } },
     {

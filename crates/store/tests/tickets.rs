@@ -165,11 +165,9 @@ async fn new_tickets_get_the_next_number_and_the_legacy_defaults() {
     assert_eq!(boards[0].open_tickets, 2);
 }
 
-#[tokio::test]
-async fn refused_tickets_take_no_number_and_leave_no_trace() {
-    let fx = fixture().await;
-    let (project, board) = fx.board("ARC").await;
-    let cases = [
+/// Inputs refused on create, each with the code that names why.
+fn refused_inputs() -> Vec<(NewTicket, &'static str)> {
+    vec![
         (titled(" "), "title-empty"),
         (titled(&"x".repeat(401)), "value-too-long"),
         (
@@ -202,20 +200,48 @@ async fn refused_tickets_take_no_number_and_leave_no_trace() {
         ),
         (
             NewTicket {
-                status: Some(TicketStatus::NotNeeded),
+                status: Some(String::from("not-needed")),
                 ..titled("Unneeded")
             },
             "not-needed-human-only",
         ),
         (
             NewTicket {
-                status: Some(TicketStatus::Done),
+                status: Some(String::from("waiting")),
+                ..titled("Waiting")
+            },
+            "status-invalid",
+        ),
+        (
+            NewTicket {
+                priority: Some(String::from("critical")),
+                ..titled("Critical")
+            },
+            "priority-invalid",
+        ),
+        (
+            NewTicket {
+                depends_on: vec![String::from("arc-1")],
+                ..titled("Itself")
+            },
+            "dependency-self",
+        ),
+        (
+            NewTicket {
+                status: Some(String::from("done")),
                 acceptance: Some(String::from("  ")),
                 ..titled("Done")
             },
             "acceptance-missing",
         ),
-    ];
+    ]
+}
+
+#[tokio::test]
+async fn refused_tickets_take_no_number_and_leave_no_trace() {
+    let fx = fixture().await;
+    let (project, board) = fx.board("ARC").await;
+    let cases = refused_inputs();
     for (input, code) in cases {
         assert_eq!(fx.create(&board, input, AGENT).await, Err(code.to_owned()));
     }
@@ -290,7 +316,7 @@ async fn open_tickets_with_the_same_title_are_refused_unless_allowed() {
     assert!(fx.create(&other, titled("Login page"), AGENT).await.is_ok());
 
     let done = NewTicket {
-        status: Some(TicketStatus::Done),
+        status: Some(String::from("done")),
         acceptance: Some(String::from("It works")),
         ..titled("Logout")
     };
@@ -319,7 +345,7 @@ async fn dependencies_decide_columns_locks_and_what_unlocks() {
 
     let started = NewTicket {
         depends_on: vec![String::from("ARC-1")],
-        status: Some(TicketStatus::InProgress),
+        status: Some(String::from("in-progress")),
         ..titled("Started")
     };
     assert_eq!(
@@ -335,7 +361,7 @@ async fn dependencies_decide_columns_locks_and_what_unlocks() {
         Ok(String::from("ARC-0003"))
     );
     let not_needed = NewTicket {
-        status: Some(TicketStatus::NotNeeded),
+        status: Some(String::from("not-needed")),
         ..titled("Unneeded")
     };
     assert!(fx.create(&board, not_needed, PERSON).await.is_ok());
@@ -347,23 +373,19 @@ async fn lists_filter_and_keep_the_display_order() {
     let (project, board) = fx.board("ARC").await;
     let (_, other) = fx.board("ZED").await;
     for (title, priority, labels) in [
-        ("Low one", Priority::Low, vec![String::from("ui")]),
-        ("Urgent one", Priority::Urgent, Vec::new()),
-        (
-            "Needle in text",
-            Priority::Normal,
-            vec![String::from("ui, api")],
-        ),
+        ("Low one", "low", vec![String::from("ui")]),
+        ("Urgent one", "urgent", Vec::new()),
+        ("Needle in text", "normal", vec![String::from("ui, api")]),
     ] {
         let input = NewTicket {
-            priority: Some(priority),
+            priority: Some(priority.to_owned()),
             labels,
             ..titled(title)
         };
         fx.create(&board, input, AGENT).await.unwrap();
     }
     let planned = NewTicket {
-        status: Some(TicketStatus::Planned),
+        status: Some(String::from("planned")),
         needs_planning: Some(false),
         ..titled("Planned")
     };
@@ -453,4 +475,62 @@ async fn boards_with_tickets_stay_until_the_tickets_are_gone() {
         .await
         .unwrap_err();
     assert_eq!(error.code(), "board-has-tickets");
+}
+
+#[tokio::test]
+async fn checks_run_in_the_legacy_order_and_skip_blank_dependencies() {
+    let fx = fixture().await;
+    let (project, board) = fx.board("ARC").await;
+    let first = NewTicket {
+        depends_on: vec![String::new(), String::from(" ")],
+        ..titled("Login page")
+    };
+    assert_eq!(
+        fx.create(&board, first, AGENT).await,
+        Ok(String::from("ARC-0001"))
+    );
+    let blank_entries = NewTicket {
+        depends_on: vec![String::from("ARC-1"), String::new()],
+        ..titled("Logout")
+    };
+    assert_eq!(
+        fx.create(&board, blank_entries, AGENT).await,
+        Ok(String::from("ARC-0002"))
+    );
+
+    let duplicate_first = NewTicket {
+        labels: vec!["x".repeat(101)],
+        ..titled("login PAGE")
+    };
+    assert_eq!(
+        fx.create(&board, duplicate_first, AGENT).await,
+        Err(String::from("ticket-duplicate"))
+    );
+    let dependency_before_branch = NewTicket {
+        depends_on: vec![String::from("ARC-99")],
+        target_branch: Some(String::from("ticket")),
+        ..titled("Lost")
+    };
+    assert_eq!(
+        fx.create(&board, dependency_before_branch, AGENT).await,
+        Err(String::from("dependency-unknown"))
+    );
+    let missing: Id<Board> = Id::from_uuid(uuid::Uuid::from_u128(9));
+    let error = fx
+        .tickets
+        .create(project.id(), missing, &titled(" "), &fx.person, AGENT)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "board-not-found");
+    let other_column = NewTicket {
+        status: Some(String::from("planned")),
+        ..titled("Planned")
+    };
+    fx.create(&board, other_column, AGENT).await.unwrap();
+    let mut orders = Vec::new();
+    for key in ["ARC-2", "ARC-3"] {
+        let view = fx.tickets.get(key).await.unwrap().view;
+        orders.push(view.ticket.record().sort_order);
+    }
+    assert_eq!(orders, [1, 0]);
 }

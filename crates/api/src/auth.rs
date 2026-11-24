@@ -244,30 +244,9 @@ pub(crate) async fn me(Extension(principal): Extension<Principal>) -> Json<Me> {
 mod tests {
     use axum::body::Body;
     use axum::http::Request;
-    use tower::ServiceExt;
 
     use super::*;
-    use crate::tests::{TestApi, bearer, local, send, test_api};
-
-    async fn open_session(api: &TestApi) -> String {
-        let code = api.auth.create_handoff().unwrap();
-        let request = local(Request::get(format!(
-            "/api/v1/auth/handoff?code={}",
-            code.expose()
-        )))
-        .body(Body::empty())
-        .unwrap();
-        let response = api.router.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SEE_OTHER);
-        assert_eq!(response.headers()[header::LOCATION], "/");
-        let cookie = response.headers()[header::SET_COOKIE]
-            .to_str()
-            .unwrap()
-            .to_owned();
-        assert!(cookie.contains("HttpOnly"));
-        assert!(cookie.contains("SameSite=Strict"));
-        cookie.split(';').next().unwrap().to_owned()
-    }
+    use crate::tests::{bearer, local, open_session, send, test_api};
 
     #[tokio::test]
     async fn protected_routes_need_credentials() {

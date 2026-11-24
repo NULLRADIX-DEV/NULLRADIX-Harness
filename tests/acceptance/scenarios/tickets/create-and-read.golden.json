@@ -261,6 +261,22 @@
   {
     "cli": [
       "ticket",
+      "create",
+      "Login page",
+      "--board",
+      "<ID-2>",
+      "--depends-on",
+      "ARC-3, ,",
+      "--force"
+    ],
+    "exitCode": 0,
+    "name": "force allows the same title and skips blank dependencies",
+    "stderr": "",
+    "stdout": "ARC-0004 created: Login page\n"
+  },
+  {
+    "cli": [
+      "ticket",
       "list",
       "--board",
       "<ID-2>"
@@ -268,7 +284,7 @@
     "exitCode": 0,
     "name": "list in the CLI",
     "stderr": "",
-    "stdout": "\nBacklog (2)\n  ARC-0001  Login page  [planning] (high) ui,api\n  ARC-0003  From the CLI  cli\n\nWaiting (1)\n  ARC-0002  Logout  [waiting for ARC-0001] [planning]\n"
+    "stdout": "\nBacklog (2)\n  ARC-0001  Login page  [planning] (high) ui,api\n  ARC-0003  From the CLI  cli\n\nWaiting (2)\n  ARC-0002  Logout  [waiting for ARC-0001] [planning]\n  ARC-0004  Login page  [waiting for ARC-0003] [planning]\n"
   },
   {
     "cli": [
@@ -320,6 +336,41 @@
             "status": "planned",
             "targetBranch": null,
             "title": "Logout",
+            "unlocks": [],
+            "updatedAt": "<TIME>",
+            "version": 1,
+            "waiting": true
+          },
+          {
+            "acceptance": "",
+            "assignee": null,
+            "blockedReason": null,
+            "boardId": "<ID-2>",
+            "column": "waiting",
+            "createdAt": "<TIME>",
+            "createdById": "<ID-3>",
+            "createdByName": "tester",
+            "dependents": [],
+            "dependsOn": [
+              "ARC-0003"
+            ],
+            "dependsOpen": [
+              "ARC-0003"
+            ],
+            "description": "",
+            "diagram": "",
+            "handbook": "",
+            "id": "<ID-6>",
+            "key": "ARC-0004",
+            "labels": [],
+            "needsPlanning": true,
+            "number": 4,
+            "plan": "",
+            "priority": "normal",
+            "projectId": "<ID-1>",
+            "status": "backlog",
+            "targetBranch": null,
+            "title": "Login page",
             "unlocks": [],
             "updatedAt": "<TIME>",
             "version": 1,
@@ -437,7 +488,7 @@
         "dispatchEnabled": true,
         "id": "<ID-2>",
         "name": "Main",
-        "openTickets": 3,
+        "openTickets": 4,
         "ownerId": "<ID-3>",
         "ownerName": "tester",
         "projectId": "<ID-1>",

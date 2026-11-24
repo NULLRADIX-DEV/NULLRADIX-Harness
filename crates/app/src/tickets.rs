@@ -43,11 +43,24 @@ pub struct TicketScope {
 pub trait TicketRepository: Send + Sync {
     /// Starts a write that reads and changes tickets in one transaction.
     async fn begin(&self) -> Result<Box<dyn TicketWrite>, AppError>;
-    /// Fails with a not-found error when the scope names a missing project or board.
-    async fn list(&self, scope: TicketScope) -> Result<Vec<TicketRow>, AppError>;
-    async fn get(&self, key: &TicketKey) -> Result<Option<TicketRow>, AppError>;
-    async fn dependency_index(&self) -> Result<DependencyIndex, AppError>;
-    async fn history(&self, ticket: Id<Ticket>) -> Result<Vec<HistoryLine>, AppError>;
+    /// Reads one snapshot; fails with a not-found error for a missing project or board.
+    async fn list(&self, scope: TicketScope) -> Result<TicketSnapshot, AppError>;
+    /// Reads the ticket, its history and every dependency in one snapshot.
+    async fn get(&self, key: &TicketKey) -> Result<Option<TicketRead>, AppError>;
+}
+
+/// Tickets with the dependencies of every ticket, read at the same moment.
+#[derive(Debug, Clone, Default)]
+pub struct TicketSnapshot {
+    pub rows: Vec<TicketRow>,
+    pub index: DependencyIndex,
+}
+
+#[derive(Debug, Clone)]
+pub struct TicketRead {
+    pub row: TicketRow,
+    pub index: DependencyIndex,
+    pub history: Vec<HistoryLine>,
 }
 
 /// One write; dropping it without [`TicketWrite::commit`] undoes everything.
@@ -121,10 +134,11 @@ pub struct NewTicket {
     pub title: String,
     pub description: Option<String>,
     pub acceptance: Option<String>,
-    pub status: Option<TicketStatus>,
-    pub priority: Option<Priority>,
+    /// A status name such as `planned`; checked like every other field.
+    pub status: Option<String>,
+    pub priority: Option<String>,
     pub labels: Vec<String>,
-    /// Ticket keys as typed, such as `arc-7`.
+    /// Ticket keys as typed, such as `arc-7`; blank entries are skipped.
     pub depends_on: Vec<String>,
     pub needs_planning: Option<bool>,
     pub target_branch: Option<String>,
@@ -234,35 +248,26 @@ fn duplicate(existing: &TicketKey) -> AppError {
     .with_existing(existing.to_string())
 }
 
-/// Text input checked before the write starts, so a refused ticket takes no number.
-struct CheckedInput {
-    title: TicketTitle,
-    labels: Vec<String>,
-    depends_on: Vec<TicketKey>,
-    target_branch: Option<TargetBranch>,
+/// Ticket keys without blank entries and duplicates, in the order given.
+fn dependency_keys(texts: &[String]) -> Result<Vec<TicketKey>, AppError> {
+    let keys = texts
+        .iter()
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| TicketKey::parse(text))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| invalid(&error))?;
+    Ok(normalize_dependencies(keys))
 }
 
-impl CheckedInput {
-    fn new(input: &NewTicket) -> Result<Self, AppError> {
-        let title = TicketTitle::parse(&input.title).map_err(|error| invalid(&error))?;
-        let labels = normalize_labels(&input.labels).map_err(|error| broken_rule(&error))?;
-        let depends_on = input
-            .depends_on
-            .iter()
-            .map(|key| TicketKey::parse(key))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| invalid(&error))?;
-        let target_branch = match input.target_branch.as_deref() {
-            Some(text) => TargetBranch::parse(text).map_err(|error| invalid(&error))?,
-            None => None,
-        };
-        Ok(Self {
-            title,
-            labels,
-            depends_on: normalize_dependencies(depends_on),
-            target_branch,
-        })
-    }
+/// Columns of a list filter, separated by commas; blank text filters nothing.
+pub fn columns(text: &str) -> Result<Option<Vec<Column>>, AppError> {
+    let columns = text
+        .split(',')
+        .filter(|name| !name.trim().is_empty())
+        .map(Column::parse)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| invalid(&error))?;
+    Ok((!columns.is_empty()).then_some(columns))
 }
 
 pub struct TicketService {
@@ -297,7 +302,7 @@ impl TicketService {
         }
     }
 
-    /// Creates a ticket at the end of its column, checked in the order legacy checked it.
+    /// Creates a ticket at the end of its column, checking in the order legacy checked.
     pub async fn create(
         &self,
         project: Id<Project>,
@@ -306,37 +311,54 @@ impl TicketService {
         actor: &Actor,
         options: WriteOptions,
     ) -> Result<TicketView, AppError> {
-        let checked = CheckedInput::new(input)?;
-        let mut write = self.repository.begin().await?;
-        let (board, project_key) = match write.board(board).await? {
-            Some((found, key)) if found.project() == project => (found, key),
-            _ => {
-                drop(write);
-                return Err(self.missing_board(project, board).await);
-            }
+        let status = match input.status.as_deref() {
+            Some(text) => TicketStatus::parse(text).map_err(|error| invalid(&error))?,
+            None => TicketStatus::Backlog,
         };
-        if !options.allow_duplicate {
-            let wanted = checked.title.folded();
-            if let Some((existing, _)) = write
-                .open_titles(board.id())
-                .await?
-                .into_iter()
-                .find(|(_, title)| title.folded() == wanted)
+        let priority = match input.priority.as_deref() {
+            Some(text) => Priority::parse(text).map_err(|error| invalid(&error))?,
+            None => Priority::Normal,
+        };
+        let mut write = self.repository.begin().await?;
+        let found = write
+            .board(board)
+            .await?
+            .filter(|(found, _)| found.project() == project);
+        if found.is_some() && !options.allow_duplicate {
+            // legacy compared the raw title, so a blank one never counts as a duplicate
+            let wanted = input.title.trim().to_lowercase();
+            if !wanted.is_empty()
+                && let Some((existing, _)) = write
+                    .open_titles(board)
+                    .await?
+                    .into_iter()
+                    .find(|(_, title)| title.folded() == wanted)
             {
                 return Err(duplicate(&existing));
             }
         }
+        let Some((board, project_key)) = found else {
+            drop(write);
+            return Err(self.missing_board(project, board).await);
+        };
+        let title = TicketTitle::parse(&input.title).map_err(|error| invalid(&error))?;
+        let depends_on = dependency_keys(&input.depends_on)?;
         let key = TicketKey::new(project_key, write.take_number(project).await?);
         let index = write.dependency_index().await?;
-        if !checked.depends_on.is_empty() {
-            validate_dependencies(&key, &checked.depends_on, index.edges())
+        if !depends_on.is_empty() {
+            validate_dependencies(&key, &depends_on, index.edges())
                 .map_err(|error| broken_rule(&error))?;
         }
+        let labels = normalize_labels(&input.labels).map_err(|error| broken_rule(&error))?;
+        let sort_order = write.next_sort_order(board.id(), status).await?;
+        let target_branch = match input.target_branch.as_deref() {
+            Some(text) => TargetBranch::parse(text).map_err(|error| invalid(&error))?,
+            None => None,
+        };
         let acceptance = input.acceptance.clone().unwrap_or_default();
-        let status = input.status.unwrap_or(TicketStatus::Backlog);
         let facts = StatusFacts {
             acceptance_blank: acceptance.trim().is_empty(),
-            open_dependencies: index.open_dependencies(&checked.depends_on),
+            open_dependencies: index.open_dependencies(&depends_on),
             open_questions: Vec::new(),
         };
         let request = StatusRequest {
@@ -344,17 +366,16 @@ impl TicketService {
             force: options.force,
         };
         check_status_change(None, status, request, &facts).map_err(|error| locked(&error))?;
-        let sort_order = write.next_sort_order(board.id(), status).await?;
         let draft = TicketDraft {
-            title: checked.title,
+            title,
             description: input.description.clone().unwrap_or_default(),
             acceptance,
             status,
-            priority: input.priority.unwrap_or_default(),
-            labels: checked.labels,
-            depends_on: checked.depends_on,
+            priority,
+            labels,
+            depends_on,
             needs_planning: input.needs_planning.unwrap_or(true),
-            target_branch: checked.target_branch,
+            target_branch,
         };
         let ticket = Ticket::new(
             self.ids.next(),
@@ -378,12 +399,12 @@ impl TicketService {
 
     /// Tickets in display order: column, priority, number.
     pub async fn list(&self, filter: &TicketFilter) -> Result<Vec<TicketView>, AppError> {
-        let rows = self.repository.list(filter.scope).await?;
-        let index = self.repository.dependency_index().await?;
+        let snapshot = self.repository.list(filter.scope).await?;
         let query = filter.query.as_ref().map(|text| text.to_lowercase());
-        let mut views: Vec<TicketView> = rows
+        let mut views: Vec<TicketView> = snapshot
+            .rows
             .into_iter()
-            .map(|row| TicketView::new(row, &index))
+            .map(|row| TicketView::new(row, &snapshot.index))
             .filter(|view| filter.accepts(view, query.as_deref()))
             .collect();
         views.sort_by_cached_key(TicketView::order);
@@ -393,16 +414,14 @@ impl TicketService {
     /// The ticket with its history; the key may be typed loosely, such as `arc-7`.
     pub async fn get(&self, key: &str) -> Result<TicketDetail, AppError> {
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
-        let row = self
+        let read = self
             .repository
             .get(&key)
             .await?
             .ok_or_else(|| not_found(&key))?;
-        let index = self.repository.dependency_index().await?;
-        let history = self.repository.history(row.ticket.id()).await?;
         Ok(TicketDetail {
-            view: TicketView::new(row, &index),
-            history,
+            view: TicketView::new(read.row, &read.index),
+            history: read.history,
         })
     }
 
@@ -456,5 +475,31 @@ mod tests {
             assert_eq!(error.code(), code);
         }
         assert_eq!(duplicate(&key).existing(), Some("ARC-0001"));
+    }
+
+    #[test]
+    fn dependency_keys_skip_blanks_and_repeats() {
+        let texts = ["arc-1", " ", "ARC-0001", "", "zed-2"].map(String::from);
+        let keys: Vec<String> = dependency_keys(&texts)
+            .unwrap()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(keys, ["ARC-0001", "ZED-0002"]);
+        let bad = [String::from("nope")];
+        assert_eq!(
+            dependency_keys(&bad).unwrap_err().code(),
+            "ticket-id-invalid"
+        );
+    }
+
+    #[test]
+    fn columns_read_a_comma_list() {
+        assert_eq!(
+            columns(" waiting, In Progress ,").unwrap(),
+            Some(vec![Column::Waiting, Column::InProgress])
+        );
+        assert_eq!(columns(" , ").unwrap(), None);
+        assert_eq!(columns("later").unwrap_err().code(), "status-invalid");
     }
 }
