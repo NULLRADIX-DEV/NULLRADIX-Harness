@@ -107,7 +107,7 @@ impl Row {
     }
 }
 
-async fn missed(connection: &mut SqliteConnection, id: Id<Board>) -> AppError {
+pub(crate) async fn missed(connection: &mut SqliteConnection, id: Id<Board>) -> AppError {
     let uuid = id.as_uuid();
     let exists = sqlx::query_scalar!("SELECT 1 FROM boards WHERE id = ?", uuid)
         .fetch_optional(connection)
@@ -264,38 +264,6 @@ impl BoardRepository for Store {
             board.updated_at(),
         )
         .await?;
-        tx.commit().await.map_err(database)?;
-        Ok(change)
-    }
-
-    async fn delete(
-        &self,
-        id: Id<Board>,
-        expected: Version,
-        at: Timestamp,
-    ) -> Result<Change, AppError> {
-        let uuid = id.as_uuid();
-        let expected = expected.value();
-        let mut tx = self.begin().await?;
-        let deleted = sqlx::query!(
-            "DELETE FROM boards WHERE id = ? AND version = ?",
-            uuid,
-            expected,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| {
-            if foreign_key_violation(&error) {
-                boards::has_tickets(id)
-            } else {
-                database(error)
-            }
-        })?;
-        if deleted.rows_affected() == 0 {
-            return Err(missed(&mut tx, id).await);
-        }
-        let change =
-            change_feed::record(&mut tx, Entity::Board, uuid, ChangeOp::Delete, at).await?;
         tx.commit().await.map_err(database)?;
         Ok(change)
     }

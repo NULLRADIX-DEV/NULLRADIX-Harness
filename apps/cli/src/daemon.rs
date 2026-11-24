@@ -156,6 +156,7 @@ async fn start_board(store: &Store, signal: &ChangeSignal) -> anyhow::Result<Boa
     let boards = Arc::new(BoardService::new(
         Arc::new(store.clone()),
         Arc::new(store.clone()),
+        Arc::new(store.clone()),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),

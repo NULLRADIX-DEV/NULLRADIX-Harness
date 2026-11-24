@@ -16,6 +16,10 @@ pub enum TicketError {
     InvalidPriority(String),
     #[error("the title {0}")]
     Title(TextError),
+    #[error("the name of the assignee {0}")]
+    Assignee(TextError),
+    #[error("the reason for blocked {0}")]
+    BlockedReason(TextError),
     #[error("the target branch has more than {0} characters")]
     TargetBranchTooLong(usize),
     #[error("{0} is no valid branch name")]

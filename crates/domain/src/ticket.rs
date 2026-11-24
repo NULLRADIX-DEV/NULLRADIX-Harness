@@ -5,6 +5,8 @@ use crate::{
 
 pub const TITLE_MAX: usize = 400;
 pub const BRANCH_MAX: usize = 400;
+pub const ASSIGNEE_MAX: usize = 100;
+pub const BLOCKED_REASON_MAX: usize = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TicketTitle(String);
@@ -190,6 +192,178 @@ impl Ticket {
     pub const fn status(&self) -> TicketStatus {
         self.0.status
     }
+
+    /// The next version of this ticket with `after`'s fields; identity and creation stay.
+    #[must_use]
+    pub fn revised(&self, after: TicketRecord, now: Timestamp) -> Self {
+        let before = &self.0;
+        Self(TicketRecord {
+            id: before.id,
+            key: before.key.clone(),
+            project: before.project,
+            created_by: before.created_by,
+            created_at: before.created_at,
+            updated_at: now,
+            version: before.version.next(),
+            ..after
+        })
+    }
+}
+
+/// One field that differs between two versions of a ticket, as its history shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldChange {
+    pub field: &'static str,
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+/// Changed fields in the legacy order; lists show as JSON, long texts only by their length.
+#[must_use]
+pub fn changes(before: &TicketRecord, after: &TicketRecord) -> Vec<FieldChange> {
+    let text = |value: &str| Some(value.to_owned());
+    let flag = |value: bool| text(if value { "true" } else { "false" });
+    let branch = |value: &Option<TargetBranch>| value.as_ref().map(|name| name.0.clone());
+    let keys = |keys: &[TicketKey]| keys.iter().map(ToString::to_string).collect::<Vec<_>>();
+    let length = |value: &str| Some(format!("{} characters", utf16_len(value)));
+    let pairs = [
+        (
+            "title",
+            text(before.title.as_str()),
+            text(after.title.as_str()),
+        ),
+        (
+            "status",
+            text(before.status.as_str()),
+            text(after.status.as_str()),
+        ),
+        (
+            "priority",
+            text(before.priority.as_str()),
+            text(after.priority.as_str()),
+        ),
+        ("assignee", before.assignee.clone(), after.assignee.clone()),
+        (
+            "needsPlanning",
+            flag(before.needs_planning),
+            flag(after.needs_planning),
+        ),
+        (
+            "acceptance",
+            text(&before.acceptance),
+            text(&after.acceptance),
+        ),
+        (
+            "blockedReason",
+            before.blocked_reason.clone(),
+            after.blocked_reason.clone(),
+        ),
+        (
+            "boardId",
+            text(&before.board.to_string()),
+            text(&after.board.to_string()),
+        ),
+        (
+            "targetBranch",
+            branch(&before.target_branch),
+            branch(&after.target_branch),
+        ),
+        (
+            "labels",
+            Some(json_list(&before.labels)),
+            Some(json_list(&after.labels)),
+        ),
+        (
+            "dependsOn",
+            Some(json_list(&keys(&before.depends_on))),
+            Some(json_list(&keys(&after.depends_on))),
+        ),
+    ];
+    let mut changes = Vec::new();
+    for (field, from, to) in pairs {
+        if from != to {
+            changes.push(FieldChange { field, from, to });
+        }
+    }
+    // long texts compare by content but show only their length
+    let texts = [
+        ("description", &before.description, &after.description),
+        ("plan", &before.plan, &after.plan),
+        ("handbook", &before.handbook, &after.handbook),
+        ("diagram", &before.diagram, &after.diagram),
+    ];
+    for (field, from, to) in texts {
+        if from != to {
+            changes.push(FieldChange {
+                field,
+                from: length(from),
+                to: length(to),
+            });
+        }
+    }
+    changes
+}
+
+/// A list of texts as a JSON array, as legacy wrote list changes into the history.
+fn json_list(items: &[String]) -> String {
+    let mut json = String::from("[");
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        json.push('"');
+        for letter in item.chars() {
+            match letter {
+                '"' => json.push_str("\\\""),
+                '\\' => json.push_str("\\\\"),
+                '\n' => json.push_str("\\n"),
+                '\r' => json.push_str("\\r"),
+                '\t' => json.push_str("\\t"),
+                '\u{8}' => json.push_str("\\b"),
+                '\u{c}' => json.push_str("\\f"),
+                control if u32::from(control) < 0x20 => {
+                    let code = u32::from(control);
+                    json.push_str("\\u00");
+                    json.push(char::from_digit(code >> 4, 16).unwrap_or('0'));
+                    json.push(char::from_digit(code & 0xf, 16).unwrap_or('0'));
+                }
+                other => json.push(other),
+            }
+        }
+        json.push('"');
+    }
+    json.push(']');
+    json
+}
+
+/// What stays of a deleted ticket.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tombstone {
+    pub id: Id<Self>,
+    pub ticket: Id<Ticket>,
+    pub project: Id<Project>,
+    pub key: TicketKey,
+    pub title: String,
+    pub from_status: TicketStatus,
+    pub actor: Id<Actor>,
+    pub at: Timestamp,
+}
+
+impl Tombstone {
+    #[must_use]
+    pub fn of(id: Id<Self>, ticket: &Ticket, actor: Id<Actor>, at: Timestamp) -> Self {
+        let record = ticket.record();
+        Self {
+            id,
+            ticket: record.id,
+            project: record.project,
+            key: record.key.clone(),
+            title: record.title.as_str().to_owned(),
+            from_status: record.status,
+            actor,
+            at,
+        }
+    }
 }
 
 /// One line of a ticket's history: a field that changed, or a note such as `created`.
@@ -206,6 +380,27 @@ pub struct HistoryEntry {
 }
 
 impl HistoryEntry {
+    #[must_use]
+    pub fn of(
+        id: Id<Self>,
+        ticket: Id<Ticket>,
+        actor: Id<Actor>,
+        at: Timestamp,
+        change: FieldChange,
+        note: Option<&str>,
+    ) -> Self {
+        Self {
+            id,
+            ticket,
+            actor,
+            at,
+            field: change.field,
+            from: change.from,
+            to: change.to,
+            note: note.map(str::to_owned),
+        }
+    }
+
     /// The first entry of every ticket: its status from nothing, noted as created.
     #[must_use]
     pub fn created(id: Id<Self>, ticket: &Ticket) -> Self {
@@ -325,6 +520,96 @@ mod tests {
         assert_eq!(
             (entry.field, entry.from, entry.note.as_deref()),
             ("status", None, Some("created"))
+        );
+    }
+
+    fn sample() -> Ticket {
+        let board = Board::new(
+            id(1),
+            id(2),
+            BoardName::parse("Main").unwrap(),
+            id(3),
+            Timestamp::from_millis(5),
+        );
+        let draft = TicketDraft {
+            title: TicketTitle::parse("Fix it").unwrap(),
+            description: String::from("abc"),
+            acceptance: String::new(),
+            status: TicketStatus::Backlog,
+            priority: Priority::Normal,
+            labels: Vec::new(),
+            depends_on: Vec::new(),
+            needs_planning: true,
+            target_branch: None,
+        };
+        let key = TicketKey::parse("ARC-7").unwrap();
+        Ticket::new(
+            id(4),
+            key,
+            &board,
+            draft,
+            0,
+            id(3),
+            Timestamp::from_millis(9),
+        )
+    }
+
+    #[test]
+    fn revisions_keep_identity_and_bump_the_version() {
+        let before = sample();
+        let mut after = before.record().clone();
+        after.key = TicketKey::parse("ZED-1").unwrap();
+        after.title = TicketTitle::parse("Fixed").unwrap();
+        let revised = before.revised(after, Timestamp::from_millis(20));
+        let record = revised.record();
+        assert_eq!(record.key, before.record().key);
+        assert_eq!(record.title.as_str(), "Fixed");
+        assert_eq!(record.version, Version::INITIAL.next());
+        assert_eq!(
+            (record.created_at, record.updated_at),
+            (Timestamp::from_millis(9), Timestamp::from_millis(20))
+        );
+    }
+
+    #[test]
+    fn changes_follow_the_legacy_history_format() {
+        let before = sample();
+        let mut after = before.record().clone();
+        after.status = TicketStatus::Planned;
+        after.needs_planning = false;
+        after.labels = vec![String::from("ui"), String::from("a\"b\u{1}\u{8}")];
+        after.depends_on = vec![TicketKey::parse("ARC-1").unwrap()];
+        after.description = String::from("xyz");
+        after.plan = String::from("\u{1f600}");
+        after.assignee = Some(String::from("claude"));
+        let changes = changes(before.record(), &after);
+        let shown: Vec<(&str, Option<&str>, Option<&str>)> = changes
+            .iter()
+            .map(|change| (change.field, change.from.as_deref(), change.to.as_deref()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("status", Some("backlog"), Some("planned")),
+                ("assignee", None, Some("claude")),
+                ("needsPlanning", Some("true"), Some("false")),
+                ("labels", Some("[]"), Some(r#"["ui","a\"b\u0001\b"]"#)),
+                ("dependsOn", Some("[]"), Some(r#"["ARC-0001"]"#)),
+                ("description", Some("3 characters"), Some("3 characters")),
+                ("plan", Some("0 characters"), Some("2 characters")),
+            ]
+        );
+        assert_eq!(super::changes(before.record(), before.record()), []);
+    }
+
+    #[test]
+    fn tombstones_keep_key_title_and_status() {
+        let ticket = sample();
+        let tombstone = Tombstone::of(id(8), &ticket, id(3), Timestamp::from_millis(30));
+        assert_eq!(tombstone.key.to_string(), "ARC-0007");
+        assert_eq!(
+            (tombstone.title.as_str(), tombstone.from_status),
+            ("Fix it", TicketStatus::Backlog)
         );
     }
 }

@@ -4,10 +4,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Actor, ActorKind, ActorName, Board, BoardError, BoardName, Id, Project, Timestamp, Version,
+    Actor, ActorKind, ActorName, Board, BoardError, BoardName, Id, Project, Ticket, TicketKey,
+    Version,
 };
 
 use crate::projects::{self, ProjectRepository};
+use crate::tickets::{self, TicketRepository};
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
 #[async_trait]
@@ -34,12 +36,6 @@ pub trait BoardRepository: Send + Sync {
     async fn list(&self, project: Option<Id<Project>>) -> Result<Vec<BoardSummary>, AppError>;
     async fn get(&self, id: Id<Board>) -> Result<Option<BoardSummary>, AppError>;
     async fn update(&self, board: &Board, expected: Version) -> Result<Change, AppError>;
-    async fn delete(
-        &self,
-        id: Id<Board>,
-        expected: Version,
-        at: Timestamp,
-    ) -> Result<Change, AppError>;
 }
 
 fn invalid(error: &BoardError) -> AppError {
@@ -51,16 +47,21 @@ fn invalid(error: &BoardError) -> AppError {
 }
 
 #[must_use]
-pub fn has_tickets(id: Id<Board>) -> AppError {
-    AppError::conflict(
-        "board-has-tickets",
-        format!("board {id} still has tickets; delete them first"),
-    )
-}
-
-#[must_use]
 pub fn not_found(id: Id<Board>) -> AppError {
     AppError::not_found("board-not-found", format!("board {id} does not exist"))
+}
+
+/// The error for a board that is missing from `project`: the project itself, or the board.
+pub(crate) async fn missing(
+    projects: &dyn ProjectRepository,
+    project: Id<Project>,
+    board: Id<Board>,
+) -> AppError {
+    match projects.get(project).await {
+        Ok(Some(_)) => not_found(board),
+        Ok(None) => projects::not_found(project),
+        Err(error) => error,
+    }
 }
 
 /// The person at this machine, as the actor every token and browser session acts for.
@@ -83,6 +84,7 @@ pub async fn local_person(
 pub struct BoardService {
     repository: Arc<dyn BoardRepository>,
     projects: Arc<dyn ProjectRepository>,
+    tickets: Arc<dyn TicketRepository>,
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     signal: ChangeSignal,
@@ -99,6 +101,7 @@ impl BoardService {
     pub fn new(
         repository: Arc<dyn BoardRepository>,
         projects: Arc<dyn ProjectRepository>,
+        tickets: Arc<dyn TicketRepository>,
         clock: Arc<dyn Clock>,
         ids: Arc<dyn IdGenerator>,
         signal: ChangeSignal,
@@ -106,6 +109,7 @@ impl BoardService {
         Self {
             repository,
             projects,
+            tickets,
             clock,
             ids,
             signal,
@@ -173,19 +177,44 @@ impl BoardService {
         })
     }
 
+    /// Deletes the board with its tickets; open ones only with `delete_open`, as in legacy.
     pub async fn delete(
         &self,
         project: Id<Project>,
         id: Id<Board>,
         expected: Version,
-    ) -> Result<(), AppError> {
-        self.get(project, id).await?;
-        let change = self
-            .repository
-            .delete(id, expected, self.clock.now())
-            .await?;
-        self.signal.notify(&change);
-        Ok(())
+        delete_open: bool,
+        actor: &Actor,
+    ) -> Result<Vec<TicketKey>, AppError> {
+        let mut write = self.tickets.begin().await?;
+        let board = match write.board(id).await? {
+            Some((board, _)) if board.project() == project => board,
+            _ => {
+                drop(write);
+                return Err(missing(self.projects.as_ref(), project, id).await);
+            }
+        };
+        if board.version() != expected {
+            return Err(AppError::version_conflict("board", id));
+        }
+        let doomed = write.board_tickets(id).await?;
+        let open: Vec<&TicketKey> = doomed
+            .iter()
+            .filter(|ticket| ticket.status().is_open())
+            .map(Ticket::key)
+            .collect();
+        if !open.is_empty() && !delete_open {
+            return Err(tickets::board_has_open_tickets(&open));
+        }
+        let now = self.clock.now();
+        let mut changes =
+            tickets::remove(write.as_mut(), &doomed, actor, now, self.ids.as_ref()).await?;
+        changes.push(write.delete_board(id, expected, now).await?);
+        write.commit().await?;
+        if let Some(last) = changes.last() {
+            self.signal.notify(last);
+        }
+        Ok(doomed.iter().map(|ticket| ticket.key().clone()).collect())
     }
 }
 

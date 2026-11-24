@@ -500,20 +500,20 @@
     }
   },
   {
-    "name": "boards keep their tickets",
+    "name": "boards keep their open tickets",
     "request": {
       "method": "DELETE",
       "path": "/api/v1/projects/<ID-1>/boards/<ID-2>?version=1"
     },
     "response": {
       "json": {
-        "code": "board-has-tickets",
-        "detail": "board <ID-2> still has tickets; delete them first",
-        "status": 409,
-        "title": "Conflict",
-        "type": "urn:nullradix:problem:board-has-tickets"
+        "code": "board-has-open-tickets",
+        "detail": "the board still has open tickets: ARC-0001, ARC-0002, ARC-0003, ARC-0004; move them or delete everything",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:board-has-open-tickets"
       },
-      "status": 409
+      "status": 422
     }
   }
 ]

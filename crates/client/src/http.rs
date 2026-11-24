@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, BoardDto, BoardList, CreateBoard, CreateProject, CreateTicket,
-    Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto, Problem, ProjectDto,
-    ProjectList, RenameBoard, RenameProject, RunDto, RunList, RunOutput, StartRun, TicketDetailDto,
-    TicketDto, TicketList,
+    API_PREFIX, API_VERSION, BoardDeleted, BoardDto, BoardList, CreateBoard, CreateProject,
+    CreateTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto,
+    MoveTicket, Problem, ProjectDto, ProjectList, RenameBoard, RenameProject, RunDto, RunList,
+    RunOutput, StartRun, TicketDetailDto, TicketDto, TicketList, UpdateTicket,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -182,21 +182,24 @@ impl Client {
         decode(&mut response, 200)
     }
 
+    /// Deletes the board with its tickets; open ones only with `delete_open`.
     pub fn delete_board(
         &self,
         project: Uuid,
         board: Uuid,
         version: i64,
-    ) -> Result<(), ClientError> {
+        delete_open: bool,
+    ) -> Result<BoardDeleted, ClientError> {
         let mut response = self
             .agent
             .delete(&self.url(&format!(
-                "/projects/{project}/boards/{board}?version={version}"
+                "/projects/{project}/boards/{board}?version={version}\
+                 &deleteOpenTickets={delete_open}"
             )))
             .header("Authorization", &self.authorization()?)
             .call()
             .map_err(|source| self.unreachable(source))?;
-        expect_empty(&mut response, 204)
+        decode(&mut response, 200)
     }
 
     pub fn list_runs(&self, limit: u32) -> Result<RunList, ClientError> {
@@ -276,6 +279,45 @@ impl Client {
     /// `key` must be a ticket key such as `ARC-0007`; it goes into the path as is.
     pub fn get_ticket(&self, key: &str) -> Result<TicketDetailDto, ClientError> {
         self.get_json(&format!("/tickets/{key}"))
+    }
+
+    /// `key` must be a ticket key such as `ARC-0007`, as for [`Client::get_ticket`].
+    pub fn update_ticket(
+        &self,
+        key: &str,
+        input: &UpdateTicket,
+    ) -> Result<TicketDetailDto, ClientError> {
+        let mut response = self
+            .agent
+            .patch(&self.url(&format!("/tickets/{key}")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn move_ticket(&self, key: &str, input: &MoveTicket) -> Result<TicketDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/tickets/{key}/move")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn delete_ticket(&self, key: &str, version: Option<i64>) -> Result<(), ClientError> {
+        let route = match version {
+            Some(version) => format!("/tickets/{key}?version={version}"),
+            None => format!("/tickets/{key}"),
+        };
+        let mut response = self
+            .agent
+            .delete(&self.url(&route))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
     }
 
     pub fn hook_events(&self, limit: u32) -> Result<HookEventList, ClientError> {
@@ -412,6 +454,7 @@ mod tests {
                 );
                 let hooks = Arc::new(HookService::new(store.clone(), Arc::new(SystemClock)));
                 let boards = Arc::new(nullradix_app::boards::BoardService::new(
+                    store.clone(),
                     store.clone(),
                     store.clone(),
                     Arc::new(SystemClock),

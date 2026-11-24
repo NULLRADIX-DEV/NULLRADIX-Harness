@@ -4,7 +4,9 @@ use std::process::ExitCode;
 
 use anyhow::{Context, bail};
 use clap::Subcommand;
-use nullradix_api::{ColumnDto, CreateTicket, PriorityDto, TicketDetailDto, TicketDto};
+use nullradix_api::{
+    ColumnDto, CreateTicket, MoveTicket, PriorityDto, TicketDetailDto, TicketDto, UpdateTicket,
+};
 use nullradix_client::Client;
 use nullradix_domain::{Priority, TicketKey, TicketStatus, Timestamp};
 use uuid::Uuid;
@@ -53,6 +55,98 @@ pub(crate) enum TicketCommand {
     },
     /// Create a ticket on a board
     Create(CreateArgs),
+    /// Change fields of a ticket
+    Set(Box<SetArgs>),
+    /// Move a ticket to another column
+    Move {
+        /// Ticket key such as ARC-7
+        key: String,
+        /// backlog, in-planning, planned, in-progress, blocked, done or not-needed
+        status: String,
+        /// How to tell the ticket is done, set in the same step
+        #[arg(long)]
+        acceptance: Option<String>,
+        /// Version the move is based on
+        #[arg(long)]
+        version: Option<i64>,
+        /// Lift the dependency, question and not-needed locks
+        #[arg(long)]
+        force: bool,
+    },
+    /// Delete a ticket for good
+    Delete {
+        /// Ticket key such as ARC-7
+        key: String,
+        /// Version the deletion is based on
+        #[arg(long)]
+        version: Option<i64>,
+    },
+}
+
+#[derive(clap::Args)]
+pub(crate) struct SetArgs {
+    /// Ticket key such as ARC-7
+    key: String,
+    #[arg(long)]
+    title: Option<String>,
+    #[arg(long, conflicts_with = "description_file")]
+    description: Option<String>,
+    #[arg(long)]
+    description_file: Option<PathBuf>,
+    #[arg(long, conflicts_with = "plan_file")]
+    plan: Option<String>,
+    #[arg(long)]
+    plan_file: Option<PathBuf>,
+    #[arg(long, conflicts_with = "handbook_file")]
+    handbook: Option<String>,
+    #[arg(long)]
+    handbook_file: Option<PathBuf>,
+    /// Mermaid diagram; a fence around it is kept as given
+    #[arg(long, conflicts_with = "diagram_file")]
+    diagram: Option<String>,
+    #[arg(long)]
+    diagram_file: Option<PathBuf>,
+    #[arg(long)]
+    status: Option<String>,
+    #[arg(long)]
+    priority: Option<String>,
+    /// Name of the assignee; empty or none clears it
+    #[arg(long)]
+    assignee: Option<String>,
+    /// Replaces the labels; one flag may hold several split by commas
+    #[arg(long = "label")]
+    labels: Vec<String>,
+    /// Why the ticket is blocked; empty clears it
+    #[arg(long)]
+    blocked_reason: Option<String>,
+    #[arg(long, conflicts_with = "acceptance_file")]
+    acceptance: Option<String>,
+    #[arg(long)]
+    acceptance_file: Option<PathBuf>,
+    /// true or false; anything but false counts as true
+    #[arg(long)]
+    needs_planning: Option<String>,
+    /// Replaces the dependencies with these comma-separated keys; none clears them
+    #[arg(long, conflicts_with_all = ["depends_on_add", "depends_on_remove"])]
+    depends_on: Option<String>,
+    /// Adds dependencies
+    #[arg(long)]
+    depends_on_add: Vec<String>,
+    /// Removes dependencies
+    #[arg(long)]
+    depends_on_remove: Vec<String>,
+    /// Branch to merge into; empty or none means the default branch
+    #[arg(long)]
+    target_branch: Option<String>,
+    /// Board of the same project to move the ticket to
+    #[arg(long)]
+    to_board: Option<Uuid>,
+    /// Version the change is based on; without it the current one is used
+    #[arg(long)]
+    version: Option<i64>,
+    /// Lift the dependency, question and not-needed locks
+    #[arg(long)]
+    force: bool,
 }
 
 #[derive(clap::Args)]
@@ -96,6 +190,11 @@ pub(crate) struct CreateArgs {
     /// Print JSON instead of text
     #[arg(long)]
     json: bool,
+}
+
+/// The value, or none for a literal `none` as legacy read it.
+fn none_or(value: &str) -> Option<String> {
+    (!value.trim().eq_ignore_ascii_case("none")).then(|| value.to_owned())
 }
 
 /// Comma-separated ticket keys; blank entries drop out and `none` means no dependency.
@@ -174,8 +273,87 @@ pub(crate) fn run(command: TicketCommand, client: &Client) -> anyhow::Result<Exi
             }
         }
         TicketCommand::Create(args) => create(args, client)?,
+        TicketCommand::Set(args) => set(*args, client)?,
+        TicketCommand::Move {
+            key,
+            status,
+            acceptance,
+            version,
+            force,
+        } => {
+            let key = TicketKey::parse(&key)?.to_string();
+            let input = MoveTicket {
+                status: Some(status),
+                version,
+                acceptance,
+                force,
+            };
+            let ticket = client.move_ticket(&key, &input)?;
+            println!(
+                "{} -> {}",
+                ticket.key,
+                TicketStatus::from(ticket.status).as_str()
+            );
+        }
+        TicketCommand::Delete { key, version } => {
+            let key = TicketKey::parse(&key)?.to_string();
+            client.delete_ticket(&key, version)?;
+            println!("{key} deleted.");
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
+    let key = TicketKey::parse(&args.key)?.to_string();
+    let version = args.version;
+    let keys = |texts: Vec<String>| {
+        (!texts.is_empty()).then(|| {
+            texts
+                .iter()
+                .flat_map(|text| dependency_list(text))
+                .collect()
+        })
+    };
+    let mut input = UpdateTicket {
+        version: version.unwrap_or(1),
+        title: args.title,
+        description: text(args.description, args.description_file.as_deref())?,
+        plan: text(args.plan, args.plan_file.as_deref())?,
+        handbook: text(args.handbook, args.handbook_file.as_deref())?,
+        diagram: text(args.diagram, args.diagram_file.as_deref())?,
+        status: args.status,
+        priority: args.priority,
+        labels: (!args.labels.is_empty()).then_some(args.labels),
+        assignee: args.assignee.as_deref().map(none_or),
+        needs_planning: args
+            .needs_planning
+            .map(|value| !value.trim().eq_ignore_ascii_case("false")),
+        blocked_reason: args.blocked_reason.map(Some),
+        acceptance: text(args.acceptance, args.acceptance_file.as_deref())?,
+        depends_on: args.depends_on.as_deref().map(dependency_list),
+        depends_on_add: keys(args.depends_on_add),
+        depends_on_remove: keys(args.depends_on_remove),
+        board_id: args.to_board,
+        target_branch: args.target_branch.as_deref().map(none_or),
+        force: args.force,
+    };
+    // without fields the daemon answers nothing-changed before it looks at the version
+    let names_a_field = input
+        != UpdateTicket {
+            version: input.version,
+            force: input.force,
+            ..UpdateTicket::default()
+        };
+    if version.is_none() && names_a_field {
+        input.version = client.get_ticket(&key)?.ticket.version;
+    }
+    let detail = client.update_ticket(&key, &input)?;
+    println!(
+        "{} changed (version {})",
+        detail.ticket.key, detail.ticket.version
+    );
+    Ok(())
 }
 
 fn create(args: CreateArgs, client: &Client) -> anyhow::Result<()> {

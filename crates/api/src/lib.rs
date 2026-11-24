@@ -42,7 +42,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
-pub use boards::{BoardDto, BoardList, CreateBoard, RenameBoard};
+pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard};
 pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
@@ -54,8 +54,8 @@ pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
 };
 pub use tickets::{
-    ColumnDto, CreateTicket, HistoryDto, PriorityDto, TicketDetailDto, TicketDto, TicketList,
-    TicketStatusDto,
+    ColumnDto, CreateTicket, HistoryDto, MoveTicket, PriorityDto, TicketDetailDto, TicketDto,
+    TicketList, TicketStatusDto, UpdateTicket,
 };
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
@@ -139,7 +139,12 @@ fn routes() -> OpenApiRouter<ApiState> {
         ))
         .routes(routes!(tickets::list_tickets))
         .routes(routes!(tickets::create_ticket))
-        .routes(routes!(tickets::get_ticket))
+        .routes(routes!(
+            tickets::get_ticket,
+            tickets::update_ticket,
+            tickets::delete_ticket
+        ))
+        .routes(routes!(tickets::move_ticket))
         .routes(routes!(runs::list_runs, runs::start_run))
         .routes(routes!(runs::get_run))
         .routes(routes!(runs::cancel_run))
@@ -281,6 +286,7 @@ pub(crate) mod tests {
         ));
         let changes: Arc<dyn ChangeFeed> = store.clone();
         let boards = Arc::new(BoardService::new(
+            store.clone(),
             store.clone(),
             store.clone(),
             Arc::new(SystemClock),

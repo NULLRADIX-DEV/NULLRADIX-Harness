@@ -116,7 +116,7 @@
       "http": { "method": "GET", "path": "/api/v1/projects/{{project}}/boards/{{board}}" }
     },
     {
-      "name": "boards keep their tickets",
+      "name": "boards keep their open tickets",
       "http": {
         "method": "DELETE",
         "path": "/api/v1/projects/{{project}}/boards/{{board}}?version=1"

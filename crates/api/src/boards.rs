@@ -86,10 +86,22 @@ pub(crate) struct BoardPath {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query, rename_all = "camelCase")]
 pub(crate) struct DeleteBoardQuery {
     /// Version the deletion is based on.
     version: i64,
+    /// Also delete tickets that are neither done nor not needed.
+    #[serde(default)]
+    delete_open_tickets: bool,
+}
+
+/// What a board deletion took with it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardDeleted {
+    /// Keys of the deleted tickets by number.
+    pub deleted_tickets: Vec<String>,
 }
 
 fn board_list(summaries: Vec<BoardSummary>) -> BoardList {
@@ -230,27 +242,31 @@ pub(crate) async fn rename_board(
     tag = "boards",
     params(BoardPath, DeleteBoardQuery),
     responses(
-        (status = 204, description = "The board is gone"),
+        (status = 200, description = "The board is gone with its tickets", body = BoardDeleted),
         (status = 401, body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
-        (status = 422, body = Problem),
+        (status = 422, description = "Open tickets without deleteOpenTickets", body = Problem),
     )
 )]
 pub(crate) async fn delete_board(
     State(state): State<ApiState>,
     ApiPath(path): ApiPath<BoardPath>,
     ApiQuery(query): ApiQuery<DeleteBoardQuery>,
-) -> Result<StatusCode, ApiError> {
-    state
+) -> Result<Json<BoardDeleted>, ApiError> {
+    let deleted = state
         .boards
         .delete(
             Id::from_uuid(path.project_id),
             Id::from_uuid(path.board_id),
             AppError::client_version(query.version)?,
+            query.delete_open_tickets,
+            &state.person,
         )
         .await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(BoardDeleted {
+        deleted_tickets: deleted.iter().map(ToString::to_string).collect(),
+    }))
 }
 
 #[cfg(test)]

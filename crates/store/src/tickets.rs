@@ -4,16 +4,17 @@ use async_trait::async_trait;
 use nullradix_app::tickets::{
     HistoryLine, TicketRead, TicketRepository, TicketRow, TicketScope, TicketSnapshot, TicketWrite,
 };
-use nullradix_app::{AppError, Change, ChangeOp, Entity, boards, projects};
+use nullradix_app::{AppError, Change, ChangeOp, Entity, boards, projects, tickets};
 use nullradix_domain::{
     Board, BoardName, BoardRecord, DependencyIndex, HistoryEntry, Id, Priority, Project,
     ProjectKey, TargetBranch, Ticket, TicketKey, TicketRecord, TicketStatus, TicketTitle,
-    Timestamp, Version,
+    Timestamp, Tombstone, Version,
 };
 use sqlx::{Sqlite, SqliteConnection, Transaction};
 use uuid::Uuid;
 
-use crate::error::database;
+use crate::boards::missed;
+use crate::error::{database, missed_guard};
 use crate::{Store, StoreError, change_feed};
 
 fn corrupt(what: &str) -> StoreError {
@@ -454,9 +455,211 @@ impl TicketWrite for Write {
         Ok(change)
     }
 
+    async fn ticket(&mut self, key: &TicketKey) -> Result<Option<Ticket>, AppError> {
+        let Some(id) = ticket_id(&mut self.0, key).await? else {
+            return Ok(None);
+        };
+        Ok(one(&mut self.0, id).await?)
+    }
+
+    async fn board_tickets(&mut self, board: Id<Board>) -> Result<Vec<Ticket>, AppError> {
+        let at = Selection {
+            board: Some(board.as_uuid()),
+            ..Selection::default()
+        };
+        let mut tickets: Vec<Ticket> = ticket_rows(&mut self.0, at)
+            .await?
+            .into_iter()
+            .map(|row| row.ticket)
+            .collect();
+        tickets.sort_by_key(|ticket| ticket.key().number());
+        Ok(tickets)
+    }
+
+    async fn dependents(&mut self, ticket: Id<Ticket>) -> Result<Vec<Ticket>, AppError> {
+        let uuid = ticket.as_uuid();
+        let ids = sqlx::query_scalar!(
+            r#"SELECT e.ticket_id AS "ticket_id: Uuid" FROM ticket_dependencies e
+               JOIN tickets t ON t.id = e.ticket_id
+               JOIN projects p ON p.id = t.project_id
+               WHERE e.depends_on_id = ?
+               ORDER BY p.key, t.number"#,
+            uuid,
+        )
+        .fetch_all(&mut *self.0)
+        .await
+        .map_err(database)?;
+        let mut dependents = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(ticket) = one(&mut self.0, id).await? {
+                dependents.push(ticket);
+            }
+        }
+        Ok(dependents)
+    }
+
+    async fn update(
+        &mut self,
+        ticket: &Ticket,
+        expected: Version,
+        history: &[HistoryEntry],
+    ) -> Result<Change, AppError> {
+        let record = ticket.record();
+        update_ticket(&mut self.0, record, expected).await?;
+        let id = record.id.as_uuid();
+        sqlx::query!("DELETE FROM ticket_labels WHERE ticket_id = ?", id)
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        sqlx::query!("DELETE FROM ticket_dependencies WHERE ticket_id = ?", id)
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        insert_lists(&mut self.0, record).await?;
+        insert_history(&mut self.0, history).await?;
+        Ok(change_feed::record(
+            &mut self.0,
+            Entity::Ticket,
+            id,
+            ChangeOp::Update,
+            record.updated_at,
+        )
+        .await?)
+    }
+
+    async fn delete(&mut self, ticket: &Ticket, tombstone: &Tombstone) -> Result<Change, AppError> {
+        let id = ticket.id().as_uuid();
+        let deleted = sqlx::query!("DELETE FROM tickets WHERE id = ?", id)
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        if deleted.rows_affected() == 0 {
+            return Err(tickets::not_found(ticket.key()));
+        }
+        let tombstone_id = tombstone.id.as_uuid();
+        let project = tombstone.project.as_uuid();
+        let key = tombstone.key.to_string();
+        let status = tombstone.from_status.as_str();
+        let actor = tombstone.actor.as_uuid();
+        let at = tombstone.at.as_millis();
+        sqlx::query!(
+            "INSERT INTO deleted_items (id, entity, entity_id, project_id, human_key, title,
+                                        from_status, actor_id, at)
+             VALUES (?, 'ticket', ?, ?, ?, ?, ?, ?, ?)",
+            tombstone_id,
+            id,
+            project,
+            key,
+            tombstone.title,
+            status,
+            actor,
+            at,
+        )
+        .execute(&mut *self.0)
+        .await
+        .map_err(database)?;
+        Ok(change_feed::record(
+            &mut self.0,
+            Entity::Ticket,
+            id,
+            ChangeOp::Delete,
+            tombstone.at,
+        )
+        .await?)
+    }
+
+    async fn delete_board(
+        &mut self,
+        board: Id<Board>,
+        expected: Version,
+        at: Timestamp,
+    ) -> Result<Change, AppError> {
+        let uuid = board.as_uuid();
+        let version = expected.value();
+        let deleted = sqlx::query!(
+            "DELETE FROM boards WHERE id = ? AND version = ?",
+            uuid,
+            version,
+        )
+        .execute(&mut *self.0)
+        .await
+        .map_err(database)?;
+        if deleted.rows_affected() == 0 {
+            return Err(missed(&mut self.0, board).await);
+        }
+        Ok(change_feed::record(&mut self.0, Entity::Board, uuid, ChangeOp::Delete, at).await?)
+    }
+
     async fn commit(self: Box<Self>) -> Result<(), AppError> {
         self.0.commit().await.map_err(database)
     }
+}
+
+async fn one(connection: &mut SqliteConnection, id: Uuid) -> Result<Option<Ticket>, StoreError> {
+    let at = Selection {
+        ticket: Some(id),
+        ..Selection::default()
+    };
+    Ok(ticket_rows(connection, at)
+        .await?
+        .pop()
+        .map(|row| row.ticket))
+}
+
+async fn update_ticket(
+    connection: &mut SqliteConnection,
+    record: &TicketRecord,
+    expected: Version,
+) -> Result<(), AppError> {
+    let id = record.id.as_uuid();
+    let board = record.board.as_uuid();
+    let title = record.title.as_str();
+    let status = record.status.as_str();
+    let priority = record.priority.as_str();
+    let needs_planning = i64::from(record.needs_planning);
+    let target_branch = record.target_branch.as_ref().map(TargetBranch::as_str);
+    let updated_at = record.updated_at.as_millis();
+    let version = record.version.value();
+    let expected = expected.value();
+    let updated = sqlx::query!(
+        "UPDATE tickets SET board_id = ?, title = ?, description = ?, acceptance = ?, plan = ?,
+                            handbook = ?, diagram = ?, status = ?, priority = ?, sort_order = ?,
+                            assignee = ?, needs_planning = ?, blocked_reason = ?,
+                            target_branch = ?, updated_at = ?, version = ?
+         WHERE id = ? AND version = ?",
+        board,
+        title,
+        record.description,
+        record.acceptance,
+        record.plan,
+        record.handbook,
+        record.diagram,
+        status,
+        priority,
+        record.sort_order,
+        record.assignee,
+        needs_planning,
+        record.blocked_reason,
+        target_branch,
+        updated_at,
+        version,
+        id,
+        expected,
+    )
+    .execute(&mut *connection)
+    .await
+    .map_err(database)?;
+    if updated.rows_affected() == 0 {
+        let exists = sqlx::query_scalar!("SELECT 1 FROM tickets WHERE id = ?", id)
+            .fetch_optional(connection)
+            .await;
+        return Err(missed_guard(
+            exists,
+            AppError::version_conflict("ticket", &record.key),
+            tickets::not_found(&record.key),
+        ));
+    }
+    Ok(())
 }
 
 async fn insert_ticket(

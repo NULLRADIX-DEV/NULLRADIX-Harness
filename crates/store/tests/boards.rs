@@ -52,6 +52,7 @@ async fn fixture() -> Fixture {
         boards: BoardService::new(
             store.clone(),
             store.clone(),
+            store.clone(),
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
             signal.clone(),
@@ -189,7 +190,7 @@ async fn board_writes_land_in_the_change_feed() {
     assert_eq!(fx.signalled(), None);
 
     fx.boards
-        .delete(arc.id(), board.id(), renamed.version())
+        .delete(arc.id(), board.id(), renamed.version(), false, &fx.person)
         .await
         .unwrap();
     assert!(fx.signalled().is_some());
@@ -255,7 +256,7 @@ async fn boards_answer_only_under_their_own_project() {
             .await
             .unwrap_err(),
         fx.boards
-            .delete(other.id(), board.id(), board.version())
+            .delete(other.id(), board.id(), board.version(), false, &fx.person)
             .await
             .unwrap_err(),
     ]
@@ -288,12 +289,18 @@ async fn projects_with_boards_cannot_be_deleted_until_the_boards_are_gone() {
 
     let stale = fx
         .boards
-        .delete(arc.id(), board.id(), Version::INITIAL.next())
+        .delete(
+            arc.id(),
+            board.id(),
+            Version::INITIAL.next(),
+            false,
+            &fx.person,
+        )
         .await
         .unwrap_err();
     assert_eq!(stale.code(), "version-conflict");
     fx.boards
-        .delete(arc.id(), board.id(), board.version())
+        .delete(arc.id(), board.id(), board.version(), false, &fx.person)
         .await
         .unwrap();
     assert_eq!(fx.boards.list(None).await.unwrap(), Vec::new());
