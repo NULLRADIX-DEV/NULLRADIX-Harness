@@ -19,6 +19,8 @@ export const GONE_MESSAGE = 'This project no longer exists.';
 const MESSAGES = {
   'version-conflict': CONFLICT_MESSAGE,
   'project-not-found': GONE_MESSAGE,
+  'project-has-boards':
+    'This project still has boards. Delete them first: nullradix board delete KEY ID.',
 };
 
 function CreateProjectForm() {

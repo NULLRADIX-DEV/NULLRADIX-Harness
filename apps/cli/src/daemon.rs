@@ -1,3 +1,4 @@
+use std::env;
 use std::fs::{self, File, TryLockError};
 use std::path::Path;
 use std::sync::Arc;
@@ -6,11 +7,13 @@ use std::time::Duration;
 use anyhow::{Context, bail};
 use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
 use nullradix_app::auth::AuthService;
+use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::runs::RunService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
+use nullradix_domain::Actor;
 use nullradix_runner::{LocalRunner, SupervisorCommand};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -88,11 +91,14 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
+    let (boards, person) = start_boards(&store, &signal).await?;
     let runs = start_runs(config, &store, &signal).await?;
     let hooks = start_hooks(config, &store, &shutdown);
     let state = ApiState {
         auth,
         projects,
+        boards,
+        person,
         runs,
         hooks,
         changes: Arc::new(store.clone()),
@@ -131,6 +137,33 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     served?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+/// Board service and the person every token and browser session acts for.
+async fn start_boards(
+    store: &Store,
+    signal: &ChangeSignal,
+) -> anyhow::Result<(Arc<BoardService>, Arc<Actor>)> {
+    let person = local_person(store, &person_name(), &UuidV7Generator, &SystemClock)
+        .await
+        .context("cannot record the local person; NULLRADIX_PERSON takes up to 100 characters")?;
+    tracing::debug!(person = %person.id(), "acting person");
+    let boards = Arc::new(BoardService::new(
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    Ok((boards, Arc::new(person)))
+}
+
+/// `NULLRADIX_PERSON`, else the account name of the operating system.
+fn person_name() -> String {
+    ["NULLRADIX_PERSON", "USERNAME", "USER"]
+        .iter()
+        .find_map(|name| env::var(name).ok().filter(|value| !value.trim().is_empty()))
+        .unwrap_or_else(|| String::from("owner"))
 }
 
 /// Run service on the local runner, watching runs that outlived the previous daemon.

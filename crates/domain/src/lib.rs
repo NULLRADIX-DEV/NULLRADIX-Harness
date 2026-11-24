@@ -1,5 +1,6 @@
 //! Entities and rules of NULLRADIX, free of IO.
 
+mod board;
 mod board_rules;
 mod hook;
 mod id;
@@ -9,6 +10,7 @@ mod ticket;
 mod timestamp;
 mod version;
 
+pub use board::{Actor, ActorKind, ActorName, Board, BoardError, BoardName, BoardRecord};
 pub use board_rules::{
     LABEL_MAX, RuleError, normalize_dependencies, normalize_labels, utf16_len,
     validate_dependencies,

@@ -2,9 +2,9 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, CreateProject, Handoff, Health, HookEventDto, HookEventList,
-    HookKindDto, HookReplyDto, Problem, ProjectDto, ProjectList, RenameProject, RunDto, RunList,
-    RunOutput, StartRun,
+    API_PREFIX, API_VERSION, BoardDto, BoardList, CreateBoard, CreateProject, Handoff, Health,
+    HookEventDto, HookEventList, HookKindDto, HookReplyDto, Problem, ProjectDto, ProjectList,
+    RenameBoard, RenameProject, RunDto, RunList, RunOutput, StartRun,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -134,6 +134,64 @@ impl Client {
         let mut response = self
             .agent
             .delete(&self.url(&format!("/projects/{id}?version={version}")))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    pub fn list_all_boards(&self) -> Result<BoardList, ClientError> {
+        self.get_json("/boards")
+    }
+
+    pub fn list_boards(&self, project: Uuid) -> Result<BoardList, ClientError> {
+        self.get_json(&format!("/projects/{project}/boards"))
+    }
+
+    pub fn get_board(&self, project: Uuid, board: Uuid) -> Result<BoardDto, ClientError> {
+        self.get_json(&format!("/projects/{project}/boards/{board}"))
+    }
+
+    pub fn create_board(
+        &self,
+        project: Uuid,
+        input: &CreateBoard,
+    ) -> Result<BoardDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/projects/{project}/boards")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    pub fn rename_board(
+        &self,
+        project: Uuid,
+        board: Uuid,
+        input: &RenameBoard,
+    ) -> Result<BoardDto, ClientError> {
+        let mut response = self
+            .agent
+            .patch(&self.url(&format!("/projects/{project}/boards/{board}")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn delete_board(
+        &self,
+        project: Uuid,
+        board: Uuid,
+        version: i64,
+    ) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!(
+                "/projects/{project}/boards/{board}?version={version}"
+            )))
             .header("Authorization", &self.authorization()?)
             .call()
             .map_err(|source| self.unreachable(source))?;
@@ -319,9 +377,26 @@ mod tests {
                     FAST,
                 );
                 let hooks = Arc::new(HookService::new(store.clone(), Arc::new(SystemClock)));
+                let boards = Arc::new(nullradix_app::boards::BoardService::new(
+                    store.clone(),
+                    store.clone(),
+                    Arc::new(SystemClock),
+                    Arc::new(UuidV7Generator),
+                    signal.clone(),
+                ));
+                let person = nullradix_app::boards::local_person(
+                    store.as_ref(),
+                    "tester",
+                    &UuidV7Generator,
+                    &SystemClock,
+                )
+                .await
+                .unwrap();
                 let state = ApiState {
                     auth,
                     projects,
+                    boards,
+                    person: Arc::new(person),
                     runs,
                     hooks,
                     changes: store,

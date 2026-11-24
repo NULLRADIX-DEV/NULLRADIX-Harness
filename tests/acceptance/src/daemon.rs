@@ -258,6 +258,7 @@ fn command(program: &Path, home: &Path, env: &BTreeMap<String, String>) -> Comma
     command
         .env("NULLRADIX_HOME", home)
         .env("NULLRADIX_PROFILE", "dev")
+        .env("NULLRADIX_PERSON", "tester")
         .envs(env);
     command
 }

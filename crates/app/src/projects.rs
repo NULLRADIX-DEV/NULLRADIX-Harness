@@ -37,6 +37,14 @@ pub fn not_found(id: Id<Project>) -> AppError {
 }
 
 #[must_use]
+pub fn has_boards(id: Id<Project>) -> AppError {
+    AppError::conflict(
+        "project-has-boards",
+        format!("project {id} still has boards; delete them first"),
+    )
+}
+
+#[must_use]
 pub fn key_taken(key: &ProjectKey) -> AppError {
     AppError::conflict(
         "project-key-taken",
