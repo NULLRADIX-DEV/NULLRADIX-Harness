@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO ticket_steps (ticket_id, position, text, done, detail)\n                 VALUES (?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "8bcc189dadbadef4d3ff74d51b61e4593fcb2dfe942138dc6cffd338e3496eaa"
+}

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT text, done, detail FROM ticket_steps WHERE ticket_id = ? ORDER BY position",
+  "describe": {
+    "columns": [
+      {
+        "name": "text",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_steps",
+            "name": "text"
+          }
+        }
+      },
+      {
+        "name": "done",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "ticket_steps",
+            "name": "done"
+          }
+        }
+      },
+      {
+        "name": "detail",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_steps",
+            "name": "detail"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a31598bf39bd0d953e7c5511ef81e4ab3d56bfccc9c1a4c5884dd01995cbd290"
+}

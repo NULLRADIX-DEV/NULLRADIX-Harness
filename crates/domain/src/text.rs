@@ -4,6 +4,18 @@ pub fn utf16_len(text: &str) -> usize {
     text.encode_utf16().count()
 }
 
+/// The longest start of `text` within `units` UTF-16 code units, never splitting a character.
+#[must_use]
+pub fn utf16_prefix(text: &str, units: usize) -> String {
+    let mut used = 0;
+    text.chars()
+        .take_while(|letter| {
+            used += letter.len_utf16();
+            used <= units
+        })
+        .collect()
+}
+
 /// Why a text field was refused; the entity error names the field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum TextError {

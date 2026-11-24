@@ -340,10 +340,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["add_step"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{ticketKey}/steps/{stepNumber}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_step"];
+        options?: never;
+        head?: never;
+        patch: operations["change_step"];
+        trace?: never;
+    };
+    "/api/v1/tickets/{ticketKey}/steps/{stepNumber}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["move_step"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A new work step. */
+        AddStep: {
+            /**
+             * Format: int64
+             * @description Position from 1; without one the step goes last.
+             */
+            at?: number | null;
+            /** @description Guidance for the step; blank guidance is none. */
+            detail?: string | null;
+            /** @description The text the step at `at` had when it was read. */
+            expectText?: string | null;
+            text: string;
+            /**
+             * Format: int64
+             * @description Version of the ticket the change is based on.
+             */
+            version?: number | null;
+        };
         /** @description What a board deletion took with it. */
         BoardDeleted: {
             /** @description Keys of the deleted tickets by number. */
@@ -390,6 +456,16 @@ export interface components {
         };
         /** @enum {string} */
         ChangeOpDto: "insert" | "update" | "delete";
+        /** @description A change of one step; left out fields stay, a `null` detail removes the guidance. */
+        ChangeStep: {
+            detail?: string | null;
+            done?: boolean | null;
+            /** @description The text the step had when it was read. */
+            expectText?: string | null;
+            text?: string | null;
+            /** Format: int64 */
+            version?: number | null;
+        };
         /**
          * @description A board column: the statuses plus waiting, which open dependencies derive.
          * @enum {string}
@@ -417,6 +493,8 @@ export interface components {
             needsPlanning?: boolean | null;
             priority?: components["schemas"]["PriorityDto"] | null;
             status?: components["schemas"]["TicketStatusDto"] | null;
+            /** @description Texts of work steps, none done. */
+            steps?: string[];
             targetBranch?: string | null;
             title: string;
         };
@@ -493,6 +571,14 @@ export interface components {
         /** @description The caller as the daemon sees it. */
         Me: {
             kind: components["schemas"]["PrincipalKind"];
+        };
+        /** @description A move of one step to another number. */
+        MoveStep: {
+            expectText?: string | null;
+            /** Format: int64 */
+            to: number;
+            /** Format: int64 */
+            version?: number | null;
         };
         /** @description A move to another column; done needs acceptance criteria, here or on the ticket. */
         MoveTicket: {
@@ -603,6 +689,14 @@ export interface components {
             /** Format: int64 */
             timeoutSeconds?: number | null;
         };
+        /** @description A work step; numbers count from 1. */
+        StepDto: {
+            detail?: string | null;
+            done: boolean;
+            /** Format: int32 */
+            number: number;
+            text: string;
+        };
         /** @description Data of the `ready` and `reset` events: the position the stream continues from. */
         StreamPosition: {
             /** Format: int64 */
@@ -611,6 +705,7 @@ export interface components {
         TicketDetailDto: {
             /** @description Oldest first. */
             history: components["schemas"]["HistoryDto"][];
+            steps: components["schemas"]["StepDto"][];
             ticket: components["schemas"]["TicketDto"];
         };
         /** @description A ticket as boards show it; timestamps are Unix milliseconds. */
@@ -645,6 +740,10 @@ export interface components {
             /** Format: uuid */
             projectId: string;
             status: components["schemas"]["TicketStatusDto"];
+            /** Format: int32 */
+            stepsDone: number;
+            /** Format: int32 */
+            stepsTotal: number;
             /** @description Branch the ticket merges into; none means the default branch. */
             targetBranch?: string | null;
             title: string;
@@ -2065,6 +2164,249 @@ export interface operations {
                 };
             };
             /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    add_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddStep"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version or a changed step */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    remove_step: {
+        parameters: {
+            query?: {
+                version?: number;
+                /** @description The text the step had when it was read. */
+                expectText?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`. */
+                ticketKey: string;
+                /** @description Step number from 1. */
+                stepNumber: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ticket without the step */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version or a changed step */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    change_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`. */
+                ticketKey: string;
+                /** @description Step number from 1. */
+                stepNumber: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeStep"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version or a changed step */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    move_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`. */
+                ticketKey: string;
+                /** @description Step number from 1. */
+                stepNumber: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveStep"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version or a changed step */
             409: {
                 headers: {
                     [name: string]: unknown;

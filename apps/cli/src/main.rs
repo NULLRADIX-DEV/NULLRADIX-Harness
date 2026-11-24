@@ -11,6 +11,7 @@ mod open;
 mod project;
 mod run;
 mod status;
+mod step;
 mod ticket;
 mod token;
 
@@ -57,6 +58,9 @@ enum Command {
     /// Create, list and show tickets
     #[command(subcommand)]
     Ticket(ticket::TicketCommand),
+    /// Check, add, edit, remove and move the work steps of a ticket
+    #[command(subcommand)]
+    Step(step::StepCommand),
     /// Run commands on the daemon's machine
     #[command(subcommand)]
     Run(run::RunCommand),
@@ -122,6 +126,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Ticket(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             ticket::run(command, &client)
+        }
+        Command::Step(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            step::run(command, &client)
         }
         Command::Run(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

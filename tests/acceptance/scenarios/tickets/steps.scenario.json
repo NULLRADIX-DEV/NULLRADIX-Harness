@@ -1,0 +1,71 @@
+{
+  "title": "Work steps are numbered from 1 and guarded as on the legacy board",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "create with steps",
+      "cli": {
+        "args": [
+          "ticket",
+          "create",
+          "Stepped",
+          "--board",
+          "{{board}}",
+          "--step",
+          "Write",
+          "--step",
+          "Test"
+        ]
+      }
+    },
+    { "name": "check the first", "cli": { "args": ["step", "check", "ARC-1", "1"] } },
+    {
+      "name": "add at the front",
+      "cli": { "args": ["step", "add", "ARC-1", "Plan", "--at", "1", "--detail", "Think first"] }
+    },
+    {
+      "name": "a step that moved",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1/steps/1",
+        "body": { "done": true, "expectText": "Write" }
+      }
+    },
+    {
+      "name": "no such step",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1/steps/9",
+        "body": { "done": true }
+      }
+    },
+    {
+      "name": "edit the guidance away",
+      "cli": { "args": ["step", "edit", "ARC-1", "1", "--text", "Plan it", "--detail", ""] }
+    },
+    { "name": "move to the end", "cli": { "args": ["step", "move", "ARC-1", "1", "3"] } },
+    {
+      "name": "remove one",
+      "cli": { "args": ["step", "remove", "ARC-1", "2", "--expect", "Test"] }
+    },
+    { "name": "list shows progress", "cli": { "args": ["ticket", "list"] } },
+    { "name": "detail", "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1" } }
+  ]
+}

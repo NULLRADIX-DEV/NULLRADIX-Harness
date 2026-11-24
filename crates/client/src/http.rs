@@ -2,10 +2,11 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, BoardDeleted, BoardDto, BoardList, CreateBoard, CreateProject,
-    CreateTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto,
-    MoveTicket, Problem, ProjectDto, ProjectList, RenameBoard, RenameProject, RunDto, RunList,
-    RunOutput, StartRun, TicketDetailDto, TicketDto, TicketList, UpdateTicket,
+    API_PREFIX, API_VERSION, AddStep, BoardDeleted, BoardDto, BoardList, ChangeStep, CreateBoard,
+    CreateProject, CreateTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto,
+    HookReplyDto, MoveStep, MoveTicket, Problem, ProjectDto, ProjectList, RenameBoard,
+    RenameProject, RunDto, RunList, RunOutput, StartRun, TicketDetailDto, TicketDto, TicketList,
+    UpdateTicket,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -300,6 +301,68 @@ impl Client {
         let mut response = self
             .agent
             .post(&self.url(&format!("/tickets/{key}/move")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn add_step(&self, key: &str, input: &AddStep) -> Result<TicketDetailDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/tickets/{key}/steps")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    pub fn change_step(
+        &self,
+        key: &str,
+        number: u32,
+        input: &ChangeStep,
+    ) -> Result<TicketDetailDto, ClientError> {
+        let mut response = self
+            .agent
+            .patch(&self.url(&format!("/tickets/{key}/steps/{number}")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    /// Removes step `number`; `expect_text` must hold what the step said when it was read.
+    pub fn remove_step(
+        &self,
+        key: &str,
+        number: u32,
+        version: Option<i64>,
+        expect_text: Option<&str>,
+    ) -> Result<TicketDetailDto, ClientError> {
+        let mut request = self
+            .agent
+            .delete(&self.url(&format!("/tickets/{key}/steps/{number}")))
+            .header("Authorization", &self.authorization()?);
+        if let Some(version) = version {
+            request = request.query("version", version.to_string());
+        }
+        if let Some(text) = expect_text {
+            request = request.query("expectText", text);
+        }
+        let mut response = request.call().map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn move_step(
+        &self,
+        key: &str,
+        number: u32,
+        input: &MoveStep,
+    ) -> Result<TicketDetailDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/tickets/{key}/steps/{number}/move")))
             .header("Authorization", &self.authorization()?)
             .send_json(input)
             .map_err(|source| self.unreachable(source))?;

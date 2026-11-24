@@ -6,6 +6,7 @@ mod hook;
 mod id;
 mod project;
 mod run;
+pub mod step;
 mod text;
 mod ticket;
 mod ticket_values;
@@ -21,7 +22,8 @@ pub use hook::{HookDetails, HookError, HookEvent, HookKind, SessionRef};
 pub use id::{Id, ParseIdError};
 pub use project::{Project, ProjectError, ProjectKey, ProjectName};
 pub use run::{Run, RunEnd, RunError, RunLabel, RunOutcome, RunRecord, RunStatus};
-pub use text::{TextError, optional_text, required_text, utf16_len};
+pub use step::{STEP_MAX, Step, StepEdit, StepError};
+pub use text::{TextError, optional_text, required_text, utf16_len, utf16_prefix};
 pub use ticket::{
     ASSIGNEE_MAX, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange, HistoryEntry, TITLE_MAX,
     TargetBranch, Ticket, TicketDraft, TicketRecord, TicketTitle, Tombstone, changes,

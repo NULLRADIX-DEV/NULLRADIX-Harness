@@ -1,0 +1,306 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Stepped",
+      "--board",
+      "<ID-2>",
+      "--step",
+      "Write",
+      "--step",
+      "Test"
+    ],
+    "exitCode": 0,
+    "name": "create with steps",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Stepped\n"
+  },
+  {
+    "cli": [
+      "step",
+      "check",
+      "ARC-1",
+      "1"
+    ],
+    "exitCode": 0,
+    "name": "check the first",
+    "stderr": "",
+    "stdout": "ARC-0001: 1/2 steps done.\n"
+  },
+  {
+    "cli": [
+      "step",
+      "add",
+      "ARC-1",
+      "Plan",
+      "--at",
+      "1",
+      "--detail",
+      "Think first"
+    ],
+    "exitCode": 0,
+    "name": "add at the front",
+    "stderr": "",
+    "stdout": "ARC-0001: step 1 added (1/3 done).\n  1. [ ] Plan\n  2. [x] Write\n  3. [ ] Test\n"
+  },
+  {
+    "name": "a step that moved",
+    "request": {
+      "body": {
+        "done": true,
+        "expectText": "Write"
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-1/steps/1"
+    },
+    "response": {
+      "json": {
+        "code": "conflict",
+        "detail": "step 1 changed in the meantime: Plan",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "no such step",
+    "request": {
+      "body": {
+        "done": true
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-1/steps/9"
+    },
+    "response": {
+      "json": {
+        "code": "step-not-found",
+        "detail": "there is no step 9 (1 to 3)",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:step-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "step",
+      "edit",
+      "ARC-1",
+      "1",
+      "--text",
+      "Plan it",
+      "--detail",
+      ""
+    ],
+    "exitCode": 0,
+    "name": "edit the guidance away",
+    "stderr": "",
+    "stdout": "ARC-0001: step 1 changed (1/3 done).\n  1. [ ] Plan it\n  2. [x] Write\n  3. [ ] Test\n"
+  },
+  {
+    "cli": [
+      "step",
+      "move",
+      "ARC-1",
+      "1",
+      "3"
+    ],
+    "exitCode": 0,
+    "name": "move to the end",
+    "stderr": "",
+    "stdout": "ARC-0001: step 1 -> 3 (1/3 done).\n  1. [x] Write\n  2. [ ] Test\n  3. [ ] Plan it\n"
+  },
+  {
+    "cli": [
+      "step",
+      "remove",
+      "ARC-1",
+      "2",
+      "--expect",
+      "Test"
+    ],
+    "exitCode": 0,
+    "name": "remove one",
+    "stderr": "",
+    "stdout": "ARC-0001: step 2 removed (1/2 done).\n  1. [x] Write\n  2. [ ] Plan it\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "list shows progress",
+    "stderr": "",
+    "stdout": "\nBacklog (1)\n  ARC-0001  Stepped  [planning] [1/2 steps]\n"
+  },
+  {
+    "name": "detail",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "step",
+            "from": "1: open",
+            "note": "Write",
+            "to": "1: done"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "step",
+            "from": null,
+            "note": "step added",
+            "to": "1: Plan"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "step",
+            "from": "1: Plan",
+            "note": "step edited",
+            "to": "1: Plan it"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "step",
+            "from": "1: Plan it",
+            "note": "step moved",
+            "to": "3: Plan it"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "step",
+            "from": "2: Test",
+            "note": "step removed",
+            "to": null
+          }
+        ],
+        "steps": [
+          {
+            "detail": null,
+            "done": true,
+            "number": 1,
+            "text": "Write"
+          },
+          {
+            "detail": null,
+            "done": false,
+            "number": 2,
+            "text": "Plan it"
+          }
+        ],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "column": "backlog",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-4>",
+          "key": "ARC-0001",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 1,
+          "plan": "",
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "stepsDone": 1,
+          "stepsTotal": 2,
+          "targetBranch": null,
+          "title": "Stepped",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 6,
+          "waiting": false
+        }
+      },
+      "status": 200
+    }
+  }
+]
