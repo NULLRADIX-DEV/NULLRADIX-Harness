@@ -148,7 +148,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{id}": {
+    "/api/v1/projects/{projectId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -162,6 +162,38 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["rename_project"];
+        trace?: never;
+    };
+    "/api/v1/projects/{projectId}/boards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_boards"];
+        put?: never;
+        post: operations["create_board"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{projectId}/boards/{boardId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_board"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_board"];
+        options?: never;
+        head?: never;
+        patch: operations["rename_board"];
         trace?: never;
     };
     "/api/v1/runs": {
@@ -232,6 +264,33 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A board as the API shows it; timestamps are Unix milliseconds. */
+        BoardDto: {
+            /** Format: int64 */
+            createdAt: number;
+            /** @description Whether the dispatcher may take tickets from this board. */
+            dispatchEnabled: boolean;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /**
+             * Format: int32
+             * @description Tickets that are neither done nor not needed.
+             */
+            openTickets: number;
+            /** Format: uuid */
+            ownerId: string;
+            ownerName: string;
+            /** Format: uuid */
+            projectId: string;
+            /** Format: int64 */
+            updatedAt: number;
+            /** Format: int64 */
+            version: number;
+        };
+        BoardList: {
+            items: components["schemas"]["BoardDto"][];
+        };
         /** @description Data of a `change` event; the event id carries `seq`. */
         ChangeDto: {
             /** Format: int64 */
@@ -245,12 +304,15 @@ export interface components {
         };
         /** @enum {string} */
         ChangeOpDto: "insert" | "update" | "delete";
+        CreateBoard: {
+            name: string;
+        };
         CreateProject: {
             key: string;
             name: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "run";
+        EntityDto: "project" | "board" | "run";
         /** @description One-time code that opens a browser session. */
         Handoff: {
             code: string;
@@ -349,6 +411,14 @@ export interface components {
         RecordedHookDto: {
             event: components["schemas"]["HookEventDto"];
             kind: components["schemas"]["HookKindDto"];
+        };
+        RenameBoard: {
+            name: string;
+            /**
+             * Format: int64
+             * @description Version the rename is based on.
+             */
+            version: number;
         };
         RenameProject: {
             name: string;
@@ -760,7 +830,7 @@ export interface operations {
             header?: never;
             path: {
                 /** @description Project id. */
-                id: string;
+                projectId: string;
             };
             cookie?: never;
         };
@@ -809,7 +879,7 @@ export interface operations {
             header?: never;
             path: {
                 /** @description Project id. */
-                id: string;
+                projectId: string;
             };
             cookie?: never;
         };
@@ -863,7 +933,7 @@ export interface operations {
             header?: never;
             path: {
                 /** @description Project id. */
-                id: string;
+                projectId: string;
             };
             cookie?: never;
         };
@@ -879,6 +949,272 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_boards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_board: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBoard"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the new board */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_board: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+                /** @description Board id. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_board: {
+        parameters: {
+            query: {
+                /** @description Version the deletion is based on. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+                /** @description Board id. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board is gone */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    rename_board: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+                /** @description Board id. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameBoard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardDto"];
                 };
             };
             401: {

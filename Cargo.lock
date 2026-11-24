@@ -1196,6 +1196,7 @@ dependencies = [
  "nullradix-api",
  "nullradix-app",
  "nullradix-client",
+ "nullradix-domain",
  "nullradix-os",
  "nullradix-runner",
  "nullradix-store",

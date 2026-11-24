@@ -1,6 +1,7 @@
 //! HTTP API served by the daemon.
 
 mod auth;
+mod boards;
 mod events;
 mod extract;
 mod health;
@@ -22,6 +23,7 @@ use axum::http::{HeaderValue, Request, StatusCode, header};
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use nullradix_app::auth::AuthService;
+use nullradix_app::boards::BoardService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::runs::RunService;
@@ -38,6 +40,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
+pub use boards::{BoardDto, BoardList, CreateBoard, RenameBoard};
 pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
@@ -91,6 +94,9 @@ impl std::fmt::Debug for ApiState {
 pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub projects: Arc<ProjectService>,
+    pub boards: Arc<BoardService>,
+    /// The person every token and browser session acts for.
+    pub person: Arc<nullradix_domain::Actor>,
     pub runs: Arc<RunService>,
     pub hooks: Arc<HookService>,
     pub changes: Arc<dyn ChangeFeed>,
@@ -116,6 +122,12 @@ fn routes() -> OpenApiRouter<ApiState> {
             projects::get_project,
             projects::rename_project,
             projects::delete_project
+        ))
+        .routes(routes!(boards::list_boards, boards::create_board))
+        .routes(routes!(
+            boards::get_board,
+            boards::rename_board,
+            boards::delete_board
         ))
         .routes(routes!(runs::list_runs, runs::start_run))
         .routes(routes!(runs::get_run))
@@ -255,6 +267,20 @@ pub(crate) mod tests {
             signal.clone(),
         ));
         let changes: Arc<dyn ChangeFeed> = store.clone();
+        let boards = Arc::new(BoardService::new(
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let person = nullradix_app::boards::local_person(
+            store.as_ref(),
+            "tester",
+            &UuidV7Generator,
+            &SystemClock,
+        )
+        .await
+        .unwrap();
         let runs = RunService::new(
             store.clone(),
             Arc::new(nullradix_runner::LocalRunner::new(
@@ -273,6 +299,8 @@ pub(crate) mod tests {
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
+            boards,
+            person: Arc::new(person),
             runs,
             hooks,
             changes: changes.clone(),

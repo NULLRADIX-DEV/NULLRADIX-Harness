@@ -1,0 +1,196 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "create",
+    "request": {
+      "body": {
+        "name": "  Main  "
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "blank name",
+    "request": {
+      "body": {
+        "name": " "
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "code": "invalid-board-name",
+        "detail": "a board name has 1 to 200 characters",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:invalid-board-name"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "unknown project",
+    "request": {
+      "body": {
+        "name": "Lost"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-4>/boards"
+    },
+    "response": {
+      "json": {
+        "code": "project-not-found",
+        "detail": "project <ID-4> does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:project-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "board",
+      "create",
+      "arc",
+      "Second"
+    ],
+    "exitCode": 0,
+    "name": "create in the CLI",
+    "stderr": "",
+    "stdout": "created board <ID-5> Second in ARC\n"
+  },
+  {
+    "name": "rename",
+    "request": {
+      "body": {
+        "name": "Main 2",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main 2",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "updatedAt": "<TIME>",
+        "version": 2
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "project with boards",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/projects/<ID-1>?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "project-has-boards",
+        "detail": "project <ID-1> still has boards; delete them first",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:project-has-boards"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "board",
+      "list",
+      "--project",
+      "ARC"
+    ],
+    "exitCode": 0,
+    "name": "list in the CLI",
+    "stderr": "",
+    "stdout": "<ID-2>  ARC     Main 2  (0 open)\n<ID-5>  ARC     Second  (0 open)\n"
+  },
+  {
+    "cli": [
+      "board",
+      "delete",
+      "ARC",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "delete in the CLI",
+    "stderr": "",
+    "stdout": "deleted board <ID-2>\n"
+  },
+  {
+    "name": "list after delete",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatchEnabled": true,
+            "id": "<ID-5>",
+            "name": "Second",
+            "openTickets": 0,
+            "ownerId": "<ID-3>",
+            "ownerName": "tester",
+            "projectId": "<ID-1>",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  }
+]

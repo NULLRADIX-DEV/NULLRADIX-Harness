@@ -5,7 +5,7 @@ use nullradix_domain::{Id, Project, ProjectKey, ProjectName, Timestamp, Version}
 use sqlx::SqliteConnection;
 use uuid::Uuid;
 
-use crate::error::{database, missed_guard, unique_violation};
+use crate::error::{database, foreign_key_violation, missed_guard, unique_violation};
 use crate::{Store, StoreError, change_feed};
 
 struct Row {
@@ -165,7 +165,13 @@ impl ProjectRepository for Store {
         )
         .execute(&mut *tx)
         .await
-        .map_err(database)?;
+        .map_err(|error| {
+            if foreign_key_violation(&error) {
+                projects::has_boards(id)
+            } else {
+                database(error)
+            }
+        })?;
         if deleted.rows_affected() == 0 {
             return Err(missed(&mut tx, id).await);
         }

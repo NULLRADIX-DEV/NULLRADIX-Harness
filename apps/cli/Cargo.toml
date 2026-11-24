@@ -17,6 +17,7 @@ clap.workspace = true
 nullradix-api.workspace = true
 nullradix-app.workspace = true
 nullradix-client.workspace = true
+nullradix-domain.workspace = true
 nullradix-os.workspace = true
 nullradix-runner.workspace = true
 nullradix-store.workspace = true

@@ -1,5 +1,6 @@
 //! The `nullradix` command line and daemon.
 
+mod board;
 mod config;
 mod connect;
 mod daemon;
@@ -49,6 +50,9 @@ enum Command {
     /// Manage projects
     #[command(subcommand)]
     Project(project::ProjectCommand),
+    /// Manage the boards of projects
+    #[command(subcommand)]
+    Board(board::BoardCommand),
     /// Run commands on the daemon's machine
     #[command(subcommand)]
     Run(run::RunCommand),
@@ -106,6 +110,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Project(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             project::run(command, &client)
+        }
+        Command::Board(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            board::run(command, &client)
         }
         Command::Run(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

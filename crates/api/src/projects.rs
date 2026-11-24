@@ -62,10 +62,11 @@ pub(crate) struct DeleteProjectQuery {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
-#[into_params(parameter_in = Path)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Path, rename_all = "camelCase")]
 pub(crate) struct ProjectPath {
     /// Project id.
-    id: Uuid,
+    project_id: Uuid,
 }
 
 #[utoipa::path(
@@ -115,7 +116,7 @@ pub(crate) async fn create_project(
 
 #[utoipa::path(
     get,
-    path = "/projects/{id}",
+    path = "/projects/{projectId}",
     tag = "projects",
     params(ProjectPath),
     responses(
@@ -129,13 +130,13 @@ pub(crate) async fn get_project(
     State(state): State<ApiState>,
     ApiPath(path): ApiPath<ProjectPath>,
 ) -> Result<Json<ProjectDto>, ApiError> {
-    let project = state.projects.get(Id::from_uuid(path.id)).await?;
+    let project = state.projects.get(Id::from_uuid(path.project_id)).await?;
     Ok(Json(project.into()))
 }
 
 #[utoipa::path(
     patch,
-    path = "/projects/{id}",
+    path = "/projects/{projectId}",
     tag = "projects",
     params(ProjectPath),
     request_body = RenameProject,
@@ -155,7 +156,7 @@ pub(crate) async fn rename_project(
     let project = state
         .projects
         .rename(
-            Id::from_uuid(path.id),
+            Id::from_uuid(path.project_id),
             &input.name,
             AppError::client_version(input.version)?,
         )
@@ -165,7 +166,7 @@ pub(crate) async fn rename_project(
 
 #[utoipa::path(
     delete,
-    path = "/projects/{id}",
+    path = "/projects/{projectId}",
     tag = "projects",
     params(ProjectPath, DeleteProjectQuery),
     responses(
@@ -184,7 +185,7 @@ pub(crate) async fn delete_project(
     state
         .projects
         .delete(
-            Id::from_uuid(path.id),
+            Id::from_uuid(path.project_id),
             AppError::client_version(query.version)?,
         )
         .await?;

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO boards (id, project_id, name, owner_id, dispatch_enabled, created_at,\n                                 updated_at, version)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "d39be7ce3035a44d694aa21e1fd2df5a1ecf3a6c658e2c17a4c5c071e41e6e5a"
+}

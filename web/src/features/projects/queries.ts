@@ -48,8 +48,8 @@ export function useRenameProject() {
   return useMutation({
     mutationFn: async ({ id, name, version }: RenameProjectInput) =>
       unwrap(
-        await api.PATCH('/api/v1/projects/{id}', {
-          params: { path: { id } },
+        await api.PATCH('/api/v1/projects/{projectId}', {
+          params: { path: { projectId: id } },
           body: { name, version },
         }),
       ),
@@ -62,8 +62,8 @@ export function useDeleteProject() {
   return useMutation({
     mutationFn: async ({ id, version }: DeleteProjectInput) => {
       unwrapEmpty(
-        await api.DELETE('/api/v1/projects/{id}', {
-          params: { path: { id }, query: { version } },
+        await api.DELETE('/api/v1/projects/{projectId}', {
+          params: { path: { projectId: id }, query: { version } },
         }),
       );
     },

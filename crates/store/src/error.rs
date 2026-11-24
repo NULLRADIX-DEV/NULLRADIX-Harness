@@ -30,6 +30,11 @@ pub(crate) fn unique_violation(error: &sqlx::Error, column: &str) -> bool {
     }
 }
 
+/// Whether `error` comes from a row that points to, or is still pointed to by, another.
+pub(crate) fn foreign_key_violation(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::Database(error) if error.is_foreign_key_violation())
+}
+
 /// Error for a guarded write that matched no row: a stale version or a missing entity.
 pub(crate) fn missed_guard(
     exists: Result<Option<i64>, sqlx::Error>,
