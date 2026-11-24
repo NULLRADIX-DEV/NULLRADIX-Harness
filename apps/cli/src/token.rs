@@ -1,22 +1,9 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use nullradix_app::auth::Secret;
-use nullradix_os::Paths;
-
-pub(crate) fn path(paths: &Paths) -> PathBuf {
-    paths.config.join("cli-token")
-}
-
-/// The local token, or `None` when the file is missing or damaged.
-pub(crate) fn read(path: &Path) -> io::Result<Option<Secret>> {
-    match fs::read_to_string(path) {
-        Ok(text) => Ok(Secret::parse(text.trim())),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
-    }
-}
+pub(crate) use nullradix_client::token::{path, read};
 
 /// Writes the token so only the current user can read it; on Windows the profile ACL applies.
 pub(crate) fn write(path: &Path, secret: &Secret) -> io::Result<()> {

@@ -1,0 +1,56 @@
+# Its own workspace, so the main build and CI stay free of the webview stack.
+[workspace]
+
+[package]
+name = "nullradix-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license = "MIT"
+repository = "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness"
+publish = false
+
+[lib]
+name = "nullradix_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nullradix-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7.6", features = [] }
+
+[dependencies]
+nullradix-client = { path = "../../crates/client" }
+nullradix-os = { path = "../../crates/os" }
+tauri = { version = "2.12.7", features = ["tray-icon"] }
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-single-instance = "2.5.5"
+thiserror = "2.0.21"
+url = "2.5.7"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints.rust]
+unsafe_code = "deny"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+await_holding_lock = "deny"
+
+[profile.release]
+lto = "thin"
+strip = true

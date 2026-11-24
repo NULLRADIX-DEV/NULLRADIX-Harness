@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["apps/*", "crates/*", "tests/acceptance", "xtask"]
+# the desktop shell is its own workspace, so the webview stack stays out of the main build
+exclude = ["apps/desktop"]
 
 [workspace.package]
 version = "0.1.0"

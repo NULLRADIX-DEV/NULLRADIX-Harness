@@ -3,6 +3,7 @@
 mod discovery;
 mod http;
 mod spool;
+pub mod token;
 
 pub use discovery::{Discovery, DiscoveryError, DiscoveryFile};
 pub use http::{Client, ClientError};
