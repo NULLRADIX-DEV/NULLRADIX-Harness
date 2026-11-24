@@ -1,11 +1,13 @@
 import { THEME_LABELS, THEME_MODES, isThemeMode } from '../../shared/lib/theme';
-import { ComingSoon } from '../../shared/ui/ComingSoon';
 import { useTheme } from '../../shared/ui/ThemeProvider';
+import { ProjectsSection } from '../projects/ProjectsSection';
 
 export function SettingsPage() {
   const { mode, setMode } = useTheme();
   return (
-    <ComingSoon title="Settings">
+    <div className="page narrow">
+      <h1 className="page-title">Settings</h1>
+      <ProjectsSection />
       <section className="panel page-section">
         <h2>Appearance</h2>
         <label className="field">
@@ -24,6 +26,6 @@ export function SettingsPage() {
           </select>
         </label>
       </section>
-    </ComingSoon>
+    </div>
   );
 }
