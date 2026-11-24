@@ -1,15 +1,25 @@
 //! Entities and rules of NULLRADIX, free of IO.
 
+mod board_rules;
 mod hook;
 mod id;
 mod project;
 mod run;
+mod ticket;
 mod timestamp;
 mod version;
 
+pub use board_rules::{
+    LABEL_MAX, RuleError, normalize_dependencies, normalize_labels, utf16_len,
+    validate_dependencies,
+};
 pub use hook::{HookDetails, HookError, HookEvent, HookKind, SessionRef};
 pub use id::{Id, ParseIdError};
 pub use project::{Project, ProjectError, ProjectKey, ProjectName};
 pub use run::{Run, RunEnd, RunError, RunLabel, RunOutcome, RunRecord, RunStatus};
+pub use ticket::{
+    Column, Priority, StatusFacts, StatusLock, StatusRequest, TicketError, TicketKey, TicketStatus,
+    check_status_change,
+};
 pub use timestamp::Timestamp;
 pub use version::{InvalidVersion, Version};
