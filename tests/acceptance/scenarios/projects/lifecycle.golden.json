@@ -34,11 +34,11 @@
     },
     "response": {
       "json": {
-        "code": "project-key-taken",
+        "code": "project-exists",
         "detail": "another project already uses the key ARC",
         "status": 409,
         "title": "Conflict",
-        "type": "urn:nullradix:problem:project-key-taken"
+        "type": "urn:nullradix:problem:project-exists"
       },
       "status": 409
     }
@@ -55,11 +55,11 @@
     },
     "response": {
       "json": {
-        "code": "invalid-project-key",
+        "code": "project-key-invalid",
         "detail": "a project key has 2 to 6 characters, starts with A-Z and uses only A-Z and 0-9",
         "status": 422,
         "title": "Unprocessable Entity",
-        "type": "urn:nullradix:problem:invalid-project-key"
+        "type": "urn:nullradix:problem:project-key-invalid"
       },
       "status": 422
     }

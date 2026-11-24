@@ -228,7 +228,7 @@ fn deliver(paths: &Paths, kind: HookKindDto, event: &HookEventDto, deadline: Ins
     match client.post_hook(kind, event) {
         Ok(reply) => Delivery::Answered(reply),
         // an older daemon that does not know this hook may take it from the spool once updated
-        Err(ClientError::Refused { code, .. }) if code == "invalid-path" => {
+        Err(ClientError::Refused { code, .. }) if code == "path-invalid" => {
             Delivery::Unreachable(String::from("the daemon does not know this hook"))
         }
         // the daemon judged the event itself, sending it again would not change that

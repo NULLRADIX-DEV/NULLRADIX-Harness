@@ -138,11 +138,11 @@
     },
     "response": {
       "json": {
-        "code": "invalid-run-cwd",
+        "code": "run-cwd-invalid",
         "detail": "work is not an absolute path",
         "status": 422,
         "title": "Unprocessable Entity",
-        "type": "urn:nullradix:problem:invalid-run-cwd"
+        "type": "urn:nullradix:problem:run-cwd-invalid"
       },
       "status": 422
     }
@@ -161,11 +161,11 @@
     },
     "response": {
       "json": {
-        "code": "invalid-run-timeout",
+        "code": "run-timeout-invalid",
         "detail": "the timeout must be positive",
         "status": 422,
         "title": "Unprocessable Entity",
-        "type": "urn:nullradix:problem:invalid-run-timeout"
+        "type": "urn:nullradix:problem:run-timeout-invalid"
       },
       "status": 422
     }

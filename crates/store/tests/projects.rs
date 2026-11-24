@@ -87,16 +87,23 @@ async fn creates_lists_and_reads_projects() {
 #[tokio::test]
 async fn rejects_invalid_input_and_taken_keys() {
     let fx = fixture().await;
-    let error = fx.projects.create("arc", "Arches").await.unwrap_err();
-    assert_eq!(error.code(), "invalid-project-key");
+    let error = fx.projects.create("a!", "Arches").await.unwrap_err();
+    assert_eq!(error.code(), "project-key-invalid");
     let error = fx.projects.create("ARC", " ").await.unwrap_err();
-    assert_eq!(error.code(), "invalid-project-name");
+    assert_eq!(error.code(), "project-name-empty");
+    let error = fx
+        .projects
+        .create("ARC", &"x".repeat(201))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "value-too-long");
 
-    fx.projects.create("ARC", "Arches").await.unwrap();
-    let error = fx.projects.create("ARC", "Other").await.unwrap_err();
+    let arc = fx.projects.create(" arc ", "Arches").await.unwrap();
+    assert_eq!(arc.key().as_str(), "ARC");
+    let error = fx.projects.create("A-rc", "Other").await.unwrap_err();
     assert_eq!(
         (error.kind(), error.code()),
-        (ErrorKind::Conflict, "project-key-taken")
+        (ErrorKind::Conflict, "project-exists")
     );
     assert_eq!(fx.ops().await, vec![ChangeOp::Insert]);
 }

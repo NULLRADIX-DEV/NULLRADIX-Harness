@@ -1,13 +1,13 @@
 use strum::{EnumIter, EnumString, IntoStaticStr};
 
-use crate::{Id, Project, Timestamp, Version, utf16_len};
+use crate::{Id, Project, TextError, Timestamp, Version, required_text};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BoardError {
-    #[error("a board name has 1 to 200 characters")]
-    InvalidName,
-    #[error("an actor name has 1 to 100 characters")]
-    InvalidActorName,
+    #[error("the board name {0}")]
+    Name(TextError),
+    #[error("the actor name {0}")]
+    ActorName(TextError),
 }
 
 /// Who acted: the person, a Claude session, a subagent, the dispatcher or the system.
@@ -33,11 +33,9 @@ pub struct ActorName(String);
 
 impl ActorName {
     pub fn parse(text: &str) -> Result<Self, BoardError> {
-        let trimmed = text.trim();
-        (1..=100)
-            .contains(&utf16_len(trimmed))
-            .then(|| Self(trimmed.to_owned()))
-            .ok_or(BoardError::InvalidActorName)
+        required_text(text, 100)
+            .map(|name| Self(name.to_owned()))
+            .map_err(BoardError::ActorName)
     }
 
     #[must_use]
@@ -96,13 +94,11 @@ impl Actor {
 pub struct BoardName(String);
 
 impl BoardName {
-    /// Trims, then counts UTF-16 units as the legacy board did; names need not be unique.
+    /// Names need not be unique.
     pub fn parse(text: &str) -> Result<Self, BoardError> {
-        let trimmed = text.trim();
-        (1..=200)
-            .contains(&utf16_len(trimmed))
-            .then(|| Self(trimmed.to_owned()))
-            .ok_or(BoardError::InvalidName)
+        required_text(text, 200)
+            .map(|name| Self(name.to_owned()))
+            .map_err(BoardError::Name)
     }
 
     #[must_use]
@@ -251,16 +247,19 @@ mod tests {
     #[test]
     fn names_are_trimmed_and_counted_in_utf16_units() {
         assert_eq!(BoardName::parse("  Main ").unwrap().as_str(), "Main");
-        assert_eq!(BoardName::parse(" "), Err(BoardError::InvalidName));
+        assert_eq!(
+            BoardName::parse(" "),
+            Err(BoardError::Name(TextError::Empty))
+        );
         assert!(BoardName::parse(&"\u{1f600}".repeat(100)).is_ok());
         assert_eq!(
             BoardName::parse(&"\u{1f600}".repeat(101)),
-            Err(BoardError::InvalidName)
+            Err(BoardError::Name(TextError::TooLong(200)))
         );
         assert_eq!(ActorName::parse(" anna ").unwrap().as_str(), "anna");
         assert_eq!(
             ActorName::parse(&"a".repeat(101)),
-            Err(BoardError::InvalidActorName)
+            Err(BoardError::ActorName(TextError::TooLong(100)))
         );
         assert_eq!(ActorKind::Subagent.as_str(), "subagent");
     }

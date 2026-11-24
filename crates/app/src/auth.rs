@@ -203,7 +203,7 @@ impl AuthService {
             .repository
             .token_by_hash(&secret.hash())
             .await?
-            .ok_or_else(|| unauthorized("invalid-token", "the token is not valid"))?;
+            .ok_or_else(|| unauthorized("token-invalid", "the token is not valid"))?;
         Ok(Principal::Token {
             id: token.id,
             kind: token.kind,
@@ -226,7 +226,7 @@ impl AuthService {
         let expires_at = self.handoffs.lock().remove(&code.hash());
         if expires_at.is_none_or(|expires_at| expires_at <= now) {
             return Err(unauthorized(
-                "invalid-handoff",
+                "handoff-invalid",
                 "the handoff code is unknown or expired",
             ));
         }
@@ -246,7 +246,7 @@ impl AuthService {
             .repository
             .session_by_hash(&secret.hash())
             .await?
-            .ok_or_else(|| unauthorized("invalid-session", "the session is not valid"))?;
+            .ok_or_else(|| unauthorized("session-invalid", "the session is not valid"))?;
         if session.expires_at <= self.clock.now() {
             self.repository.delete_session(session.id).await?;
             return Err(unauthorized("session-expired", "the session has expired"));

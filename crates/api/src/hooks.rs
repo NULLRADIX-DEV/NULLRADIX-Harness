@@ -359,7 +359,7 @@ mod tests {
         let (status, _, problem) = send(&api.router, request).await;
         assert_eq!(
             (status.as_u16(), problem["code"].as_str()),
-            (422, Some("invalid-hook-cwd"))
+            (422, Some("hook-cwd-invalid"))
         );
 
         let request = bearer(Request::post("/api/v1/hooks/no-such-hook"), &api.token)

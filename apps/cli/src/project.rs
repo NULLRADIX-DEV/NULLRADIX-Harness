@@ -4,6 +4,7 @@ use anyhow::{Context, bail};
 use clap::Subcommand;
 use nullradix_api::{CreateProject, ProjectDto, RenameProject};
 use nullradix_client::Client;
+use nullradix_domain::ProjectKey;
 
 #[derive(Subcommand)]
 pub(crate) enum ProjectCommand {
@@ -66,9 +67,16 @@ pub(crate) fn run(command: ProjectCommand, client: &Client) -> anyhow::Result<Ex
     Ok(ExitCode::SUCCESS)
 }
 
-fn find(client: &Client, key: &str) -> anyhow::Result<ProjectDto> {
+/// The project with this key, read as leniently as the daemon reads new keys.
+pub(crate) fn find(client: &Client, key: &str) -> anyhow::Result<ProjectDto> {
+    let Ok(wanted) = ProjectKey::normalize(key) else {
+        bail!("no project has the key {key}");
+    };
     let projects = client.list_projects()?.items;
-    match projects.into_iter().find(|project| project.key == key) {
+    match projects
+        .into_iter()
+        .find(|project| project.key == wanted.as_str())
+    {
         Some(project) => Ok(project),
         None => bail!("no project has the key {key}"),
     }

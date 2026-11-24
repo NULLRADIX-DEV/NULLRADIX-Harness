@@ -97,7 +97,7 @@ async fn the_local_person_is_created_once() {
     let error = local_person(&store, " ", &UuidV7Generator, &SystemClock)
         .await
         .unwrap_err();
-    assert_eq!(error.code(), "invalid-actor-name");
+    assert_eq!(error.code(), "actor-name-empty");
 }
 
 #[tokio::test]
@@ -141,7 +141,7 @@ async fn boards_need_their_project_an_owner_and_a_valid_name() {
         .create(arc.id(), "  ", &fx.person)
         .await
         .unwrap_err();
-    assert_eq!(error.code(), "invalid-board-name");
+    assert_eq!(error.code(), "board-name-empty");
 
     let stranger = Actor::new(
         Id::from_uuid(uuid::Uuid::from_u128(7)),

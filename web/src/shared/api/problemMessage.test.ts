@@ -20,12 +20,12 @@ describe('problemMessage', () => {
   });
 
   it('shows the detail of other client errors', () => {
-    expect(problemMessage(problem(422, 'invalid-name'), messages, 'failed')).toBe('detail');
+    expect(problemMessage(problem(422, 'name-invalid'), messages, 'failed')).toBe('detail');
   });
 
   it('falls back for server, auth and network errors', () => {
     expect(problemMessage(problem(500, 'internal'), messages, 'failed')).toBe('failed');
-    expect(problemMessage(problem(401, 'invalid-session'), messages, 'failed')).toBe('failed');
+    expect(problemMessage(problem(401, 'session-invalid'), messages, 'failed')).toBe('failed');
     expect(problemMessage(new TypeError('offline'), messages, 'failed')).toBe('failed');
   });
 });

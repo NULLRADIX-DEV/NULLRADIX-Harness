@@ -353,7 +353,7 @@ mod tests {
         let (status, _, problem) = send(&api.router, request).await;
         assert_eq!(
             (status.as_u16(), problem["code"].as_str()),
-            (422, Some("invalid-run-cwd"))
+            (422, Some("run-cwd-invalid"))
         );
         let request = bearer(Request::get("/api/v1/runs"), &api.token)
             .body(Body::empty())

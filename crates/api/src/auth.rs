@@ -102,7 +102,7 @@ pub(crate) async fn authenticate(
             }
         }
         Credentials::Malformed => Err(AppError::unauthorized(
-            "invalid-credentials",
+            "credentials-invalid",
             "the credentials are malformed",
         )),
         Credentials::Missing => Err(AppError::unauthorized(
@@ -174,7 +174,7 @@ pub(crate) async fn redeem_handoff(
     jar: CookieJar,
 ) -> Result<(CookieJar, Redirect), ApiError> {
     let code = Secret::parse(&query.code).ok_or_else(|| {
-        AppError::unauthorized("invalid-handoff", "the handoff code is unknown or expired")
+        AppError::unauthorized("handoff-invalid", "the handoff code is unknown or expired")
     })?;
     let session = state.auth.redeem_handoff(&code).await?;
     if let Some(previous) = jar
@@ -285,7 +285,7 @@ mod tests {
             .unwrap();
         let (status, _, json) = send(&api.router, request).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert_eq!(json["code"], "invalid-credentials");
+        assert_eq!(json["code"], "credentials-invalid");
     }
 
     #[tokio::test]
@@ -377,7 +377,7 @@ mod tests {
             .unwrap();
         let (status, _, json) = send(&api.router, request).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert_eq!(json["code"], "invalid-session");
+        assert_eq!(json["code"], "session-invalid");
     }
 
     #[tokio::test]

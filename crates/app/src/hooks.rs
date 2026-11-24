@@ -31,8 +31,8 @@ pub struct HookReply {
 #[must_use]
 pub fn invalid(error: &HookError) -> AppError {
     let code = match error {
-        HookError::InvalidSession => "invalid-hook-session",
-        HookError::InvalidCwd => "invalid-hook-cwd",
+        HookError::InvalidSession => "hook-session-invalid",
+        HookError::InvalidCwd => "hook-cwd-invalid",
     };
     AppError::invalid(code, error.to_string())
 }
@@ -87,8 +87,8 @@ mod tests {
     fn maps_domain_errors_to_stable_codes() {
         assert_eq!(
             invalid(&HookError::InvalidSession).code(),
-            "invalid-hook-session"
+            "hook-session-invalid"
         );
-        assert_eq!(invalid(&HookError::InvalidCwd).code(), "invalid-hook-cwd");
+        assert_eq!(invalid(&HookError::InvalidCwd).code(), "hook-cwd-invalid");
     }
 }
