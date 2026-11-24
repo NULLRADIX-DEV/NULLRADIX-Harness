@@ -6,6 +6,7 @@ mod clock;
 mod error;
 mod ids;
 pub mod projects;
+pub mod runs;
 
 pub use changes::{Change, ChangeFeed, ChangeOp, ChangeSignal, Entity};
 pub use clock::{Clock, SystemClock};

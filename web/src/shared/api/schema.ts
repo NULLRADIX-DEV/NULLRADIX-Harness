@@ -132,6 +132,70 @@ export interface paths {
         patch: operations["rename_project"];
         trace?: never;
     };
+    "/api/v1/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_runs"];
+        put?: never;
+        post: operations["start_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{id}/output": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["run_output"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -154,7 +218,7 @@ export interface components {
             name: string;
         };
         /** @enum {string} */
-        EntityDto: "project";
+        EntityDto: "project" | "run";
         /** @description One-time code that opens a browser session. */
         Handoff: {
             code: string;
@@ -170,6 +234,14 @@ export interface components {
         Me: {
             kind: components["schemas"]["PrincipalKind"];
         };
+        OutputLineDto: {
+            /** Format: int64 */
+            seq: number;
+            stream: components["schemas"]["OutputStreamDto"];
+            text: string;
+        };
+        /** @enum {string} */
+        OutputStreamDto: "stdout" | "stderr";
         /** @enum {string} */
         PrincipalKind: "token" | "session";
         /** @description RFC 9457 problem details with a stable `code` extension. */
@@ -204,6 +276,44 @@ export interface components {
              * @description Version the change is based on; a newer stored version fails with `version-conflict`.
              */
             version: number;
+        };
+        /** @description A run as the API shows it; timestamps are Unix milliseconds. */
+        RunDto: {
+            /** Format: int64 */
+            createdAt: number;
+            error?: string | null;
+            /** Format: int32 */
+            exitCode?: number | null;
+            /** Format: int64 */
+            finishedAt?: number | null;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /** Format: int64 */
+            startedAt?: number | null;
+            status: components["schemas"]["RunStatusDto"];
+            /** Format: int64 */
+            version: number;
+        };
+        RunList: {
+            items: components["schemas"]["RunDto"][];
+        };
+        RunOutput: {
+            /** @description Whether the run ended and these are its last lines; then no lines will follow. */
+            finished: boolean;
+            lines: components["schemas"]["OutputLineDto"][];
+        };
+        /** @enum {string} */
+        RunStatusDto: "starting" | "running" | "succeeded" | "failed" | "cancelled" | "timed-out" | "lost";
+        /** @description A command to run on the daemon's machine; only token holders may start runs. */
+        StartRun: {
+            args?: string[];
+            /** @description Absolute working directory on the daemon's machine. */
+            cwd: string;
+            label: string;
+            program: string;
+            /** Format: int64 */
+            timeoutSeconds?: number | null;
         };
         /** @description Data of the `ready` and `reset` events: the position the stream continues from. */
         StreamPosition: {
@@ -626,6 +736,240 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_runs: {
+        parameters: {
+            query?: {
+                /** @description Newest runs first, at most 500. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    start_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartRun"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the new run */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Browser sessions cannot start runs */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner could not start it */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    cancel_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run was asked to stop */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The run already finished */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    run_output: {
+        parameters: {
+            query?: {
+                /** @description Return lines after this sequence number. */
+                after?: number;
+                /** @description At most this many lines, up to 1000. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOutput"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use nullradix_api::{
     API_PREFIX, API_VERSION, CreateProject, Handoff, Health, Problem, ProjectDto, ProjectList,
-    RenameProject,
+    RenameProject, RunDto, RunList, RunOutput, StartRun,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -102,13 +102,7 @@ impl Client {
     }
 
     pub fn list_projects(&self) -> Result<ProjectList, ClientError> {
-        let mut response = self
-            .agent
-            .get(&self.url("/projects"))
-            .header("Authorization", &self.authorization()?)
-            .call()
-            .map_err(|source| self.unreachable(source))?;
-        decode(&mut response, 200)
+        self.get_json("/projects")
     }
 
     pub fn create_project(&self, input: &CreateProject) -> Result<ProjectDto, ClientError> {
@@ -143,6 +137,48 @@ impl Client {
             .call()
             .map_err(|source| self.unreachable(source))?;
         expect_empty(&mut response, 204)
+    }
+
+    pub fn list_runs(&self, limit: u32) -> Result<RunList, ClientError> {
+        self.get_json(&format!("/runs?limit={limit}"))
+    }
+
+    pub fn start_run(&self, input: &StartRun) -> Result<RunDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/runs"))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    pub fn get_run(&self, id: Uuid) -> Result<RunDto, ClientError> {
+        self.get_json(&format!("/runs/{id}"))
+    }
+
+    pub fn run_output(&self, id: Uuid, after: i64) -> Result<RunOutput, ClientError> {
+        self.get_json(&format!("/runs/{id}/output?after={after}"))
+    }
+
+    pub fn cancel_run(&self, id: Uuid) -> Result<RunDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/runs/{id}/cancel")))
+            .header("Authorization", &self.authorization()?)
+            .send_empty()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 202)
+    }
+
+    fn get_json<T: DeserializeOwned>(&self, route: &str) -> Result<T, ClientError> {
+        let mut response = self
+            .agent
+            .get(&self.url(route))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
     }
 
     fn authorization(&self) -> Result<String, ClientError> {
@@ -198,7 +234,9 @@ mod tests {
     use nullradix_api::{AllowedHosts, ApiState};
     use nullradix_app::auth::AuthService;
     use nullradix_app::projects::ProjectService;
+    use nullradix_app::runs::RunService;
     use nullradix_app::{ChangeSignal, SystemClock, UuidV7Generator};
+    use nullradix_runner::{LocalRunner, SupervisorCommand};
     use nullradix_store::Store;
 
     use super::*;
@@ -246,9 +284,24 @@ mod tests {
                     Arc::new(UuidV7Generator),
                     signal.clone(),
                 ));
+                let runs = RunService::new(
+                    store.clone(),
+                    Arc::new(LocalRunner::new(
+                        std::env::temp_dir().join("nullradix-client-tests"),
+                        SupervisorCommand {
+                            program: std::path::PathBuf::from("nullradix-missing-supervisor"),
+                            args: Vec::new(),
+                        },
+                    )),
+                    Arc::new(SystemClock),
+                    Arc::new(UuidV7Generator),
+                    signal.clone(),
+                    FAST,
+                );
                 let state = ApiState {
                     auth,
                     projects,
+                    runs,
                     changes: store,
                     signal,
                     shutdown: tokio_util::sync::CancellationToken::new(),

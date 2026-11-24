@@ -12,8 +12,20 @@ directories.workspace = true
 open.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, features = ["process", "signal"] }
+
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

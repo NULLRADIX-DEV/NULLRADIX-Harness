@@ -26,12 +26,14 @@ const POLL: Duration = Duration::from_secs(5);
 #[serde(rename_all = "kebab-case")]
 pub enum EntityDto {
     Project,
+    Run,
 }
 
 impl From<Entity> for EntityDto {
     fn from(entity: Entity) -> Self {
         match entity {
             Entity::Project => Self::Project,
+            Entity::Run => Self::Run,
         }
     }
 }

@@ -1,3 +1,4 @@
+use std::io;
 use std::path::{Path, PathBuf};
 
 use directories::ProjectDirs;
@@ -12,16 +13,29 @@ pub struct Paths {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("no home directory found, set NULLRADIX_HOME")]
-pub struct PathsError;
+pub enum PathsError {
+    #[error("no home directory found, set NULLRADIX_HOME")]
+    NoHome,
+    #[error("cannot resolve {}", path.display())]
+    Unresolvable {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+}
 
 impl Paths {
-    /// Platform default directories for `app_name`, or everything below `home` when given.
+    /// Absolute platform default directories for `app_name`, or all below `home` when given.
     pub fn resolve(app_name: &str, home: Option<&Path>) -> Result<Self, PathsError> {
         if let Some(home) = home {
-            return Ok(Self::below(home));
+            let absolute =
+                std::path::absolute(home).map_err(|source| PathsError::Unresolvable {
+                    path: home.to_path_buf(),
+                    source,
+                })?;
+            return Ok(Self::below(&absolute));
         }
-        let dirs = ProjectDirs::from("", "", app_name).ok_or(PathsError)?;
+        let dirs = ProjectDirs::from("", "", app_name).ok_or(PathsError::NoHome)?;
         let logs = dirs
             .state_dir()
             .unwrap_or_else(|| dirs.data_local_dir())
@@ -51,11 +65,22 @@ mod tests {
 
     #[test]
     fn home_override_puts_everything_below_it() {
-        let home = Path::new("/srv/nullradix");
-        let paths = Paths::resolve("nullradix", Some(home)).unwrap();
-        assert_eq!(paths, Paths::below(home));
+        let home = std::env::temp_dir().join("nullradix");
+        let paths = Paths::resolve("nullradix", Some(&home)).unwrap();
+        assert_eq!(paths, Paths::below(&home));
         assert_eq!(paths.data, home.join("data"));
         assert_eq!(paths.logs, home.join("logs"));
+    }
+
+    #[test]
+    fn a_relative_home_becomes_absolute() {
+        let paths = Paths::resolve("nullradix", Some(Path::new("relative home"))).unwrap();
+        assert!(paths.data.is_absolute());
+        assert!(
+            paths
+                .data
+                .ends_with(Path::new("relative home").join("data"))
+        );
     }
 
     #[test]

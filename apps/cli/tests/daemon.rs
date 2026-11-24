@@ -31,15 +31,25 @@ impl Daemon {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
+        let pid = child.id();
         let daemon = Self(child);
         let discovery = home.join("data").join("daemon.json");
         let deadline = Instant::now() + STARTUP;
-        while !discovery.exists() {
+        // a killed daemon leaves its file behind, so wait for ours
+        while discovered_pid(&discovery) != Some(pid) {
             assert!(Instant::now() < deadline, "daemon did not start in time");
             thread::sleep(Duration::from_millis(50));
         }
         daemon
     }
+}
+
+fn discovered_pid(path: &Path) -> Option<u32> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let record: serde_json::Value = serde_json::from_str(&text).ok()?;
+    record["pid"]
+        .as_u64()
+        .and_then(|pid| u32::try_from(pid).ok())
 }
 
 impl Drop for Daemon {
@@ -115,4 +125,116 @@ fn manages_projects_through_the_daemon() {
     assert!(deleted.status.success(), "{deleted:?}");
     let missing = run(home.path(), &["project", "delete", "ARC"]);
     assert!(!missing.status.success());
+}
+
+fn shell(script: &str) -> Vec<&str> {
+    if cfg!(windows) {
+        vec!["cmd", "/C", script]
+    } else {
+        vec!["sh", "-c", script]
+    }
+}
+
+fn start_run(home: &Path, extra: &[&str], script: &str) -> Output {
+    let mut args = vec!["run", "start"];
+    args.extend_from_slice(extra);
+    args.push("--");
+    args.extend(shell(script));
+    run(home, &args)
+}
+
+fn stdout(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+const LONG: &str = if cfg!(windows) {
+    "ping -n 30 127.0.0.1 > NUL"
+} else {
+    "sleep 30"
+};
+
+#[test]
+fn runs_commands_and_exits_like_them() {
+    let home = tempfile::tempdir().unwrap();
+    let _daemon = Daemon::start(home.path());
+
+    let script = if cfg!(windows) {
+        "echo hello& exit 3"
+    } else {
+        "echo hello; exit 3"
+    };
+    let started = start_run(home.path(), &["--label", "greet"], script);
+    assert_eq!(started.status.code(), Some(3), "{started:?}");
+    assert_eq!(stdout(&started).trim(), "hello");
+
+    let listed = run(home.path(), &["run", "list", "--json"]);
+    let runs: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(runs[0]["label"], "greet");
+    assert_eq!(runs[0]["status"], "failed");
+    assert_eq!(runs[0]["exitCode"], 3);
+
+    let id = runs[0]["id"].as_str().unwrap();
+    let logs = run(home.path(), &["run", "logs", id]);
+    assert!(logs.status.success(), "{logs:?}");
+    assert_eq!(stdout(&logs).trim(), "hello");
+
+    let missing = run(
+        home.path(),
+        &["run", "start", "--", "nullradix-no-such-program"],
+    );
+    assert!(!missing.status.success());
+    assert!(
+        stderr(&missing).contains("nullradix-no-such-program"),
+        "{missing:?}"
+    );
+}
+
+#[test]
+fn cancels_runs_and_stops_them_at_the_timeout() {
+    let home = tempfile::tempdir().unwrap();
+    let _daemon = Daemon::start(home.path());
+
+    let detached = start_run(home.path(), &["--detach"], LONG);
+    assert!(detached.status.success(), "{detached:?}");
+    let id = stdout(&detached).trim().to_owned();
+    let cancel = run(home.path(), &["run", "cancel", &id]);
+    assert!(cancel.status.success(), "{cancel:?}");
+    let followed = run(home.path(), &["run", "logs", &id, "--follow"]);
+    assert!(!followed.status.success());
+    assert!(stderr(&followed).contains("cancelled"), "{followed:?}");
+    let again = run(home.path(), &["run", "cancel", &id]);
+    assert!(stderr(&again).contains("run-finished"), "{again:?}");
+
+    let begun = Instant::now();
+    let timed_out = start_run(home.path(), &["--timeout", "1"], LONG);
+    assert!(begun.elapsed() < Duration::from_secs(20));
+    assert!(stderr(&timed_out).contains("timed-out"), "{timed_out:?}");
+}
+
+#[test]
+fn a_run_outlives_a_daemon_restart() {
+    // the space checks that the supervisor gets its run dir intact
+    let home = tempfile::Builder::new()
+        .prefix("nullradix home")
+        .tempdir()
+        .unwrap();
+    let daemon = Daemon::start(home.path());
+    let script = if cfg!(windows) {
+        "ping -n 4 127.0.0.1 > NUL & echo done"
+    } else {
+        "sleep 3; echo done"
+    };
+    let detached = start_run(home.path(), &["--detach"], script);
+    assert!(detached.status.success(), "{detached:?}");
+    let id = stdout(&detached).trim().to_owned();
+
+    drop(daemon);
+    let _daemon = Daemon::start(home.path());
+    let followed = run(home.path(), &["run", "logs", &id, "--follow"]);
+    assert!(followed.status.success(), "{followed:?}");
+    assert_eq!(stdout(&followed).trim(), "done");
 }
