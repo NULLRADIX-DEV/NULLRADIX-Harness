@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use nullradix_app::tickets::{
-    HistoryLine, TicketRead, TicketRepository, TicketRow, TicketScope, TicketSnapshot, TicketWrite,
+    HistoryLine, StepProgress, TicketRead, TicketRepository, TicketRow, TicketScope,
+    TicketSnapshot, TicketWrite,
 };
 use nullradix_app::{AppError, Change, ChangeOp, Entity, boards, projects, tickets};
 use nullradix_domain::{
     Board, BoardName, BoardRecord, DependencyIndex, HistoryEntry, Id, Priority, Project,
-    ProjectKey, TargetBranch, Ticket, TicketKey, TicketRecord, TicketStatus, TicketTitle,
+    ProjectKey, Step, TargetBranch, Ticket, TicketKey, TicketRecord, TicketStatus, TicketTitle,
     Timestamp, Tombstone, Version,
 };
 use sqlx::{Sqlite, SqliteConnection, Transaction};
@@ -62,6 +63,7 @@ struct Row {
 struct Lists {
     labels: HashMap<Uuid, Vec<String>>,
     depends_on: HashMap<Uuid, Vec<TicketKey>>,
+    progress: HashMap<Uuid, StepProgress>,
 }
 
 impl Row {
@@ -96,6 +98,7 @@ impl Row {
             version: Version::from_stored(self.version),
         };
         Ok(TicketRow {
+            steps: lists.progress.remove(&self.id).unwrap_or_default(),
             ticket: Ticket::restore(record),
             created_by_name: self.created_by_name,
         })
@@ -185,6 +188,55 @@ async fn dependencies(
     Ok(dependencies)
 }
 
+async fn progress(
+    connection: &mut SqliteConnection,
+    at: Selection,
+) -> Result<HashMap<Uuid, StepProgress>, StoreError> {
+    let rows = sqlx::query!(
+        r#"SELECT s.ticket_id AS "ticket_id: Uuid", count(*) AS "total!: i64",
+                  sum(s.done) AS "done!: i64"
+           FROM ticket_steps s
+           JOIN tickets t ON t.id = s.ticket_id
+           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)
+             AND (?3 IS NULL OR t.id = ?3)
+           GROUP BY s.ticket_id"#,
+        at.project,
+        at.board,
+        at.ticket,
+    )
+    .fetch_all(connection)
+    .await?;
+    let count = |value: i64| u32::try_from(value).map_err(|_| corrupt("step count"));
+    rows.into_iter()
+        .map(|row| {
+            let progress = StepProgress {
+                done: count(row.done)?,
+                total: count(row.total)?,
+            };
+            Ok((row.ticket_id, progress))
+        })
+        .collect()
+}
+
+async fn steps(connection: &mut SqliteConnection, ticket: Uuid) -> Result<Vec<Step>, StoreError> {
+    let rows = sqlx::query!(
+        r#"SELECT id AS "id: Uuid", text, done, detail FROM ticket_steps
+           WHERE ticket_id = ? ORDER BY position"#,
+        ticket,
+    )
+    .fetch_all(connection)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| Step {
+            id: Id::from_uuid(row.id),
+            text: row.text,
+            done: row.done != 0,
+            detail: row.detail,
+        })
+        .collect())
+}
+
 async fn ticket_rows(
     connection: &mut SqliteConnection,
     at: Selection,
@@ -192,7 +244,8 @@ async fn ticket_rows(
     let rows = rows(&mut *connection, at).await?;
     let mut lists = Lists {
         labels: labels(&mut *connection, at).await?,
-        depends_on: dependencies(connection, at).await?,
+        depends_on: dependencies(&mut *connection, at).await?,
+        progress: progress(connection, at).await?,
     };
     rows.into_iter()
         .map(|row| row.into_ticket_row(&mut lists))
@@ -302,11 +355,13 @@ impl TicketRepository for Store {
         };
         let index = dependency_index(&mut read).await?;
         let history = history(&mut read, id).await?;
+        let steps = steps(&mut read, id).await?;
         read.commit().await.map_err(database)?;
         Ok(Some(TicketRead {
             row,
             index,
             history,
+            steps,
         }))
     }
 }
@@ -588,6 +643,36 @@ impl TicketWrite for Write {
             return Err(missed(&mut self.0, board).await);
         }
         Ok(change_feed::record(&mut self.0, Entity::Board, uuid, ChangeOp::Delete, at).await?)
+    }
+
+    async fn steps(&mut self, ticket: Id<Ticket>) -> Result<Vec<Step>, AppError> {
+        Ok(steps(&mut self.0, ticket.as_uuid()).await?)
+    }
+
+    async fn replace_steps(&mut self, ticket: Id<Ticket>, steps: &[Step]) -> Result<(), AppError> {
+        let id = ticket.as_uuid();
+        sqlx::query!("DELETE FROM ticket_steps WHERE ticket_id = ?", id)
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        for (position, step) in (0_i64..).zip(steps) {
+            let done = i64::from(step.done);
+            let step_id = step.id.as_uuid();
+            sqlx::query!(
+                "INSERT INTO ticket_steps (id, ticket_id, position, text, done, detail)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+                step_id,
+                id,
+                position,
+                step.text,
+                done,
+                step.detail,
+            )
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        }
+        Ok(())
     }
 
     async fn commit(self: Box<Self>) -> Result<(), AppError> {

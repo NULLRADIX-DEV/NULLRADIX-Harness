@@ -1848,10 +1848,398 @@
           }
         }
       }
+    },
+    "/api/v1/tickets/{ticketKey}/steps": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "add_step",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddStep"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version or a changed step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/steps/{stepId}": {
+      "delete": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "remove_step",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stepId",
+            "in": "path",
+            "description": "Step id; it stays while the step's number changes.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "expectText",
+            "in": "query",
+            "description": "The text the step had when it was read.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The ticket without the step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version or a changed step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "change_step",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stepId",
+            "in": "path",
+            "description": "Step id; it stays while the step's number changes.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeStep"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version or a changed step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/steps/{stepId}/move": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "move_step",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stepId",
+            "in": "path",
+            "description": "Step id; it stays while the step's number changes.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveStep"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version or a changed step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AddStep": {
+        "type": "object",
+        "description": "A new work step.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Position from 1; without one the step goes last."
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Guidance for the step; blank guidance is none."
+          },
+          "expectText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The text the step at `at` had when it was read."
+          },
+          "text": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Version of the ticket the change is based on."
+          }
+        },
+        "additionalProperties": false
+      },
       "BoardDeleted": {
         "type": "object",
         "description": "What a board deletion took with it.",
@@ -1983,6 +2371,45 @@
           "delete"
         ]
       },
+      "ChangeStep": {
+        "type": "object",
+        "description": "A change of one step; left out fields stay, a `null` detail removes the guidance.",
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "done": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "expectText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The text the step had when it was read."
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
       "ColumnDto": {
         "type": "string",
         "description": "A board column: the statuses plus waiting, which open dependencies derive.",
@@ -2093,6 +2520,13 @@
                 "type": "null"
               }
             ]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Texts of work steps, none done."
           },
           "targetBranch": {
             "type": [
@@ -2360,6 +2794,33 @@
             "$ref": "#/components/schemas/PrincipalKind"
           }
         }
+      },
+      "MoveStep": {
+        "type": "object",
+        "description": "A move of one step to another number.",
+        "required": [
+          "to"
+        ],
+        "properties": {
+          "expectText": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "MoveTicket": {
         "type": "object",
@@ -2717,6 +3178,39 @@
         },
         "additionalProperties": false
       },
+      "StepDto": {
+        "type": "object",
+        "description": "A work step; numbers count from 1.",
+        "required": [
+          "id",
+          "number",
+          "text",
+          "done"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "done": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
       "StreamPosition": {
         "type": "object",
         "description": "Data of the `ready` and `reset` events: the position the stream continues from.",
@@ -2734,7 +3228,8 @@
         "type": "object",
         "required": [
           "ticket",
-          "history"
+          "history",
+          "steps"
         ],
         "properties": {
           "history": {
@@ -2743,6 +3238,12 @@
               "$ref": "#/components/schemas/HistoryDto"
             },
             "description": "Oldest first."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StepDto"
+            }
           },
           "ticket": {
             "$ref": "#/components/schemas/TicketDto"
@@ -2778,7 +3279,9 @@
           "waiting",
           "dependsOpen",
           "dependents",
-          "unlocks"
+          "unlocks",
+          "stepsDone",
+          "stepsTotal"
         ],
         "properties": {
           "acceptance": {
@@ -2875,6 +3378,16 @@
           },
           "status": {
             "$ref": "#/components/schemas/TicketStatusDto"
+          },
+          "stepsDone": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "stepsTotal": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "targetBranch": {
             "type": [

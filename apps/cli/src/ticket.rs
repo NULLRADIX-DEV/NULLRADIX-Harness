@@ -184,6 +184,9 @@ pub(crate) struct CreateArgs {
     /// Branch to merge into instead of the default branch
     #[arg(long)]
     target_branch: Option<String>,
+    /// A work step; repeat the flag for more
+    #[arg(long = "step")]
+    steps: Vec<String>,
     /// Lift the dependency, question and not-needed locks and allow a duplicate title
     #[arg(long)]
     force: bool,
@@ -209,7 +212,7 @@ fn dependency_list(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn text(inline: Option<String>, file: Option<&Path>) -> anyhow::Result<Option<String>> {
+pub(crate) fn text(inline: Option<String>, file: Option<&Path>) -> anyhow::Result<Option<String>> {
     match file {
         Some(path) => fs::read_to_string(path)
             .map(Some)
@@ -380,6 +383,7 @@ fn create(args: CreateArgs, client: &Client) -> anyhow::Result<()> {
         target_branch: args.target_branch,
         force: args.force,
         allow_duplicate: args.force,
+        steps: args.steps,
     };
     let ticket = client.create_ticket(board.project_id, board.id, &input)?;
     if args.json {
@@ -443,6 +447,12 @@ fn marks(ticket: &TicketDto) -> Vec<String> {
     }
     if ticket.priority != PriorityDto::Normal {
         marks.push(format!("({})", priority_name(ticket.priority)));
+    }
+    if ticket.steps_total != 0 {
+        marks.push(format!(
+            "[{}/{} steps]",
+            ticket.steps_done, ticket.steps_total
+        ));
     }
     if !ticket.labels.is_empty() {
         marks.push(ticket.labels.join(","));
@@ -517,6 +527,20 @@ fn show_lines(detail: &TicketDetailDto, history: bool) -> Vec<String> {
             lines.push(String::new());
             lines.push(format!("## {title}"));
             lines.push(text.trim_end().to_owned());
+        }
+    }
+    if !detail.steps.is_empty() {
+        lines.push(String::new());
+        lines.push(format!(
+            "## Steps ({}/{})",
+            ticket.steps_done, ticket.steps_total
+        ));
+        for step in &detail.steps {
+            let mark = if step.done { "x" } else { " " };
+            lines.push(format!("  [{mark}] {}. {}", step.number, step.text));
+            if let Some(guidance) = &step.detail {
+                lines.extend(guidance.lines().map(|line| format!("        {line}")));
+            }
         }
     }
     if history {

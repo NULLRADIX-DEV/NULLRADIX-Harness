@@ -3,22 +3,11 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
-use crate::{Column, Priority, TicketKey, TicketStatus, utf16_len};
+use crate::{Column, Priority, TicketKey, TicketStatus, utf16_len, utf16_prefix};
 
 pub const LABEL_MAX: usize = 100;
 /// How much of a too long label an error shows, as in legacy.
 const LABEL_SHOWN: usize = 30;
-
-/// The longest start of `text` within `units` UTF-16 code units, never splitting a character.
-fn utf16_prefix(text: &str, units: usize) -> String {
-    let mut used = 0;
-    text.chars()
-        .take_while(|letter| {
-            used += letter.len_utf16();
-            used <= units
-        })
-        .collect()
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RuleError {

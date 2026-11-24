@@ -4,8 +4,8 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
 use nullradix_app::tickets::{
-    self, HistoryLine, NewTicket, TicketDetail, TicketFilter, TicketPatch, TicketScope, TicketView,
-    WriteOptions,
+    self, HistoryLine, NewTicket, StepGuard, StepPatch, TicketDetail, TicketFilter, TicketPatch,
+    TicketScope, TicketView, WriteOptions,
 };
 use nullradix_domain::{Column, Id, Priority, TicketKey, TicketStatus, Version};
 use serde::{Deserialize, Serialize};
@@ -155,6 +155,8 @@ pub struct TicketDto {
     pub dependents: Vec<String>,
     /// Dependents that become ready once this ticket is done.
     pub unlocks: Vec<String>,
+    pub steps_done: u32,
+    pub steps_total: u32,
 }
 
 impl From<TicketView> for TicketDto {
@@ -193,6 +195,8 @@ impl From<TicketView> for TicketDto {
             depends_open: keys(&view.depends_open),
             dependents: keys(&view.dependents),
             unlocks: keys(&view.unlocks),
+            steps_done: view.steps.done,
+            steps_total: view.steps.total,
         }
     }
 }
@@ -229,11 +233,22 @@ impl From<HistoryLine> for HistoryDto {
     }
 }
 
+/// A work step; numbers count from 1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StepDto {
+    pub id: Uuid,
+    pub number: u32,
+    pub text: String,
+    pub done: bool,
+    pub detail: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct TicketDetailDto {
     pub ticket: TicketDto,
     /// Oldest first.
     pub history: Vec<HistoryDto>,
+    pub steps: Vec<StepDto>,
 }
 
 impl From<TicketDetail> for TicketDetailDto {
@@ -241,6 +256,16 @@ impl From<TicketDetail> for TicketDetailDto {
         Self {
             ticket: detail.view.into(),
             history: detail.history.into_iter().map(HistoryDto::from).collect(),
+            steps: (1..)
+                .zip(detail.steps)
+                .map(|(number, step)| StepDto {
+                    id: step.id.as_uuid(),
+                    number,
+                    text: step.text,
+                    done: step.done,
+                    detail: step.detail,
+                })
+                .collect(),
         }
     }
 }
@@ -272,6 +297,9 @@ pub struct CreateTicket {
     /// Allows an open ticket with the same title on the board.
     #[serde(default)]
     pub allow_duplicate: bool,
+    /// Texts of work steps, none done.
+    #[serde(default)]
+    pub steps: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -375,6 +403,78 @@ pub struct MoveTicket {
     /// Lifts the dependency, question and not-needed locks.
     #[serde(default)]
     pub force: bool,
+}
+
+/// A new work step.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AddStep {
+    pub text: String,
+    /// Guidance for the step; blank guidance is none.
+    pub detail: Option<String>,
+    /// Position from 1; without one the step goes last.
+    pub at: Option<i64>,
+    /// Version of the ticket the change is based on.
+    pub version: Option<i64>,
+    /// The text the step at `at` had when it was read.
+    pub expect_text: Option<String>,
+}
+
+/// A change of one step; left out fields stay, a `null` detail removes the guidance.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChangeStep {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<String>, nullable)]
+    pub detail: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<i64>,
+    /// The text the step had when it was read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect_text: Option<String>,
+}
+
+/// A move of one step to another number.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MoveStep {
+    pub to: i64,
+    pub version: Option<i64>,
+    pub expect_text: Option<String>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Path, rename_all = "camelCase")]
+pub(crate) struct StepPath {
+    /// Ticket key such as `ARC-0007`.
+    ticket_key: String,
+    /// Step id; it stays while the step's number changes.
+    step_id: Uuid,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query, rename_all = "camelCase")]
+pub(crate) struct RemoveStepQuery {
+    version: Option<i64>,
+    /// The text the step had when it was read.
+    expect_text: Option<String>,
+}
+
+fn guard(version: Option<i64>, expect_text: Option<String>) -> Result<StepGuard, AppError> {
+    Ok(StepGuard {
+        version: version.map(AppError::client_version).transpose()?,
+        expect_text,
+    })
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -491,6 +591,7 @@ pub(crate) async fn create_ticket(
         depends_on: input.depends_on,
         needs_planning: input.needs_planning,
         target_branch: input.target_branch,
+        steps: input.steps,
     };
     let created = TicketDto::from(
         state
@@ -647,6 +748,138 @@ pub(crate) async fn delete_ticket(
         .delete(&path.ticket_key, &state.person, version(query.version)?)
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/steps",
+    tag = "tickets",
+    params(TicketPath),
+    request_body = AddStep,
+    responses(
+        (status = 201, body = TicketDetailDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Stale version or a changed step", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn add_step(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<AddStep>,
+) -> Result<(StatusCode, Json<TicketDetailDto>), ApiError> {
+    let detail = state
+        .tickets
+        .add_step(
+            &path.ticket_key,
+            &input.text,
+            input.detail.as_deref(),
+            input.at,
+            &guard(input.version, input.expect_text)?,
+            &state.person,
+        )
+        .await?;
+    Ok((StatusCode::CREATED, Json(detail.into())))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/tickets/{ticketKey}/steps/{stepId}",
+    tag = "tickets",
+    params(StepPath),
+    request_body = ChangeStep,
+    responses(
+        (status = 200, body = TicketDetailDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Stale version or a changed step", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn change_step(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<StepPath>,
+    ApiJson(input): ApiJson<ChangeStep>,
+) -> Result<Json<TicketDetailDto>, ApiError> {
+    let step = StepPatch {
+        text: input.text,
+        detail: input.detail,
+        done: input.done,
+    };
+    let detail = state
+        .tickets
+        .change_step(
+            &path.ticket_key,
+            Id::from_uuid(path.step_id),
+            &step,
+            &guard(input.version, input.expect_text)?,
+            &state.person,
+        )
+        .await?;
+    Ok(Json(detail.into()))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/tickets/{ticketKey}/steps/{stepId}",
+    tag = "tickets",
+    params(StepPath, RemoveStepQuery),
+    responses(
+        (status = 200, description = "The ticket without the step", body = TicketDetailDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Stale version or a changed step", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn remove_step(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<StepPath>,
+    ApiQuery(query): ApiQuery<RemoveStepQuery>,
+) -> Result<Json<TicketDetailDto>, ApiError> {
+    let detail = state
+        .tickets
+        .remove_step(
+            &path.ticket_key,
+            Id::from_uuid(path.step_id),
+            &guard(query.version, query.expect_text)?,
+            &state.person,
+        )
+        .await?;
+    Ok(Json(detail.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/steps/{stepId}/move",
+    tag = "tickets",
+    params(StepPath),
+    request_body = MoveStep,
+    responses(
+        (status = 200, body = TicketDetailDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Stale version or a changed step", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn move_step(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<StepPath>,
+    ApiJson(input): ApiJson<MoveStep>,
+) -> Result<Json<TicketDetailDto>, ApiError> {
+    let detail = state
+        .tickets
+        .move_step(
+            &path.ticket_key,
+            Id::from_uuid(path.step_id),
+            input.to,
+            &guard(input.version, input.expect_text)?,
+            &state.person,
+        )
+        .await?;
+    Ok(Json(detail.into()))
 }
 
 #[cfg(test)]

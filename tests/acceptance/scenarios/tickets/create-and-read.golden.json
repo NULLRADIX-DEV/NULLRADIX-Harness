@@ -92,6 +92,8 @@
         "priority": "high",
         "projectId": "<ID-1>",
         "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
         "targetBranch": null,
         "title": "Login page",
         "unlocks": [],
@@ -166,6 +168,8 @@
         "priority": "normal",
         "projectId": "<ID-1>",
         "status": "planned",
+        "stepsDone": 0,
+        "stepsTotal": 0,
         "targetBranch": null,
         "title": "Logout",
         "unlocks": [],
@@ -334,6 +338,8 @@
             "priority": "normal",
             "projectId": "<ID-1>",
             "status": "planned",
+            "stepsDone": 0,
+            "stepsTotal": 0,
             "targetBranch": null,
             "title": "Logout",
             "unlocks": [],
@@ -369,6 +375,8 @@
             "priority": "normal",
             "projectId": "<ID-1>",
             "status": "backlog",
+            "stepsDone": 0,
+            "stepsTotal": 0,
             "targetBranch": null,
             "title": "Login page",
             "unlocks": [],
@@ -400,6 +408,7 @@
             "to": "backlog"
           }
         ],
+        "steps": [],
         "ticket": {
           "acceptance": "Users can sign in",
           "assignee": null,
@@ -429,6 +438,8 @@
           "priority": "high",
           "projectId": "<ID-1>",
           "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
           "targetBranch": null,
           "title": "Login page",
           "unlocks": [

@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id: Uuid\", text, done, detail FROM ticket_steps\n           WHERE ticket_id = ? ORDER BY position",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "ticket_steps",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "text",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_steps",
+            "name": "text"
+          }
+        }
+      },
+      {
+        "name": "done",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "ticket_steps",
+            "name": "done"
+          }
+        }
+      },
+      {
+        "name": "detail",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_steps",
+            "name": "detail"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "c84134e7b7b79de256b06ca8cec231bbf8676791f430f2a75a4e66086e5a358d"
+}

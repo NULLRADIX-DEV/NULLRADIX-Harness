@@ -6,10 +6,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nullradix_domain::{
     ASSIGNEE_MAX, Actor, BLOCKED_REASON_MAX, Board, Column, DependencyIndex, HistoryEntry, Id,
-    Priority, Project, ProjectKey, RuleError, StatusFacts, StatusLock, StatusRequest, TargetBranch,
-    TextError, Ticket, TicketDraft, TicketError, TicketKey, TicketRecord, TicketStatus,
-    TicketTitle, Timestamp, Tombstone, Version, changes, check_status_change, display_order,
-    normalize_dependencies, normalize_labels, optional_text, validate_dependencies,
+    Priority, Project, ProjectKey, RuleError, StatusFacts, StatusLock, StatusRequest, Step,
+    StepEdit, StepError, TargetBranch, TextError, Ticket, TicketDraft, TicketError, TicketKey,
+    TicketRecord, TicketStatus, TicketTitle, Timestamp, Tombstone, Version, changes,
+    check_status_change, display_order, normalize_dependencies, normalize_labels, optional_text,
+    step, validate_dependencies,
 };
 
 use crate::projects::ProjectRepository;
@@ -20,6 +21,14 @@ use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator, boards};
 pub struct TicketRow {
     pub ticket: Ticket,
     pub created_by_name: String,
+    pub steps: StepProgress,
+}
+
+/// How many steps a ticket has and how many of them are done.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StepProgress {
+    pub done: u32,
+    pub total: u32,
 }
 
 /// One line of a ticket's history as read back.
@@ -63,6 +72,7 @@ pub struct TicketRead {
     pub row: TicketRow,
     pub index: DependencyIndex,
     pub history: Vec<HistoryLine>,
+    pub steps: Vec<Step>,
 }
 
 /// One write; dropping it without [`TicketWrite::commit`] undoes everything.
@@ -110,6 +120,9 @@ pub trait TicketWrite: Send {
         expected: Version,
         at: Timestamp,
     ) -> Result<Change, AppError>;
+    async fn steps(&mut self, ticket: Id<Ticket>) -> Result<Vec<Step>, AppError>;
+    /// Replaces the steps; positions are rewritten from 0.
+    async fn replace_steps(&mut self, ticket: Id<Ticket>, steps: &[Step]) -> Result<(), AppError>;
     async fn commit(self: Box<Self>) -> Result<(), AppError>;
 }
 
@@ -123,6 +136,7 @@ pub struct TicketView {
     pub dependents: Vec<TicketKey>,
     /// Dependents that become ready once this ticket is done.
     pub unlocks: Vec<TicketKey>,
+    pub steps: StepProgress,
 }
 
 impl TicketView {
@@ -135,6 +149,7 @@ impl TicketView {
             unlocks: index.unlocks(&record.key),
             depends_open,
             created_by_name: row.created_by_name,
+            steps: row.steps,
             ticket: row.ticket,
         }
     }
@@ -149,6 +164,7 @@ impl TicketView {
 pub struct TicketDetail {
     pub view: TicketView,
     pub history: Vec<HistoryLine>,
+    pub steps: Vec<Step>,
 }
 
 /// Input of a new ticket; what is left out gets the legacy default.
@@ -165,6 +181,24 @@ pub struct NewTicket {
     pub depends_on: Vec<String>,
     pub needs_planning: Option<bool>,
     pub target_branch: Option<String>,
+    /// Texts of work steps, none done.
+    pub steps: Vec<String>,
+}
+
+/// A change of one step: text, guidance (`Some(None)` removes it) and check.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StepPatch {
+    pub text: Option<String>,
+    pub detail: Option<Option<String>>,
+    pub done: Option<bool>,
+}
+
+/// What a step change expects to find, as legacy guarded it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StepGuard {
+    pub version: Option<Version>,
+    /// The text the step at the given number had when the caller read it.
+    pub expect_text: Option<String>,
 }
 
 /// A change of fields; `None` keeps a field, and `Some(None)` clears one that may be empty.
@@ -330,6 +364,26 @@ pub fn board_has_open_tickets(keys: &[&TicketKey]) -> AppError {
     )
 }
 
+fn step_error(error: &StepError) -> AppError {
+    let message = error.to_string();
+    match error {
+        StepError::Text(text) => AppError::text(*text, "step-empty", message),
+        StepError::NotFound { .. } | StepError::NoPosition { .. } | StepError::Unknown(_) => {
+            AppError::not_found("step-not-found", message)
+        }
+        StepError::NothingChanged => AppError::invalid("nothing-changed", message),
+        StepError::Changed { .. } => AppError::conflict("conflict", message),
+    }
+}
+
+fn progress(steps: &[Step]) -> StepProgress {
+    let count = |steps: usize| u32::try_from(steps).unwrap_or(u32::MAX);
+    StepProgress {
+        done: count(steps.iter().filter(|step| step.done).count()),
+        total: count(steps.len()),
+    }
+}
+
 fn duplicate(existing: &TicketKey) -> AppError {
     AppError::conflict(
         "ticket-duplicate",
@@ -433,6 +487,8 @@ impl TicketService {
         };
         let title = TicketTitle::parse(&input.title).map_err(|error| invalid(&error))?;
         let depends_on = dependency_keys(&input.depends_on)?;
+        let steps = step::new_steps(&input.steps, || self.ids.next())
+            .map_err(|error| step_error(&error))?;
         let key = TicketKey::new(project_key, write.take_number(project).await?);
         let index = write.dependency_index().await?;
         if !depends_on.is_empty() {
@@ -478,11 +534,13 @@ impl TicketService {
         );
         let history = [HistoryEntry::created(self.ids.next(), &ticket)];
         let change = write.insert(&ticket, &history).await?;
+        write.replace_steps(ticket.id(), &steps).await?;
         write.commit().await?;
         self.signal.notify(&change);
         let row = TicketRow {
             ticket,
             created_by_name: actor.name().as_str().to_owned(),
+            steps: progress(&steps),
         };
         Ok(TicketView::new(row, &index))
     }
@@ -512,6 +570,7 @@ impl TicketService {
         Ok(TicketDetail {
             view: TicketView::new(read.row, &read.index),
             history: read.history,
+            steps: read.steps,
         })
     }
 
@@ -612,6 +671,135 @@ impl TicketService {
             self.signal.notify(last);
         }
         Ok(())
+    }
+
+    /// Appends a step or inserts it at `at`, counted from 1.
+    pub async fn add_step(
+        &self,
+        key: &str,
+        text: &str,
+        detail: Option<&str>,
+        at: Option<i64>,
+        guard: &StepGuard,
+        actor: &Actor,
+    ) -> Result<TicketDetail, AppError> {
+        let id = self.ids.next();
+        self.change_steps(key, guard.version, actor, |steps| {
+            if let Some(at) = at {
+                step::expect(steps, at, guard.expect_text.as_deref())?;
+            }
+            Ok(vec![step::add(steps, id, text, detail, at)?])
+        })
+        .await
+    }
+
+    /// Edits text or guidance and checks or unchecks; a change without effect writes nothing.
+    pub async fn change_step(
+        &self,
+        key: &str,
+        id: Id<Step>,
+        patch: &StepPatch,
+        guard: &StepGuard,
+        actor: &Actor,
+    ) -> Result<TicketDetail, AppError> {
+        self.change_steps(key, guard.version, actor, |steps| {
+            let number = step::number(steps, id)?;
+            step::expect(steps, number, guard.expect_text.as_deref())?;
+            if patch.text.is_none() && patch.detail.is_none() && patch.done.is_none() {
+                return Err(StepError::NothingChanged);
+            }
+            let mut edits = Vec::new();
+            let mut current = steps.to_vec();
+            if patch.text.is_some() || patch.detail.is_some() {
+                let detail = patch.detail.as_ref().map(Option::as_deref);
+                let edit = step::edit(&current, number, patch.text.as_deref(), detail)?;
+                current.clone_from(&edit.steps);
+                edits.push(edit);
+            }
+            if let Some(done) = patch.done {
+                edits.push(step::check(&current, number, done)?);
+            }
+            Ok(edits)
+        })
+        .await
+    }
+
+    pub async fn remove_step(
+        &self,
+        key: &str,
+        id: Id<Step>,
+        guard: &StepGuard,
+        actor: &Actor,
+    ) -> Result<TicketDetail, AppError> {
+        self.change_steps(key, guard.version, actor, |steps| {
+            let number = step::number(steps, id)?;
+            step::expect(steps, number, guard.expect_text.as_deref())?;
+            Ok(vec![step::remove(steps, number)?])
+        })
+        .await
+    }
+
+    /// Moves the step to number `to`, counted from 1.
+    pub async fn move_step(
+        &self,
+        key: &str,
+        id: Id<Step>,
+        to: i64,
+        guard: &StepGuard,
+        actor: &Actor,
+    ) -> Result<TicketDetail, AppError> {
+        self.change_steps(key, guard.version, actor, |steps| {
+            let from = step::number(steps, id)?;
+            step::expect(steps, from, guard.expect_text.as_deref())?;
+            Ok(vec![step::move_step(steps, from, to)?])
+        })
+        .await
+    }
+
+    /// Runs step edits in one write; each edit that changes the list adds a history line.
+    async fn change_steps(
+        &self,
+        key: &str,
+        expected: Option<Version>,
+        actor: &Actor,
+        edits: impl FnOnce(&[Step]) -> Result<Vec<StepEdit>, StepError> + Send,
+    ) -> Result<TicketDetail, AppError> {
+        let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
+        let mut write = self.repository.begin().await?;
+        let ticket = load(write.as_mut(), &key, expected).await?;
+        let current = write.steps(ticket.id()).await?;
+        let edits = edits(&current).map_err(|error| step_error(&error))?;
+        let mut previous = current.clone();
+        let now = self.clock.now();
+        let mut history = Vec::new();
+        for edit in edits {
+            if edit.steps == previous {
+                continue;
+            }
+            history.push(HistoryEntry {
+                id: self.ids.next(),
+                ticket: ticket.id(),
+                actor: actor.id(),
+                at: now,
+                field: "step",
+                from: edit.from,
+                to: edit.to,
+                note: Some(edit.note),
+            });
+            previous = edit.steps;
+        }
+        if previous == current {
+            drop(write);
+            return self.get(&key.to_string()).await;
+        }
+        let revised = ticket.revised(ticket.record().clone(), now);
+        let change = write
+            .update(&revised, ticket.record().version, &history)
+            .await?;
+        write.replace_steps(ticket.id(), &previous).await?;
+        write.commit().await?;
+        self.signal.notify(&change);
+        self.get(&key.to_string()).await
     }
 
     fn history(

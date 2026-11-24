@@ -83,6 +83,8 @@
         "priority": "normal",
         "projectId": "<ID-1>",
         "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
         "targetBranch": null,
         "title": "Base",
         "unlocks": [],
@@ -135,6 +137,8 @@
         "priority": "normal",
         "projectId": "<ID-1>",
         "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
         "targetBranch": null,
         "title": "Top",
         "unlocks": [],
@@ -230,6 +234,7 @@
             "to": "13 characters"
           }
         ],
+        "steps": [],
         "ticket": {
           "acceptance": "",
           "assignee": "claude",
@@ -258,6 +263,8 @@
           "priority": "normal",
           "projectId": "<ID-1>",
           "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
           "targetBranch": null,
           "title": "Base layer",
           "unlocks": [
@@ -383,6 +390,7 @@
             "to": null
           }
         ],
+        "steps": [],
         "ticket": {
           "acceptance": "",
           "assignee": null,
@@ -411,6 +419,8 @@
           "priority": "normal",
           "projectId": "<ID-1>",
           "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
           "targetBranch": null,
           "title": "Base layer",
           "unlocks": [
@@ -476,6 +486,7 @@
             "to": "release/2"
           }
         ],
+        "steps": [],
         "ticket": {
           "acceptance": "",
           "assignee": null,
@@ -504,6 +515,8 @@
           "priority": "normal",
           "projectId": "<ID-1>",
           "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
           "targetBranch": "release/2",
           "title": "Top",
           "unlocks": [],
@@ -594,6 +607,7 @@
             "to": null
           }
         ],
+        "steps": [],
         "ticket": {
           "acceptance": "",
           "assignee": null,
@@ -622,6 +636,8 @@
           "priority": "normal",
           "projectId": "<ID-1>",
           "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
           "targetBranch": null,
           "title": "Top",
           "unlocks": [],
@@ -800,6 +816,7 @@
             "to": "Base works"
           }
         ],
+        "steps": [],
         "ticket": {
           "acceptance": "Base works",
           "assignee": null,
@@ -828,6 +845,8 @@
           "priority": "urgent",
           "projectId": "<ID-1>",
           "status": "done",
+          "stepsDone": 0,
+          "stepsTotal": 0,
           "targetBranch": null,
           "title": "Base layer",
           "unlocks": [],
@@ -949,6 +968,7 @@
             "to": "[]"
           }
         ],
+        "steps": [],
         "ticket": {
           "acceptance": "",
           "assignee": null,
@@ -973,6 +993,8 @@
           "priority": "normal",
           "projectId": "<ID-1>",
           "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
           "targetBranch": null,
           "title": "Top",
           "unlocks": [],
