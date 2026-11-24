@@ -1,0 +1,144 @@
+[
+  {
+    "name": "create",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "taken key",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Again"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "code": "project-key-taken",
+        "detail": "another project already uses the key ARC",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:project-key-taken"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "invalid key",
+    "request": {
+      "body": {
+        "key": "a!",
+        "name": "Bad"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "code": "invalid-project-key",
+        "detail": "a project key has 2 to 6 characters, starts with A-Z and uses only A-Z and 0-9",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:invalid-project-key"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "rename",
+    "request": {
+      "body": {
+        "name": "Arches 2",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/projects/<ID-1>"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches 2",
+        "updatedAt": "<TIME>",
+        "version": 2
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "rename with a stale version",
+    "request": {
+      "body": {
+        "name": "Arches 3",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/projects/<ID-1>"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "project <ID-1> was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "project",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "list in the CLI",
+    "stderr": "",
+    "stdout": "ARC     Arches 2\n"
+  },
+  {
+    "cli": [
+      "project",
+      "delete",
+      "ARC"
+    ],
+    "exitCode": 0,
+    "name": "delete in the CLI",
+    "stderr": "",
+    "stdout": "deleted ARC\n"
+  },
+  {
+    "name": "list after delete",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "items": []
+      },
+      "status": 200
+    }
+  }
+]

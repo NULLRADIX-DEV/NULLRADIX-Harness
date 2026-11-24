@@ -1,0 +1,49 @@
+{
+  "title": "Projects are created, renamed with their version and deleted",
+  "steps": [
+    {
+      "name": "create",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "arc": "json.id" }
+    },
+    {
+      "name": "taken key",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Again" }
+      }
+    },
+    {
+      "name": "invalid key",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "a!", "name": "Bad" }
+      }
+    },
+    {
+      "name": "rename",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/projects/{{arc}}",
+        "body": { "name": "Arches 2", "version": 1 }
+      }
+    },
+    {
+      "name": "rename with a stale version",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/projects/{{arc}}",
+        "body": { "name": "Arches 3", "version": 1 }
+      }
+    },
+    { "name": "list in the CLI", "cli": { "args": ["project", "list"] } },
+    { "name": "delete in the CLI", "cli": { "args": ["project", "delete", "ARC"] } },
+    { "name": "list after delete", "http": { "method": "GET", "path": "/api/v1/projects" } }
+  ]
+}

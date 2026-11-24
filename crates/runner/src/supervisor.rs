@@ -83,9 +83,15 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
     let mut tree = match ProcessTree::spawn(&mut command) {
         Ok(tree) => tree,
         Err(error) => {
+            // the same words on every platform, where the system message differs
+            let reason = match error.kind() {
+                io::ErrorKind::NotFound => String::from("program not found"),
+                io::ErrorKind::PermissionDenied => String::from("permission denied"),
+                _ => error.to_string(),
+            };
             return Ok(failure(
                 Some(127),
-                &format!("cannot start {}: {error}", spec.program),
+                &format!("cannot start {}: {reason}", spec.program),
             ));
         }
     };

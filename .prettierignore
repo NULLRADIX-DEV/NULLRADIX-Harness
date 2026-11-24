@@ -2,3 +2,4 @@ package-lock.json
 crates/store/.sqlx/
 web/src/shared/api/openapi.json
 web/src/shared/api/schema.ts
+tests/acceptance/scenarios/**/*.golden.json

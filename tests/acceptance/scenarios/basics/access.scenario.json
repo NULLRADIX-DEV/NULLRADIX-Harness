@@ -1,0 +1,17 @@
+{
+  "title": "Health is public, everything else needs a credential",
+  "steps": [
+    { "name": "health", "http": { "method": "GET", "path": "/api/v1/health", "auth": "none" } },
+    {
+      "name": "projects without a token",
+      "http": { "method": "GET", "path": "/api/v1/projects", "auth": "none" }
+    },
+    { "name": "who am I", "http": { "method": "GET", "path": "/api/v1/auth/me" } },
+    { "name": "unknown route", "http": { "method": "GET", "path": "/api/v1/nothing-here" } },
+    {
+      "name": "wrong method",
+      "http": { "method": "DELETE", "path": "/api/v1/health", "auth": "none" }
+    },
+    { "name": "status", "cli": { "args": ["status"] } }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "title": "Hooks reach the daemon silently and once per event",
+  "env": {
+    "NULLRADIX_TICKET": "ARC-0007",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "NULLRADIX_HOOK_DEADLINE_MS": "4500"
+  },
+  "steps": [
+    {
+      "name": "session start",
+      "cli": {
+        "args": ["hook", "session-start"],
+        "stdin": {
+          "session_id": "s-1",
+          "cwd": "{{WORK}}",
+          "source": "startup",
+          "model": "fake-opus"
+        }
+      }
+    },
+    {
+      "name": "prompt",
+      "cli": {
+        "args": ["hook", "user-prompt"],
+        "stdin": { "session_id": "s-1", "cwd": "{{WORK}}", "prompt": "fix the login" }
+      }
+    },
+    {
+      "name": "garbage",
+      "cli": { "args": ["hook", "stop"], "stdin": "not json" }
+    },
+    {
+      "name": "unknown hook",
+      "cli": {
+        "args": ["hook", "no-such-hook"],
+        "stdin": { "session_id": "s-1", "cwd": "{{WORK}}" }
+      }
+    },
+    {
+      "name": "same event twice",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/hooks/stop",
+        "body": {
+          "id": "0190a0b0-0000-7000-8000-0000000000f1",
+          "sessionId": "s-1",
+          "cwd": "{{WORK}}",
+          "occurredAt": 1
+        }
+      }
+    },
+    {
+      "name": "same event again",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/hooks/stop",
+        "body": {
+          "id": "0190a0b0-0000-7000-8000-0000000000f1",
+          "sessionId": "s-1",
+          "cwd": "{{WORK}}",
+          "occurredAt": 1
+        }
+      }
+    },
+    { "name": "recorded events", "http": { "method": "GET", "path": "/api/v1/hook-events" } }
+  ]
+}

@@ -1,0 +1,183 @@
+[
+  {
+    "name": "start a sleeper",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "label": "sleeper",
+        "program": "<FAKE_CLAUDE>",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-1>",
+        "label": "sleeper",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "cancel",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/runs/<ID-1>/cancel"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-1>",
+        "label": "sleeper",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "status": 202
+    }
+  },
+  {
+    "field": "status",
+    "name": "cancelled",
+    "reached": "cancelled",
+    "wait": "/api/v1/runs/<ID-1>"
+  },
+  {
+    "name": "cancel again",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/runs/<ID-1>/cancel"
+    },
+    "response": {
+      "json": {
+        "code": "run-finished",
+        "detail": "run <ID-1> has already finished",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:run-finished"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "a missing program fails",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "label": "missing",
+        "program": "nullradix-no-such-program"
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-2>",
+        "label": "missing",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "failed",
+    "reached": "failed",
+    "wait": "/api/v1/runs/<ID-2>"
+  },
+  {
+    "name": "the failed run",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-2>"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": "cannot start nullradix-no-such-program: program not found",
+        "exitCode": 127,
+        "finishedAt": "<TIME>",
+        "id": "<ID-2>",
+        "label": "missing",
+        "startedAt": "<TIME>",
+        "status": "failed",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a relative directory",
+    "request": {
+      "body": {
+        "cwd": "work",
+        "label": "relative",
+        "program": "<FAKE_CLAUDE>"
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "code": "invalid-run-cwd",
+        "detail": "work is not an absolute path",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:invalid-run-cwd"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a timeout of zero",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "label": "zero",
+        "program": "<FAKE_CLAUDE>",
+        "timeoutSeconds": 0
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "code": "invalid-run-timeout",
+        "detail": "the timeout must be positive",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:invalid-run-timeout"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "run",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "only two runs exist",
+    "stderr": "",
+    "stdout": "<ID-2>  failed      missing\n<ID-1>  cancelled   sleeper\n"
+  }
+]
