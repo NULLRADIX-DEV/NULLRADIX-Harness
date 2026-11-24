@@ -209,6 +209,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The runner is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         }
       }

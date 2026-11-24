@@ -6,11 +6,16 @@ use std::sync::Arc;
 
 use nullradix_app::boards::{BoardService, BoardSummary, local_person};
 use nullradix_app::projects::ProjectService;
-use nullradix_app::repositories::{RepositorySummary, RunnerRepository, RunnerService};
+use nullradix_app::repositories::{
+    CheckoutRepository, RepositorySummary, RunnerRepository, RunnerService,
+};
 use nullradix_app::{
     ChangeFeed, ChangeOp, ChangeSignal, Entity, ErrorKind, SystemClock, UuidV7Generator,
 };
-use nullradix_domain::{Actor, Id, Runner, RunnerName, RunnerOs, Timestamp, Version};
+use nullradix_domain::{
+    Actor, Checkout, CheckoutPath, Id, Repository, RepositoryName, Runner, RunnerName, RunnerOs,
+    Timestamp, Version,
+};
 use nullradix_store::Store;
 
 struct Fixture {
@@ -276,4 +281,43 @@ async fn refuses_unknown_runners_and_foreign_paths() {
         fx.runners.repositories().await.unwrap(),
         Vec::<RepositorySummary>::new()
     );
+}
+
+#[tokio::test]
+async fn a_second_checkout_at_the_same_key_is_refused() {
+    let fx = fixture().await;
+    let now = Timestamp::from_millis(5);
+    let path = CheckoutPath::parse("/work/arches").unwrap();
+    let record = |name: &str| {
+        let repository = Repository::new(
+            Id::from_uuid(uuid::Uuid::now_v7()),
+            RepositoryName::parse(name).unwrap(),
+            now,
+        );
+        let checkout = Checkout::new(
+            Id::from_uuid(uuid::Uuid::now_v7()),
+            repository.id(),
+            fx.local(),
+            path.clone(),
+            path.clone(),
+            now,
+        );
+        (repository, checkout)
+    };
+    let (first, first_checkout) = record("first");
+    let (second, second_checkout) = record("second");
+    CheckoutRepository::insert(fx.store.as_ref(), &first, &first_checkout)
+        .await
+        .unwrap();
+    let error = CheckoutRepository::insert(fx.store.as_ref(), &second, &second_checkout)
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Conflict);
+    assert_eq!(error.code(), "checkout-exists");
+    let (found, _) = CheckoutRepository::find(fx.store.as_ref(), fx.local(), &path)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(found, first);
+    assert_eq!(fx.ops(Entity::Repository).await, [ChangeOp::Insert]);
 }

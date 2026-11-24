@@ -154,6 +154,7 @@ fn board_list(summaries: Vec<BoardSummary>) -> BoardList {
         (status = 401, body = Problem),
         (status = 404, description = "Unknown runner", body = Problem),
         (status = 422, body = Problem),
+        (status = 503, description = "The runner is not connected", body = Problem),
     )
 )]
 pub(crate) async fn list_all_boards(

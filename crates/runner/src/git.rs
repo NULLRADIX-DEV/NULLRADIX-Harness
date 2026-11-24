@@ -6,7 +6,7 @@ use nullradix_app::AppError;
 use nullradix_app::repositories::{Located, not_a_git_project, path_missing, path_relative};
 
 /// The repository the absolute folder `path` belongs to; worktrees resolve to their main checkout.
-pub async fn locate(path: &str) -> Result<Located, AppError> {
+pub(crate) async fn locate(path: &str) -> Result<Located, AppError> {
     let path = path.trim();
     if path.is_empty() {
         return Err(path_missing());
@@ -16,13 +16,14 @@ pub async fn locate(path: &str) -> Result<Located, AppError> {
         return Err(path_relative(path));
     }
     let fast = folder.clone();
-    let common = match blocking(move || common_dir_fast(&fast)).await? {
-        Some(common) => common,
-        None => common_dir_git(&folder)
+    let root = if let Some(root) = blocking(move || root_fast(&fast)).await? {
+        root
+    } else {
+        let common = common_dir_git(&folder)
             .await
-            .ok_or_else(|| not_a_git_project(path))?,
+            .ok_or_else(|| not_a_git_project(path))?;
+        blocking(move || main_root(Path::new(&common))).await?
     };
-    let root = root_of(&common);
     let canonical = root.clone();
     let key = blocking(move || path_key(Path::new(&canonical), cfg!(windows))).await?;
     let name = match root.rsplit('/').next() {
@@ -59,79 +60,93 @@ async fn common_dir_git(folder: &Path) -> Option<String> {
     (output.status.success() && !common.is_empty()).then(|| slashed(common))
 }
 
-/// Common git dir without starting git: `.git` upwards, through `gitdir:` and `commondir`.
-fn common_dir_fast(folder: &Path) -> Option<String> {
+/// Main checkout root without starting git: `.git` upwards; `None` when only git can tell.
+fn root_fast(folder: &Path) -> Option<String> {
     if std::env::var_os("GIT_DIR").is_some() || std::env::var_os("GIT_COMMON_DIR").is_some() {
         return None;
     }
     let start = real_path(folder)?;
+    if !start.is_absolute() {
+        return None;
+    }
     let mut current = start.as_path();
     loop {
-        match marker(current) {
-            Marker::Common(found) => {
-                return is_git_dir(&found).then(|| slashed(&found.to_string_lossy()));
+        let git = current.join(".git");
+        match fs::metadata(&git) {
+            Err(_) => current = current.parent()?,
+            Ok(meta) if meta.is_dir() => {
+                return is_git_dir(&git).then(|| slashed(&current.to_string_lossy()));
             }
-            Marker::Unclear => return None,
-            Marker::None => current = current.parent()?,
+            Ok(_) => return linked_root(current, &git),
         }
     }
 }
 
-enum Marker {
-    /// A `.git` whose common dir is this path.
-    Common(PathBuf),
-    /// A `.git` that only git can make sense of.
-    Unclear,
-    None,
-}
-
-fn marker(folder: &Path) -> Marker {
-    let git = folder.join(".git");
-    let Ok(meta) = fs::metadata(&git) else {
-        return Marker::None;
-    };
-    if meta.is_dir() {
-        return common_of(&git);
-    }
-    let Ok(text) = fs::read_to_string(&git) else {
-        return Marker::Unclear;
-    };
-    match text.trim().strip_prefix("gitdir:") {
-        Some(target) => common_of(&folder.join(target.trim())),
-        None => Marker::Unclear,
+/// Root behind a `.git` file: a worktree leads to its main checkout, a submodule is its own.
+fn linked_root(folder: &Path, file: &Path) -> Option<String> {
+    let text = fs::read_to_string(file).ok()?;
+    let target = text.trim().strip_prefix("gitdir:")?.trim();
+    let git_dir = real_path(&folder.join(target))?;
+    match fs::read_to_string(git_dir.join("commondir")) {
+        Ok(common) => {
+            let common = real_path(&git_dir.join(common.trim()))?;
+            is_git_dir(&common).then(|| main_root(&common))
+        }
+        Err(_) => is_git_dir(&git_dir).then(|| slashed(&folder.to_string_lossy())),
     }
 }
 
-/// A worktree's git dir names the common dir in `commondir`; otherwise it is the dir itself.
-fn common_of(git_dir: &Path) -> Marker {
-    let common = match fs::read_to_string(git_dir.join("commondir")) {
-        Ok(target) => git_dir.join(target.trim()),
-        Err(_) => git_dir.to_path_buf(),
-    };
-    real_path(&common).map_or(Marker::Unclear, Marker::Common)
+/// The main checkout of a common git dir: its `core.worktree` when set, else its parent.
+fn main_root(common: &Path) -> String {
+    configured_worktree(common).unwrap_or_else(|| root_of(&common.to_string_lossy()))
+}
+
+/// `core.worktree` from the common dir's config, which git sets for submodules.
+fn configured_worktree(common: &Path) -> Option<String> {
+    let text = fs::read_to_string(common.join("config")).ok()?;
+    let mut in_core = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_core = line.eq_ignore_ascii_case("[core]");
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if in_core && key.trim().eq_ignore_ascii_case("worktree") {
+            let root = real_path(&common.join(value.trim().trim_matches('"')))?;
+            return Some(slashed(&root.to_string_lossy()));
+        }
+    }
+    None
 }
 
 fn is_git_dir(path: &Path) -> bool {
     path.join("HEAD").is_file() && path.join("objects").is_dir()
 }
 
-/// Resolved path without the Windows `\\?\` prefix.
+/// Resolved path in the spelling git uses, without the Windows `\\?\` prefix.
 fn real_path(path: &Path) -> Option<PathBuf> {
     fs::canonicalize(path).ok().map(strip_verbatim)
 }
 
 fn strip_verbatim(path: PathBuf) -> PathBuf {
-    match path.to_string_lossy().strip_prefix(r"\\?\") {
-        Some(rest) => PathBuf::from(rest),
-        None => path,
-    }
+    let text = path.to_string_lossy();
+    let plain = if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{share}")
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        rest.to_owned()
+    } else {
+        return path;
+    };
+    PathBuf::from(plain)
 }
 
 fn slashed(path: &str) -> String {
     path.replace('\\', "/")
 }
 
-/// Main checkout root: the parent of the common dir, split on text like `dirname` in Node.
+/// Parent of the common dir, split on text like `dirname` in Node.
 fn root_of(common_dir: &str) -> String {
     let normalized = slashed(common_dir);
     match normalized.rsplit_once('/') {
@@ -168,6 +183,7 @@ mod tests {
     fn git(dir: &Path, args: &[&str]) {
         let status = Command::new("git")
             .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(["-c", "protocol.file.allow=always"])
             .args(args)
             .current_dir(dir)
             .stdout(Stdio::null())
@@ -189,13 +205,18 @@ mod tests {
         path.to_string_lossy().into_owned()
     }
 
+    fn repository(path: &Path) {
+        fs::create_dir_all(path).unwrap();
+        git(path, &["init", "-q"]);
+        git(path, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    }
+
     #[test]
     fn the_main_folder_a_subfolder_and_a_worktree_share_root_and_key() {
         let dir = tempfile::tempdir().unwrap();
         let main = dir.path().join("Arches");
+        repository(&main);
         fs::create_dir_all(main.join("src/deep")).unwrap();
-        git(&main, &["init", "-q"]);
-        git(&main, &["commit", "-q", "--allow-empty", "-m", "init"]);
         git(&main, &["worktree", "add", "-q", "../wt-1"]);
         let located = run(locate(&text(&main))).unwrap();
         assert_eq!(located.name, "Arches");
@@ -207,9 +228,25 @@ mod tests {
         }
         let common = run(common_dir_git(&dir.path().join("wt-1"))).unwrap();
         assert_eq!(
-            path_key(Path::new(&root_of(&common)), cfg!(windows)),
+            path_key(Path::new(&main_root(Path::new(&common))), cfg!(windows)),
             located.key
         );
+    }
+
+    #[test]
+    fn a_submodule_is_its_own_repository() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = dir.path().join("library");
+        let outer = dir.path().join("outer");
+        repository(&library);
+        repository(&outer);
+        git(&outer, &["submodule", "add", "-q", &text(&library), "lib"]);
+        let inner = run(locate(&text(&outer.join("lib")))).unwrap();
+        assert_eq!(inner.name, "lib");
+        assert!(inner.root.ends_with("/outer/lib"), "{}", inner.root);
+        let common = run(common_dir_git(&outer.join("lib"))).unwrap();
+        assert_eq!(main_root(Path::new(&common)), inner.root);
+        assert_eq!(run(locate(&text(&outer))).unwrap().name, "outer");
     }
 
     #[test]
@@ -222,7 +259,23 @@ mod tests {
             code(&text(&dir.path().join("missing"))),
             "not-a-git-project"
         );
-        assert_eq!(common_dir_fast(dir.path()), None);
+        assert_eq!(root_fast(dir.path()), None);
+    }
+
+    #[test]
+    fn verbatim_paths_keep_their_drive_or_share() {
+        assert_eq!(
+            strip_verbatim(PathBuf::from(r"\\?\UNC\nas\share\Arches")),
+            PathBuf::from(r"\\nas\share\Arches")
+        );
+        assert_eq!(
+            strip_verbatim(PathBuf::from(r"\\?\C:\Arches")),
+            PathBuf::from(r"C:\Arches")
+        );
+        assert_eq!(
+            strip_verbatim(PathBuf::from("/home/x")),
+            PathBuf::from("/home/x")
+        );
     }
 
     #[test]
