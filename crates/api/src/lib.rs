@@ -7,7 +7,9 @@ use std::future::Future;
 use std::io;
 
 use axum::Router;
-use axum::http::Request;
+use axum::http::{Request, StatusCode};
+use axum::response::Response;
+use nullradix_app::AppError;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
@@ -31,11 +33,26 @@ fn routes() -> OpenApiRouter {
 
 pub fn router() -> Router {
     let (router, _) = routes().split_for_parts();
-    router.layer(
-        ServiceBuilder::new()
-            .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
-            .layer(TraceLayer::new_for_http().make_span_with(request_span))
-            .layer(PropagateRequestIdLayer::x_request_id()),
+    router
+        .fallback(route_not_found)
+        .method_not_allowed_fallback(method_not_allowed)
+        .layer(
+            ServiceBuilder::new()
+                .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+                .layer(TraceLayer::new_for_http().make_span_with(request_span))
+                .layer(PropagateRequestIdLayer::x_request_id()),
+        )
+}
+
+async fn route_not_found() -> ApiError {
+    AppError::not_found("route-not-found", "no such route").into()
+}
+
+async fn method_not_allowed() -> Response {
+    problem::response(
+        StatusCode::METHOD_NOT_ALLOWED,
+        "method-not-allowed",
+        "method not allowed on this route",
     )
 }
 
@@ -70,7 +87,44 @@ pub async fn serve(
 
 #[cfg(test)]
 mod tests {
+    use axum::body::Body;
+    use axum::http::header;
+    use tower::ServiceExt;
+
     use super::*;
+
+    async fn call(request: Request<Body>) -> (StatusCode, String) {
+        let response = router().oneshot(request).await.unwrap();
+        let content_type = response.headers()[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        (response.status(), content_type)
+    }
+
+    #[tokio::test]
+    async fn unknown_routes_answer_with_problem_details() {
+        let request = Request::get("/nope").body(Body::empty()).unwrap();
+        assert_eq!(
+            call(request).await,
+            (
+                StatusCode::NOT_FOUND,
+                String::from("application/problem+json")
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn wrong_methods_answer_with_problem_details() {
+        let request = Request::post("/health").body(Body::empty()).unwrap();
+        assert_eq!(
+            call(request).await,
+            (
+                StatusCode::METHOD_NOT_ALLOWED,
+                String::from("application/problem+json")
+            )
+        );
+    }
 
     #[test]
     fn openapi_document_lists_health() {

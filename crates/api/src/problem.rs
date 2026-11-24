@@ -43,24 +43,37 @@ const fn status(kind: ErrorKind) -> StatusCode {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let error = self.0;
-        let status = status(error.kind());
         if error.kind() == ErrorKind::Internal {
-            tracing::error!(error = %error, cause = ?error.source(), "request failed");
+            tracing::error!(code = error.code(), cause = %causes(&error), "request failed");
         }
-        let problem = Problem {
-            problem_type: format!("urn:nullradix:problem:{}", error.code()),
-            title: status.canonical_reason().unwrap_or_default().to_owned(),
-            status: status.as_u16(),
-            detail: error.message().to_owned(),
-            code: error.code().to_owned(),
-        };
-        (
-            status,
-            [(header::CONTENT_TYPE, "application/problem+json")],
-            Json(problem),
-        )
-            .into_response()
+        response(status(error.kind()), error.code(), error.message())
     }
+}
+
+fn causes(error: &dyn Error) -> String {
+    let mut parts = Vec::new();
+    let mut current = error.source();
+    while let Some(cause) = current {
+        parts.push(cause.to_string());
+        current = cause.source();
+    }
+    parts.join(": ")
+}
+
+pub(crate) fn response(status: StatusCode, code: &str, detail: &str) -> Response {
+    let problem = Problem {
+        problem_type: format!("urn:nullradix:problem:{code}"),
+        title: status.canonical_reason().unwrap_or_default().to_owned(),
+        status: status.as_u16(),
+        detail: detail.to_owned(),
+        code: code.to_owned(),
+    };
+    (
+        status,
+        [(header::CONTENT_TYPE, "application/problem+json")],
+        Json(problem),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -98,6 +111,13 @@ mod tests {
         let (status, _, json) = render(AppError::internal(std::io::Error::other("secret"))).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json["detail"], "internal error");
+    }
+
+    #[test]
+    fn joins_the_whole_cause_chain() {
+        let inner = AppError::internal(std::io::Error::other("disk on fire"));
+        let outer = AppError::internal(inner);
+        assert_eq!(causes(&outer), "internal: internal error: disk on fire");
     }
 
     #[test]

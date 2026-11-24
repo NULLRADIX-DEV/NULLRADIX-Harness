@@ -195,8 +195,13 @@ mod tests {
     }
 
     #[test]
-    fn debug_builds_default_to_the_dev_profile() {
-        assert_eq!(Profile::of_build(), Profile::Dev);
+    fn build_profile_follows_debug_assertions() {
+        let expected = if cfg!(debug_assertions) {
+            Profile::Dev
+        } else {
+            Profile::Release
+        };
+        assert_eq!(Profile::of_build(), expected);
         assert_eq!(Profile::Dev.app_name(), "nullradix-dev");
     }
 }

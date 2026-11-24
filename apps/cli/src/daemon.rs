@@ -24,6 +24,9 @@ async fn serve(config: &Config) -> anyhow::Result<()> {
         data = %config.paths.data.display(),
         "daemon started"
     );
+    if !config.address.ip().is_loopback() {
+        tracing::warn!(address = %config.address, "listening beyond loopback without authentication");
+    }
     nullradix_api::serve(listener, nullradix_api::router(), shutdown_signal())
         .await
         .context("the HTTP server failed")?;

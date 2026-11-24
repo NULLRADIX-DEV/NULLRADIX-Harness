@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use tokio::sync::broadcast;
 
 /// In-process fan-out of domain events to subscribers such as SSE streams.
@@ -8,8 +10,8 @@ pub struct EventBus<E> {
 
 impl<E: Clone> EventBus<E> {
     #[must_use]
-    pub fn new(capacity: usize) -> Self {
-        let (sender, _) = broadcast::channel(capacity);
+    pub fn new(capacity: NonZeroUsize) -> Self {
+        let (sender, _) = broadcast::channel(capacity.get());
         Self { sender }
     }
 
@@ -28,9 +30,13 @@ impl<E: Clone> EventBus<E> {
 mod tests {
     use super::*;
 
+    fn capacity(value: usize) -> NonZeroUsize {
+        NonZeroUsize::new(value).unwrap()
+    }
+
     #[tokio::test]
     async fn delivers_events_to_every_subscriber() {
-        let bus = EventBus::new(8);
+        let bus = EventBus::new(capacity(8));
         let mut first = bus.subscribe();
         let mut second = bus.subscribe();
         bus.publish("changed");
@@ -40,6 +46,6 @@ mod tests {
 
     #[test]
     fn publishing_without_subscribers_is_a_no_op() {
-        EventBus::new(1).publish(42);
+        EventBus::new(capacity(1)).publish(42);
     }
 }

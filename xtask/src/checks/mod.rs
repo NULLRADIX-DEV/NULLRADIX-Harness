@@ -14,7 +14,7 @@ mod unsafe_code;
 pub(crate) struct Violation {
     pub(crate) path: PathBuf,
     pub(crate) line: usize,
-    pub(crate) message: &'static str,
+    pub(crate) message: String,
 }
 
 impl fmt::Display for Violation {
@@ -93,7 +93,7 @@ mod tests {
         let violation = Violation {
             path: PathBuf::from("a.rs"),
             line: 3,
-            message: "boom",
+            message: String::from("boom"),
         };
         assert_eq!(violation.to_string(), "a.rs:3: boom");
     }

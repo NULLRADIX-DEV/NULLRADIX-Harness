@@ -41,10 +41,10 @@ fn classify(text: &str, syntax: Syntax, first: bool) -> Line {
 
 /// Enforces ASCII-only files and comments of at most one short line.
 pub(super) fn check(path: &Path, content: &str, syntax: Syntax) -> Vec<Violation> {
-    let violation = |line, message| Violation {
+    let violation = |line, message: &str| Violation {
         path: path.to_path_buf(),
         line,
-        message,
+        message: message.to_owned(),
     };
     let mut violations = Vec::new();
     let mut run: Option<(usize, usize)> = None;
@@ -91,7 +91,7 @@ pub(super) fn check(path: &Path, content: &str, syntax: Syntax) -> Vec<Violation
 mod tests {
     use super::*;
 
-    fn lines(content: &str, syntax: Syntax) -> Vec<(usize, &'static str)> {
+    fn lines(content: &str, syntax: Syntax) -> Vec<(usize, String)> {
         check(Path::new("file"), content, syntax)
             .into_iter()
             .map(|v| (v.line, v.message))
@@ -107,12 +107,18 @@ mod tests {
     #[test]
     fn rejects_consecutive_line_comments() {
         let content = "let a = 1;\n// one\n// two\n//! three\nlet b = 2;\n";
-        assert_eq!(lines(content, Syntax::Slash), vec![(2, MULTI_LINE)]);
+        assert_eq!(
+            lines(content, Syntax::Slash),
+            vec![(2, MULTI_LINE.to_owned())]
+        );
     }
 
     #[test]
     fn reports_a_trailing_comment_run() {
-        assert_eq!(lines("/// a\n/// b", Syntax::Slash), vec![(1, MULTI_LINE)]);
+        assert_eq!(
+            lines("/// a\n/// b", Syntax::Slash),
+            vec![(1, MULTI_LINE.to_owned())]
+        );
     }
 
     #[test]
@@ -124,7 +130,10 @@ mod tests {
     #[test]
     fn rejects_multi_line_block_comments_once() {
         let content = "/**\n * docs\n */\nfn a() {}\n";
-        assert_eq!(lines(content, Syntax::Slash), vec![(1, MULTI_LINE_BLOCK)]);
+        assert_eq!(
+            lines(content, Syntax::Slash),
+            vec![(1, MULTI_LINE_BLOCK.to_owned())]
+        );
     }
 
     #[test]
@@ -132,7 +141,7 @@ mod tests {
         assert_eq!(lines("/* ok */\na { color: red; }\n", Syntax::Css), vec![]);
         assert_eq!(
             lines("/* a\n b */\n", Syntax::Css),
-            vec![(1, MULTI_LINE_BLOCK)]
+            vec![(1, MULTI_LINE_BLOCK.to_owned())]
         );
         assert_eq!(lines("// not a css comment\n", Syntax::Css), vec![]);
     }
@@ -142,19 +151,25 @@ mod tests {
         assert_eq!(lines("#!/bin/sh\n# one\necho hi\n", Syntax::Hash), vec![]);
         assert_eq!(
             lines("# one\n  # two\nkey = 1\n", Syntax::Hash),
-            vec![(1, MULTI_LINE)]
+            vec![(1, MULTI_LINE.to_owned())]
         );
     }
 
     #[test]
     fn rejects_long_comment_lines() {
         let content = format!("// {}\n", "x".repeat(MAX_COMMENT_LINE));
-        assert_eq!(lines(&content, Syntax::Slash), vec![(1, TOO_LONG)]);
+        assert_eq!(
+            lines(&content, Syntax::Slash),
+            vec![(1, TOO_LONG.to_owned())]
+        );
     }
 
     #[test]
     fn rejects_non_ascii_anywhere() {
         let content = "let a = \"\u{e4}\";\n";
-        assert_eq!(lines(content, Syntax::Slash), vec![(1, NON_ASCII)]);
+        assert_eq!(
+            lines(content, Syntax::Slash),
+            vec![(1, NON_ASCII.to_owned())]
+        );
     }
 }

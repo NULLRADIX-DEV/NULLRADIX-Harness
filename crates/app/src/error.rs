@@ -49,6 +49,21 @@ impl AppError {
     }
 
     #[must_use]
+    pub fn unauthorized(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Unauthorized, code, message)
+    }
+
+    #[must_use]
+    pub fn forbidden(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Forbidden, code, message)
+    }
+
+    #[must_use]
+    pub fn unavailable(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Unavailable, code, message)
+    }
+
+    #[must_use]
     pub fn internal(error: impl Error + Send + Sync + 'static) -> Self {
         Self::new(ErrorKind::Internal, "internal", "internal error").with_source(error)
     }

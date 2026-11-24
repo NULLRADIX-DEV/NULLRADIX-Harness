@@ -18,11 +18,6 @@ pub struct ParseIdError(#[from] uuid::Error);
 
 impl<T> Id<T> {
     #[must_use]
-    pub fn generate() -> Self {
-        Self::from_uuid(Uuid::now_v7())
-    }
-
-    #[must_use]
     pub const fn from_uuid(value: Uuid) -> Self {
         Self {
             value,
@@ -97,16 +92,16 @@ mod tests {
     struct Thing;
 
     #[test]
-    fn generated_ids_are_version_seven_and_ordered() {
-        let first = Id::<Thing>::generate();
-        let second = Id::<Thing>::generate();
-        assert_eq!(first.as_uuid().get_version_num(), 7);
+    fn orders_by_value() {
+        let first = Id::<Thing>::from_uuid(Uuid::from_u128(1));
+        let second = Id::<Thing>::from_uuid(Uuid::from_u128(2));
         assert!(first < second);
+        assert_eq!(first, first.clone());
     }
 
     #[test]
     fn round_trips_through_text() {
-        let id = Id::<Thing>::generate();
+        let id = Id::<Thing>::from_uuid(Uuid::from_u128(0x0192_5d2a_1b3c_7d4e_8f90_1234_5678_9abc));
         let parsed: Id<Thing> = id.to_string().parse().unwrap();
         assert_eq!(parsed, id);
     }
