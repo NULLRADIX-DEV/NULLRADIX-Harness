@@ -1,10 +1,11 @@
 use async_trait::async_trait;
-use nullradix_app::projects::ProjectRepository;
+use nullradix_app::projects::{self, ProjectRepository};
 use nullradix_app::{AppError, Change, ChangeOp, Entity};
 use nullradix_domain::{Id, Project, ProjectKey, ProjectName, Timestamp, Version};
 use sqlx::SqliteConnection;
 use uuid::Uuid;
 
+use crate::error::{database, missed_guard, unique_violation};
 use crate::{Store, StoreError, change_feed};
 
 struct Row {
@@ -22,50 +23,38 @@ impl Row {
             .map_err(|_| StoreError::Corrupt(format!("invalid project key `{}`", self.key)))?;
         let name = ProjectName::parse(&self.name)
             .map_err(|_| StoreError::Corrupt(String::from("invalid project name")))?;
-        Ok(Project {
-            id: Id::from_uuid(self.id),
+        Ok(Project::restore(
+            Id::from_uuid(self.id),
             key,
             name,
-            created_at: Timestamp::from_millis(self.created_at),
-            updated_at: Timestamp::from_millis(self.updated_at),
-            version: Version::from_stored(self.version),
-        })
+            Timestamp::from_millis(self.created_at),
+            Timestamp::from_millis(self.updated_at),
+            Version::from_stored(self.version),
+        ))
     }
 }
 
-fn database(error: sqlx::Error) -> AppError {
-    StoreError::from(error).into()
-}
-
-fn version_conflict(id: Id<Project>) -> AppError {
-    AppError::conflict(
-        "version-conflict",
-        format!("project {id} was changed by someone else, reload and try again"),
-    )
-}
-
-/// Tells a missing project apart from a stale version after a guarded update matched nothing.
-async fn missed_update(connection: &mut SqliteConnection, id: Id<Project>) -> AppError {
+async fn missed(connection: &mut SqliteConnection, id: Id<Project>) -> AppError {
     let uuid = id.as_uuid();
-    match sqlx::query_scalar!("SELECT 1 FROM projects WHERE id = ?", uuid)
+    let exists = sqlx::query_scalar!("SELECT 1 FROM projects WHERE id = ?", uuid)
         .fetch_optional(connection)
-        .await
-    {
-        Ok(Some(_)) => version_conflict(id),
-        Ok(None) => nullradix_app::projects::not_found(id),
-        Err(error) => database(error),
-    }
+        .await;
+    missed_guard(
+        exists,
+        AppError::version_conflict("project", id),
+        projects::not_found(id),
+    )
 }
 
 #[async_trait]
 impl ProjectRepository for Store {
     async fn insert(&self, project: &Project) -> Result<Change, AppError> {
-        let id = project.id.as_uuid();
-        let key = project.key.as_str();
-        let name = project.name.as_str();
-        let created_at = project.created_at.as_millis();
-        let updated_at = project.updated_at.as_millis();
-        let version = project.version.value();
+        let id = project.id().as_uuid();
+        let key = project.key().as_str();
+        let name = project.name().as_str();
+        let created_at = project.created_at().as_millis();
+        let updated_at = project.updated_at().as_millis();
+        let version = project.version().value();
         let mut tx = self.begin().await?;
         let inserted = sqlx::query!(
             "INSERT INTO projects (id, key, name, created_at, updated_at, version)
@@ -79,21 +68,18 @@ impl ProjectRepository for Store {
         )
         .execute(&mut *tx)
         .await;
-        if let Err(sqlx::Error::Database(error)) = &inserted
-            && error.is_unique_violation()
-        {
-            return Err(AppError::conflict(
-                "project-key-taken",
-                format!("another project already uses the key {key}"),
-            ));
-        }
-        inserted.map_err(database)?;
+        match inserted {
+            Err(error) if unique_violation(&error, "projects.key") => {
+                return Err(projects::key_taken(project.key()));
+            }
+            other => other.map_err(database)?,
+        };
         let change = change_feed::record(
             &mut tx,
             Entity::Project,
             id,
             ChangeOp::Insert,
-            project.created_at,
+            project.created_at(),
         )
         .await?;
         tx.commit().await.map_err(database)?;
@@ -129,39 +115,38 @@ impl ProjectRepository for Store {
         Ok(row.map(Row::into_project).transpose()?)
     }
 
-    async fn rename(
-        &self,
-        id: Id<Project>,
-        name: &ProjectName,
-        expected: Version,
-        at: Timestamp,
-    ) -> Result<(Project, Change), AppError> {
-        let uuid = id.as_uuid();
-        let name = name.as_str();
-        let millis = at.as_millis();
+    async fn update(&self, project: &Project, expected: Version) -> Result<Change, AppError> {
+        let uuid = project.id().as_uuid();
+        let name = project.name().as_str();
+        let updated_at = project.updated_at().as_millis();
+        let version = project.version().value();
         let expected = expected.value();
         let mut tx = self.begin().await?;
-        let row = sqlx::query_as!(
-            Row,
-            r#"UPDATE projects SET name = ?, updated_at = ?, version = version + 1
-               WHERE id = ? AND version = ?
-               RETURNING id AS "id: Uuid", key, name, created_at, updated_at, version"#,
+        let updated = sqlx::query!(
+            "UPDATE projects SET name = ?, updated_at = ?, version = ?
+             WHERE id = ? AND version = ?",
             name,
-            millis,
+            updated_at,
+            version,
             uuid,
             expected,
         )
-        .fetch_optional(&mut *tx)
+        .execute(&mut *tx)
         .await
         .map_err(database)?;
-        let Some(row) = row else {
-            return Err(missed_update(&mut tx, id).await);
-        };
-        let project = row.into_project()?;
-        let change =
-            change_feed::record(&mut tx, Entity::Project, uuid, ChangeOp::Update, at).await?;
+        if updated.rows_affected() == 0 {
+            return Err(missed(&mut tx, project.id()).await);
+        }
+        let change = change_feed::record(
+            &mut tx,
+            Entity::Project,
+            uuid,
+            ChangeOp::Update,
+            project.updated_at(),
+        )
+        .await?;
         tx.commit().await.map_err(database)?;
-        Ok((project, change))
+        Ok(change)
     }
 
     async fn delete(
@@ -182,7 +167,7 @@ impl ProjectRepository for Store {
         .await
         .map_err(database)?;
         if deleted.rows_affected() == 0 {
-            return Err(missed_update(&mut tx, id).await);
+            return Err(missed(&mut tx, id).await);
         }
         let change =
             change_feed::record(&mut tx, Entity::Project, uuid, ChangeOp::Delete, at).await?;

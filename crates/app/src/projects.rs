@@ -9,18 +9,12 @@ use crate::{AppError, Change, Clock, EventBus, IdGenerator};
 
 #[async_trait]
 pub trait ProjectRepository: Send + Sync {
-    /// Fails with `project-key-taken` when another project uses the key.
+    /// Fails with [`key_taken`] when another project uses the key.
     async fn insert(&self, project: &Project) -> Result<Change, AppError>;
     async fn list(&self) -> Result<Vec<Project>, AppError>;
     async fn get(&self, id: Id<Project>) -> Result<Option<Project>, AppError>;
-    /// Fails with `version-conflict` when `expected` is outdated.
-    async fn rename(
-        &self,
-        id: Id<Project>,
-        name: &ProjectName,
-        expected: Version,
-        at: Timestamp,
-    ) -> Result<(Project, Change), AppError>;
+    /// Stores `project` if the stored row still has version `expected`.
+    async fn update(&self, project: &Project, expected: Version) -> Result<Change, AppError>;
     async fn delete(
         &self,
         id: Id<Project>,
@@ -37,10 +31,17 @@ fn invalid(error: &ProjectError) -> AppError {
     AppError::invalid(code, error.to_string())
 }
 
-/// Error for a project that does not exist.
 #[must_use]
 pub fn not_found(id: Id<Project>) -> AppError {
     AppError::not_found("project-not-found", format!("project {id} does not exist"))
+}
+
+#[must_use]
+pub fn key_taken(key: &ProjectKey) -> AppError {
+    AppError::conflict(
+        "project-key-taken",
+        format!("another project already uses the key {key}"),
+    )
 }
 
 pub struct ProjectService {
@@ -89,6 +90,7 @@ impl ProjectService {
         self.repository.get(id).await?.ok_or_else(|| not_found(id))
     }
 
+    /// Renames the project; the same name returns it unchanged.
     pub async fn rename(
         &self,
         id: Id<Project>,
@@ -96,12 +98,16 @@ impl ProjectService {
         expected: Version,
     ) -> Result<Project, AppError> {
         let name = ProjectName::parse(name).map_err(|error| invalid(&error))?;
-        let (project, change) = self
-            .repository
-            .rename(id, &name, expected, self.clock.now())
-            .await?;
+        let current = self.get(id).await?;
+        if current.version() != expected {
+            return Err(AppError::version_conflict("project", id));
+        }
+        let Some(renamed) = current.renamed(name, self.clock.now()) else {
+            return Ok(current);
+        };
+        let change = self.repository.update(&renamed, expected).await?;
         self.events.publish(change);
-        Ok(project)
+        Ok(renamed)
     }
 
     pub async fn delete(&self, id: Id<Project>, expected: Version) -> Result<(), AppError> {
@@ -127,6 +133,10 @@ mod tests {
         assert_eq!(
             invalid(&ProjectError::InvalidName).code(),
             "invalid-project-name"
+        );
+        assert_eq!(
+            key_taken(&ProjectKey::parse("ARC").unwrap()).code(),
+            "project-key-taken"
         );
     }
 }

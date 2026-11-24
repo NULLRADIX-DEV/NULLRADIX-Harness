@@ -60,12 +60,12 @@ impl ProjectName {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Project {
-    pub id: Id<Project>,
-    pub key: ProjectKey,
-    pub name: ProjectName,
-    pub created_at: Timestamp,
-    pub updated_at: Timestamp,
-    pub version: Version,
+    id: Id<Project>,
+    key: ProjectKey,
+    name: ProjectName,
+    created_at: Timestamp,
+    updated_at: Timestamp,
+    version: Version,
 }
 
 impl Project {
@@ -79,6 +79,67 @@ impl Project {
             updated_at: now,
             version: Version::INITIAL,
         }
+    }
+
+    /// Rebuilds a stored project; only persistence adapters call this.
+    #[must_use]
+    pub fn restore(
+        id: Id<Self>,
+        key: ProjectKey,
+        name: ProjectName,
+        created_at: Timestamp,
+        updated_at: Timestamp,
+        version: Version,
+    ) -> Self {
+        Self {
+            id,
+            key,
+            name,
+            created_at,
+            updated_at,
+            version,
+        }
+    }
+
+    /// The renamed project, or `None` when the name does not change.
+    #[must_use]
+    pub fn renamed(&self, name: ProjectName, now: Timestamp) -> Option<Self> {
+        (name != self.name).then(|| Self {
+            name,
+            updated_at: now.max(self.updated_at),
+            version: self.version.next(),
+            ..self.clone()
+        })
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> Id<Self> {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn key(&self) -> &ProjectKey {
+        &self.key
+    }
+
+    #[must_use]
+    pub const fn name(&self) -> &ProjectName {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn created_at(&self) -> Timestamp {
+        self.created_at
+    }
+
+    #[must_use]
+    pub const fn updated_at(&self) -> Timestamp {
+        self.updated_at
+    }
+
+    #[must_use]
+    pub const fn version(&self) -> Version {
+        self.version
     }
 }
 
@@ -115,17 +176,57 @@ mod tests {
         );
     }
 
-    #[test]
-    fn new_projects_start_at_the_initial_version() {
-        let now = Timestamp::from_millis(5);
-        let project = Project::new(
+    fn project(now: Timestamp) -> Project {
+        Project::new(
             Id::from_uuid(uuid::Uuid::from_u128(1)),
             ProjectKey::parse("ARC").unwrap(),
             ProjectName::parse("Arches").unwrap(),
             now,
+        )
+    }
+
+    #[test]
+    fn new_projects_start_at_the_initial_version() {
+        let now = Timestamp::from_millis(5);
+        let project = project(now);
+        assert_eq!(project.version(), Version::INITIAL);
+        assert_eq!(project.created_at(), now);
+        assert_eq!(project.updated_at(), now);
+    }
+
+    #[test]
+    fn renaming_bumps_version_and_time_but_keeps_identity() {
+        let original = project(Timestamp::from_millis(5));
+        let later = Timestamp::from_millis(9);
+        let renamed = original
+            .renamed(ProjectName::parse("Arches 2").unwrap(), later)
+            .unwrap();
+        assert_eq!(renamed.name().as_str(), "Arches 2");
+        assert_eq!(renamed.version(), original.version().next());
+        assert_eq!(renamed.updated_at(), later);
+        assert_eq!(renamed.created_at(), original.created_at());
+        assert_eq!(
+            (renamed.id(), renamed.key()),
+            (original.id(), original.key())
         );
-        assert_eq!(project.version, Version::INITIAL);
-        assert_eq!(project.created_at, now);
-        assert_eq!(project.updated_at, now);
+    }
+
+    #[test]
+    fn renaming_to_the_same_name_changes_nothing() {
+        let original = project(Timestamp::from_millis(5));
+        let same = ProjectName::parse(" Arches ").unwrap();
+        assert_eq!(original.renamed(same, Timestamp::from_millis(9)), None);
+    }
+
+    #[test]
+    fn the_clock_never_moves_updated_at_backwards() {
+        let original = project(Timestamp::from_millis(5));
+        let renamed = original
+            .renamed(
+                ProjectName::parse("Other").unwrap(),
+                Timestamp::from_millis(1),
+            )
+            .unwrap();
+        assert_eq!(renamed.updated_at(), Timestamp::from_millis(5));
     }
 }

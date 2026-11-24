@@ -1,33 +1,26 @@
 use async_trait::async_trait;
 use nullradix_domain::Timestamp;
+use strum::{EnumString, IntoStaticStr};
 use uuid::Uuid;
 
 use crate::AppError;
 
 /// Kind of entity a change refers to; the wire name is kebab-case.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoStaticStr, EnumString)]
+#[strum(serialize_all = "kebab-case")]
 pub enum Entity {
     Project,
 }
 
 impl Entity {
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Project => "project",
-        }
-    }
-
-    #[must_use]
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "project" => Some(Self::Project),
-            _ => None,
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoStaticStr, EnumString)]
+#[strum(serialize_all = "kebab-case")]
 pub enum ChangeOp {
     Insert,
     Update,
@@ -36,22 +29,8 @@ pub enum ChangeOp {
 
 impl ChangeOp {
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Insert => "insert",
-            Self::Update => "update",
-            Self::Delete => "delete",
-        }
-    }
-
-    #[must_use]
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "insert" => Some(Self::Insert),
-            "update" => Some(Self::Update),
-            "delete" => Some(Self::Delete),
-            _ => None,
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
@@ -77,14 +56,12 @@ mod tests {
 
     #[test]
     fn wire_names_round_trip() {
-        assert_eq!(
-            Entity::parse(Entity::Project.as_str()),
-            Some(Entity::Project)
-        );
-        assert_eq!(Entity::parse("planet"), None);
+        assert_eq!(Entity::Project.as_str(), "project");
+        assert_eq!("project".parse::<Entity>(), Ok(Entity::Project));
+        assert!("planet".parse::<Entity>().is_err());
         for op in [ChangeOp::Insert, ChangeOp::Update, ChangeOp::Delete] {
-            assert_eq!(ChangeOp::parse(op.as_str()), Some(op));
+            assert_eq!(op.as_str().parse::<ChangeOp>(), Ok(op));
         }
-        assert_eq!(ChangeOp::parse("upsert"), None);
+        assert!("upsert".parse::<ChangeOp>().is_err());
     }
 }

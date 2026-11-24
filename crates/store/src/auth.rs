@@ -4,11 +4,8 @@ use nullradix_app::auth::{ApiToken, AuthRepository, SecretHash, Session, TokenKi
 use nullradix_domain::{Id, Timestamp};
 use uuid::Uuid;
 
+use crate::error::database;
 use crate::{Store, StoreError};
-
-fn database(error: sqlx::Error) -> AppError {
-    StoreError::from(error).into()
-}
 
 #[async_trait]
 impl AuthRepository for Store {

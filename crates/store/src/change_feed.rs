@@ -47,24 +47,24 @@ impl ChangeFeed for Store {
         .fetch_all(&self.reader)
         .await
         .map_err(StoreError::from)?;
-        let changes = rows
-            .into_iter()
-            .map(|row| {
-                let entity = Entity::parse(&row.entity).ok_or_else(|| {
-                    StoreError::Corrupt(format!("unknown entity `{}`", row.entity))
-                })?;
-                let op = ChangeOp::parse(&row.op).ok_or_else(|| {
-                    StoreError::Corrupt(format!("unknown change op `{}`", row.op))
-                })?;
-                Ok(Change {
-                    seq: row.seq,
-                    entity,
-                    entity_id: row.entity_id,
-                    op,
-                    at: Timestamp::from_millis(row.at),
+        let changes =
+            rows.into_iter()
+                .map(|row| {
+                    let entity = row.entity.parse::<Entity>().map_err(|_| {
+                        StoreError::Corrupt(format!("unknown entity `{}`", row.entity))
+                    })?;
+                    let op = row.op.parse::<ChangeOp>().map_err(|_| {
+                        StoreError::Corrupt(format!("unknown change op `{}`", row.op))
+                    })?;
+                    Ok(Change {
+                        seq: row.seq,
+                        entity,
+                        entity_id: row.entity_id,
+                        op,
+                        at: Timestamp::from_millis(row.at),
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>, StoreError>>()?;
+                .collect::<Result<Vec<_>, StoreError>>()?;
         Ok(changes)
     }
 }
