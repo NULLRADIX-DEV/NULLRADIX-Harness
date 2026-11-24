@@ -3,16 +3,16 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use anyhow::{Context, anyhow};
+use anyhow::{Context, anyhow, bail};
 use nullradix_api::BoardDto;
 use nullradix_client::Client;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::board::local_runner;
 
 const NOT_SELECTED: &str =
     "no board selected: pick one with `nullradix board use <board>` or pass --board <board>";
+const ACTIVE_BOARD: &str = "active_board";
 
 /// `--board` of commands that work on one board or on all of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,10 +34,10 @@ impl FromStr for BoardOption {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ClientState {
-    active_board: Option<Uuid>,
+/// What the defaults found: a board of the repository, or only the id of the active board.
+enum Picked {
+    Repository(BoardDto),
+    Active(Uuid),
 }
 
 /// The board a command works on; the active board is this CLI's own state, as in legacy.
@@ -54,29 +54,48 @@ impl BoardChoice {
     }
 
     pub(crate) fn active(&self) -> anyhow::Result<Option<Uuid>> {
-        let text = match fs::read_to_string(&self.file) {
-            Ok(text) => text,
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(error).with_context(|| format!("cannot read {}", self.file.display()));
-            }
+        let Some(value) = self.read()?.remove(ACTIVE_BOARD) else {
+            return Ok(None);
         };
-        let state: ClientState = toml::from_str(&text)
-            .with_context(|| format!("cannot parse {}", self.file.display()))?;
-        Ok(state.active_board)
+        let board = value
+            .as_str()
+            .and_then(|text| Uuid::parse_str(text).ok())
+            .with_context(|| format!("{ACTIVE_BOARD} in {} is no id", self.file.display()))?;
+        Ok(Some(board))
     }
 
+    /// Keeps other keys, so CLIs of other versions can share the file.
     pub(crate) fn set_active(&self, board: Option<Uuid>) -> anyhow::Result<()> {
+        // a broken file is replaced rather than blocking the fix
+        let mut state = self.read().unwrap_or_default();
+        match board {
+            Some(board) => state.insert(ACTIVE_BOARD.to_owned(), board.to_string().into()),
+            None => state.remove(ACTIVE_BOARD),
+        };
         if let Some(dir) = self.file.parent() {
             fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
         }
-        let text = toml::to_string(&ClientState {
-            active_board: board,
-        })?;
-        let temp = self.file.with_extension("toml.tmp");
-        fs::write(&temp, text).with_context(|| format!("cannot write {}", temp.display()))?;
-        fs::rename(&temp, &self.file)
-            .with_context(|| format!("cannot write {}", self.file.display()))
+        // a temp file per call, so parallel calls never write into each other's file
+        let temp = self
+            .file
+            .with_extension(format!("toml.{}.tmp", Uuid::now_v7().simple()));
+        fs::write(&temp, toml::to_string(&state)?)
+            .with_context(|| format!("cannot write {}", temp.display()))?;
+        fs::rename(&temp, &self.file).or_else(|error| {
+            let _ = fs::remove_file(&temp);
+            Err(error).with_context(|| format!("cannot write {}", self.file.display()))
+        })
+    }
+
+    fn read(&self) -> anyhow::Result<toml::Table> {
+        match fs::read_to_string(&self.file) {
+            Ok(text) => toml::from_str(&text)
+                .with_context(|| format!("cannot parse {}", self.file.display())),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(toml::Table::new()),
+            Err(error) => {
+                Err(error).with_context(|| format!("cannot read {}", self.file.display()))
+            }
+        }
     }
 
     /// `--board`, else the board of the current folder's repository, else the active board.
@@ -84,11 +103,30 @@ impl BoardChoice {
         if let Some(board) = option {
             return Ok(board);
         }
-        let active = self.active()?;
-        if let Some(board) = repository_board(client, active)? {
-            return Ok(board);
+        Ok(match self.default(client)? {
+            Picked::Repository(board) => board.id,
+            Picked::Active(board) => board,
+        })
+    }
+
+    /// The board [`Self::one`] picks, with its details.
+    pub(crate) fn board(&self, client: &Client, option: Option<Uuid>) -> anyhow::Result<BoardDto> {
+        let id = match option {
+            Some(board) => board,
+            None => match self.default(client)? {
+                Picked::Repository(board) => return Ok(board),
+                Picked::Active(board) => board,
+            },
+        };
+        match client
+            .list_all_boards()?
+            .items
+            .into_iter()
+            .find(|board| board.id == id)
+        {
+            Some(board) => Ok(board),
+            None => bail!("no board has the id {id}"),
         }
-        active.ok_or_else(|| anyhow!(NOT_SELECTED))
     }
 
     /// One board as [`Self::one`] picks it, or `None` for all boards with `--board all`.
@@ -103,29 +141,43 @@ impl BoardChoice {
             None => self.one(client, None).map(Some),
         }
     }
+
+    fn default(&self, client: &Client) -> anyhow::Result<Picked> {
+        let active = self.active()?;
+        if let Some(board) = repository_board(client, active)? {
+            return Ok(Picked::Repository(board));
+        }
+        active
+            .map(Picked::Active)
+            .ok_or_else(|| anyhow!(NOT_SELECTED))
+    }
 }
 
-fn repository_board(client: &Client, active: Option<Uuid>) -> anyhow::Result<Option<Uuid>> {
+fn repository_board(client: &Client, active: Option<Uuid>) -> anyhow::Result<Option<BoardDto>> {
     let folder = std::env::current_dir().context("cannot read the current folder")?;
     let Some(path) = folder.to_str() else {
         return Ok(None);
     };
     let runner = local_runner(client)?;
     let boards = client.list_boards_at(runner.id, path)?.items;
-    Ok(pick(&boards, active))
+    Ok(pick(boards, active))
 }
 
 /// The active board if it is among `boards`, else the oldest.
-fn pick(boards: &[BoardDto], active: Option<Uuid>) -> Option<Uuid> {
-    if let Some(active) = active
-        && boards.iter().any(|board| board.id == active)
-    {
-        return Some(active);
+fn pick(boards: Vec<BoardDto>, active: Option<Uuid>) -> Option<BoardDto> {
+    let mut oldest: Option<BoardDto> = None;
+    for board in boards {
+        if Some(board.id) == active {
+            return Some(board);
+        }
+        if oldest
+            .as_ref()
+            .is_none_or(|known| (board.created_at, board.id) < (known.created_at, known.id))
+        {
+            oldest = Some(board);
+        }
     }
-    boards
-        .iter()
-        .min_by_key(|board| (board.created_at, board.id))
-        .map(|board| board.id)
+    oldest
 }
 
 #[cfg(test)]
@@ -151,19 +203,17 @@ mod tests {
         serde_json::from_value(json).unwrap()
     }
 
+    fn picked(active: Option<u128>) -> Option<Uuid> {
+        let boards = vec![board(3, 20), board(1, 30), board(2, 10)];
+        pick(boards, active.map(Uuid::from_u128)).map(|board| board.id)
+    }
+
     #[test]
     fn picks_the_active_board_of_the_repository_else_the_oldest() {
-        let boards = [board(3, 20), board(1, 30), board(2, 10)];
-        assert_eq!(
-            pick(&boards, Some(Uuid::from_u128(1))),
-            Some(Uuid::from_u128(1))
-        );
-        assert_eq!(
-            pick(&boards, Some(Uuid::from_u128(9))),
-            Some(Uuid::from_u128(2))
-        );
-        assert_eq!(pick(&boards, None), Some(Uuid::from_u128(2)));
-        assert_eq!(pick(&[], Some(Uuid::from_u128(1))), None);
+        assert_eq!(picked(Some(1)), Some(Uuid::from_u128(1)));
+        assert_eq!(picked(Some(9)), Some(Uuid::from_u128(2)));
+        assert_eq!(picked(None), Some(Uuid::from_u128(2)));
+        assert!(pick(Vec::new(), Some(Uuid::from_u128(1))).is_none());
     }
 
     #[test]
@@ -175,6 +225,23 @@ mod tests {
         assert_eq!(choice.active().unwrap(), Some(Uuid::from_u128(7)));
         choice.set_active(None).unwrap();
         assert_eq!(choice.active().unwrap(), None);
+        let leftovers = fs::read_dir(dir.path().join("config")).unwrap().count();
+        assert_eq!(leftovers, 1);
+    }
+
+    #[test]
+    fn keys_of_other_versions_are_kept_and_a_broken_file_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let choice = BoardChoice::in_dir(dir.path());
+        fs::write(dir.path().join("client.toml"), "theme = \"dark\"\n").unwrap();
+        assert_eq!(choice.active().unwrap(), None);
+        choice.set_active(Some(Uuid::from_u128(7))).unwrap();
+        let text = fs::read_to_string(dir.path().join("client.toml")).unwrap();
+        assert!(text.contains("theme = \"dark\""), "{text}");
+        fs::write(dir.path().join("client.toml"), "active_board = \"0190").unwrap();
+        assert!(choice.active().is_err());
+        choice.set_active(Some(Uuid::from_u128(8))).unwrap();
+        assert_eq!(choice.active().unwrap(), Some(Uuid::from_u128(8)));
     }
 
     #[test]

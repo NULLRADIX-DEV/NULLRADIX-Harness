@@ -67,6 +67,26 @@
       "cli": { "args": ["ticket", "list"], "cwd": "{{WORK}}/arches" }
     },
     { "name": "the active board's list", "cli": { "args": ["ticket", "list"] } },
+    {
+      "name": "bind the side board too",
+      "cli": { "args": ["board", "repo", "{{side}}", "{{WORK}}/arches"] }
+    },
+    {
+      "name": "among the repository's boards the active one wins",
+      "cli": { "args": ["ticket", "list"], "cwd": "{{WORK}}/arches" }
+    },
+    {
+      "name": "planning in the repository",
+      "cli": { "args": ["plan", "next"], "cwd": "{{WORK}}/arches" }
+    },
+    {
+      "name": "a project alone keeps its scope",
+      "cli": { "args": ["ticket", "list", "--project", "ARC"] }
+    },
+    {
+      "name": "planning across the project",
+      "cli": { "args": ["plan", "next", "--project", "ARC"] }
+    },
     { "name": "every board", "cli": { "args": ["ticket", "list", "--board", "all"] } },
     { "name": "clear the active board", "cli": { "args": ["board", "use", "--clear"] } },
     { "name": "none selected again", "cli": { "args": ["ticket", "list"] } },

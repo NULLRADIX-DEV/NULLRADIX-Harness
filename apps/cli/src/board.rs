@@ -259,4 +259,20 @@ mod tests {
         let error = parse(&["/work/arches", "--clear"]).err().unwrap();
         assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
+
+    #[test]
+    fn use_takes_a_board_or_clear() {
+        let parse = |args: &[&str]| Cli::try_parse_from([&["board", "use"], args].concat());
+        assert!(parse(&["0190a0b0-0000-7000-8000-000000000001"]).is_ok());
+        assert!(parse(&["--clear"]).is_ok());
+        let missing = parse(&[]).err().unwrap();
+        assert_eq!(
+            missing.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+        let both = parse(&["0190a0b0-0000-7000-8000-000000000001", "--clear"])
+            .err()
+            .unwrap();
+        assert_eq!(both.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
 }

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use clap::Subcommand;
 use nullradix_api::{
     AcceptTicket, ClaimTicket, ColumnDto, CreateTicket, MoveTicket, PriorityDto, ReleaseTicket,
@@ -433,15 +433,7 @@ fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
 }
 
 fn create(args: CreateArgs, client: &Client, choice: &BoardChoice) -> anyhow::Result<()> {
-    let id = choice.one(client, args.board)?;
-    let Some(board) = client
-        .list_all_boards()?
-        .items
-        .into_iter()
-        .find(|board| board.id == id)
-    else {
-        bail!("no board has the id {id}");
-    };
+    let board = choice.board(client, args.board)?;
     let input = CreateTicket {
         title: args.title,
         description: text(args.description, args.description_file.as_deref())?,

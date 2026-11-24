@@ -206,6 +206,62 @@
   },
   {
     "cli": [
+      "board",
+      "repo",
+      "<ID-4>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the side board too",
+    "stderr": "",
+    "stdout": "board <ID-4> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "among the repository's boards the active one wins",
+    "stderr": "",
+    "stdout": "\nBacklog (1)\n  ARC-0001  Lands on Side  [planning]\n"
+  },
+  {
+    "cli": [
+      "plan",
+      "next"
+    ],
+    "exitCode": 0,
+    "name": "planning in the repository",
+    "stderr": "",
+    "stdout": "ARC-0001  Lands on Side\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "list",
+      "--project",
+      "ARC"
+    ],
+    "exitCode": 0,
+    "name": "a project alone keeps its scope",
+    "stderr": "",
+    "stdout": "\nBacklog (2)\n  ARC-0001  Lands on Side  [planning]\n  ARC-0002  Lands on Main  [planning]\n"
+  },
+  {
+    "cli": [
+      "plan",
+      "next",
+      "--project",
+      "ARC"
+    ],
+    "exitCode": 0,
+    "name": "planning across the project",
+    "stderr": "",
+    "stdout": "ARC-0001  Lands on Side\n"
+  },
+  {
+    "cli": [
       "ticket",
       "list",
       "--board",
