@@ -8,6 +8,7 @@ use nullradix_client::Client;
 use uuid::Uuid;
 
 use crate::project;
+use crate::selection::BoardChoice;
 
 #[derive(Subcommand)]
 pub(crate) enum BoardCommand {
@@ -40,6 +41,14 @@ pub(crate) enum BoardCommand {
         #[arg(long)]
         delete_open: bool,
     },
+    /// Make a board the default of commands run outside its repository
+    Use {
+        #[arg(required_unless_present = "clear")]
+        board: Option<Uuid>,
+        /// Have no active board
+        #[arg(long, conflicts_with = "board")]
+        clear: bool,
+    },
     /// Show or set the repository a board's work happens in
     Repo {
         board: Uuid,
@@ -51,7 +60,11 @@ pub(crate) enum BoardCommand {
     },
 }
 
-pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<ExitCode> {
+pub(crate) fn run(
+    command: BoardCommand,
+    client: &Client,
+    choice: &BoardChoice,
+) -> anyhow::Result<ExitCode> {
     match command {
         BoardCommand::List { project, json } => {
             let boards = match project {
@@ -64,13 +77,19 @@ pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<Exit
             } else if boards.is_empty() {
                 println!("no boards yet, create one with `nullradix board create KEY NAME`");
             } else {
+                let active = choice.active()?;
                 for board in &boards {
+                    let marker = if Some(board.id) == active {
+                        "  (active)"
+                    } else {
+                        ""
+                    };
                     let repository = board
                         .repository_name
                         .as_ref()
                         .map_or_else(String::new, |name| format!("  [{name}]"));
                     println!(
-                        "{}  {:<6}  {}  ({} open){repository}",
+                        "{}  {:<6}  {}  ({} open){repository}{marker}",
                         board.id, board.project_key, board.name, board.open_tickets
                     );
                 }
@@ -117,9 +136,32 @@ pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<Exit
             let noun = if count == 1 { "ticket" } else { "tickets" };
             println!("deleted board {board} ({count} {noun})");
         }
+        BoardCommand::Use { board, clear } => {
+            use_board(client, choice, if clear { None } else { board })?;
+        }
         BoardCommand::Repo { board, path, clear } => repo(client, board, path.as_deref(), clear)?,
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Sets or clears the active board, as legacy `board boards use`.
+fn use_board(client: &Client, choice: &BoardChoice, id: Option<Uuid>) -> anyhow::Result<()> {
+    let Some(id) = id else {
+        choice.set_active(None)?;
+        println!("no active board");
+        return Ok(());
+    };
+    let Some(board) = client
+        .list_all_boards()?
+        .items
+        .into_iter()
+        .find(|board| board.id == id)
+    else {
+        bail!("no board has the id {id}");
+    };
+    choice.set_active(Some(board.id))?;
+    println!("active board: {} {}", board.id, board.name);
+    Ok(())
 }
 
 /// Shows, sets or clears the board's repository, as legacy `board boards repo`.
@@ -158,7 +200,7 @@ fn repo(client: &Client, id: Uuid, path: Option<&Path>, clear: bool) -> anyhow::
     Ok(())
 }
 
-fn local_runner(client: &Client) -> anyhow::Result<RunnerDto> {
+pub(crate) fn local_runner(client: &Client) -> anyhow::Result<RunnerDto> {
     match client
         .list_runners()?
         .items

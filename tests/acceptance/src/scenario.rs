@@ -61,6 +61,9 @@ pub(crate) struct Cli {
     pub(crate) args: Vec<String>,
     #[serde(default)]
     pub(crate) stdin: Option<Value>,
+    /// Folder to run in; the scenario's work folder when left out.
+    #[serde(default)]
+    pub(crate) cwd: Option<String>,
 }
 
 /// Polls `path` until the JSON value at `field` equals `equals`.

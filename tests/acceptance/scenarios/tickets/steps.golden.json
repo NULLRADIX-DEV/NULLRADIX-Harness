@@ -566,7 +566,9 @@
   {
     "cli": [
       "ticket",
-      "list"
+      "list",
+      "--board",
+      "all"
     ],
     "exitCode": 0,
     "name": "list shows progress",

@@ -1,0 +1,251 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "main board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "side board",
+    "request": {
+      "body": {
+        "name": "Side"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-4>",
+        "name": "Side",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "list"
+    ],
+    "exitCode": 1,
+    "name": "no board selected",
+    "stderr": "error: no board selected: pick one with `nullradix board use <board>` or pass --board <board>\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "board",
+      "use",
+      "<ID-4>"
+    ],
+    "exitCode": 0,
+    "name": "use the side board",
+    "stderr": "",
+    "stdout": "active board: <ID-4> Side\n"
+  },
+  {
+    "cli": [
+      "board",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "the list marks it",
+    "stderr": "",
+    "stdout": "<ID-2>  ARC     Main  (0 open)\n<ID-4>  ARC     Side  (0 open)  (active)\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Lands on Side"
+    ],
+    "exitCode": 0,
+    "name": "create on the active board",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Lands on Side\n"
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git init",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the main board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Lands on Main"
+    ],
+    "exitCode": 0,
+    "name": "inside the repository the main board wins",
+    "stderr": "",
+    "stdout": "ARC-0002 created: Lands on Main\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "the repository's list",
+    "stderr": "",
+    "stdout": "\nBacklog (1)\n  ARC-0002  Lands on Main  [planning]\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "the active board's list",
+    "stderr": "",
+    "stdout": "\nBacklog (1)\n  ARC-0001  Lands on Side  [planning]\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "list",
+      "--board",
+      "all"
+    ],
+    "exitCode": 0,
+    "name": "every board",
+    "stderr": "",
+    "stdout": "\nBacklog (2)\n  ARC-0001  Lands on Side  [planning]\n  ARC-0002  Lands on Main  [planning]\n"
+  },
+  {
+    "cli": [
+      "board",
+      "use",
+      "--clear"
+    ],
+    "exitCode": 0,
+    "name": "clear the active board",
+    "stderr": "",
+    "stdout": "no active board\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "list"
+    ],
+    "exitCode": 1,
+    "name": "none selected again",
+    "stderr": "error: no board selected: pick one with `nullradix board use <board>` or pass --board <board>\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "board",
+      "use",
+      "<ID-1>"
+    ],
+    "exitCode": 1,
+    "name": "an unknown board",
+    "stderr": "error: no board has the id <ID-1>\n",
+    "stdout": ""
+  }
+]

@@ -151,6 +151,19 @@ impl Client {
         self.get_json(&format!("/projects/{project}/boards"))
     }
 
+    /// Boards of the repository that `path` on `runner` belongs to.
+    pub fn list_boards_at(&self, runner: Uuid, path: &str) -> Result<BoardList, ClientError> {
+        let mut response = self
+            .agent
+            .get(&self.url("/boards"))
+            .header("Authorization", &self.authorization()?)
+            .query("runnerId", runner.to_string())
+            .query("path", path)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
     pub fn get_board(&self, project: Uuid, board: Uuid) -> Result<BoardDto, ClientError> {
         self.get_json(&format!("/projects/{project}/boards/{board}"))
     }

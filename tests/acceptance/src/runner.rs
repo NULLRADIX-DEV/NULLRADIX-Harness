@@ -232,8 +232,13 @@ fn cli_step(
 ) -> anyhow::Result<(Value, Value)> {
     let args: Vec<String> = cli.args.iter().map(|arg| fill(arg, saved)).collect();
     let mut command = daemon.cli();
+    let folder = cli
+        .cwd
+        .as_ref()
+        .map_or_else(|| daemon.work.clone(), |dir| fill(dir, saved).into());
     command
         .args(&args)
+        .current_dir(folder)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
