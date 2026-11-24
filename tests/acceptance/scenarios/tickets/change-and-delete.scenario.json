@@ -1,0 +1,119 @@
+{
+  "title": "Tickets change, move and go away as on the legacy board",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "base",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Base" }
+      }
+    },
+    {
+      "name": "top",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Top", "dependsOn": ["ARC-1"] }
+      }
+    },
+    {
+      "name": "empty change",
+      "http": { "method": "PATCH", "path": "/api/v1/tickets/ARC-1", "body": { "version": 1 } }
+    },
+    {
+      "name": "change fields",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/arc-1",
+        "body": {
+          "version": 1,
+          "title": "Base layer",
+          "labels": ["core"],
+          "assignee": "claude",
+          "description": "Lay the base."
+        }
+      }
+    },
+    {
+      "name": "stale change",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1",
+        "body": { "version": 1, "priority": "high" }
+      }
+    },
+    {
+      "name": "cycle",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1",
+        "body": { "version": 2, "dependsOnAdd": ["ARC-2"] }
+      }
+    },
+    {
+      "name": "clear the assignee",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1",
+        "body": { "version": 2, "assignee": null }
+      }
+    },
+    {
+      "name": "move without status",
+      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-2/move", "body": {} }
+    },
+    {
+      "name": "move blocked by a dependency",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-2/move",
+        "body": { "status": "in-progress" }
+      }
+    },
+    {
+      "name": "set in the CLI",
+      "cli": { "args": ["ticket", "set", "ARC-1", "--priority", "urgent"] }
+    },
+    {
+      "name": "move in the CLI",
+      "cli": { "args": ["ticket", "move", "arc-1", "done", "--acceptance", "Base works"] }
+    },
+    { "name": "show with history", "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1" } },
+    { "name": "delete in the CLI", "cli": { "args": ["ticket", "delete", "ARC-1"] } },
+    {
+      "name": "dependent lost the edge",
+      "http": { "method": "GET", "path": "/api/v1/tickets/ARC-2" }
+    },
+    {
+      "name": "board with an open ticket",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}?version=1"
+      }
+    },
+    {
+      "name": "board with its open tickets",
+      "cli": { "args": ["board", "delete", "ARC", "{{board}}", "--delete-open"] }
+    },
+    { "name": "tickets after", "http": { "method": "GET", "path": "/api/v1/tickets" } }
+  ]
+}

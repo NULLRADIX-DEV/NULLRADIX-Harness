@@ -25,6 +25,15 @@ pub fn required_text(text: &str, max: usize) -> Result<&str, TextError> {
     }
 }
 
+/// `text` without surrounding whitespace; blank text is none, and at most `max` UTF-16 units.
+pub fn optional_text(text: &str, max: usize) -> Result<Option<&str>, TextError> {
+    match required_text(text, max) {
+        Ok(text) => Ok(Some(text)),
+        Err(TextError::Empty) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -38,5 +47,12 @@ mod tests {
             Err(TextError::TooLong(5))
         );
         assert_eq!(utf16_len("\u{1f600}a"), 3);
+    }
+
+    #[test]
+    fn optional_text_turns_blank_into_none() {
+        assert_eq!(optional_text(" ", 3), Ok(None));
+        assert_eq!(optional_text(" abc ", 3), Ok(Some("abc")));
+        assert_eq!(optional_text("abcd", 3), Err(TextError::TooLong(3)));
     }
 }

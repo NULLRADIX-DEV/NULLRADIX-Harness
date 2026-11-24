@@ -1,0 +1,739 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "base",
+    "request": {
+      "body": {
+        "title": "Base"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "column": "backlog",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-4>",
+        "key": "ARC-0001",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 1,
+        "plan": "",
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "targetBranch": null,
+        "title": "Base",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false
+      },
+      "location": "/api/v1/tickets/ARC-0001",
+      "status": 201
+    }
+  },
+  {
+    "name": "top",
+    "request": {
+      "body": {
+        "dependsOn": [
+          "ARC-1"
+        ],
+        "title": "Top"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "column": "waiting",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [
+          "ARC-0001"
+        ],
+        "dependsOpen": [
+          "ARC-0001"
+        ],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-5>",
+        "key": "ARC-0002",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 2,
+        "plan": "",
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "targetBranch": null,
+        "title": "Top",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": true
+      },
+      "location": "/api/v1/tickets/ARC-0002",
+      "status": 201
+    }
+  },
+  {
+    "name": "empty change",
+    "request": {
+      "body": {
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "code": "nothing-changed",
+        "detail": "the change names no field",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:nothing-changed"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "change fields",
+    "request": {
+      "body": {
+        "assignee": "claude",
+        "description": "Lay the base.",
+        "labels": [
+          "core"
+        ],
+        "title": "Base layer",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/arc-1"
+    },
+    "response": {
+      "json": {
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "title",
+            "from": "Base",
+            "note": null,
+            "to": "Base layer"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": null,
+            "to": "claude"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "labels",
+            "from": "[]",
+            "note": null,
+            "to": "[\"core\"]"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "description",
+            "from": "0 characters",
+            "note": null,
+            "to": "13 characters"
+          }
+        ],
+        "ticket": {
+          "acceptance": "",
+          "assignee": "claude",
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "column": "backlog",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [
+            "ARC-0002"
+          ],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "Lay the base.",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-4>",
+          "key": "ARC-0001",
+          "labels": [
+            "core"
+          ],
+          "needsPlanning": true,
+          "number": 1,
+          "plan": "",
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "targetBranch": null,
+          "title": "Base layer",
+          "unlocks": [
+            "ARC-0002"
+          ],
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waiting": false
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "stale change",
+    "request": {
+      "body": {
+        "priority": "high",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "ticket ARC-0001 was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "cycle",
+    "request": {
+      "body": {
+        "dependsOnAdd": [
+          "ARC-2"
+        ],
+        "version": 2
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "code": "dependency-cycle",
+        "detail": "dependencies would run in a circle: ARC-0001 -> ARC-0002 -> ARC-0001",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:dependency-cycle"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "clear the assignee",
+    "request": {
+      "body": {
+        "assignee": null,
+        "version": 2
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "title",
+            "from": "Base",
+            "note": null,
+            "to": "Base layer"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": null,
+            "to": "claude"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "labels",
+            "from": "[]",
+            "note": null,
+            "to": "[\"core\"]"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "description",
+            "from": "0 characters",
+            "note": null,
+            "to": "13 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "claude",
+            "note": null,
+            "to": null
+          }
+        ],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "column": "backlog",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [
+            "ARC-0002"
+          ],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "Lay the base.",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-4>",
+          "key": "ARC-0001",
+          "labels": [
+            "core"
+          ],
+          "needsPlanning": true,
+          "number": 1,
+          "plan": "",
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "targetBranch": null,
+          "title": "Base layer",
+          "unlocks": [
+            "ARC-0002"
+          ],
+          "updatedAt": "<TIME>",
+          "version": 3,
+          "waiting": false
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "move without status",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-2/move"
+    },
+    "response": {
+      "json": {
+        "code": "status-missing",
+        "detail": "a move needs the status to move to",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:status-missing"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "move blocked by a dependency",
+    "request": {
+      "body": {
+        "status": "in-progress"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-2/move"
+    },
+    "response": {
+      "json": {
+        "code": "dependency-open",
+        "detail": "dependencies are still open: ARC-0001",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:dependency-open"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-1",
+      "--priority",
+      "urgent"
+    ],
+    "exitCode": 0,
+    "name": "set in the CLI",
+    "stderr": "",
+    "stdout": "ARC-0001 changed (version 4)\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "move",
+      "arc-1",
+      "done",
+      "--acceptance",
+      "Base works"
+    ],
+    "exitCode": 0,
+    "name": "move in the CLI",
+    "stderr": "",
+    "stdout": "ARC-0001 -> done\n"
+  },
+  {
+    "name": "show with history",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "title",
+            "from": "Base",
+            "note": null,
+            "to": "Base layer"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": null,
+            "to": "claude"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "labels",
+            "from": "[]",
+            "note": null,
+            "to": "[\"core\"]"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "description",
+            "from": "0 characters",
+            "note": null,
+            "to": "13 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "claude",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "priority",
+            "from": "normal",
+            "note": null,
+            "to": "urgent"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "acceptance",
+            "from": "",
+            "note": "moved",
+            "to": "Base works"
+          }
+        ],
+        "ticket": {
+          "acceptance": "Base works",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "column": "done",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [
+            "ARC-0002"
+          ],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "Lay the base.",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-4>",
+          "key": "ARC-0001",
+          "labels": [
+            "core"
+          ],
+          "needsPlanning": true,
+          "number": 1,
+          "plan": "",
+          "priority": "urgent",
+          "projectId": "<ID-1>",
+          "status": "done",
+          "targetBranch": null,
+          "title": "Base layer",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 5,
+          "waiting": false
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "delete",
+      "ARC-1"
+    ],
+    "exitCode": 0,
+    "name": "delete in the CLI",
+    "stderr": "",
+    "stdout": "ARC-0001 deleted.\n"
+  },
+  {
+    "name": "dependent lost the edge",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-2"
+    },
+    "response": {
+      "json": {
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "dependsOn",
+            "from": "[\"ARC-0001\"]",
+            "note": "dependency deleted",
+            "to": "[]"
+          }
+        ],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "column": "backlog",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-5>",
+          "key": "ARC-0002",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 2,
+          "plan": "",
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "targetBranch": null,
+          "title": "Top",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waiting": false
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "board with an open ticket",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "board-has-open-tickets",
+        "detail": "the board still has open tickets: ARC-0002; move them or delete everything",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:board-has-open-tickets"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "board",
+      "delete",
+      "ARC",
+      "<ID-2>",
+      "--delete-open"
+    ],
+    "exitCode": 0,
+    "name": "board with its open tickets",
+    "stderr": "",
+    "stdout": "deleted board <ID-2> (1 ticket)\n"
+  },
+  {
+    "name": "tickets after",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets"
+    },
+    "response": {
+      "json": {
+        "items": []
+      },
+      "status": 200
+    }
+  }
+]

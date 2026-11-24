@@ -234,7 +234,7 @@
     "exitCode": 0,
     "name": "delete in the CLI",
     "stderr": "",
-    "stdout": "deleted board <ID-2>\n"
+    "stdout": "deleted board <ID-2> (0 tickets)\n"
   },
   {
     "name": "list after delete",

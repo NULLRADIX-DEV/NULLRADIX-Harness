@@ -32,7 +32,13 @@ pub(crate) enum BoardCommand {
         name: String,
     },
     /// Delete a board
-    Delete { project: String, board: Uuid },
+    Delete {
+        project: String,
+        board: Uuid,
+        /// Also delete tickets that are neither done nor not needed
+        #[arg(long)]
+        delete_open: bool,
+    },
 }
 
 pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<ExitCode> {
@@ -83,13 +89,19 @@ pub(crate) fn run(command: BoardCommand, client: &Client) -> anyhow::Result<Exit
                 .with_context(|| format!("cannot rename board {board}"))?;
             println!("renamed board {} to {}", renamed.id, renamed.name);
         }
-        BoardCommand::Delete { project, board } => {
+        BoardCommand::Delete {
+            project,
+            board,
+            delete_open,
+        } => {
             let project = project::find(client, &project)?;
             let current = client.get_board(project.id, board)?;
-            client
-                .delete_board(project.id, board, current.version)
+            let deleted = client
+                .delete_board(project.id, board, current.version, delete_open)
                 .with_context(|| format!("cannot delete board {board}"))?;
-            println!("deleted board {board}");
+            let count = deleted.deleted_tickets.len();
+            let noun = if count == 1 { "ticket" } else { "tickets" };
+            println!("deleted board {board} ({count} {noun})");
         }
     }
     Ok(ExitCode::SUCCESS)

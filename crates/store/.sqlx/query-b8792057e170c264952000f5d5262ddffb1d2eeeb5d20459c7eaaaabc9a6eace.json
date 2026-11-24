@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT ticket_id AS \"ticket_id: Uuid\" FROM ticket_dependencies\n               WHERE depends_on_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "ticket_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "ticket_dependencies",
+            "name": "ticket_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b8792057e170c264952000f5d5262ddffb1d2eeeb5d20459c7eaaaabc9a6eace"
+}

@@ -318,6 +318,22 @@ export interface paths {
         get: operations["get_ticket"];
         put?: never;
         post?: never;
+        delete: operations["delete_ticket"];
+        options?: never;
+        head?: never;
+        patch: operations["update_ticket"];
+        trace?: never;
+    };
+    "/api/v1/tickets/{ticketKey}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["move_ticket"];
         delete?: never;
         options?: never;
         head?: never;
@@ -328,6 +344,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description What a board deletion took with it. */
+        BoardDeleted: {
+            /** @description Keys of the deleted tickets by number. */
+            deletedTickets: string[];
+        };
         /** @description A board as the API shows it; timestamps are Unix milliseconds. */
         BoardDto: {
             /** Format: int64 */
@@ -472,6 +493,18 @@ export interface components {
         /** @description The caller as the daemon sees it. */
         Me: {
             kind: components["schemas"]["PrincipalKind"];
+        };
+        /** @description A move to another column; done needs acceptance criteria, here or on the ticket. */
+        MoveTicket: {
+            acceptance?: string | null;
+            /** @description Lifts the dependency, question and not-needed locks. */
+            force?: boolean;
+            status?: components["schemas"]["TicketStatusDto"] | null;
+            /**
+             * Format: int64
+             * @description Version the move is based on; without one the move checks none.
+             */
+            version?: number | null;
         };
         OutputLineDto: {
             /** Format: int64 */
@@ -629,6 +662,39 @@ export interface components {
         };
         /** @enum {string} */
         TicketStatusDto: "backlog" | "in-planning" | "planned" | "in-progress" | "blocked" | "done" | "not-needed";
+        /** @description A change of fields; left out fields stay, `null` clears those that may be empty. */
+        UpdateTicket: {
+            acceptance?: string | null;
+            assignee?: string | null;
+            blockedReason?: string | null;
+            /**
+             * Format: uuid
+             * @description Moves the ticket to another board of its project.
+             */
+            boardId?: string | null;
+            /** @description Replaces the dependencies; the add and remove lists apply to the result. */
+            dependsOn?: string[] | null;
+            dependsOnAdd?: string[] | null;
+            dependsOnRemove?: string[] | null;
+            description?: string | null;
+            diagram?: string | null;
+            /** @description Lifts the dependency, question and not-needed locks. */
+            force?: boolean;
+            handbook?: string | null;
+            /** @description Replaces the labels. */
+            labels?: string[] | null;
+            needsPlanning?: boolean | null;
+            plan?: string | null;
+            priority?: components["schemas"]["PriorityDto"] | null;
+            status?: components["schemas"]["TicketStatusDto"] | null;
+            targetBranch?: string | null;
+            title?: string | null;
+            /**
+             * Format: int64
+             * @description Version the change is based on.
+             */
+            version: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -1323,6 +1389,8 @@ export interface operations {
             query: {
                 /** @description Version the deletion is based on. */
                 version: number;
+                /** @description Also delete tickets that are neither done nor not needed. */
+                deleteOpenTickets?: boolean;
             };
             header?: never;
             path: {
@@ -1335,12 +1403,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The board is gone */
-            204: {
+            /** @description The board is gone with its tickets */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["BoardDeleted"];
+                };
             };
             401: {
                 headers: {
@@ -1367,6 +1437,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Open tickets without deleteOpenTickets */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -1820,6 +1891,181 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_ticket: {
+        parameters: {
+            query?: {
+                /** @description Version the deletion is based on; without one it checks none. */
+                version?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ticket is gone, a tombstone keeps key and title */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTicket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    move_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveTicket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

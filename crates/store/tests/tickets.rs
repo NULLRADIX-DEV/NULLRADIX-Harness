@@ -4,9 +4,11 @@ use std::sync::Arc;
 
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::projects::ProjectService;
-use nullradix_app::tickets::{NewTicket, TicketFilter, TicketScope, TicketService, WriteOptions};
+use nullradix_app::tickets::{
+    NewTicket, TicketDetail, TicketFilter, TicketPatch, TicketScope, TicketService, WriteOptions,
+};
 use nullradix_app::{ChangeFeed, ChangeOp, ChangeSignal, Entity, SystemClock, UuidV7Generator};
-use nullradix_domain::{Actor, Board, Column, Id, Priority, Project, TicketStatus};
+use nullradix_domain::{Actor, Board, Column, Id, Priority, Project, TicketStatus, Version};
 use nullradix_store::Store;
 use tokio::sync::watch::Receiver;
 
@@ -50,6 +52,7 @@ async fn fixture() -> Fixture {
         boards: BoardService::new(
             store.clone(),
             store.clone(),
+            store.clone(),
             clock.clone(),
             ids.clone(),
             signal.clone(),
@@ -83,6 +86,25 @@ impl Fixture {
             .create(board.project(), board.id(), &input, &self.person, options)
             .await
             .map(|view| view.ticket.key().to_string())
+            .map_err(|error| error.code().to_owned())
+    }
+
+    async fn update(
+        &self,
+        key: &str,
+        patch: TicketPatch,
+        version: i64,
+        options: WriteOptions,
+    ) -> Result<TicketDetail, String> {
+        self.tickets
+            .update(
+                key,
+                &patch,
+                &self.person,
+                Version::parse(version).unwrap(),
+                options,
+            )
+            .await
             .map_err(|error| error.code().to_owned())
     }
 
@@ -465,72 +487,334 @@ async fn tickets_are_found_by_loose_keys_only() {
 }
 
 #[tokio::test]
-async fn boards_with_tickets_stay_until_the_tickets_are_gone() {
+async fn boards_go_with_their_tickets_and_open_ones_only_when_asked() {
     let fx = fixture().await;
     let (project, board) = fx.board("ARC").await;
-    fx.create(&board, titled("One"), AGENT).await.unwrap();
+    let other = fx
+        .boards
+        .create(project.id(), "Other", &fx.person)
+        .await
+        .unwrap()
+        .board;
+    fx.create(&board, titled("Open"), AGENT).await.unwrap();
+    let done = NewTicket {
+        status: Some(String::from("done")),
+        acceptance: Some(String::from("works")),
+        ..titled("Done")
+    };
+    fx.create(&board, done, PERSON).await.unwrap();
+    let waiting = NewTicket {
+        depends_on: vec![String::from("ARC-1"), String::from("ARC-2")],
+        ..titled("Elsewhere")
+    };
+    fx.create(&other, waiting, AGENT).await.unwrap();
+
     let error = fx
         .boards
-        .delete(project.id(), board.id(), board.version())
+        .delete(project.id(), board.id(), board.version(), false, &fx.person)
         .await
         .unwrap_err();
-    assert_eq!(error.code(), "board-has-tickets");
+    assert_eq!(error.code(), "board-has-open-tickets");
+    assert!(error.message().contains("ARC-0001"));
+    assert!(!error.message().contains("ARC-0002"));
+
+    let deleted = fx
+        .boards
+        .delete(project.id(), board.id(), board.version(), true, &fx.person)
+        .await
+        .unwrap();
+    let deleted: Vec<String> = deleted.iter().map(ToString::to_string).collect();
+    assert_eq!(deleted, ["ARC-0001", "ARC-0002"]);
+    assert_eq!(
+        fx.tickets.get("ARC-1").await.unwrap_err().code(),
+        "ticket-not-found"
+    );
+    let survivor = fx.tickets.get("ARC-3").await.unwrap();
+    let record = survivor.view.ticket.record();
+    assert_eq!((record.depends_on.len(), record.version.value()), (0, 3));
+    let notes: Vec<Option<&str>> = survivor
+        .history
+        .iter()
+        .map(|line| line.note.as_deref())
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            Some("created"),
+            Some("dependency deleted"),
+            Some("dependency deleted")
+        ]
+    );
+    let boards = fx.boards.list(None).await.unwrap();
+    assert_eq!(boards.len(), 1);
+
+    let empty = fx
+        .boards
+        .create(project.id(), "Done only", &fx.person)
+        .await
+        .unwrap()
+        .board;
+    let finished = NewTicket {
+        status: Some(String::from("not-needed")),
+        ..titled("Dropped")
+    };
+    fx.create(&empty, finished, PERSON).await.unwrap();
+    let gone = fx
+        .boards
+        .delete(project.id(), empty.id(), empty.version(), false, &fx.person)
+        .await
+        .unwrap();
+    assert_eq!(gone.len(), 1);
+}
+
+fn patch() -> TicketPatch {
+    TicketPatch::default()
 }
 
 #[tokio::test]
-async fn checks_run_in_the_legacy_order_and_skip_blank_dependencies() {
+async fn updates_check_locks_and_versions_like_legacy() {
     let fx = fixture().await;
-    let (project, board) = fx.board("ARC").await;
-    let first = NewTicket {
-        depends_on: vec![String::new(), String::from(" ")],
-        ..titled("Login page")
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("Base"), AGENT).await.unwrap();
+    fx.create(&board, titled("Top"), AGENT).await.unwrap();
+
+    let nothing = fx.update("ARC-1", patch(), 1, AGENT).await;
+    assert_eq!(nothing.unwrap_err(), "nothing-changed");
+    let stale = TicketPatch {
+        title: Some(String::from("Again")),
+        ..patch()
     };
     assert_eq!(
-        fx.create(&board, first, AGENT).await,
-        Ok(String::from("ARC-0001"))
+        fx.update("ARC-1", stale, 2, AGENT).await.unwrap_err(),
+        "version-conflict"
     );
-    let blank_entries = NewTicket {
-        depends_on: vec![String::from("ARC-1"), String::new()],
-        ..titled("Logout")
+    let first = TicketPatch {
+        depends_on: Some(vec![String::from("ARC-2")]),
+        ..patch()
+    };
+    fx.update("ARC-1", first, 1, AGENT).await.unwrap();
+    let back = TicketPatch {
+        depends_on_add: Some(vec![String::from("ARC-1")]),
+        ..patch()
     };
     assert_eq!(
-        fx.create(&board, blank_entries, AGENT).await,
-        Ok(String::from("ARC-0002"))
+        fx.update("ARC-2", back, 1, AGENT).await.unwrap_err(),
+        "dependency-cycle"
+    );
+    let start = TicketPatch {
+        status: Some(String::from("in-progress")),
+        ..patch()
+    };
+    let locked = fx.update("ARC-1", start.clone(), 2, PERSON).await;
+    assert_eq!(locked.unwrap_err(), "dependency-open");
+    let forced = WriteOptions {
+        force: true,
+        ..AGENT
+    };
+    let started = fx.update("ARC-1", start, 2, forced).await.unwrap();
+    let record = started.view.ticket.record();
+    assert_eq!(
+        (record.status, record.version.value()),
+        (TicketStatus::InProgress, 3)
     );
 
-    let duplicate_first = NewTicket {
-        labels: vec!["x".repeat(101)],
-        ..titled("login PAGE")
+    // legacy bumps the version even when nothing really changes
+    let same = TicketPatch {
+        title: Some(String::from("Base")),
+        ..patch()
+    };
+    let bumped = fx.update("ARC-1", same, 3, AGENT).await.unwrap();
+    assert_eq!(bumped.view.ticket.record().version.value(), 4);
+    assert_eq!(bumped.history.len(), 3);
+}
+
+#[tokio::test]
+async fn updates_write_fields_and_move_between_boards_of_one_project() {
+    let fx = fixture().await;
+    let (project, board) = fx.board("ARC").await;
+    fx.create(&board, titled("Base"), AGENT).await.unwrap();
+    let fields = TicketPatch {
+        assignee: Some(Some(String::from(" claude "))),
+        blocked_reason: Some(Some(String::from("waits"))),
+        labels: Some(vec![String::from("ui, UI, api")]),
+        description: Some(String::from("four")),
+        target_branch: Some(Some(String::from("release/2"))),
+        ..patch()
+    };
+    let detail = fx.update("ARC-1", fields, 1, AGENT).await.unwrap();
+    let record = detail.view.ticket.record();
+    assert_eq!(record.assignee.as_deref(), Some("claude"));
+    assert_eq!(record.labels, ["ui", "api"]);
+    let fields: Vec<&str> = detail.history[1..]
+        .iter()
+        .map(|line| line.field.as_str())
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            "assignee",
+            "blockedReason",
+            "targetBranch",
+            "labels",
+            "description"
+        ]
+    );
+    let cleared = TicketPatch {
+        assignee: Some(None),
+        target_branch: Some(Some(String::from("  "))),
+        ..patch()
+    };
+    let detail = fx.update("ARC-1", cleared, 2, AGENT).await.unwrap();
+    let record = detail.view.ticket.record();
+    assert_eq!(
+        (record.assignee.as_ref(), record.target_branch.as_ref()),
+        (None, None)
+    );
+    let long = TicketPatch {
+        assignee: Some(Some("x".repeat(101))),
+        ..patch()
     };
     assert_eq!(
-        fx.create(&board, duplicate_first, AGENT).await,
-        Err(String::from("ticket-duplicate"))
+        fx.update("ARC-1", long, 3, AGENT).await.unwrap_err(),
+        "value-too-long"
     );
-    let dependency_before_branch = NewTicket {
-        depends_on: vec![String::from("ARC-99")],
-        target_branch: Some(String::from("ticket")),
-        ..titled("Lost")
+
+    let (_, foreign) = fx.board("ZED").await;
+    let elsewhere = TicketPatch {
+        board: Some(foreign.id()),
+        ..patch()
     };
+    let refused = fx.update("ARC-1", elsewhere, 3, AGENT).await;
+    assert_eq!(refused.unwrap_err(), "board-other-project");
+    let second = fx
+        .boards
+        .create(project.id(), "Second", &fx.person)
+        .await
+        .unwrap()
+        .board;
+    let moved = TicketPatch {
+        board: Some(second.id()),
+        ..patch()
+    };
+    let detail = fx.update("ARC-1", moved, 3, AGENT).await.unwrap();
+    let record = detail.view.ticket.record();
+    assert_eq!((record.board, record.sort_order), (second.id(), 0));
+}
+
+#[tokio::test]
+async fn moves_clear_the_block_reason_and_skip_no_ops() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("One"), AGENT).await.unwrap();
+    let blocked = TicketPatch {
+        status: Some(String::from("blocked")),
+        blocked_reason: Some(Some(String::from("waits"))),
+        ..patch()
+    };
+    fx.tickets
+        .update("ARC-1", &blocked, &fx.person, Version::INITIAL, AGENT)
+        .await
+        .unwrap();
+    let move_to = |status: Option<&'static str>, acceptance: Option<&'static str>| {
+        let fx = &fx;
+        async move {
+            fx.tickets
+                .move_to("ARC-1", status, acceptance, &fx.person, None, PERSON)
+                .await
+                .map_err(|error| error.code().to_owned())
+        }
+    };
+    assert_eq!(move_to(None, None).await.unwrap_err(), "status-missing");
+    let same = move_to(Some("blocked"), None).await.unwrap();
+    assert_eq!(same.ticket.record().version.value(), 2);
     assert_eq!(
-        fx.create(&board, dependency_before_branch, AGENT).await,
-        Err(String::from("dependency-unknown"))
+        move_to(Some("done"), None).await.unwrap_err(),
+        "acceptance-missing"
     );
-    let missing: Id<Board> = Id::from_uuid(uuid::Uuid::from_u128(9));
-    let error = fx
+    let done = move_to(Some("done"), Some("It works")).await.unwrap();
+    let record = done.ticket.record();
+    assert_eq!(
+        (record.status, record.blocked_reason.as_ref()),
+        (TicketStatus::Done, None)
+    );
+    assert_eq!(record.version.value(), 3);
+    let history = fx.tickets.get("ARC-1").await.unwrap().history;
+    let last = history.last().unwrap();
+    assert_eq!(last.note.as_deref(), Some("moved"));
+    let stale = fx
         .tickets
-        .create(project.id(), missing, &titled(" "), &fx.person, AGENT)
+        .move_to(
+            "ARC-1",
+            Some("planned"),
+            None,
+            &fx.person,
+            Some(Version::INITIAL),
+            AGENT,
+        )
         .await
         .unwrap_err();
-    assert_eq!(error.code(), "board-not-found");
-    let other_column = NewTicket {
-        status: Some(String::from("planned")),
-        ..titled("Planned")
+    assert_eq!(stale.code(), "version-conflict");
+}
+
+#[tokio::test]
+async fn deleted_tickets_free_their_dependents_and_leave_the_numbers_unused() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("Base"), AGENT).await.unwrap();
+    let top = NewTicket {
+        depends_on: vec![String::from("ARC-1")],
+        ..titled("Top")
     };
-    fx.create(&board, other_column, AGENT).await.unwrap();
-    let mut orders = Vec::new();
-    for key in ["ARC-2", "ARC-3"] {
-        let view = fx.tickets.get(key).await.unwrap().view;
-        orders.push(view.ticket.record().sort_order);
-    }
-    assert_eq!(orders, [1, 0]);
+    fx.create(&board, top, AGENT).await.unwrap();
+
+    let stale = fx
+        .tickets
+        .delete("ARC-1", &fx.person, Some(Version::INITIAL.next()))
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code(), "version-conflict");
+    fx.tickets.delete("arc-1", &fx.person, None).await.unwrap();
+    assert_eq!(
+        fx.tickets.get("ARC-1").await.unwrap_err().code(),
+        "ticket-not-found"
+    );
+    let top = fx.tickets.get("ARC-2").await.unwrap();
+    assert_eq!(top.view.column, Column::Backlog);
+    let last = top.history.last().unwrap();
+    assert_eq!(
+        (
+            last.field.as_str(),
+            last.from.as_deref(),
+            last.to.as_deref()
+        ),
+        ("dependsOn", Some(r#"["ARC-0001"]"#), Some("[]"))
+    );
+    assert_eq!(
+        fx.create(&board, titled("Next"), AGENT).await,
+        Ok(String::from("ARC-0003"))
+    );
+    let feed = fx.store.changes_since(0, 100).await.unwrap();
+    let ops: Vec<ChangeOp> = feed
+        .iter()
+        .filter(|change| change.entity == Entity::Ticket)
+        .map(|change| change.op)
+        .collect();
+    assert_eq!(
+        ops,
+        [
+            ChangeOp::Insert,
+            ChangeOp::Insert,
+            ChangeOp::Update,
+            ChangeOp::Delete,
+            ChangeOp::Insert
+        ]
+    );
+    assert_eq!(
+        fx.tickets
+            .delete("ARC-1", &fx.person, None)
+            .await
+            .unwrap_err()
+            .code(),
+        "ticket-not-found"
+    );
 }

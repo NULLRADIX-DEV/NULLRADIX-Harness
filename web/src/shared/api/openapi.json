@@ -899,11 +899,27 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "deleteOpenTickets",
+            "in": "query",
+            "description": "Also delete tickets that are neither done nor not needed.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
-          "204": {
-            "description": "The board is gone"
+          "200": {
+            "description": "The board is gone with its tickets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardDeleted"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -934,6 +950,7 @@
             }
           },
           "422": {
+            "description": "Open tickets without deleteOpenTickets",
             "content": {
               "application/json": {
                 "schema": {
@@ -1609,11 +1626,248 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "delete_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Version the deletion is based on; without one it checks none.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The ticket is gone, a tombstone keeps key and title"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "update_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/move": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "move_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
   "components": {
     "schemas": {
+      "BoardDeleted": {
+        "type": "object",
+        "description": "What a board deletion took with it.",
+        "required": [
+          "deletedTickets"
+        ],
+        "properties": {
+          "deletedTickets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keys of the deleted tickets by number."
+          }
+        }
+      },
       "BoardDto": {
         "type": "object",
         "description": "A board as the API shows it; timestamps are Unix milliseconds.",
@@ -2106,6 +2360,42 @@
             "$ref": "#/components/schemas/PrincipalKind"
           }
         }
+      },
+      "MoveTicket": {
+        "type": "object",
+        "description": "A move to another column; done needs acceptance criteria, here or on the ticket.",
+        "properties": {
+          "acceptance": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Lifts the dependency, question and not-needed locks."
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TicketStatusDto",
+                "description": "Required; read as text so a missing one is `status-missing` as on the legacy board."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Version the move is based on; without one the move checks none."
+          }
+        },
+        "additionalProperties": false
       },
       "OutputLineDto": {
         "type": "object",
@@ -2642,6 +2932,151 @@
           "done",
           "not-needed"
         ]
+      },
+      "UpdateTicket": {
+        "type": "object",
+        "description": "A change of fields; left out fields stay, `null` clears those that may be empty.",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "acceptance": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "blockedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "boardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Moves the ticket to another board of its project."
+          },
+          "dependsOn": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Replaces the dependencies; the add and remove lists apply to the result."
+          },
+          "dependsOnAdd": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "dependsOnRemove": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "diagram": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Lifts the dependency, question and not-needed locks."
+          },
+          "handbook": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "labels": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Replaces the labels."
+          },
+          "needsPlanning": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TicketStatusDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetBranch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version the change is based on."
+          }
+        },
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

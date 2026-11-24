@@ -21,10 +21,10 @@ pub use hook::{HookDetails, HookError, HookEvent, HookKind, SessionRef};
 pub use id::{Id, ParseIdError};
 pub use project::{Project, ProjectError, ProjectKey, ProjectName};
 pub use run::{Run, RunEnd, RunError, RunLabel, RunOutcome, RunRecord, RunStatus};
-pub use text::{TextError, required_text, utf16_len};
+pub use text::{TextError, optional_text, required_text, utf16_len};
 pub use ticket::{
-    BRANCH_MAX, HistoryEntry, TITLE_MAX, TargetBranch, Ticket, TicketDraft, TicketRecord,
-    TicketTitle,
+    ASSIGNEE_MAX, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange, HistoryEntry, TITLE_MAX,
+    TargetBranch, Ticket, TicketDraft, TicketRecord, TicketTitle, Tombstone, changes,
 };
 pub use ticket_values::{
     Column, Priority, StatusFacts, StatusLock, StatusRequest, TicketError, TicketKey, TicketStatus,

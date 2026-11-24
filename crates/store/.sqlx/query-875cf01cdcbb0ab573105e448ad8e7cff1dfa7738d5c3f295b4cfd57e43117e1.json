@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE tickets SET board_id = ?, title = ?, description = ?, acceptance = ?, plan = ?,\n                            handbook = ?, diagram = ?, status = ?, priority = ?, sort_order = ?,\n                            assignee = ?, needs_planning = ?, blocked_reason = ?,\n                            target_branch = ?, updated_at = ?, version = ?\n         WHERE id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 18
+    },
+    "nullable": []
+  },
+  "hash": "875cf01cdcbb0ab573105e448ad8e7cff1dfa7738d5c3f295b4cfd57e43117e1"
+}

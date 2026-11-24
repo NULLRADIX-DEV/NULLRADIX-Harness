@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO deleted_items (id, entity, entity_id, project_id, human_key, title,\n                                        from_status, actor_id, at)\n             VALUES (?, 'ticket', ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "4f0bb56f7a4dbc2bd097ca6b28d5445c8e1ebf923e44b5056bb2eec7b1227ef9"
+}

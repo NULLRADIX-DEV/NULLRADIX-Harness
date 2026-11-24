@@ -4,9 +4,10 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
 use nullradix_app::tickets::{
-    self, HistoryLine, NewTicket, TicketDetail, TicketFilter, TicketScope, TicketView, WriteOptions,
+    self, HistoryLine, NewTicket, TicketDetail, TicketFilter, TicketPatch, TicketScope, TicketView,
+    WriteOptions,
 };
-use nullradix_domain::{Column, Id, Priority, TicketKey, TicketStatus};
+use nullradix_domain::{Column, Id, Priority, TicketKey, TicketStatus, Version};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -283,6 +284,106 @@ pub(crate) struct BoardTicketsPath {
     board_id: Uuid,
 }
 
+/// Reads a field that may be missing, `null` or a value into a double option.
+#[expect(
+    clippy::option_option,
+    reason = "missing keeps a field, null clears it"
+)]
+fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+/// A change of fields; left out fields stay, `null` clears those that may be empty.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateTicket {
+    /// Version the change is based on.
+    pub version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handbook: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagram: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<TicketStatusDto>)]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<PriorityDto>)]
+    pub priority: Option<String>,
+    /// Replaces the labels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<String>, nullable)]
+    pub assignee: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needs_planning: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<String>, nullable)]
+    pub blocked_reason: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance: Option<String>,
+    /// Replaces the dependencies; the add and remove lists apply to the result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depends_on: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depends_on_add: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depends_on_remove: Option<Vec<String>>,
+    /// Moves the ticket to another board of its project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_id: Option<Uuid>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<String>, nullable)]
+    pub target_branch: Option<Option<String>>,
+    /// Lifts the dependency, question and not-needed locks.
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// A move to another column; done needs acceptance criteria, here or on the ticket.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MoveTicket {
+    /// Required; read as text so a missing one is `status-missing` as on the legacy board.
+    #[schema(value_type = Option<TicketStatusDto>)]
+    pub status: Option<String>,
+    /// Version the move is based on; without one the move checks none.
+    pub version: Option<i64>,
+    pub acceptance: Option<String>,
+    /// Lifts the dependency, question and not-needed locks.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct DeleteTicketQuery {
+    /// Version the deletion is based on; without one it checks none.
+    version: Option<i64>,
+}
+
 #[derive(Debug, Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Path, rename_all = "camelCase")]
@@ -427,6 +528,125 @@ pub(crate) async fn get_ticket(
     ApiPath(path): ApiPath<TicketPath>,
 ) -> Result<Json<TicketDetailDto>, ApiError> {
     Ok(Json(state.tickets.get(&path.ticket_key).await?.into()))
+}
+
+fn writer(principal: &Principal, force: bool) -> WriteOptions {
+    WriteOptions {
+        by_person: matches!(principal, Principal::Session { .. }),
+        force,
+        allow_duplicate: false,
+    }
+}
+
+fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
+    value.map(AppError::client_version).transpose()
+}
+
+#[utoipa::path(
+    patch,
+    path = "/tickets/{ticketKey}",
+    tag = "tickets",
+    params(TicketPath),
+    request_body = UpdateTicket,
+    responses(
+        (status = 200, body = TicketDetailDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn update_ticket(
+    State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<UpdateTicket>,
+) -> Result<Json<TicketDetailDto>, ApiError> {
+    let expected = AppError::client_version(input.version)?;
+    let options = writer(&principal, input.force);
+    let changes = TicketPatch {
+        title: input.title,
+        description: input.description,
+        plan: input.plan,
+        handbook: input.handbook,
+        diagram: input.diagram,
+        status: input.status,
+        priority: input.priority,
+        labels: input.labels,
+        assignee: input.assignee,
+        needs_planning: input.needs_planning,
+        blocked_reason: input.blocked_reason,
+        acceptance: input.acceptance,
+        depends_on: input.depends_on,
+        depends_on_add: input.depends_on_add,
+        depends_on_remove: input.depends_on_remove,
+        board: input.board_id.map(Id::from_uuid),
+        target_branch: input.target_branch,
+    };
+    let detail = state
+        .tickets
+        .update(&path.ticket_key, &changes, &state.person, expected, options)
+        .await?;
+    Ok(Json(detail.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/move",
+    tag = "tickets",
+    params(TicketPath),
+    request_body = MoveTicket,
+    responses(
+        (status = 200, body = TicketDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn move_ticket(
+    State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<MoveTicket>,
+) -> Result<Json<TicketDto>, ApiError> {
+    let view = state
+        .tickets
+        .move_to(
+            &path.ticket_key,
+            input.status.as_deref(),
+            input.acceptance.as_deref(),
+            &state.person,
+            version(input.version)?,
+            writer(&principal, input.force),
+        )
+        .await?;
+    Ok(Json(view.into()))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/tickets/{ticketKey}",
+    tag = "tickets",
+    params(TicketPath, DeleteTicketQuery),
+    responses(
+        (status = 204, description = "The ticket is gone, a tombstone keeps key and title"),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn delete_ticket(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiQuery(query): ApiQuery<DeleteTicketQuery>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .tickets
+        .delete(&path.ticket_key, &state.person, version(query.version)?)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[cfg(test)]
