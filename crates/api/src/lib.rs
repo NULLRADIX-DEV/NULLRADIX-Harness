@@ -1,69 +1,107 @@
 //! HTTP API served by the daemon.
 
+mod auth;
+mod extract;
 mod health;
 mod host;
-mod json;
 mod problem;
 
 use std::future::Future;
 use std::io;
+use std::sync::Arc;
 
 use axum::Router;
 use axum::http::{Request, StatusCode};
 use axum::middleware;
 use axum::response::Response;
 use nullradix_app::AppError;
+use nullradix_app::auth::AuthService;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::TraceLayer;
-use utoipa::OpenApi;
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::{Modify, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
+pub use extract::{ApiJson, ApiQuery};
 pub use health::Health;
 pub use host::AllowedHosts;
-pub use json::ApiJson;
 pub use problem::{ApiError, Problem};
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
 pub const API_VERSION: u32 = 1;
 
-#[derive(OpenApi)]
-#[openapi(info(title = "NULLRADIX API"), components(schemas(Problem)))]
-struct ApiDoc;
-
-/// Settings the router needs from the composition root.
-#[derive(Debug, Clone)]
-pub struct ApiConfig {
-    pub allowed_hosts: AllowedHosts,
-}
-
 /// Prefix of every API route; the rest of the URL space belongs to the web UI.
 pub const API_PREFIX: &str = "/api/v1";
 
-fn routes() -> OpenApiRouter {
-    let v1 = OpenApiRouter::new().routes(routes!(health::health));
+#[derive(OpenApi)]
+#[openapi(
+    info(title = "NULLRADIX API"),
+    components(schemas(Problem)),
+    modifiers(&SecuritySchemes),
+    security(("bearer" = []), ("session" = []))
+)]
+struct ApiDoc;
+
+struct SecuritySchemes;
+
+impl Modify for SecuritySchemes {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi.components.get_or_insert_with(Default::default);
+        components.add_security_scheme(
+            "bearer",
+            SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
+        );
+        components.add_security_scheme(
+            "session",
+            SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new(SESSION_COOKIE))),
+        );
+    }
+}
+
+/// Everything the handlers need, built by the composition root.
+#[derive(Debug, Clone)]
+pub struct ApiState {
+    pub auth: Arc<AuthService>,
+    pub allowed_hosts: AllowedHosts,
+    pub secure_cookies: bool,
+}
+
+fn routes() -> OpenApiRouter<ApiState> {
+    let v1 = OpenApiRouter::new()
+        .routes(routes!(health::health))
+        .routes(routes!(auth::create_handoff))
+        .routes(routes!(auth::redeem_handoff))
+        .routes(routes!(auth::logout))
+        .routes(routes!(auth::me));
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
 }
 
-pub fn router(config: &ApiConfig) -> Router {
+pub fn router(state: ApiState) -> Router {
     let (router, _) = routes().split_for_parts();
     router
         .fallback(route_not_found)
         .method_not_allowed_fallback(method_not_allowed)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::authenticate,
+        ))
         .layer(
             ServiceBuilder::new()
                 .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
                 .layer(TraceLayer::new_for_http().make_span_with(request_span))
                 .layer(PropagateRequestIdLayer::x_request_id())
                 .layer(middleware::from_fn_with_state(
-                    config.allowed_hosts.clone(),
+                    state.allowed_hosts.clone(),
                     host::check_host,
                 )),
         )
+        .with_state(state)
 }
 
 async fn route_not_found() -> ApiError {
@@ -108,81 +146,113 @@ pub async fn serve(
 }
 
 #[cfg(test)]
-mod tests {
-    use axum::body::Body;
-    use axum::http::header;
+pub(crate) mod tests {
+    use axum::body::{Body, to_bytes};
+    use axum::http::{HeaderValue, header};
+    use nullradix_app::SystemClock;
+    use nullradix_app::UuidV7Generator;
+    use nullradix_app::auth::Secret;
+    use nullradix_store::Store;
     use tower::ServiceExt;
 
     use super::*;
 
-    pub(crate) fn test_router() -> Router {
-        router(&ApiConfig {
+    pub(crate) struct TestApi {
+        pub(crate) router: Router,
+        pub(crate) token: Secret,
+        pub(crate) auth: Arc<AuthService>,
+    }
+
+    pub(crate) async fn test_api() -> TestApi {
+        let store = Arc::new(Store::in_memory().await.unwrap());
+        let auth = Arc::new(AuthService::new(
+            store,
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+        ));
+        let token = auth.local_token(None).await.unwrap();
+        let router = router(ApiState {
+            auth: auth.clone(),
             allowed_hosts: AllowedHosts::loopback_and([]),
-        })
+            secure_cookies: false,
+        });
+        TestApi {
+            router,
+            token,
+            auth,
+        }
     }
 
     pub(crate) fn local(request: axum::http::request::Builder) -> axum::http::request::Builder {
         request.header(header::HOST, "127.0.0.1:4711")
     }
 
-    async fn call(request: Request<Body>) -> (StatusCode, String) {
-        let response = test_router().oneshot(request).await.unwrap();
-        let content_type = response.headers()[header::CONTENT_TYPE]
-            .to_str()
-            .unwrap()
-            .to_owned();
-        (response.status(), content_type)
+    pub(crate) fn bearer(
+        request: axum::http::request::Builder,
+        token: &Secret,
+    ) -> axum::http::request::Builder {
+        local(request).header(header::AUTHORIZATION, format!("Bearer {}", token.expose()))
+    }
+
+    pub(crate) async fn send(
+        router: &Router,
+        request: Request<Body>,
+    ) -> (StatusCode, Option<HeaderValue>, serde_json::Value) {
+        let response = router.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let json = if body.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&body).unwrap()
+        };
+        (status, content_type, json)
     }
 
     #[tokio::test]
     async fn unknown_routes_answer_with_problem_details() {
-        let request = local(Request::get("/api/v1/nope"))
+        let api = test_api().await;
+        let request = bearer(Request::get("/api/v1/nope"), &api.token)
             .body(Body::empty())
             .unwrap();
-        assert_eq!(
-            call(request).await,
-            (
-                StatusCode::NOT_FOUND,
-                String::from("application/problem+json")
-            )
-        );
+        let (status, content_type, json) = send(&api.router, request).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(content_type.unwrap(), "application/problem+json");
+        assert_eq!(json["code"], "route-not-found");
     }
 
     #[tokio::test]
     async fn wrong_methods_answer_with_problem_details() {
+        let api = test_api().await;
         let request = local(Request::post("/api/v1/health"))
             .body(Body::empty())
             .unwrap();
-        assert_eq!(
-            call(request).await,
-            (
-                StatusCode::METHOD_NOT_ALLOWED,
-                String::from("application/problem+json")
-            )
-        );
+        let (status, content_type, _) = send(&api.router, request).await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(content_type.unwrap(), "application/problem+json");
     }
 
     #[tokio::test]
     async fn refuses_foreign_host_names() {
+        let api = test_api().await;
         let request = Request::get("/api/v1/health")
             .header(header::HOST, "attacker.example.com:4711")
             .body(Body::empty())
             .unwrap();
-        assert_eq!(
-            call(request).await,
-            (
-                StatusCode::FORBIDDEN,
-                String::from("application/problem+json")
-            )
-        );
+        let (status, _, json) = send(&api.router, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(json["code"], "host-not-allowed");
     }
 
     #[test]
-    fn openapi_document_lists_health() {
+    fn openapi_document_lists_routes_and_security() {
         let json = openapi_json().unwrap();
         assert!(json.contains("\"/api/v1/health\""));
+        assert!(json.contains("\"/api/v1/auth/handoffs\""));
         assert!(json.contains("NULLRADIX API"));
         assert!(json.contains("\"Problem\""));
+        assert!(json.contains("\"nullradix_session\""));
     }
 
     #[test]

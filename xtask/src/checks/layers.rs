@@ -46,7 +46,7 @@ const RULES: &[Rule] = &[
     },
     Rule {
         package: "nullradix-client",
-        internal: &["nullradix-api", OS],
+        internal: &["nullradix-api", APP, OS],
         forbidden: &["sqlx"],
     },
     Rule {

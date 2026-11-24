@@ -10,6 +10,8 @@ export default defineConfig([
     '**/dist/',
     '**/coverage/',
     'target/',
+    '.claude/',
+    '.remember/',
     'web/src/shared/api/schema.ts',
   ]),
   {

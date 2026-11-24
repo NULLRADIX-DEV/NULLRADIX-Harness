@@ -73,3 +73,14 @@ fn status_follows_the_daemon_and_only_one_daemon_runs_per_profile() {
     assert!(!after.status.success());
     assert!(String::from_utf8_lossy(&after.stdout).contains("stale"));
 }
+
+#[test]
+fn the_daemon_refuses_to_listen_beyond_loopback() {
+    let home = tempfile::tempdir().unwrap();
+    let output = nullradix(home.path())
+        .args(["serve", "--bind", "0.0.0.0", "--port", "0"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("refusing to listen"));
+}

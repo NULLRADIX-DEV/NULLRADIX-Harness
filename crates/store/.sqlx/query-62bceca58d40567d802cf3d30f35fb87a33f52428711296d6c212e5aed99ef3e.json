@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM api_tokens WHERE kind = ? AND name = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "62bceca58d40567d802cf3d30f35fb87a33f52428711296d6c212e5aed99ef3e"
+}
