@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO hook_events (id, kind, session_id, cwd, occurred_at, received_at,\n                                      transcript_path, prompt, source, model, reason, message,\n                                      notification_type, agent_id, agent_type, ticket, run,\n                                      entrypoint)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n             ON CONFLICT (id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 18
+    },
+    "nullable": []
+  },
+  "hash": "4b4c2843b810c69bf774df7933ecdb48b79a261635d81e9789677dddcd65b45c"
+}

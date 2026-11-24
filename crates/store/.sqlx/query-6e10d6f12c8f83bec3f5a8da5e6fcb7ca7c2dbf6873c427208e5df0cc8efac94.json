@@ -1,0 +1,218 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id: Uuid\", kind, session_id, cwd, occurred_at, transcript_path,\n                      prompt, source, model, reason, message, notification_type, agent_id,\n                      agent_type, ticket, run, entrypoint\n               FROM hook_events ORDER BY occurred_at DESC, id DESC LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "kind",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "session_id",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "session_id"
+          }
+        }
+      },
+      {
+        "name": "cwd",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "cwd"
+          }
+        }
+      },
+      {
+        "name": "occurred_at",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "occurred_at"
+          }
+        }
+      },
+      {
+        "name": "transcript_path",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "transcript_path"
+          }
+        }
+      },
+      {
+        "name": "prompt",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "prompt"
+          }
+        }
+      },
+      {
+        "name": "source",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "name": "model",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "name": "reason",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "reason"
+          }
+        }
+      },
+      {
+        "name": "message",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "message"
+          }
+        }
+      },
+      {
+        "name": "notification_type",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "notification_type"
+          }
+        }
+      },
+      {
+        "name": "agent_id",
+        "ordinal": 12,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "agent_id"
+          }
+        }
+      },
+      {
+        "name": "agent_type",
+        "ordinal": 13,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "agent_type"
+          }
+        }
+      },
+      {
+        "name": "ticket",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "ticket"
+          }
+        }
+      },
+      {
+        "name": "run",
+        "ordinal": 15,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "run"
+          }
+        }
+      },
+      {
+        "name": "entrypoint",
+        "ordinal": 16,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hook_events",
+            "name": "entrypoint"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "6e10d6f12c8f83bec3f5a8da5e6fcb7ca7c2dbf6873c427208e5df0cc8efac94"
+}

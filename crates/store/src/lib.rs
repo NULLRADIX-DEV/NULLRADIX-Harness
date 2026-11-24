@@ -3,6 +3,7 @@
 mod auth;
 mod change_feed;
 mod error;
+mod hooks;
 mod projects;
 mod runs;
 

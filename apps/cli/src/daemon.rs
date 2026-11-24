@@ -6,10 +6,11 @@ use std::time::Duration;
 use anyhow::{Context, bail};
 use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
 use nullradix_app::auth::AuthService;
+use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::runs::RunService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
-use nullradix_client::{Discovery, DiscoveryFile};
+use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_runner::{LocalRunner, SupervisorCommand};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -17,6 +18,7 @@ use tokio::task;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
+use crate::intake;
 use crate::logging;
 use crate::token;
 
@@ -87,10 +89,12 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         signal.clone(),
     ));
     let runs = start_runs(config, &store, &signal).await?;
+    let hooks = start_hooks(config, &store, &shutdown);
     let state = ApiState {
         auth,
         projects,
         runs,
+        hooks,
         changes: Arc::new(store.clone()),
         signal,
         shutdown: shutdown.clone(),
@@ -152,6 +156,17 @@ async fn start_runs(
         tracing::info!(recovered, "watching runs from before the restart");
     }
     Ok(runs)
+}
+
+/// Hook service; what hooks spooled while the daemon was away is taken in alongside.
+fn start_hooks(config: &Config, store: &Store, shutdown: &CancellationToken) -> Arc<HookService> {
+    let hooks = Arc::new(HookService::new(
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+    ));
+    let spool = Spool::in_dir(&config.paths.data);
+    intake::start(Arc::clone(&hooks), spool, shutdown.clone());
+    hooks
 }
 
 /// Makes sure the token file holds a token the daemon accepts.

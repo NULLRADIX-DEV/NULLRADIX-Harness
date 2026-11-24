@@ -4,6 +4,7 @@ pub mod auth;
 mod changes;
 mod clock;
 mod error;
+pub mod hooks;
 mod ids;
 pub mod projects;
 pub mod runs;

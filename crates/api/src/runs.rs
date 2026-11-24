@@ -4,7 +4,6 @@ use std::time::Duration;
 use axum::Json;
 use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
-use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
 use nullradix_app::runs::{OutputLine, OutputStream, RunSpec};
 use nullradix_domain::{Id, Run, RunStatus, Timestamp};
@@ -12,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::auth::require_token;
 use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
 const DEFAULT_LIST: u32 = 50;
@@ -193,11 +193,7 @@ pub(crate) async fn start_run(
     Extension(principal): Extension<Principal>,
     ApiJson(input): ApiJson<StartRun>,
 ) -> Result<(StatusCode, HeaderMap, Json<RunDto>), ApiError> {
-    if !matches!(principal, Principal::Token { .. }) {
-        return Err(
-            AppError::forbidden("token-required", "only the local CLI may start runs").into(),
-        );
-    }
+    require_token(&principal, "start runs")?;
     let spec = RunSpec {
         program: input.program,
         args: input.args,

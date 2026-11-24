@@ -100,6 +100,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hook-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_hook_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hooks/{event}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["receive_hook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects": {
         parameters: {
             query?: never;
@@ -230,6 +262,51 @@ export interface components {
             status: string;
             version: string;
         };
+        /** @description One hook report; unknown fields are ignored because hooks skip the version handshake. */
+        HookEventDto: {
+            agentId?: string | null;
+            agentType?: string | null;
+            /** @description Absolute working directory of the session. */
+            cwd: string;
+            /** @description Which Claude client ran the hook. */
+            entrypoint?: string | null;
+            /**
+             * Format: uuid
+             * @description Chosen by the reporter, so a resend is recognised.
+             */
+            id: string;
+            message?: string | null;
+            model?: string | null;
+            notificationType?: string | null;
+            /**
+             * Format: int64
+             * @description Unix milliseconds.
+             */
+            occurredAt: number;
+            prompt?: string | null;
+            reason?: string | null;
+            /** @description Run that started the session. */
+            run?: string | null;
+            sessionId: string;
+            source?: string | null;
+            /** @description Ticket key the session was started for. */
+            ticket?: string | null;
+            transcriptPath?: string | null;
+        };
+        HookEventList: {
+            items: components["schemas"]["RecordedHookDto"][];
+        };
+        /** @enum {string} */
+        HookKindDto: "session-start" | "user-prompt" | "notification" | "stop" | "subagent-start" | "subagent-stop" | "session-end";
+        /** @description What the hook passes on to Claude Code. */
+        HookReplyDto: {
+            /** @description Text Claude Code adds to the conversation. */
+            additionalContext?: string | null;
+            /** @description Variables for the environment of the session. */
+            env?: {
+                [key: string]: string;
+            };
+        };
         /** @description The caller as the daemon sees it. */
         Me: {
             kind: components["schemas"]["PrincipalKind"];
@@ -268,6 +345,10 @@ export interface components {
         };
         ProjectList: {
             items: components["schemas"]["ProjectDto"][];
+        };
+        RecordedHookDto: {
+            event: components["schemas"]["HookEventDto"];
+            kind: components["schemas"]["HookKindDto"];
         };
         RenameProject: {
             name: string;
@@ -502,6 +583,96 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    list_hook_events: {
+        parameters: {
+            query?: {
+                /** @description Newest events first by when they happened, at most 500. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HookEventList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    receive_hook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The hook that fired. */
+                event: components["schemas"]["HookKindDto"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HookEventDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HookReplyDto"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Browser sessions cannot report hooks */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid event, body or hook name */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
         };
