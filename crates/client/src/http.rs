@@ -183,6 +183,7 @@ mod tests {
                     auth,
                     allowed_hosts: AllowedHosts::loopback_and([]),
                     secure_cookies: false,
+                    web_dir: None,
                 };
                 let listener = tokio::net::TcpListener::from_std(listener).unwrap();
                 let shutdown = async {

@@ -36,7 +36,7 @@ thiserror = "2.0.21"
 tokio = "1.54.1"
 toml = "1.2.2"
 tower = "0.5.3"
-tower-http = { version = "0.7.1", features = ["request-id", "trace", "util"] }
+tower-http = { version = "0.7.1", features = ["fs", "request-id", "set-header", "trace", "util"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }

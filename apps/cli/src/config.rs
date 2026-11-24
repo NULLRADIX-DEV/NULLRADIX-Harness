@@ -42,6 +42,13 @@ impl Profile {
 struct FileConfig {
     server: ServerSection,
     log: LogSection,
+    web: WebSection,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct WebSection {
+    dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -64,6 +71,7 @@ pub(crate) struct Overrides {
     pub(crate) bind: Option<IpAddr>,
     pub(crate) port: Option<u16>,
     pub(crate) log: Option<String>,
+    pub(crate) web_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +81,7 @@ pub(crate) struct Config {
     pub(crate) address: SocketAddr,
     pub(crate) allowed_hosts: Vec<String>,
     pub(crate) log_filter: String,
+    pub(crate) web_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -101,10 +110,22 @@ impl Config {
     ) -> Result<Self, ConfigError> {
         let paths = Paths::resolve(profile.app_name(), home)?;
         let file = read_file(&paths.config.join("config.toml"))?;
-        Ok(Self::merge(profile, paths, file, overrides))
+        Ok(Self::merge(
+            profile,
+            paths,
+            file,
+            overrides,
+            bundled_web_dir(),
+        ))
     }
 
-    fn merge(profile: Profile, paths: Paths, file: FileConfig, overrides: Overrides) -> Self {
+    fn merge(
+        profile: Profile,
+        paths: Paths,
+        file: FileConfig,
+        overrides: Overrides,
+        bundled_web: Option<PathBuf>,
+    ) -> Self {
         let bind = overrides
             .bind
             .or(file.server.bind)
@@ -124,14 +145,22 @@ impl Config {
                 IpAddr::V6(ip) => format!("[{ip}]"),
             });
         }
+        let web_dir = overrides.web_dir.or(file.web.dir).or(bundled_web);
         Self {
             profile,
             paths,
             address: SocketAddr::new(bind, port),
             allowed_hosts,
             log_filter,
+            web_dir,
         }
     }
+}
+
+/// Web UI shipped next to the executable, as installers lay it out.
+fn bundled_web_dir() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.join("web");
+    dir.join("index.html").is_file().then_some(dir)
 }
 
 fn read_file(path: &Path) -> Result<FileConfig, ConfigError> {
@@ -189,6 +218,7 @@ mod tests {
             bind: None,
             port: Some(9100),
             log: Some(String::from("warn")),
+            web_dir: None,
         };
         let overridden = Config::load(Profile::Release, Some(home.path()), overrides).unwrap();
         assert_eq!(overridden.address, "0.0.0.0:9100".parse().unwrap());
@@ -208,6 +238,40 @@ allowed_hosts = [\"workbench.lan\"]
         let config =
             Config::load(Profile::Release, Some(home.path()), Overrides::default()).unwrap();
         assert_eq!(config.allowed_hosts, vec!["workbench.lan", "192.168.1.5"]);
+    }
+
+    #[test]
+    fn web_dir_comes_from_flags_then_file_then_bundle() {
+        let home = tempfile::tempdir().unwrap();
+        let bundled = Some(PathBuf::from("bundle/web"));
+        let merged = |file: &str, flag: Option<&str>| {
+            let file: FileConfig = toml::from_str(file).unwrap();
+            let overrides = Overrides {
+                web_dir: flag.map(PathBuf::from),
+                ..Overrides::default()
+            };
+            let paths = Paths::below(home.path());
+            Config::merge(Profile::Dev, paths, file, overrides, bundled.clone()).web_dir
+        };
+        assert_eq!(merged("", None), bundled);
+        assert_eq!(
+            merged(
+                "[web]
+dir = \"site\"
+",
+                None
+            ),
+            Some(PathBuf::from("site"))
+        );
+        assert_eq!(
+            merged(
+                "[web]
+dir = \"site\"
+",
+                Some("flag")
+            ),
+            Some(PathBuf::from("flag"))
+        );
     }
 
     #[test]
