@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use crate::files;
 
 mod comments;
+mod layers;
 mod unsafe_code;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -63,6 +64,7 @@ pub(crate) fn run(root: &Path) -> Result<Vec<Violation>> {
             violations.extend(unsafe_code::check(&path, &content));
         }
     }
+    violations.extend(layers::run(root)?);
     Ok(violations)
 }
 
