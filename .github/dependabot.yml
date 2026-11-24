@@ -9,6 +9,15 @@ updates:
         patterns: ['*']
     commit-message:
       prefix: build
+  - package-ecosystem: cargo
+    directory: /apps/desktop
+    schedule:
+      interval: weekly
+    groups:
+      desktop:
+        patterns: ['*']
+    commit-message:
+      prefix: build
   - package-ecosystem: npm
     directory: /
     schedule:

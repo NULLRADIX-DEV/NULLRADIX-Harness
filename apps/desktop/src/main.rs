@@ -6,7 +6,7 @@ fn main() -> ExitCode {
     match nullradix_desktop::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error}");
+            nullradix_desktop::report_failure(&error);
             ExitCode::FAILURE
         }
     }

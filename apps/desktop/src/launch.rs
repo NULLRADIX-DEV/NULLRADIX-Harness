@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use nullradix_client::{Client, ClientError, Discovery, DiscoveryError, DiscoveryFile, token};
-use nullradix_os::{Paths, PathsError, spawn_detached};
+use nullradix_os::{Paths, PathsError, process_alive, spawn_detached};
 use url::Url;
 
 const STARTUP: Duration = Duration::from_secs(20);
@@ -19,23 +19,33 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) enum LaunchError {
     #[error(transparent)]
     Paths(#[from] PathsError),
+    #[error("cannot find this program: {0}")]
+    Exe(io::Error),
     #[error(transparent)]
     Discovery(#[from] DiscoveryError),
+    #[error("cannot create {}: {source}", path.display())]
+    DataDir { path: PathBuf, source: io::Error },
     #[error("cannot start the daemon {}: {source}", path.display())]
     Spawn { path: PathBuf, source: io::Error },
-    #[error("the daemon did not start within {} seconds", STARTUP.as_secs())]
-    Timeout,
+    #[error("the daemon stopped right after it started; its log is in {}", .0.display())]
+    Stopped(PathBuf),
+    #[error("the daemon did not start within {} seconds; its log is in {}", STARTUP.as_secs(), .0.display())]
+    Timeout(PathBuf),
+    #[error(
+        "the running daemon (pid {pid}) speaks API version {found}, this app needs {expected}; quit that daemon and open NULLRADIX again"
+    )]
+    Outdated { pid: u32, found: u32, expected: u32 },
     #[error("no local token in {}; the daemon writes it when it starts", .0.display())]
     MissingToken(PathBuf),
     #[error("cannot read the local token: {0}")]
-    Token(#[from] io::Error),
+    Token(io::Error),
     #[error(transparent)]
     Client(#[from] ClientError),
     #[error("the daemon sent an unusable sign-in path: {0}")]
     Url(#[from] url::ParseError),
 }
 
-/// The data profile: the one this shell was built as, unless `NULLRADIX_PROFILE` names another.
+/// The data profile: the one this shell was built as, unless asked for another.
 #[must_use]
 pub(crate) fn profile(requested: Option<&str>, debug_build: bool) -> &'static str {
     match requested {
@@ -56,7 +66,7 @@ pub(crate) const fn app_name(profile: &str) -> &'static str {
 }
 
 /// The settings this process was started with.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Setup {
     pub(crate) profile: &'static str,
     pub(crate) home: Option<PathBuf>,
@@ -64,43 +74,91 @@ pub(crate) struct Setup {
 }
 
 impl Setup {
-    /// `NULLRADIX_BIN` names the daemon binary; otherwise it sits next to this program.
-    pub(crate) fn from_env() -> io::Result<Self> {
-        let requested = env::var("NULLRADIX_PROFILE").ok();
-        let home = env::var_os("NULLRADIX_HOME")
+    /// `--profile` and `--home` win over `NULLRADIX_PROFILE` and `NULLRADIX_HOME`.
+    pub(crate) fn from_env() -> Result<Self, LaunchError> {
+        let args: Vec<OsString> = env::args_os().skip(1).collect();
+        let program = env::current_exe().map_err(LaunchError::Exe)?;
+        Ok(Self::resolve(
+            &args,
+            env::var("NULLRADIX_PROFILE").ok().as_deref(),
+            env::var_os("NULLRADIX_HOME"),
+            env::var_os("NULLRADIX_BIN"),
+            &program,
+        ))
+    }
+
+    fn resolve(
+        args: &[OsString],
+        env_profile: Option<&str>,
+        env_home: Option<OsString>,
+        env_bin: Option<OsString>,
+        program: &Path,
+    ) -> Self {
+        let profile_arg = flag(args, "--profile").map(|value| value.to_string_lossy().into_owned());
+        let home = flag(args, "--home")
+            .or(env_home)
             .filter(|home| !home.is_empty())
             .map(PathBuf::from);
-        let daemon = match env::var_os("NULLRADIX_BIN").filter(|bin| !bin.is_empty()) {
-            Some(bin) => PathBuf::from(bin),
-            None => beside(&env::current_exe()?),
-        };
-        Ok(Self {
-            profile: profile(requested.as_deref(), cfg!(debug_assertions)),
+        let daemon = env_bin
+            .filter(|bin| !bin.is_empty())
+            .map_or_else(|| daemon_beside(program), PathBuf::from);
+        Self {
+            profile: profile(
+                profile_arg.as_deref().or(env_profile),
+                cfg!(debug_assertions),
+            ),
             home,
             daemon,
-        })
+        }
     }
 
     pub(crate) fn paths(&self) -> Result<Paths, PathsError> {
         Paths::resolve(app_name(self.profile), self.home.as_deref())
     }
 
-    /// Arguments that make the daemon use the same data as this shell.
+    /// Arguments that select the same data, for the daemon and for autostart.
     #[must_use]
-    pub(crate) fn serve_args(&self) -> Vec<OsString> {
+    pub(crate) fn data_args(&self) -> Vec<OsString> {
         let mut args = vec![OsString::from("--profile"), OsString::from(self.profile)];
         if let Some(home) = &self.home {
             args.push(OsString::from("--home"));
             args.push(home.clone().into_os_string());
         }
-        args.push(OsString::from("serve"));
         args
     }
 }
 
-#[must_use]
-pub(crate) fn beside(program: &Path) -> PathBuf {
-    program.with_file_name(format!("nullradix{}", env::consts::EXE_SUFFIX))
+/// The value after `name` in `args`, also written as `name=value`.
+fn flag(args: &[OsString], name: &str) -> Option<OsString> {
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        let text = arg.to_string_lossy();
+        if text == name {
+            return rest.next().cloned();
+        }
+        if let Some(value) = text
+            .strip_prefix(name)
+            .and_then(|tail| tail.strip_prefix('='))
+        {
+            return Some(OsString::from(value));
+        }
+    }
+    None
+}
+
+/// The daemon binary next to this program; a development build also finds the main target.
+fn daemon_beside(program: &Path) -> PathBuf {
+    let name = format!("nullradix{}", env::consts::EXE_SUFFIX);
+    let beside = program.with_file_name(&name);
+    if cfg!(debug_assertions) && !beside.is_file() {
+        let main_target = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/debug")
+            .join(&name);
+        if main_target.is_file() {
+            return main_target;
+        }
+    }
+    beside
 }
 
 /// Finds the running daemon or starts one, then asks it for a one-time sign-in URL.
@@ -111,10 +169,16 @@ pub(crate) fn sign_in_url(setup: &Setup) -> Result<Url, LaunchError> {
         None => start(setup, &paths)?,
     };
     let token_path = token::path(&paths);
-    let token = token::read(&token_path)?.ok_or(LaunchError::MissingToken(token_path))?;
+    let token = token::read(&token_path)
+        .map_err(LaunchError::Token)?
+        .ok_or(LaunchError::MissingToken(token_path))?;
     let client = Client::new(discovery.address, CONNECT_TIMEOUT, TIMEOUT).with_token(token);
     let handoff = client.create_handoff()?;
-    Ok(Url::parse(&format!("http://{}", discovery.address))?.join(&handoff.path)?)
+    Ok(daemon_origin(&discovery)?.join(&handoff.path)?)
+}
+
+pub(crate) fn daemon_origin(discovery: &Discovery) -> Result<Url, url::ParseError> {
+    Url::parse(&format!("http://{}/", discovery.address))
 }
 
 /// The daemon of these paths when it runs and speaks our API version.
@@ -128,35 +192,49 @@ fn running(paths: &Paths) -> Result<Option<Discovery>, LaunchError> {
     let client = Client::new(discovery.address, CONNECT_TIMEOUT, TIMEOUT);
     match client.handshake() {
         Ok(_) => Ok(Some(discovery)),
-        Err(ClientError::VersionMismatch { found, expected }) => {
-            Err(ClientError::VersionMismatch { found, expected }.into())
-        }
+        Err(ClientError::VersionMismatch { found, expected }) => Err(LaunchError::Outdated {
+            pid: discovery.pid,
+            found,
+            expected,
+        }),
         Err(_) => Ok(None),
     }
 }
 
 /// Starts a detached daemon, which outlives this shell, and waits until it answers.
 fn start(setup: &Setup, paths: &Paths) -> Result<Discovery, LaunchError> {
-    fs::create_dir_all(&paths.data)?;
-    spawn_detached(&setup.daemon, &setup.serve_args(), &paths.data).map_err(|source| {
-        LaunchError::Spawn {
+    fs::create_dir_all(&paths.data).map_err(|source| LaunchError::DataDir {
+        path: paths.data.clone(),
+        source,
+    })?;
+    let mut args = setup.data_args();
+    args.push(OsString::from("serve"));
+    let pid =
+        spawn_detached(&setup.daemon, &args, &paths.data).map_err(|source| LaunchError::Spawn {
             path: setup.daemon.clone(),
             source,
-        }
-    })?;
+        })?;
     let deadline = Instant::now() + STARTUP;
     while Instant::now() < deadline {
         if let Some(discovery) = running(paths)? {
             return Ok(discovery);
         }
+        // another daemon of these paths may have won the start, so only give up when none runs
+        if !process_alive(pid) && DiscoveryFile::in_dir(&paths.data).read()?.is_none() {
+            return Err(LaunchError::Stopped(paths.logs.clone()));
+        }
         thread::sleep(POLL);
     }
-    Err(LaunchError::Timeout)
+    Err(LaunchError::Timeout(paths.logs.clone()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn args(text: &[&str]) -> Vec<OsString> {
+        text.iter().map(OsString::from).collect()
+    }
 
     #[test]
     fn the_profile_follows_the_request_or_the_build() {
@@ -169,22 +247,27 @@ mod tests {
     }
 
     #[test]
-    fn the_daemon_shares_profile_and_home_with_the_shell() {
-        let setup = Setup {
-            profile: "dev",
-            home: Some(PathBuf::from("/data/home")),
-            daemon: beside(Path::new("/opt/nullradix/nullradix-desktop")),
-        };
-        let args: Vec<String> = setup
-            .serve_args()
+    fn arguments_win_over_the_environment() {
+        let program = Path::new("/opt/nullradix/nullradix-desktop");
+        let setup = Setup::resolve(
+            &args(&["--hidden", "--profile=release", "--home", "/data/home"]),
+            Some("dev"),
+            Some(OsString::from("/env/home")),
+            Some(OsString::from("/bin/nullradix")),
+            program,
+        );
+        assert_eq!(setup.profile, "release");
+        assert_eq!(setup.home, Some(PathBuf::from("/data/home")));
+        assert_eq!(setup.daemon, PathBuf::from("/bin/nullradix"));
+        let data: Vec<String> = setup
+            .data_args()
             .iter()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(args, ["--profile", "dev", "--home", "/data/home", "serve"]);
-        assert_eq!(
-            setup.daemon,
-            Path::new("/opt/nullradix").join(format!("nullradix{}", env::consts::EXE_SUFFIX))
-        );
+        assert_eq!(data, ["--profile", "release", "--home", "/data/home"]);
+
+        let plain = Setup::resolve(&[], Some("dev"), Some(OsString::new()), None, program);
+        assert_eq!((plain.profile, plain.home), ("dev", None));
     }
 
     #[test]
@@ -202,5 +285,26 @@ mod tests {
                 .is_some_and(|text| text.contains("no-such-nullradix")),
             "{error:?}"
         );
+    }
+
+    #[test]
+    fn a_stale_discovery_file_means_no_daemon() {
+        let home = tempfile::tempdir().unwrap();
+        let paths = Paths::below(home.path());
+        fs::create_dir_all(&paths.data).unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        for pid in [u32::MAX - 1, std::process::id()] {
+            let record = Discovery {
+                pid,
+                address,
+                version: String::from("0.1.0"),
+                api_version: 1,
+                started_at: 0,
+            };
+            DiscoveryFile::in_dir(&paths.data).write(&record).unwrap();
+            assert!(running(&paths).unwrap().is_none(), "pid {pid}");
+        }
     }
 }
