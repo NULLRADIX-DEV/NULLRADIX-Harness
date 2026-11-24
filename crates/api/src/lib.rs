@@ -44,7 +44,9 @@ pub const API_PREFIX: &str = "/api/v1";
 
 fn routes() -> OpenApiRouter {
     let v1 = OpenApiRouter::new().routes(routes!(health::health));
-    OpenApiRouter::with_openapi(ApiDoc::openapi()).nest(API_PREFIX, v1)
+    let mut doc = ApiDoc::openapi();
+    doc.info.version = API_VERSION.to_string();
+    OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
 }
 
 pub fn router(config: &ApiConfig) -> Router {
@@ -181,5 +183,11 @@ mod tests {
         assert!(json.contains("\"/api/v1/health\""));
         assert!(json.contains("NULLRADIX API"));
         assert!(json.contains("\"Problem\""));
+    }
+
+    #[test]
+    fn openapi_version_is_the_api_version() {
+        let json: serde_json::Value = serde_json::from_str(&openapi_json().unwrap()).unwrap();
+        assert_eq!(json["info"]["version"], API_VERSION.to_string());
     }
 }

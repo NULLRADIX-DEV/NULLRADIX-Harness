@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/health": {
+    "/api/v1/health": {
         parameters: {
             query?: never;
             header?: never;
@@ -29,6 +29,15 @@ export interface components {
             apiVersion: number;
             status: string;
             version: string;
+        };
+        /** @description RFC 9457 problem details with a stable `code` extension. */
+        Problem: {
+            code: string;
+            detail: string;
+            /** Format: int32 */
+            status: number;
+            title: string;
+            type: string;
         };
     };
     responses: never;
