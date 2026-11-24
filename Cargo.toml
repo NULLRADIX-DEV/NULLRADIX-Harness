@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["xtask"]
+members = ["apps/cli", "crates/*", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,8 +11,29 @@ repository = "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness"
 publish = false
 
 [workspace.dependencies]
-anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+nullradix-api = { path = "crates/api" }
+nullradix-app = { path = "crates/app" }
+nullradix-domain = { path = "crates/domain" }
+nullradix-os = { path = "crates/os" }
+
+anyhow = "1.0.105"
+axum = "0.8.9"
+clap = { version = "4.6.9", features = ["derive", "env"] }
+directories = "6.0.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = "1.54.1"
+toml = "1.2.2"
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["request-id", "trace", "util"] }
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+utoipa = { version = "6.0.0", features = ["uuid"] }
+utoipa-axum = "0.3.0"
+uuid = "1.29.3"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

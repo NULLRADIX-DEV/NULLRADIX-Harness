@@ -7,13 +7,14 @@ use anyhow::{Context, Result};
 use crate::files;
 
 mod comments;
+mod layers;
 mod unsafe_code;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Violation {
     pub(crate) path: PathBuf,
     pub(crate) line: usize,
-    pub(crate) message: &'static str,
+    pub(crate) message: String,
 }
 
 impl fmt::Display for Violation {
@@ -63,6 +64,7 @@ pub(crate) fn run(root: &Path) -> Result<Vec<Violation>> {
             violations.extend(unsafe_code::check(&path, &content));
         }
     }
+    violations.extend(layers::run(root)?);
     Ok(violations)
 }
 
@@ -91,7 +93,7 @@ mod tests {
         let violation = Violation {
             path: PathBuf::from("a.rs"),
             line: 3,
-            message: "boom",
+            message: String::from("boom"),
         };
         assert_eq!(violation.to_string(), "a.rs:3: boom");
     }

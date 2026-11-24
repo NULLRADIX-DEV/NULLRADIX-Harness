@@ -25,7 +25,7 @@ pub(super) fn check(path: &Path, content: &str) -> Vec<Violation> {
         .map(|(index, _)| Violation {
             path: path.to_path_buf(),
             line: index + 1,
-            message: MESSAGE,
+            message: MESSAGE.to_owned(),
         })
         .collect()
 }
