@@ -8,12 +8,17 @@ export const sessionKeys = {
   all: ['auth', 'me'] as const,
 };
 
+// No session is `null`, not an error: a query without data turns pending on each refetch.
 export function sessionQuery() {
   return queryOptions({
     queryKey: sessionKeys.all,
-    queryFn: async () => unwrap(await api.GET('/api/v1/auth/me')),
+    queryFn: async () => {
+      const result = await api.GET('/api/v1/auth/me');
+      return result.response.status === 401 ? null : unwrap(result);
+    },
     // Another tab may finish `nullradix open`, or the daemon may come back.
-    refetchInterval: (query) => (query.state.error ? SESSION_RECHECK_MS : false),
+    refetchInterval: (query) =>
+      query.state.data === null || query.state.error ? SESSION_RECHECK_MS : false,
   });
 }
 

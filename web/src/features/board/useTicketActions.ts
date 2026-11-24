@@ -1,0 +1,80 @@
+import { useState } from 'react';
+import {
+  useAddStep,
+  useChangeStep,
+  useDeleteTicket,
+  useMoveStep,
+  useMoveTicket,
+  useRemoveStep,
+  useUpdateTicket,
+  type StepChange,
+  type Ticket,
+  type TicketChange,
+  type TicketStatus,
+} from '../tickets/queries';
+import { FieldConflict } from './messages';
+
+export interface TicketActions {
+  busy: boolean;
+  // The error of the last change; a later success clears it.
+  failure: unknown;
+  // Reports a field whose saved value changed while the user typed over it.
+  conflict: (label: string) => void;
+  save: (change: TicketChange) => Promise<boolean>;
+  move: (status: TicketStatus, acceptance?: string) => Promise<boolean>;
+  remove: () => Promise<boolean>;
+  addStep: (text: string, detail?: string) => Promise<boolean>;
+  changeStep: (id: string, change: StepChange) => Promise<boolean>;
+  removeStep: (id: string, expectText: string) => Promise<boolean>;
+  moveStep: (id: string, to: number, expectText: string) => Promise<boolean>;
+}
+
+// Every change of an open ticket, based on the version of the last read.
+export function useTicketActions(ticket: Ticket): TicketActions {
+  const update = useUpdateTicket();
+  const moveTicket = useMoveTicket();
+  const deleteTicket = useDeleteTicket();
+  const add = useAddStep();
+  const change = useChangeStep();
+  const removeOne = useRemoveStep();
+  const moveOne = useMoveStep();
+  const [failure, setFailure] = useState<unknown>(null);
+  const { key, version } = ticket;
+
+  async function run(work: () => Promise<unknown>): Promise<boolean> {
+    setFailure(null);
+    try {
+      await work();
+      return true;
+    } catch (error) {
+      setFailure(error);
+      return false;
+    }
+  }
+
+  return {
+    busy: [update, moveTicket, deleteTicket, add, change, removeOne, moveOne].some(
+      (mutation) => mutation.isPending,
+    ),
+    failure,
+    conflict: (label) => {
+      setFailure(new FieldConflict(label));
+    },
+    save: (fields) => run(() => update.mutateAsync({ key, version, change: fields })),
+    move: (status, acceptance) =>
+      run(() =>
+        moveTicket.mutateAsync({
+          key,
+          version,
+          status,
+          ...(acceptance === undefined ? {} : { acceptance }),
+        }),
+      ),
+    remove: () => run(() => deleteTicket.mutateAsync({ key, version })),
+    addStep: (text, detail) =>
+      run(() => add.mutateAsync({ key, text, ...(detail === undefined ? {} : { detail }) })),
+    changeStep: (id, fields) => run(() => change.mutateAsync({ key, id, change: fields })),
+    removeStep: (id, expectText) => run(() => removeOne.mutateAsync({ key, id, expectText })),
+    moveStep: (id, to, expectText) => run(() => moveOne.mutateAsync({ key, id, to, expectText })),
+  };
+}

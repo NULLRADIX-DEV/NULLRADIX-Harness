@@ -106,7 +106,9 @@ describe('RunsSection', () => {
     renderApp('/dashboard');
     await open(/cargo build/);
     const output = await screen.findByRole('region', { name: 'cargo build' });
-    expect(await within(output).findByText('done')).toBeInTheDocument();
+    expect(
+      await within(output).findByText('done', {}, { timeout: OUTPUT_POLL_MS * 3 }),
+    ).toBeInTheDocument();
     expect(within(output).getByText('warning: unused')).toHaveClass('stderr');
     await waitFor(
       () => {
