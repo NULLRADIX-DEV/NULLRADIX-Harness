@@ -586,7 +586,7 @@
     ],
     "exitCode": 1,
     "name": "refuse it in the CLI",
-    "stderr": "error: the daemon refused the request: the prompt template has unknown placeholders or lacks required parts: template: uses unknown placeholders {{where}}; template: lacks required parts: Placeholder {{ticketId}}; Placeholder {{agent}}; Placeholder {{target}}; Retreat: git merge --abort (dispatcher-prompt-invalid)\n",
+    "stderr": "error: the daemon refused the request: the prompt template is invalid: template: uses unknown placeholders {{where}}; template: lacks required parts: Placeholder {{ticketId}}; Placeholder {{agent}}; Placeholder {{target}}; Retreat: git merge --abort (dispatcher-prompt-invalid)\n",
     "stdout": ""
   },
   {
@@ -602,7 +602,7 @@
     "response": {
       "json": {
         "code": "dispatcher-prompt-invalid",
-        "detail": "the prompt template has unknown placeholders or lacks required parts",
+        "detail": "the prompt template is invalid",
         "errors": [
           {
             "field": "template",
@@ -632,7 +632,7 @@
     ],
     "exitCode": 1,
     "name": "refuse it in a preview",
-    "stderr": "error: the daemon refused the request: the prompt template has unknown placeholders or lacks required parts: template: uses unknown placeholders {{where}}; template: lacks required parts: Placeholder {{ticketId}}; Placeholder {{agent}}; Placeholder {{target}}; Retreat: git merge --abort (dispatcher-prompt-invalid)\n",
+    "stderr": "error: the daemon refused the request: the prompt template is invalid: template: uses unknown placeholders {{where}}; template: lacks required parts: Placeholder {{ticketId}}; Placeholder {{agent}}; Placeholder {{target}}; Retreat: git merge --abort (dispatcher-prompt-invalid)\n",
     "stdout": ""
   },
   {

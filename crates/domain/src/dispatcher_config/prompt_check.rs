@@ -72,17 +72,37 @@ fn has_outcomes(template: &str) -> bool {
     has_text(template, "{{outcomes}}")
 }
 
+/// Index after `nullradix question add` starting at `at`, flags allowed between the words.
+fn question_add_end(all: &[&str], at: usize) -> Option<usize> {
+    if !all[at].ends_with("nullradix") {
+        return None;
+    }
+    let mut next = at + 1;
+    for wanted in ["question", "add"] {
+        while all.get(next).is_some_and(|word| is_flag(word)) {
+            next += 1;
+        }
+        (all.get(next) == Some(&wanted)).then_some(())?;
+        next += 1;
+    }
+    Some(next)
+}
+
+/// Legacy rule: `question add`, then anything, then `--ticket`, flags, `{{ticketId}}`.
 fn has_question_add(template: &str) -> bool {
     let all = words(template);
     // The earliest start leaves the most words to look at for the ticket.
-    let Some(at) = all.iter().enumerate().position(|(at, word)| {
-        word.ends_with("nullradix") && all[at + 1..].starts_with(&["question", "add"])
-    }) else {
+    let Some(rest) = (0..all.len()).find_map(|at| question_add_end(&all, at)) else {
         return false;
     };
-    all[at + 3..]
-        .windows(2)
-        .any(|pair| pair[0] == "--ticket" && pair[1].starts_with("{{ticketId}}"))
+    let tail = &all[rest..];
+    tail.iter().enumerate().any(|(at, word)| {
+        word.ends_with("--ticket")
+            && tail[at + 1..]
+                .iter()
+                .find(|next| !is_flag(next))
+                .is_some_and(|next| next.starts_with("{{ticketId}}"))
+    })
 }
 
 macro_rules! placeholder_part {
@@ -369,6 +389,27 @@ mod tests {
         assert!(!has_question_add(
             &"nullradix question add ".repeat(100_000)
         ));
+    }
+
+    #[test]
+    fn question_add_follows_the_legacy_rule() {
+        for template in [
+            "nullradix question add \"x\" --ticket {{ticketId}}",
+            "nullradix -q question add \"x\" --ticket {{ticketId}}",
+            "nullradix question add \"x\" --ticket -v {{ticketId}}",
+            "nullradix question add \"x\" x--ticket {{ticketId}}",
+            "./nullradix question\n add --description y --ticket {{ticketId}}.",
+        ] {
+            assert!(has_question_add(template), "{template}");
+        }
+        for template in [
+            "nullradix question list --ticket {{ticketId}}",
+            "nullradix question add \"x\" --ticket other {{ticketId}}",
+            "nullradix question add \"x\" --ticketing {{ticketId}}",
+            "--ticket {{ticketId}} nullradix question add",
+        ] {
+            assert!(!has_question_add(template), "{template}");
+        }
     }
 
     #[test]

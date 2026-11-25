@@ -1,5 +1,5 @@
 use std::fmt::Write as _;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -77,8 +77,7 @@ pub(crate) fn run(command: PromptCommand, client: &Client) -> anyhow::Result<Exi
         }
         PromptCommand::Show { kind, default } => {
             let detail = client.dispatcher_prompt(kind.into())?;
-            // Exactly the stored text, so `show > file` then `set --file file` changes nothing.
-            print!("{}", shown(&detail.prompt, default));
+            write_shown(&mut std::io::stdout().lock(), &detail.prompt, default)?;
         }
         PromptCommand::Set { kind, file } => {
             let template = read_text(&file)?;
@@ -157,6 +156,12 @@ fn shown(prompt: &PromptDto, default: bool) -> &str {
         (Some(own), false) => own,
         _ => &prompt.default,
     }
+}
+
+/// Writes exactly the stored text, so `show > file` then `set --file file` changes nothing.
+fn write_shown(out: &mut impl Write, prompt: &PromptDto, default: bool) -> std::io::Result<()> {
+    out.write_all(shown(prompt, default).as_bytes())?;
+    out.flush()
 }
 
 fn saved_line(prompt: &PromptDto, version: i64) -> String {
@@ -246,7 +251,9 @@ two
 two",
         ] {
             let prompt = item(Some(text));
-            std::fs::write(&path, shown(&prompt, false)).unwrap();
+            let mut printed = Vec::new();
+            write_shown(&mut printed, &prompt, false).unwrap();
+            std::fs::write(&path, printed).unwrap();
             assert_eq!(read_text(&path).unwrap(), text);
         }
         assert_eq!(shown(&item(Some("own")), true), "d");

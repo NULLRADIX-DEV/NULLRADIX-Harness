@@ -90,7 +90,7 @@ pub struct PromptPreview {
 fn invalid_template(fields: Vec<FieldProblem>) -> AppError {
     AppError::invalid(
         "dispatcher-prompt-invalid",
-        "the prompt template has unknown placeholders or lacks required parts",
+        "the prompt template is invalid",
     )
     .with_fields(fields)
 }
