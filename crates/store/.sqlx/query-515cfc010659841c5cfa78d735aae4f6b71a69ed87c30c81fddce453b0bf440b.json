@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT qt.question_id AS \"question_id: Uuid\", qt.ticket_id AS \"ticket_id: Uuid\"\n           FROM question_tickets qt\n           JOIN questions q ON q.id = qt.question_id\n           JOIN tickets t ON t.id = qt.ticket_id\n           WHERE q.state = 'open'\n           ORDER BY t.number",
+  "describe": {
+    "columns": [
+      {
+        "name": "question_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_tickets",
+            "name": "question_id"
+          }
+        }
+      },
+      {
+        "name": "ticket_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_tickets",
+            "name": "ticket_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "515cfc010659841c5cfa78d735aae4f6b71a69ed87c30c81fddce453b0bf440b"
+}

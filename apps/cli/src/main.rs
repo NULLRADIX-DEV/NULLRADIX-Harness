@@ -6,6 +6,7 @@ mod config;
 mod connect;
 mod daemon;
 mod hook;
+mod inbox;
 mod intake;
 mod logging;
 mod note;
@@ -79,6 +80,9 @@ enum Command {
     /// Keep findings for later tickets: add, count, list, promote and drop notes
     #[command(subcommand)]
     Note(note::NoteCommand),
+    /// What waits for you on the boards: failed merges, questions, acceptances, notes
+    #[command(after_help = inbox::INBOX_AFTER)]
+    Inbox(inbox::InboxArgs),
     /// List and show Claude Code sessions
     #[command(subcommand)]
     Session(session::SessionCommand),
@@ -169,6 +173,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Plan(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             plan::run(command, &client, &choice(profile, cli.home.as_deref())?)
+        }
+        Command::Inbox(args) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            inbox::run(&args, &client)
         }
         Command::Session(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

@@ -6,7 +6,7 @@ use nullradix_api::{
     BoardDeleted, BoardDto, BoardList, ChangeStep, ClaimPlanning, ClaimTicket, CommentDto,
     CommentList, CreateBoard, CreateNote, CreateProject, CreateQuestion, CreateTicket,
     DecideQuestion, DropNote, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto,
-    HookEventList, HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning,
+    HookEventList, HookKindDto, HookReplyDto, InboxList, MoveStep, MoveTicket, NextPlanning,
     NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList, PromoteNote,
     PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard,
     RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SeenNote, SessionDto,
@@ -734,6 +734,26 @@ impl Client {
         self.post_json(&format!("/notes/{}/drop", segment(number)), input, 200)
     }
 
+    /// The inbox of one board or of all; `kind` such as `merge,accept` keeps only those.
+    pub fn get_inbox(
+        &self,
+        board: Option<Uuid>,
+        kind: Option<&str>,
+    ) -> Result<InboxList, ClientError> {
+        let mut request = self
+            .agent
+            .get(&self.url("/me/inbox"))
+            .header("Authorization", &self.authorization()?);
+        if let Some(board) = board {
+            request = request.query("boardId", board.to_string());
+        }
+        if let Some(kind) = kind {
+            request = request.query("kind", kind);
+        }
+        let mut response = request.call().map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
     fn post_json<I: serde::Serialize, T: DeserializeOwned>(
         &self,
         route: &str,
@@ -961,6 +981,7 @@ mod tests {
             questions,
             worktrees,
             notes,
+            inbox: Arc::new(nullradix_app::inbox::InboxService::new(store.clone())),
             runners,
             person: Arc::new(person),
             runs,

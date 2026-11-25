@@ -9,6 +9,7 @@ pub mod comments;
 mod error;
 pub mod hooks;
 mod ids;
+pub mod inbox;
 pub mod notes;
 pub mod projects;
 pub mod questions;

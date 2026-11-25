@@ -1,0 +1,111 @@
+/* Inbox: what waits for the person on the boards, after legacy inbox.css */
+.inbox-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.inbox-filters select {
+  min-width: 180px;
+}
+
+.inbox-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-row {
+  --inbox-color: var(--status-backlog);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--inbox-color);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.inbox-row[draggable='true'] {
+  cursor: grab;
+}
+
+/* Colour of the ticket's column: blocked red, question orange, planning violet */
+.inbox-row:is(.kind-merge, .kind-setup, .kind-accept, .kind-blocked) {
+  --inbox-color: var(--status-blocked);
+}
+
+.inbox-row.kind-question {
+  --inbox-color: var(--status-waiting);
+}
+
+.inbox-row.kind-planning {
+  --inbox-color: var(--status-in-planning);
+}
+
+.inbox-row.drop-target {
+  box-shadow: 0 -3px 0 var(--accent);
+}
+
+.inbox-badge::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--inbox-color);
+}
+
+.inbox-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.inbox-title {
+  color: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.inbox-title:hover {
+  color: var(--accent);
+}
+
+.inbox-meta {
+  font-size: 12px;
+}
+
+.inbox-detail {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.inbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .inbox-row {
+    flex-direction: column;
+  }
+}

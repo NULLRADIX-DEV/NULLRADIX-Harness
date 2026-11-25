@@ -8,6 +8,7 @@ mod extract;
 mod health;
 mod hooks;
 mod host;
+mod inbox;
 mod notes;
 mod problem;
 mod projects;
@@ -33,6 +34,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
 use nullradix_app::hooks::HookService;
+use nullradix_app::inbox::InboxService;
 use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::QuestionService;
@@ -61,6 +63,9 @@ pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
 pub use hooks::{HookEventDto, HookEventList, HookKindDto, HookReplyDto, RecordedHookDto};
 pub use host::AllowedHosts;
+pub use inbox::{
+    InboxCounts, InboxItemDto, InboxItemTypeDto, InboxKindDto, InboxList, InboxOrder, InboxRefDto,
+};
 pub use notes::{
     CreateNote, DropNote, NoteDto, NoteList, NoteStateDto, PromoteNote, PromotedNote, SeenNote,
 };
@@ -140,6 +145,7 @@ pub struct ApiState {
     pub questions: Arc<QuestionService>,
     pub worktrees: Arc<WorktreeService>,
     pub notes: Arc<NoteService>,
+    pub inbox: Arc<InboxService>,
     pub runners: Arc<RunnerService>,
     /// The person every token and browser session acts for.
     pub person: Arc<nullradix_domain::Actor>,
@@ -222,6 +228,8 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(notes::seen_note))
         .routes(routes!(notes::promote_note))
         .routes(routes!(notes::drop_note))
+        .routes(routes!(inbox::get_inbox))
+        .routes(routes!(inbox::save_inbox_order, inbox::clear_inbox_order))
         .routes(routes!(runs::list_runs, runs::start_run))
         .routes(routes!(runs::get_run))
         .routes(routes!(runs::cancel_run))
@@ -497,6 +505,7 @@ pub(crate) mod tests {
             questions,
             worktrees,
             notes,
+            inbox: Arc::new(InboxService::new(store.clone())),
             runners: runners.clone(),
             person: person.clone(),
             runs,

@@ -25,11 +25,11 @@ describe('AppLayout', () => {
     expect(screen.getByRole('link', { name: 'Board' })).toHaveClass('active');
   });
 
-  it('navigates to a placeholder page', async () => {
+  it('navigates to the inbox', async () => {
     vi.stubGlobal('fetch', daemonOffline());
     renderApp('/board');
     await userEvent.click(screen.getByRole('link', { name: 'Inbox' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Inbox' })).toBeInTheDocument();
-    expect(screen.getByText('Coming soon')).toBeInTheDocument();
+    expect(await screen.findByText('Could not load the inbox.')).toBeInTheDocument();
   });
 });

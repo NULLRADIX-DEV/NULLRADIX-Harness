@@ -126,6 +126,19 @@ pub enum NoteError {
     InvalidNumber(String),
 }
 
+/// Title to show; without one the first line of the body, else the number.
+#[must_use]
+pub fn shown_title(title: &str, body: &str, number: i64) -> String {
+    let title = title.trim();
+    if !title.is_empty() {
+        return title.to_owned();
+    }
+    body.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map_or_else(|| format!("Note {number}"), str::to_owned)
+}
+
 /// The trimmed title of a new note: one line of at most [`NOTE_TITLE_MAX`] UTF-16 units.
 pub fn note_title(text: &str) -> Result<String, NoteError> {
     let title = text.trim();
@@ -289,15 +302,7 @@ impl Note {
     /// Title to show; notes without one show the first line of their body.
     #[must_use]
     pub fn display_title(&self) -> String {
-        let title = self.title.trim();
-        if !title.is_empty() {
-            return title.to_owned();
-        }
-        self.body
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .map_or_else(|| format!("Note {}", self.number), str::to_owned)
+        shown_title(&self.title, &self.body, self.number)
     }
 
     fn revised(&self, now: Timestamp) -> Self {

@@ -1,4 +1,5 @@
 import { boardsLive } from '../features/boards/queries';
+import { inboxLive } from '../features/inbox/queries';
 import { notesLive } from '../features/notes/queries';
 import { projectsLive } from '../features/projects/queries';
 import { questionsLive } from '../features/questions/queries';
@@ -13,6 +14,7 @@ export const liveRegistry = defineChangeRegistry(
   ticketsLive,
   notesLive,
   questionsLive,
+  inboxLive,
   runsLive,
   sessionsLive,
 );

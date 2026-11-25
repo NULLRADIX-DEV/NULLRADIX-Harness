@@ -5,6 +5,7 @@ mod board_rules;
 mod comment;
 mod hook;
 mod id;
+mod inbox;
 mod note;
 mod project;
 mod question;
@@ -27,10 +28,14 @@ pub use board_rules::{
 pub use comment::{Comment, CommentBody, CommentError, CommentOn, CommentRecord, SystemMarker};
 pub use hook::{HookDetails, HookError, HookEvent, HookKind, SessionRef};
 pub use id::{Id, ParseIdError};
+pub use inbox::{
+    INBOX_DETAIL_MAX, INBOX_ORDER_MAX, INBOX_TITLE_MAX, InboxCounts, InboxError, InboxItem,
+    InboxKind, InboxRef, SETUP_REASON, apply_order, clip, compare, note_text, order,
+};
 pub use note::{
     NOTE_LABELS_MAX, NOTE_REASON_MAX, NOTE_SEEN_IN_MAX, NOTE_TITLE_MAX, Note, NoteDraft, NoteError,
     NoteState, Sighting, TicketRef, check_note_labels, drop_reason, note_number, note_title,
-    similar_notes,
+    shown_title, similar_notes,
 };
 pub use project::{Project, ProjectError, ProjectKey, ProjectName};
 pub use question::{
