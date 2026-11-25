@@ -175,9 +175,12 @@ describe('TicketPanel', () => {
     const work = await panel.findByRole('region', { name: 'Work' });
     expect(within(work).getByText('ticket/ARC-0001-show-the-board')).toBeInTheDocument();
     expect(within(work).getByText('C:/work/arches-worktrees/ARC-0001')).toBeInTheDocument();
+    const target = panel.getByRole('textbox', { name: 'Target branch' });
+    expect(target).toHaveAttribute('readonly');
+    expect(target).toHaveAttribute('title', 'Fixed once the ticket has started');
   });
 
-  it('explains a target branch that is locked by the start', async () => {
+  it('explains a target branch locked by a start elsewhere', async () => {
     const { api } = server();
     renderApp('/board');
     const panel = await openTicket();

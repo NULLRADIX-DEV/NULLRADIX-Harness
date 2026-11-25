@@ -100,6 +100,8 @@ export function TicketProperties({
           value={ticket.targetBranch ?? ''}
           placeholder="Default branch"
           busy={busy}
+          readOnly={Boolean(ticket.branch)}
+          hint={ticket.branch ? 'Fixed once the ticket has started' : undefined}
           onConflict={actions.conflict}
           onSave={(text) => void actions.save({ targetBranch: orNull(text) })}
         />
