@@ -20,11 +20,14 @@ use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
 use nullradix_app::tickets::TicketService;
+use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_domain::Actor;
-use nullradix_runner::{LocalAccountFolders, LocalRunner, SupervisorCommand};
+use nullradix_runner::{
+    CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalRunner, SupervisorCommand,
+};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
 use tokio::task;
@@ -111,10 +114,15 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let accounts = Arc::new(AccountService::new(
         Arc::new(store.clone()),
         Arc::new(OsSecretStore::open(config)),
-        Arc::new(LocalAccountFolders::new(config.paths.data.join("accounts"))),
+        Arc::new(account_folders(config)),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),
+    ));
+    let usage = Arc::new(UsageService::new(
+        Arc::new(claude_logins(config)),
+        Arc::new(CurlUsageApi::anthropic()),
+        Arc::new(SystemClock),
     ));
     let (runner, runners) = start_runners(config, &store, &signal).await?;
     let board = start_board(&store, &runners, &signal).await?;
@@ -138,6 +146,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         auth,
         projects,
         accounts,
+        usage,
         boards: board.boards,
         tickets: board.tickets,
         comments: board.comments,
@@ -187,6 +196,25 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     served?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+/// New accounts get folders in the data folder; a home override also moves `~` there.
+fn account_folders(config: &Config) -> LocalAccountFolders {
+    let folders = LocalAccountFolders::new(config.paths.data.join("accounts"));
+    if config.isolated {
+        folders.with_home(Some(config.paths.data.clone()))
+    } else {
+        folders
+    }
+}
+
+/// Claude's login files: the real ones, or none of them when a home override isolates the run.
+fn claude_logins(config: &Config) -> LocalClaudeLogins {
+    if config.isolated {
+        LocalClaudeLogins::new(Some(config.paths.data.clone()), None)
+    } else {
+        LocalClaudeLogins::from_environment()
+    }
 }
 
 struct BoardServices {

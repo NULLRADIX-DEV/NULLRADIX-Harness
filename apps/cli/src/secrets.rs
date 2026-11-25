@@ -22,7 +22,7 @@ impl OsSecretStore {
 
     /// The system store, or a private file in the data folder under a home override.
     pub(crate) fn open(config: &Config) -> Self {
-        let backend: Box<dyn SecretBackend> = if config.secrets_in_file {
+        let backend: Box<dyn SecretBackend> = if config.isolated {
             Box::new(FileSecrets::in_dir(&config.paths.data))
         } else {
             system_secrets(config.profile.app_name(), &config.paths.data)

@@ -20,6 +20,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounts/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["account_usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounts/{accountId}": {
         parameters: {
             query?: never;
@@ -1071,6 +1087,20 @@ export interface components {
             /** @description Folder where new accounts get their own subfolders. */
             accountsDir: string;
             items: components["schemas"]["AccountDto"][];
+        };
+        /** @description What is known about an account's Claude login and limits. */
+        AccountStatusDto: {
+            /** Format: uuid */
+            accountId: string;
+            email?: string | null;
+            /** @description The folder Claude Code uses for the account. */
+            folder: string;
+            loggedIn: boolean;
+            slug: string;
+            usage: components["schemas"]["UsageDto"];
+        };
+        AccountStatusList: {
+            items: components["schemas"]["AccountStatusDto"][];
         };
         /** @enum {string} */
         ActorKindDto: "human" | "session" | "subagent" | "dispatcher" | "system";
@@ -2331,6 +2361,32 @@ export interface components {
             /** @description Only null, which clears both branch and worktree; a value is refused. */
             worktree?: string | null;
         };
+        /** @description The limits of the subscription behind an account; without numbers `reason` says why. */
+        UsageDto: {
+            available: boolean;
+            /**
+             * Format: int64
+             * @description When the numbers were read, in Unix milliseconds.
+             */
+            fetchedAt?: number | null;
+            fiveHour?: components["schemas"]["UsageWindowDto"] | null;
+            /** @description Subscription plan such as `max`. */
+            plan?: string | null;
+            reason?: components["schemas"]["UsageReasonDto"] | null;
+            sevenDay?: components["schemas"]["UsageWindowDto"] | null;
+        };
+        /** @enum {string} */
+        UsageReasonDto: "disabled" | "no-login" | "token-expired" | "request-failed" | "rate-limited";
+        /** @description How much of a limit window is used. */
+        UsageWindowDto: {
+            /** Format: int64 */
+            percent: number;
+            /**
+             * Format: int64
+             * @description When the window starts over, in Unix milliseconds.
+             */
+            resetsAt?: number | null;
+        };
         /** @description A dependency that is still open, with its question state or ticket status. */
         WaitingDto: {
             key: string;
@@ -2414,6 +2470,44 @@ export interface operations {
             };
             /** @description The folder belongs to another account */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    account_usage: {
+        parameters: {
+            query?: {
+                /** @description Asks the endpoint again instead of using a reading of the last minute. */
+                fresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountStatusList"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

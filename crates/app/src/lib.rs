@@ -21,6 +21,7 @@ pub mod secrets;
 pub mod session_detail;
 pub mod sessions;
 pub mod tickets;
+pub mod usage;
 pub mod worktrees;
 
 pub use changes::{Change, ChangeFeed, ChangeOp, ChangeSignal, Entity};

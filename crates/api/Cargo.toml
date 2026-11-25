@@ -25,6 +25,7 @@ utoipa.workspace = true
 utoipa-axum.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 nullradix-runner.workspace = true
 http-body-util.workspace = true
 nullradix-store.workspace = true

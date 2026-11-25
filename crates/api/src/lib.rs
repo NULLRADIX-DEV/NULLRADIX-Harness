@@ -20,6 +20,7 @@ mod runs;
 mod session_detail;
 mod sessions;
 mod tickets;
+mod usage;
 mod web;
 mod worktrees;
 
@@ -47,6 +48,7 @@ use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
 use nullradix_app::tickets::TicketService;
+use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
 use tokio::net::TcpListener;
@@ -106,6 +108,7 @@ pub use tickets::{
     NextPlanningClaim, PriorityDto, ReleaseTicket, StepDto, TicketDetailDto, TicketDto, TicketList,
     TicketStatusDto, UpdateTicket, WritePlan,
 };
+pub use usage::{AccountStatusDto, AccountStatusList, UsageDto, UsageReasonDto, UsageWindowDto};
 pub use worktrees::{
     CleanedWorktree, FinishTicket, FinishedTicket, StartTicket, StartedTicket, TargetCreatedDto,
 };
@@ -153,6 +156,7 @@ pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub projects: Arc<ProjectService>,
     pub accounts: Arc<AccountService>,
+    pub usage: Arc<UsageService>,
     pub boards: Arc<BoardService>,
     pub tickets: Arc<TicketService>,
     pub comments: Arc<CommentService>,
@@ -192,6 +196,7 @@ fn routes() -> OpenApiRouter<ApiState> {
             projects::delete_project
         ))
         .routes(routes!(accounts::list_accounts, accounts::create_account))
+        .routes(routes!(usage::account_usage))
         .routes(routes!(accounts::update_account, accounts::delete_account))
         .routes(routes!(accounts::set_run_token, accounts::clear_run_token))
         .routes(routes!(boards::list_all_boards))
@@ -387,6 +392,7 @@ pub(crate) mod tests {
         pub(crate) person: Arc<nullradix_domain::Actor>,
         pub(crate) changes: Arc<dyn ChangeFeed>,
         pub(crate) shutdown: CancellationToken,
+        pub(crate) accounts: Arc<AccountService>,
         pub(crate) _accounts_dir: tempfile::TempDir,
     }
 
@@ -511,6 +517,61 @@ pub(crate) mod tests {
         (sessions, favorites, hooks)
     }
 
+    /// A logged in account with a fixed answer from the usage endpoint.
+    struct FakeClaude;
+
+    #[async_trait::async_trait]
+    impl nullradix_app::usage::ClaudeLogins for FakeClaude {
+        async fn read(
+            &self,
+            _dir: Option<&nullradix_domain::ConfigDir>,
+        ) -> nullradix_app::usage::LoginRead {
+            nullradix_app::usage::LoginRead::Found(nullradix_app::usage::ClaudeLogin {
+                token: nullradix_app::secrets::SecretValue::new("sk-ant-oat01-api-test"),
+                expires_at: None,
+                plan: Some(String::from("max")),
+            })
+        }
+
+        async fn email(&self, _dir: Option<&nullradix_domain::ConfigDir>) -> Option<String> {
+            Some(String::from("me@example.com"))
+        }
+
+        fn folder(&self, _dir: Option<&nullradix_domain::ConfigDir>) -> String {
+            String::from("/claude")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl nullradix_app::usage::UsageApi for FakeClaude {
+        async fn fetch(
+            &self,
+            _token: &nullradix_app::secrets::SecretValue,
+        ) -> Result<nullradix_app::usage::UsageReply, AppError> {
+            use nullradix_app::usage::UsageWindow;
+            Ok(nullradix_app::usage::UsageReply {
+                status: 200,
+                five_hour: Some(UsageWindow {
+                    percent: 42,
+                    resets_at: Some(nullradix_domain::Timestamp::from_millis(1_900_000_000_000)),
+                }),
+                seven_day: Some(UsageWindow {
+                    percent: 7,
+                    resets_at: None,
+                }),
+                retry_after: None,
+            })
+        }
+    }
+
+    fn test_usage() -> Arc<UsageService> {
+        Arc::new(UsageService::new(
+            Arc::new(FakeClaude),
+            Arc::new(FakeClaude),
+            Arc::new(SystemClock),
+        ))
+    }
+
     fn test_accounts(
         store: &Arc<Store>,
         signal: &ChangeSignal,
@@ -581,7 +642,8 @@ pub(crate) mod tests {
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
-            accounts,
+            accounts: accounts.clone(),
+            usage: test_usage(),
             boards: boards.clone(),
             tickets,
             comments,
@@ -616,6 +678,7 @@ pub(crate) mod tests {
             person,
             changes,
             shutdown,
+            accounts,
             _accounts_dir: accounts_dir,
         }
     }

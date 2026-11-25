@@ -82,8 +82,8 @@ pub(crate) struct Config {
     pub(crate) allowed_hosts: Vec<String>,
     pub(crate) log_filter: String,
     pub(crate) web_dir: Option<PathBuf>,
-    /// A home override keeps every secret in a private file below it, away from the system store.
-    pub(crate) secrets_in_file: bool,
+    /// A home override keeps secrets and Claude logins away from the real ones of the user.
+    pub(crate) isolated: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -113,7 +113,7 @@ impl Config {
         let paths = Paths::resolve(profile.app_name(), home)?;
         let file = read_file(&paths.config.join("config.toml"))?;
         Ok(Self {
-            secrets_in_file: home.is_some(),
+            isolated: home.is_some(),
             ..Self::merge(profile, paths, file, overrides, bundled_web_dir())
         })
     }
@@ -152,7 +152,7 @@ impl Config {
             allowed_hosts,
             log_filter,
             web_dir,
-            secrets_in_file: false,
+            isolated: false,
         }
     }
 }

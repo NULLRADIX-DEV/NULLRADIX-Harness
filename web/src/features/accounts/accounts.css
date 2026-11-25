@@ -92,3 +92,26 @@
   color: var(--idle-fg);
   font-size: 12px;
 }
+
+.account-usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+
+.account-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-meter meter {
+  width: 90px;
+  height: 8px;
+}
+
+.account-meter.over strong {
+  color: var(--blocked-fg);
+}

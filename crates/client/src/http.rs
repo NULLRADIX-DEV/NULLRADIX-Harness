@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, AcceptTicket, AccountDto, AccountList, AddComment, AddQuestionComment,
-    AddStep, AnswerQuestion, BoardDeleted, BoardDto, BoardList, ChangeStep, ClaimPlanning,
-    ClaimSession, ClaimTicket, CommentDto, CommentList, CreateAccount, CreateBoard, CreateNote,
-    CreateProject, CreateQuestion, CreateTicket, DecideQuestion, DropNote, FavoriteDto,
+    API_PREFIX, API_VERSION, AcceptTicket, AccountDto, AccountList, AccountStatusList, AddComment,
+    AddQuestionComment, AddStep, AnswerQuestion, BoardDeleted, BoardDto, BoardList, ChangeStep,
+    ClaimPlanning, ClaimSession, ClaimTicket, CommentDto, CommentList, CreateAccount, CreateBoard,
+    CreateNote, CreateProject, CreateQuestion, CreateTicket, DecideQuestion, DropNote, FavoriteDto,
     FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto,
     HookEventList, HookKindDto, HookReplyDto, InboxList, MarkFavorite, MoveStep, MoveTicket,
     NextPlanning, NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList,
@@ -151,6 +151,11 @@ impl Client {
 
     pub fn list_accounts(&self) -> Result<AccountList, ClientError> {
         self.get_json("/accounts")
+    }
+
+    /// Login and limits of every account; `fresh` asks Anthropic again.
+    pub fn account_usage(&self, fresh: bool) -> Result<AccountStatusList, ClientError> {
+        self.get_json(&format!("/accounts/usage?fresh={fresh}"))
     }
 
     pub fn create_account(&self, input: &CreateAccount) -> Result<AccountDto, ClientError> {
@@ -1040,6 +1045,17 @@ mod tests {
         (runner, Arc::new(runners))
     }
 
+    fn usage_service() -> Arc<nullradix_app::usage::UsageService> {
+        Arc::new(nullradix_app::usage::UsageService::new(
+            Arc::new(nullradix_runner::LocalClaudeLogins::new(
+                Some(std::env::temp_dir().join("nullradix-client-tests-home")),
+                None,
+            )),
+            Arc::new(nullradix_runner::CurlUsageApi::anthropic()),
+            Arc::new(SystemClock),
+        ))
+    }
+
     fn account_service(
         store: &Arc<Store>,
         signal: &ChangeSignal,
@@ -1141,6 +1157,7 @@ mod tests {
             auth,
             projects,
             accounts,
+            usage: usage_service(),
             boards,
             tickets,
             comments,
@@ -1326,6 +1343,24 @@ mod tests {
         assert_eq!(client.list_accounts().unwrap().items.len(), 1);
         let gone = client.delete_account(created.id, 1, false).unwrap_err();
         assert!(matches!(gone, ClientError::Refused { status: 404, .. }));
+    }
+
+    #[test]
+    fn reads_the_login_and_limits_of_the_accounts() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        for fresh in [false, true] {
+            let status = client.account_usage(fresh).unwrap();
+            assert_eq!(status.items.len(), 1);
+            let default = &status.items[0];
+            assert_eq!(default.slug, "default");
+            assert!(!default.logged_in);
+            assert!(!default.usage.available);
+            assert_eq!(
+                default.usage.reason,
+                Some(nullradix_api::UsageReasonDto::NoLogin)
+            );
+        }
     }
     #[test]
     fn typed_note_numbers_stay_one_path_segment() {

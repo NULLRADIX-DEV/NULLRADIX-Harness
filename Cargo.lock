@@ -1166,6 +1166,7 @@ dependencies = [
 name = "nullradix-api"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "axum-extra",
  "futures-util",
@@ -1192,6 +1193,7 @@ name = "nullradix-app"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "futures-util",
  "getrandom",
  "nullradix-domain",
  "parking_lot 0.13.0",
@@ -1291,6 +1293,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",

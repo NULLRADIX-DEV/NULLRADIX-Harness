@@ -4,7 +4,10 @@ use std::str::FromStr;
 
 use anyhow::{Context, bail};
 use clap::{Args, Subcommand};
-use nullradix_api::{AccountDto, CreateAccount, SetRunToken, UpdateAccount};
+use nullradix_api::{
+    AccountDto, AccountStatusDto, CreateAccount, SetRunToken, UpdateAccount, UsageReasonDto,
+    UsageWindowDto,
+};
 use nullradix_client::Client;
 
 #[derive(Subcommand)]
@@ -12,6 +15,15 @@ pub(crate) enum AccountCommand {
     /// List the Claude accounts runs are spread over
     List {
         /// Print JSON instead of a table
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the login and the usage limits of every account
+    Usage {
+        /// Ask Anthropic again instead of using a reading of the last minute
+        #[arg(long)]
+        fresh: bool,
+        /// Print JSON instead of text
         #[arg(long)]
         json: bool,
     },
@@ -120,6 +132,7 @@ pub(crate) fn run(command: AccountCommand, client: &Client) -> anyhow::Result<Ex
             })?;
             println!("added {} ({})", account.slug, account.name);
         }
+        AccountCommand::Usage { fresh, json } => usage(client, fresh, json)?,
         AccountCommand::Set(args) => set(client, args)?,
         AccountCommand::Enable { account } => switch(client, &account, true)?,
         AccountCommand::Disable { account } => switch(client, &account, false)?,
@@ -203,6 +216,64 @@ fn change(client: &Client, account: &AccountDto, update: &UpdateAccount) -> anyh
     Ok(())
 }
 
+fn usage(client: &Client, fresh: bool, json: bool) -> anyhow::Result<()> {
+    let items = client.account_usage(fresh)?.items;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&items)?);
+        return Ok(());
+    }
+    for status in &items {
+        println!("{}", describe_usage(status));
+    }
+    Ok(())
+}
+
+fn window(name: &str, window: Option<UsageWindowDto>) -> String {
+    match window {
+        Some(window) => match window.resets_at {
+            Some(at) => format!(
+                "{name} {}% (resets {})",
+                window.percent,
+                nullradix_domain::Timestamp::from_millis(at)
+            ),
+            None => format!("{name} {}%", window.percent),
+        },
+        None => format!("{name} -"),
+    }
+}
+
+const fn reason_text(reason: UsageReasonDto) -> &'static str {
+    match reason {
+        UsageReasonDto::Disabled => "the account is disabled",
+        UsageReasonDto::NoLogin => "no Claude login found in the account's folder",
+        UsageReasonDto::TokenExpired => "the login expired, log in again with Claude Code",
+        UsageReasonDto::RequestFailed => "Anthropic did not answer",
+        UsageReasonDto::RateLimited => "Anthropic asked to wait before the next request",
+    }
+}
+
+/// One line per account: id, login, plan and the two limit windows, or why there are none.
+fn describe_usage(status: &AccountStatusDto) -> String {
+    let login = match (&status.email, status.logged_in) {
+        (Some(email), _) => email.clone(),
+        (None, true) => String::from("logged in"),
+        (None, false) => String::from("not logged in"),
+    };
+    let numbers = match status.usage.reason {
+        Some(reason) => format!("no limits: {}", reason_text(reason)),
+        None => format!(
+            "{}  {}",
+            window("5h", status.usage.five_hour),
+            window("week", status.usage.seven_day)
+        ),
+    };
+    let plan = status.usage.plan.as_deref().unwrap_or("-");
+    format!(
+        "{:<16} {:<24} plan {:<6} {numbers}",
+        status.slug, login, plan
+    )
+}
+
 /// One line per account: id, name, switches, limits and whether a run token is stored.
 fn describe(account: &AccountDto) -> String {
     let limit =
@@ -277,6 +348,51 @@ mod tests {
         }
     }
 
+    fn status(reason: Option<UsageReasonDto>) -> AccountStatusDto {
+        AccountStatusDto {
+            account_id: Uuid::from_u128(1),
+            slug: String::from("max"),
+            logged_in: true,
+            email: Some(String::from("max@example.com")),
+            folder: String::from("/a"),
+            usage: nullradix_api::UsageDto {
+                available: reason.is_none(),
+                reason,
+                plan: Some(String::from("max")),
+                five_hour: Some(UsageWindowDto {
+                    percent: 42,
+                    resets_at: Some(1_700_000_000_123),
+                }),
+                seven_day: Some(UsageWindowDto {
+                    percent: 7,
+                    resets_at: None,
+                }),
+                fetched_at: Some(1),
+            },
+        }
+    }
+
+    #[test]
+    fn describes_usage_with_windows_or_the_reason_for_none() {
+        let line = describe_usage(&status(None));
+        assert!(line.starts_with("max "));
+        assert!(line.contains("max@example.com"));
+        assert!(line.contains("plan max"));
+        assert!(line.contains("5h 42% (resets 2023-11-14T22:13:20.123Z)"));
+        assert!(line.ends_with("week 7%"));
+        let none = describe_usage(&status(Some(UsageReasonDto::NoLogin)));
+        assert!(none.contains("no limits: no Claude login found"));
+        assert!(!none.contains("5h"));
+        let mut quiet = status(None);
+        quiet.email = None;
+        quiet.logged_in = false;
+        quiet.usage.five_hour = None;
+        quiet.usage.plan = None;
+        let line = describe_usage(&quiet);
+        assert!(line.contains("not logged in"));
+        assert!(line.contains("plan -"));
+        assert!(line.contains("5h -"));
+    }
     #[test]
     fn limits_are_numbers_or_none() {
         assert_eq!("80".parse(), Ok(LimitArg::Percent(80)));

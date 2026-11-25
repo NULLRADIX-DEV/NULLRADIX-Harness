@@ -33,14 +33,19 @@ impl LocalAccountFolders {
 
     /// `~` and `~/...` stand for the home folder.
     fn expand(&self, typed: &str) -> PathBuf {
-        let rest = typed
-            .strip_prefix("~/")
-            .or_else(|| typed.strip_prefix("~\\"));
-        match (&self.home, typed, rest) {
-            (Some(home), "~", _) => home.clone(),
-            (Some(home), _, Some(rest)) => home.join(rest),
-            _ => PathBuf::from(typed),
-        }
+        expand_home(self.home.as_deref(), typed)
+    }
+}
+
+/// `~` and `~/...` stand for the home folder; anything else is taken as typed.
+pub(crate) fn expand_home(home: Option<&Path>, typed: &str) -> PathBuf {
+    let rest = typed
+        .strip_prefix("~/")
+        .or_else(|| typed.strip_prefix("~\\"));
+    match (home, typed, rest) {
+        (Some(home), "~", _) => home.to_path_buf(),
+        (Some(home), _, Some(rest)) => home.join(rest),
+        _ => PathBuf::from(typed),
     }
 }
 

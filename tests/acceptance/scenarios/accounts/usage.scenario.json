@@ -1,0 +1,14 @@
+{
+  "title": "Accounts without a Claude login or switched off show why they have no limits",
+  "steps": [
+    { "name": "usage in the CLI", "cli": { "args": ["account", "usage"] } },
+    { "name": "usage over HTTP", "http": { "method": "GET", "path": "/api/v1/accounts/usage" } },
+    { "name": "add an account", "cli": { "args": ["account", "add", "Max"] } },
+    { "name": "switch it off", "cli": { "args": ["account", "disable", "max"] } },
+    { "name": "fresh usage as JSON", "cli": { "args": ["account", "usage", "--fresh", "--json"] } },
+    {
+      "name": "refuse a bad flag",
+      "http": { "method": "GET", "path": "/api/v1/accounts/usage?fresh=maybe" }
+    }
+  ]
+}

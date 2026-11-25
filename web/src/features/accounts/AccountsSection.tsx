@@ -4,12 +4,14 @@ import { problemMessage } from '../../shared/api/problemMessage';
 import { FormError } from '../../shared/ui/FormError';
 import {
   accountsQuery,
+  usageQuery,
   useClearRunToken,
   useCreateAccount,
   useDeleteAccount,
   useSetRunToken,
   useUpdateAccount,
   type Account,
+  type AccountStatus,
 } from './queries';
 import './accounts.css';
 
@@ -334,9 +336,85 @@ function RemoveConfirm({
   );
 }
 
+export const REASONS = {
+  disabled: 'No limits are read while the account is disabled.',
+  'no-login': "Not logged in. Log in with Claude Code using this account's folder.",
+  'token-expired': 'The login expired. Log in again with Claude Code.',
+  'request-failed': 'Anthropic did not answer. Trying again soon.',
+  'rate-limited': 'Anthropic asked to wait. Trying again later.',
+} as const;
+
+function resetTime(resetsAt: number | null | undefined): string | null {
+  if (resetsAt === null || resetsAt === undefined) return null;
+  return new Date(resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function Meter({
+  label,
+  window,
+  limit,
+}: {
+  label: string;
+  window: { percent: number; resetsAt?: number | null } | null | undefined;
+  limit: number | null | undefined;
+}) {
+  if (!window) {
+    return (
+      <span className="account-meter">
+        {label} <span className="muted">-</span>
+      </span>
+    );
+  }
+  const reset = resetTime(window.resetsAt);
+  const over = limit !== null && limit !== undefined && window.percent >= limit;
+  return (
+    <span className={`account-meter${over ? ' over' : ''}`}>
+      {label}{' '}
+      <meter
+        min={0}
+        max={100}
+        value={Math.min(window.percent, 100)}
+        aria-label={`${label} usage`}
+      />{' '}
+      <strong>{String(window.percent)}%</strong>
+      {reset !== null && <span className="muted"> resets {reset}</span>}
+    </span>
+  );
+}
+
+// Login, plan and limits of an account; without numbers the reason says why.
+function UsageLine({ account, status }: { account: Account; status: AccountStatus | undefined }) {
+  if (!status) return null;
+  const { usage } = status;
+  const reason = usage.reason ? REASONS[usage.reason] : null;
+  return (
+    <div className="account-usage" aria-label={`Usage of ${account.name}`}>
+      {status.email && <span className="mono">{status.email}</span>}
+      {usage.plan && <span className="account-badge">{usage.plan}</span>}
+      {!status.loggedIn && account.enabled && <span className="account-badge">not logged in</span>}
+      {reason === null ? (
+        <>
+          <Meter label="5 hours" window={usage.fiveHour} limit={account.limitFiveHour} />
+          <Meter label="Week" window={usage.sevenDay} limit={account.limitWeek} />
+        </>
+      ) : (
+        <span className="muted">{reason}</span>
+      )}
+    </div>
+  );
+}
+
 type RowMode = 'view' | 'rename' | 'remove';
 
-function AccountRow({ account, accountsDir }: { account: Account; accountsDir: string }) {
+function AccountRow({
+  account,
+  accountsDir,
+  status,
+}: {
+  account: Account;
+  accountsDir: string;
+  status: AccountStatus | undefined;
+}) {
   const [mode, setMode] = useState<RowMode>('view');
   const update = useUpdateAccount();
   const back = () => {
@@ -381,6 +459,7 @@ function AccountRow({ account, accountsDir }: { account: Account; accountsDir: s
         )}
       </div>
       {account.configDir && <p className="account-dir mono muted">{account.configDir}</p>}
+      <UsageLine account={account} status={status} />
       {mode === 'rename' && <RenameForm account={account} onDone={back} />}
       {mode === 'remove' && (
         <RemoveConfirm account={account} accountsDir={accountsDir} onDone={back} />
@@ -441,12 +520,18 @@ function AccountRow({ account, accountsDir }: { account: Account; accountsDir: s
 
 function AccountList() {
   const { status, data } = useQuery(accountsQuery());
+  const { data: usage } = useQuery(usageQuery());
   if (status === 'pending') return <p className="muted">Loading accounts...</p>;
   if (status === 'error') return <p className="form-error">Could not load the accounts.</p>;
   return (
     <ul className="project-list" aria-label="Accounts">
       {data.items.map((account) => (
-        <AccountRow key={account.id} account={account} accountsDir={data.accountsDir} />
+        <AccountRow
+          key={account.id}
+          account={account}
+          accountsDir={data.accountsDir}
+          status={usage?.find((entry) => entry.accountId === account.id)}
+        />
       ))}
     </ul>
   );

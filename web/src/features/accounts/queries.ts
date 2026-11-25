@@ -18,6 +18,26 @@ export const accountsLive: ChangeRegistry = {
   account: [accountKeys.all],
 };
 
+export type AccountStatus = components['schemas']['AccountStatusDto'];
+
+export const USAGE_REFRESH_MS = 120_000;
+export const USAGE_RETRY_MS = 15_000;
+
+// Short-lived failures are asked again soon, readings every two minutes.
+export function usageQuery() {
+  return queryOptions({
+    queryKey: [...accountKeys.all, 'usage'] as const,
+    queryFn: async () => unwrap(await api.GET('/api/v1/accounts/usage')).items,
+    refetchInterval: (query) =>
+      query.state.data?.some((status) => {
+        const reason = status.usage.reason;
+        return reason === 'request-failed' || reason === 'token-expired';
+      })
+        ? USAGE_RETRY_MS
+        : USAGE_REFRESH_MS,
+  });
+}
+
 export function accountsQuery() {
   return queryOptions({
     queryKey: accountKeys.list(),

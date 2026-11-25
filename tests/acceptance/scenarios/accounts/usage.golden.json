@@ -1,0 +1,92 @@
+[
+  {
+    "cli": [
+      "account",
+      "usage"
+    ],
+    "exitCode": 0,
+    "name": "usage in the CLI",
+    "stderr": "",
+    "stdout": "default          not logged in            plan -      no limits: no Claude login found in the account's folder\n"
+  },
+  {
+    "name": "usage over HTTP",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/accounts/usage"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "accountId": "<ID-1>",
+            "email": null,
+            "folder": "<HOME>/data/.claude",
+            "loggedIn": false,
+            "slug": "default",
+            "usage": {
+              "available": false,
+              "fetchedAt": null,
+              "fiveHour": null,
+              "plan": null,
+              "reason": "no-login",
+              "sevenDay": null
+            }
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "account",
+      "add",
+      "Max"
+    ],
+    "exitCode": 0,
+    "name": "add an account",
+    "stderr": "",
+    "stdout": "added max (Max)\n"
+  },
+  {
+    "cli": [
+      "account",
+      "disable",
+      "max"
+    ],
+    "exitCode": 0,
+    "name": "switch it off",
+    "stderr": "",
+    "stdout": "updated max              Max                  disabled 5h -     week -     token none <HOME>/data/accounts/max\n"
+  },
+  {
+    "cli": [
+      "account",
+      "usage",
+      "--fresh",
+      "--json"
+    ],
+    "exitCode": 0,
+    "name": "fresh usage as JSON",
+    "stderr": "",
+    "stdout": "[\n  {\n    \"accountId\": \"<ID-1>\",\n    \"slug\": \"default\",\n    \"loggedIn\": false,\n    \"email\": null,\n    \"folder\": \"<HOME>/data/.claude\",\n    \"usage\": {\n      \"available\": false,\n      \"reason\": \"no-login\",\n      \"plan\": null,\n      \"fiveHour\": null,\n      \"sevenDay\": null,\n      \"fetchedAt\": null\n    }\n  },\n  {\n    \"accountId\": \"<ID-2>\",\n    \"slug\": \"max\",\n    \"loggedIn\": false,\n    \"email\": null,\n    \"folder\": \"<HOME>/data/accounts/max\",\n    \"usage\": {\n      \"available\": false,\n      \"reason\": \"disabled\",\n      \"plan\": null,\n      \"fiveHour\": null,\n      \"sevenDay\": null,\n      \"fetchedAt\": null\n    }\n  }\n]\n"
+  },
+  {
+    "name": "refuse a bad flag",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/accounts/usage?fresh=maybe"
+    },
+    "response": {
+      "json": {
+        "code": "query-invalid",
+        "detail": "Failed to deserialize query string: fresh: provided string was not `true` or `false`",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:query-invalid"
+      },
+      "status": 422
+    }
+  }
+]

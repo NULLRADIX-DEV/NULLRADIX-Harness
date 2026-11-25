@@ -4,26 +4,16 @@
 )]
 
 use std::fmt;
-use std::io::{self, Read, Write};
-use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::io;
+use std::time::Duration;
 
 use super::{SecretBackend, SecretError};
+use crate::command::{self, Reply};
 
 const NAME: &str = "Secret Service";
 const PROGRAM: &str = "secret-tool";
 const LIMIT: Duration = Duration::from_secs(10);
-const POLL: Duration = Duration::from_millis(20);
 const PROBE_KEY: &str = "nullradix-probe";
-
-/// What a finished `secret-tool` call said.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Reply {
-    pub(super) success: bool,
-    pub(super) stdout: String,
-    pub(super) stderr: String,
-}
 
 type Runner = Box<dyn Fn(&[String], Option<&[u8]>) -> io::Result<Reply> + Send + Sync>;
 
@@ -42,52 +32,7 @@ impl fmt::Debug for SecretTool {
 }
 
 fn run_program(args: &[String], input: Option<&[u8]>) -> io::Result<Reply> {
-    let mut child = Command::new(PROGRAM)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    if let Some(mut stdin) = child.stdin.take()
-        && let Some(bytes) = input
-    {
-        // a program that exits early closes the pipe; its status tells why
-        let _ = stdin.write_all(bytes);
-    }
-    let drain = |pipe: Option<Box<dyn Read + Send>>| {
-        thread::spawn(move || {
-            let mut bytes = Vec::new();
-            if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_end(&mut bytes);
-            }
-            bytes
-        })
-    };
-    let stdout = drain(child.stdout.take().map(|pipe| Box::new(pipe) as _));
-    let stderr = drain(child.stderr.take().map(|pipe| Box::new(pipe) as _));
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if started.elapsed() > LIMIT {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "secret-tool did not answer in time",
-            ));
-        }
-        thread::sleep(POLL);
-    };
-    let text = |reader: thread::JoinHandle<Vec<u8>>| {
-        String::from_utf8_lossy(&reader.join().unwrap_or_default()).into_owned()
-    };
-    Ok(Reply {
-        success: status.success(),
-        stdout: text(stdout),
-        stderr: text(stderr),
-    })
+    command::run(PROGRAM, args, input, LIMIT)
 }
 
 impl SecretTool {

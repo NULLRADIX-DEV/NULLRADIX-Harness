@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { FakeEventSource } from '../../test/eventSource';
 import { fakeApi, json, problem } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
-import { CONFLICT_MESSAGE, LIMIT_MESSAGE } from './AccountsSection';
-import type { Account } from './queries';
+import { CONFLICT_MESSAGE, LIMIT_MESSAGE, REASONS } from './AccountsSection';
+import type { Account, AccountStatus } from './queries';
 
 const DEFAULT_ID = '0190a0b0-0000-7000-8000-000000000001';
 const MAX_ID = '0190a0b0-0000-7000-8000-000000000002';
@@ -99,6 +99,39 @@ function accountsServer(initial: Account[] = [defaultAccount(), account()]) {
       change(MAX_ID, { name });
     },
   };
+}
+
+function status(overrides: Partial<AccountStatus> = {}): AccountStatus {
+  return {
+    accountId: MAX_ID,
+    slug: 'max',
+    loggedIn: true,
+    email: 'max@example.com',
+    folder: `${ACCOUNTS_DIR}/max`,
+    usage: {
+      available: true,
+      reason: null,
+      plan: 'max',
+      fiveHour: { percent: 42, resetsAt: 1_900_000_000_000 },
+      sevenDay: { percent: 7, resetsAt: null },
+      fetchedAt: 1,
+    },
+    ...overrides,
+  };
+}
+
+function noNumbers(reason: keyof typeof REASONS, overrides: Partial<AccountStatus> = {}) {
+  return status({
+    usage: {
+      available: false,
+      reason,
+      plan: null,
+      fiveHour: null,
+      sevenDay: null,
+      fetchedAt: null,
+    },
+    ...overrides,
+  });
 }
 
 async function row(name: string) {
@@ -326,5 +359,62 @@ describe('AccountsSection', () => {
       );
     });
     expect(await screen.findByRole('listitem', { name: 'Max live' })).toBeInTheDocument();
+  });
+});
+
+describe('AccountsSection usage', () => {
+  it('shows email, plan and both limit windows with their reset time', async () => {
+    const { api } = accountsServer();
+    api.set('GET /api/v1/accounts/usage', () => json(200, { items: [status()] }));
+    renderApp('/settings');
+    const max = await row('Max');
+    const usage = within(await max.findByLabelText('Usage of Max'));
+    expect(usage.getByText('max@example.com')).toBeInTheDocument();
+    expect(usage.getByText('max')).toBeInTheDocument();
+    expect(usage.getByText('42%')).toBeInTheDocument();
+    expect(usage.getByText('7%')).toBeInTheDocument();
+    expect(usage.getByRole('meter', { name: '5 hours usage' })).toHaveValue(42);
+    expect(usage.getByText(/resets \d/)).toBeInTheDocument();
+    expect(usage.queryByText(REASONS['no-login'])).not.toBeInTheDocument();
+  });
+
+  it('says why there are no numbers', async () => {
+    const { api } = accountsServer();
+    api.set('GET /api/v1/accounts/usage', () =>
+      json(200, {
+        items: [
+          noNumbers('no-login', {
+            accountId: DEFAULT_ID,
+            slug: 'default',
+            loggedIn: false,
+            email: null,
+          }),
+          noNumbers('token-expired'),
+        ],
+      }),
+    );
+    renderApp('/settings');
+    const max = await row('Max');
+    expect(await max.findByText(REASONS['token-expired'])).toBeInTheDocument();
+    const server = await row('Default');
+    expect(await server.findByText(REASONS['no-login'])).toBeInTheDocument();
+    expect(server.getByText('not logged in')).toBeInTheDocument();
+  });
+
+  it('marks a window that reached the limit of the account', async () => {
+    const { api } = accountsServer([defaultAccount(), account({ limitFiveHour: 40 })]);
+    api.set('GET /api/v1/accounts/usage', () => json(200, { items: [status()] }));
+    renderApp('/settings');
+    const max = await row('Max');
+    const usage = within(await max.findByLabelText('Usage of Max'));
+    expect(usage.getByText('42%').closest('.account-meter')).toHaveClass('over');
+    expect(usage.getByText('7%').closest('.account-meter')).not.toHaveClass('over');
+  });
+
+  it('shows no usage line while the usage is not known yet', async () => {
+    accountsServer();
+    renderApp('/settings');
+    const max = await row('Max');
+    expect(max.queryByLabelText('Usage of Max')).not.toBeInTheDocument();
   });
 });

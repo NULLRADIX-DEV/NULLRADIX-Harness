@@ -101,6 +101,54 @@
         }
       }
     },
+    "/api/v1/accounts/usage": {
+      "get": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "account_usage",
+        "parameters": [
+          {
+            "name": "fresh",
+            "in": "query",
+            "description": "Asks the endpoint again instead of using a reading of the last minute.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountStatusList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/accounts/{accountId}": {
       "delete": {
         "tags": [
@@ -5880,6 +5928,56 @@
           }
         }
       },
+      "AccountStatusDto": {
+        "type": "object",
+        "description": "What is known about an account's Claude login and limits.",
+        "required": [
+          "accountId",
+          "slug",
+          "loggedIn",
+          "folder",
+          "usage"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "folder": {
+            "type": "string",
+            "description": "The folder Claude Code uses for the account."
+          },
+          "loggedIn": {
+            "type": "boolean"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageDto"
+          }
+        }
+      },
+      "AccountStatusList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountStatusDto"
+            }
+          }
+        }
+      },
       "ActorKindDto": {
         "type": "string",
         "enum": [
@@ -10115,6 +10213,94 @@
           }
         },
         "additionalProperties": false
+      },
+      "UsageDto": {
+        "type": "object",
+        "description": "The limits of the subscription behind an account; without numbers `reason` says why.",
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "fetchedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the numbers were read, in Unix milliseconds."
+          },
+          "fiveHour": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsageWindowDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Subscription plan such as `max`."
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsageReasonDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sevenDay": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsageWindowDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "UsageReasonDto": {
+        "type": "string",
+        "enum": [
+          "disabled",
+          "no-login",
+          "token-expired",
+          "request-failed",
+          "rate-limited"
+        ]
+      },
+      "UsageWindowDto": {
+        "type": "object",
+        "description": "How much of a limit window is used.",
+        "required": [
+          "percent"
+        ],
+        "properties": {
+          "percent": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "resetsAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the window starts over, in Unix milliseconds."
+          }
+        }
       },
       "WaitingDto": {
         "type": "object",
