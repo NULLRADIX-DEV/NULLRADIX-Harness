@@ -26,10 +26,7 @@ impl Tick for DispatchPass {
         self.run().await;
     }
 }
-
-/// Triggers `target` every `period`, the first time one period after the start, until `stop`.
-///
-/// A pass that takes longer than a period delays the next one instead of making up for it.
+/// Ticks `target` every `period` until `stop`; a late tick is delayed, never caught up.
 pub fn spawn_scheduler(
     target: Arc<dyn Tick>,
     period: Duration,
@@ -95,8 +92,10 @@ mod tests {
         tokio::time::advance(Duration::from_secs(61)).await;
         settle().await;
         assert_eq!(target.passes.load(Ordering::SeqCst), 1);
-        tokio::time::advance(Duration::from_secs(120)).await;
-        settle().await;
+        for _ in 0..2 {
+            tokio::time::advance(Duration::from_secs(60)).await;
+            settle().await;
+        }
         assert_eq!(target.passes.load(Ordering::SeqCst), 3);
         stop.notify_one();
         handle.await.unwrap();

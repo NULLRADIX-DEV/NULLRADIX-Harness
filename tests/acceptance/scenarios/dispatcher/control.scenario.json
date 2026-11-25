@@ -4,44 +4,155 @@
     { "name": "state without a board", "http": { "method": "GET", "path": "/api/v1/dispatcher" } },
     {
       "name": "project",
-      "http": { "method": "POST", "path": "/api/v1/projects", "body": { "key": "ARC", "name": "Arches" } },
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
       "save": { "project": "json.id" }
     },
     {
       "name": "board",
-      "http": { "method": "POST", "path": "/api/v1/projects/{{project}}/boards", "body": { "name": "Sprint" } },
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Sprint" }
+      },
       "save": { "board": "json.id" }
     },
     {
       "name": "a planned ticket with the opt-in label",
-      "cli": { "args": ["ticket", "create", "Build the login", "--board", "{{board}}", "--label", "auto", "--acceptance", "Login works", "--planned"] }
+      "cli": {
+        "args": [
+          "ticket",
+          "create",
+          "Build the login",
+          "--board",
+          "{{board}}",
+          "--label",
+          "auto",
+          "--acceptance",
+          "Login works",
+          "--planned"
+        ]
+      }
     },
     {
       "name": "a second one without the label",
-      "cli": { "args": ["ticket", "create", "Build the logout", "--board", "{{board}}", "--acceptance", "Logout works", "--planned"] }
+      "cli": {
+        "args": [
+          "ticket",
+          "create",
+          "Build the logout",
+          "--board",
+          "{{board}}",
+          "--acceptance",
+          "Logout works",
+          "--planned"
+        ]
+      }
     },
-    { "name": "plan the first", "cli": { "args": ["plan", "write", "ARC-1", "--plan", "Build it", "--handbook", "Tests"] } },
-    { "name": "plan the second", "cli": { "args": ["plan", "write", "ARC-2", "--plan", "Build it", "--handbook", "Tests"] } },
-    { "name": "state with the planned tickets", "http": { "method": "GET", "path": "/api/v1/dispatcher" } },
-    { "name": "state of one board", "http": { "method": "GET", "path": "/api/v1/dispatcher?boardId={{board}}" } },
-    { "name": "enable", "http": { "method": "PATCH", "path": "/api/v1/dispatcher", "body": { "enabled": true } } },
-    { "name": "pause for 15 minutes", "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "minutes": 15 } } },
-    { "name": "resume", "http": { "method": "POST", "path": "/api/v1/dispatcher/resume", "body": {} } },
-    { "name": "run a pass on request", "http": { "method": "POST", "path": "/api/v1/dispatcher/passes", "body": { "boardId": "{{board}}" } } },
-    { "name": "the state after the pass", "http": { "method": "GET", "path": "/api/v1/dispatcher" } },
-    { "name": "state of an unknown board", "http": { "method": "GET", "path": "/api/v1/dispatcher?boardId=019a0000-0000-7000-8000-00000000ffff" } },
-    { "name": "state with a broken board id", "http": { "method": "GET", "path": "/api/v1/dispatcher?boardId=x" } },
-    { "name": "a pass for an unknown board", "http": { "method": "POST", "path": "/api/v1/dispatcher/passes", "body": { "boardId": "019a0000-0000-7000-8000-00000000ffff" } } },
-    { "name": "pause without minutes", "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "minutes": 0 } } },
-    { "name": "pause with text instead of minutes", "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "minutes": "much" } } },
-    { "name": "pause beyond a day", "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "minutes": 1441 } } },
-    { "name": "pause with minutes and a moment", "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "minutes": 5, "until": 1 } } },
-    { "name": "pause until the past", "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "until": 1 } } },
-    { "name": "switch without a value", "http": { "method": "PATCH", "path": "/api/v1/dispatcher", "body": {} } },
-    { "name": "the state is unchanged after the refusals", "http": { "method": "GET", "path": "/api/v1/dispatcher" } },
+    {
+      "name": "plan the first",
+      "cli": { "args": ["plan", "write", "ARC-1", "--plan", "Build it", "--handbook", "Tests"] }
+    },
+    {
+      "name": "plan the second",
+      "cli": { "args": ["plan", "write", "ARC-2", "--plan", "Build it", "--handbook", "Tests"] }
+    },
+    {
+      "name": "state with the planned tickets",
+      "http": { "method": "GET", "path": "/api/v1/dispatcher" }
+    },
+    {
+      "name": "state of one board",
+      "http": { "method": "GET", "path": "/api/v1/dispatcher?boardId={{board}}" }
+    },
+    {
+      "name": "enable",
+      "http": { "method": "PATCH", "path": "/api/v1/dispatcher", "body": { "enabled": true } }
+    },
+    {
+      "name": "pause for 15 minutes",
+      "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "minutes": 15 } }
+    },
+    {
+      "name": "resume",
+      "http": { "method": "POST", "path": "/api/v1/dispatcher/resume", "body": {} }
+    },
+    {
+      "name": "run a pass on request",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/passes",
+        "body": { "boardId": "{{board}}" }
+      }
+    },
+    {
+      "name": "the state after the pass",
+      "http": { "method": "GET", "path": "/api/v1/dispatcher" }
+    },
+    {
+      "name": "state of an unknown board",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/dispatcher?boardId=019a0000-0000-7000-8000-00000000ffff"
+      }
+    },
+    {
+      "name": "state with a broken board id",
+      "http": { "method": "GET", "path": "/api/v1/dispatcher?boardId=x" }
+    },
+    {
+      "name": "a pass for an unknown board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/passes",
+        "body": { "boardId": "019a0000-0000-7000-8000-00000000ffff" }
+      }
+    },
+    {
+      "name": "pause without minutes",
+      "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "minutes": 0 } }
+    },
+    {
+      "name": "pause with text instead of minutes",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/pause",
+        "body": { "minutes": "much" }
+      }
+    },
+    {
+      "name": "pause beyond a day",
+      "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "minutes": 1441 } }
+    },
+    {
+      "name": "pause with minutes and a moment",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/pause",
+        "body": { "minutes": 5, "until": 1 }
+      }
+    },
+    {
+      "name": "pause until the past",
+      "http": { "method": "POST", "path": "/api/v1/dispatcher/pause", "body": { "until": 1 } }
+    },
+    {
+      "name": "switch without a value",
+      "http": { "method": "PATCH", "path": "/api/v1/dispatcher", "body": {} }
+    },
+    {
+      "name": "the state is unchanged after the refusals",
+      "http": { "method": "GET", "path": "/api/v1/dispatcher" }
+    },
     { "name": "pause in the CLI", "cli": { "args": ["dispatcher", "pause", "--minutes", "30"] } },
     { "name": "resume in the CLI", "cli": { "args": ["dispatcher", "resume"] } },
     { "name": "disable in the CLI", "cli": { "args": ["dispatcher", "disable"] } },
-    { "name": "the state after disabling", "http": { "method": "GET", "path": "/api/v1/dispatcher" } }
+    {
+      "name": "the state after disabling",
+      "http": { "method": "GET", "path": "/api/v1/dispatcher" }
+    }
   ]
 }

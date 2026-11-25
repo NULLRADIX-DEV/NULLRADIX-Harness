@@ -2,6 +2,8 @@
     clippy::unwrap_used,
     clippy::too_many_lines,
     clippy::panic,
+    clippy::assert_is_empty,
+    clippy::cloned_ref_to_slice_refs,
     reason = "integration tests fail loudly"
 )]
 
