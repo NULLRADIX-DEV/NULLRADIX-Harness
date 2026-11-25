@@ -1,4 +1,4 @@
-//! Operating system integration for Windows and Linux.
+//! Operating system integration for Windows, Linux and macOS.
 
 mod browser;
 mod files;

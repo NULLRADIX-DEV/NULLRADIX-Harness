@@ -4,6 +4,7 @@ use std::process::Stdio;
 
 use nullradix_app::AppError;
 use nullradix_app::repositories::{Located, not_a_git_project, path_missing, path_relative};
+use nullradix_domain::RunnerOs;
 
 /// The repository the absolute folder `path` belongs to; worktrees resolve to their main checkout.
 pub(crate) async fn locate(path: &str) -> Result<Located, AppError> {
@@ -25,7 +26,7 @@ pub(crate) async fn locate(path: &str) -> Result<Located, AppError> {
         blocking(move || main_root(Path::new(&common))).await?
     };
     let canonical = root.clone();
-    let key = blocking(move || path_key(Path::new(&canonical), cfg!(windows))).await?;
+    let key = blocking(move || local_key(Path::new(&canonical))).await?;
     let name = match root.rsplit('/').next() {
         Some(last) if !last.is_empty() => last.to_owned(),
         _ => root.clone(),
@@ -157,8 +158,13 @@ fn root_of(common_dir: &str) -> String {
     }
 }
 
-/// Comparable folder spelling: resolved, forward slashes, no trailing slash, lowercase on Windows.
-pub(crate) fn path_key(path: &Path, windows: bool) -> String {
+/// `path_key` with the case rule of this system.
+pub(crate) fn local_key(path: &Path) -> String {
+    path_key(path, RunnerOs::current().ignores_path_case())
+}
+
+/// Comparable folder spelling: resolved, slashes, no trailing slash, lowercase if case is ignored.
+pub(crate) fn path_key(path: &Path, ignore_case: bool) -> String {
     let full = real_path(path).unwrap_or_else(|| path.to_path_buf());
     let text = slashed(&full.to_string_lossy());
     let trimmed = text.trim_end_matches('/');
@@ -167,7 +173,7 @@ pub(crate) fn path_key(path: &Path, windows: bool) -> String {
     } else {
         trimmed
     };
-    if windows {
+    if ignore_case {
         key.to_lowercase()
     } else {
         key.to_owned()
@@ -228,7 +234,7 @@ mod tests {
         }
         let common = run(common_dir_git(&dir.path().join("wt-1"))).unwrap();
         assert_eq!(
-            path_key(Path::new(&main_root(Path::new(&common))), cfg!(windows)),
+            local_key(Path::new(&main_root(Path::new(&common)))),
             located.key
         );
     }

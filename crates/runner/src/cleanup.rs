@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use nullradix_app::AppError;
 use nullradix_app::worktrees::{RemoveWorktree, WorktreeRemoval};
 
-use crate::git::path_key;
+use crate::git::local_key;
 use crate::worktree::git;
 
 /// Files the harness writes into a worktree itself; they do not count as changes.
@@ -67,8 +67,8 @@ pub(crate) async fn remove(request: &RemoveWorktree) -> Result<WorktreeRemoval, 
 
 /// Whether `path` is the folder `outer` or lies inside it.
 fn contains(outer: &Path, path: &Path) -> bool {
-    let outer = path_key(outer, cfg!(windows));
-    let inner = path_key(path, cfg!(windows));
+    let outer = local_key(outer);
+    let inner = local_key(path);
     inner == outer || inner.starts_with(&format!("{outer}/"))
 }
 
@@ -99,10 +99,10 @@ async fn listed(root: &Path, path: &str) -> Option<bool> {
     let list = git(root, &["worktree", "list", "--porcelain"]).await.ok()?;
     let path = PathBuf::from(path);
     blocking(move || {
-        let wanted = path_key(&path, cfg!(windows));
+        let wanted = local_key(&path);
         list.split('\n')
             .filter_map(|line| line.trim().strip_prefix("worktree "))
-            .any(|found| path_key(Path::new(found), cfg!(windows)) == wanted)
+            .any(|found| local_key(Path::new(found)) == wanted)
     })
     .await
     .ok()

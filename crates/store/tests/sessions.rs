@@ -13,8 +13,8 @@ use nullradix_app::sessions::{SessionQuery, SessionService};
 use nullradix_app::tickets::{NewTicket, TicketService, WriteOptions};
 use nullradix_app::{ChangeFeed, ChangeOp, ChangeSignal, Clock, Entity, UuidV7Generator};
 use nullradix_domain::{
-    DisplayState, HookDetails, HookEvent, HookKind, Id, SessionRef, SessionState, SubagentState,
-    Timestamp, Version,
+    DisplayState, HookDetails, HookEvent, HookKind, Id, RunnerOs, SessionRef, SessionState,
+    SubagentState, Timestamp, Version,
 };
 use nullradix_store::Store;
 
@@ -582,7 +582,7 @@ async fn sessions_in_the_worktree_of_an_in_progress_ticket_are_linked_to_it() {
     for session in ["sibling", "backlog", "released", "removed"] {
         assert_eq!(keys(&f, session).await, Vec::<String>::new(), "{session}");
     }
-    let folded: Vec<String> = if cfg!(windows) {
+    let folded: Vec<String> = if RunnerOs::current().ignores_path_case() {
         vec![String::from("ARC-0001")]
     } else {
         Vec::new()

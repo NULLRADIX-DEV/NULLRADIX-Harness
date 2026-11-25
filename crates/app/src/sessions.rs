@@ -6,9 +6,8 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    DisplayState, HookEvent, Id, Repository, Runner, RunnerOs, Session, SessionRef, SessionView,
-    Ticket, TicketKey, TicketStatus, Timestamp, Version, path_within, session_prune_before,
-    ticket_names,
+    DisplayState, HookEvent, Id, Repository, Runner, Session, SessionRef, SessionView, Ticket,
+    TicketKey, TicketStatus, Timestamp, Version, path_within, session_prune_before, ticket_names,
 };
 use parking_lot::Mutex;
 use tokio::task::JoinHandle;
@@ -245,7 +244,7 @@ impl SessionService {
             if write.linked(id).await? {
                 return Ok(false);
             }
-            let fold = self.runners.local().os() == RunnerOs::Windows;
+            let fold = self.runners.local().os().ignores_path_case();
             for (folder, ticket) in write.worktree_tickets(runner).await? {
                 if path_within(&folder, event.cwd(), fold) {
                     linked |= write.link(ticket, id, at).await?;

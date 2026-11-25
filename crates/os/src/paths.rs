@@ -1,7 +1,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use directories::ProjectDirs;
+use directories::{BaseDirs, ProjectDirs};
 
 /// Directories the daemon writes to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,10 +36,14 @@ impl Paths {
             return Ok(Self::below(&absolute));
         }
         let dirs = ProjectDirs::from("", "", app_name).ok_or(PathsError::NoHome)?;
-        let logs = dirs
-            .state_dir()
-            .unwrap_or_else(|| dirs.data_local_dir())
-            .join("logs");
+        let home = BaseDirs::new().map(|base| base.home_dir().to_path_buf());
+        let logs = logs_dir(
+            cfg!(target_os = "macos"),
+            home.as_deref(),
+            dirs.state_dir(),
+            dirs.data_local_dir(),
+            app_name,
+        );
         Ok(Self {
             data: dirs.data_local_dir().to_path_buf(),
             config: dirs.config_dir().to_path_buf(),
@@ -56,6 +60,20 @@ impl Paths {
             cache: home.join("cache"),
             logs: home.join("logs"),
         }
+    }
+}
+
+/// macOS keeps logs in `~/Library/Logs`; elsewhere they sit in the state or data directory.
+fn logs_dir(
+    macos: bool,
+    home: Option<&Path>,
+    state: Option<&Path>,
+    data: &Path,
+    app_name: &str,
+) -> PathBuf {
+    match home {
+        Some(home) if macos => home.join("Library").join("Logs").join(app_name),
+        _ => state.unwrap_or(data).join("logs"),
     }
 }
 
@@ -81,6 +99,42 @@ mod tests {
                 .data
                 .ends_with(Path::new("relative home").join("data"))
         );
+    }
+
+    #[test]
+    fn macos_logs_go_to_the_library_and_other_systems_keep_them_beside_the_data() {
+        let home = Path::new("/Users/ada");
+        let data = Path::new("/Users/ada/Library/Application Support/nullradix");
+        assert_eq!(
+            logs_dir(true, Some(home), None, data, "nullradix"),
+            home.join("Library/Logs/nullradix")
+        );
+        assert_eq!(
+            logs_dir(true, None, None, data, "nullradix"),
+            data.join("logs")
+        );
+        let state = Path::new("/home/ada/.local/state/nullradix");
+        assert_eq!(
+            logs_dir(false, Some(home), Some(state), data, "nullradix"),
+            state.join("logs")
+        );
+        assert_eq!(
+            logs_dir(false, Some(home), None, data, "nullradix"),
+            data.join("logs")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_defaults_use_application_support_caches_and_logs() {
+        let paths = Paths::resolve("nullradix", None).unwrap();
+        let home = BaseDirs::new().unwrap().home_dir().to_path_buf();
+        assert_eq!(
+            paths.data,
+            home.join("Library/Application Support/nullradix")
+        );
+        assert_eq!(paths.cache, home.join("Library/Caches/nullradix"));
+        assert_eq!(paths.logs, home.join("Library/Logs/nullradix"));
     }
 
     #[test]

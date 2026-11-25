@@ -13,6 +13,7 @@ use crate::{ApiError, ApiState, Problem};
 pub enum RunnerOsDto {
     Windows,
     Linux,
+    Macos,
 }
 
 impl From<RunnerOs> for RunnerOsDto {
@@ -20,6 +21,7 @@ impl From<RunnerOs> for RunnerOsDto {
         match os {
             RunnerOs::Windows => Self::Windows,
             RunnerOs::Linux => Self::Linux,
+            RunnerOs::Macos => Self::Macos,
         }
     }
 }
