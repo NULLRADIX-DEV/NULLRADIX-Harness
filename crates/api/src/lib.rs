@@ -233,6 +233,14 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(hooks::list_hook_events));
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
+    doc.info.license = Some(
+        utoipa::openapi::LicenseBuilder::new()
+            .name("NULLRADIX License")
+            .url(Some(
+                "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/blob/main/LICENSE.md",
+            ))
+            .build(),
+    );
     OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
 }
 
