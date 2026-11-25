@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE installed_themes\n               SET name = ?, theme_version = ?, author = ?, sdk_version = ?, color_scheme = ?,\n                   has_claude_theme = ?, manifest = ?, updated_at = ?, version = ?\n               WHERE theme_id = ? AND version = ?\n               RETURNING feed_id AS \"feed_id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "feed_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "installed_themes",
+            "name": "feed_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "51ace0fcd6b80e9fe29d1a83a2cbcab2cc33678d834cd12f450588b56ebd82c2"
+}

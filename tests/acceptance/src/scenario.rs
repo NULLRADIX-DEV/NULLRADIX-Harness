@@ -67,12 +67,15 @@ pub(crate) struct Cli {
     pub(crate) cwd: Option<String>,
 }
 
-/// Writes a JSONL file with one value per line, such as a Claude Code transcript.
+/// Writes `text` as it is, or a JSONL file with one value per line such as a transcript.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct File {
     pub(crate) path: String,
+    #[serde(default)]
     pub(crate) lines: Vec<Value>,
+    #[serde(default)]
+    pub(crate) text: Option<String>,
 }
 
 /// Polls `path` until the JSON value at `field` equals `equals`.

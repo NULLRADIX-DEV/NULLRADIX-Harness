@@ -21,6 +21,8 @@ mod selection;
 mod session;
 mod status;
 mod step;
+mod theme;
+mod themes;
 mod ticket;
 mod token;
 
@@ -91,6 +93,9 @@ enum Command {
     /// List and show Claude Code sessions
     #[command(subcommand)]
     Session(session::SessionCommand),
+    /// List, install, choose, remove and pack themes
+    #[command(subcommand)]
+    Theme(theme::ThemeCommand),
     /// Run commands on the daemon's machine
     #[command(subcommand)]
     Run(run::RunCommand),
@@ -190,6 +195,11 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Session(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             session::run(command, &client)
+        }
+        Command::Theme(theme::ThemeCommand::Pack { dir, out }) => theme::pack(&dir, out.as_deref()),
+        Command::Theme(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            theme::run(command, &client)
         }
         Command::Run(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

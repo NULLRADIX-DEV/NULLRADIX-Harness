@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO installed_themes (theme_id, feed_id, name, theme_version, author,\n                 sdk_version, color_scheme, has_claude_theme, manifest, installed_at, updated_at,\n                 version)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "d169029dd9f13ec70d6eed4c7ac9ebfd53d3c00f6f9ad172e3b0173fbf99a0f5"
+}

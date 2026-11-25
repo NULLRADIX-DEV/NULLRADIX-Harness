@@ -24,6 +24,16 @@ pub struct Problem {
     /// Notes that already describe the finding, for `note-similar`; most similar first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub similar: Vec<SimilarNoteDto>,
+    /// Refused fields of the input, for `theme-manifest-invalid`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<FieldProblemDto>,
+}
+
+/// One refused field of an input; lists carry the index, such as `slots[1]`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct FieldProblemDto {
+    pub field: String,
+    pub message: String,
 }
 
 /// A note the similarity check found.
@@ -79,6 +89,14 @@ impl IntoResponse for ApiError {
         let mut problem = problem(status(error.kind()), error.code(), error.message());
         problem.existing = error.existing().map(str::to_owned);
         problem.similar = error.similar().iter().map(SimilarNoteDto::from).collect();
+        problem.errors = error
+            .fields()
+            .iter()
+            .map(|field| FieldProblemDto {
+                field: field.field.clone(),
+                message: field.message.clone(),
+            })
+            .collect();
         render(problem)
     }
 }
@@ -102,6 +120,7 @@ fn problem(status: StatusCode, code: &str, detail: &str) -> Problem {
         code: code.to_owned(),
         existing: None,
         similar: Vec::new(),
+        errors: Vec::new(),
     }
 }
 

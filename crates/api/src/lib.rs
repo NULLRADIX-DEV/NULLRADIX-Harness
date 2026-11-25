@@ -20,6 +20,7 @@ mod repositories;
 mod runs;
 mod session_detail;
 mod sessions;
+mod themes;
 mod tickets;
 mod usage;
 mod web;
@@ -49,6 +50,7 @@ use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
+use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
@@ -83,7 +85,7 @@ pub use login::{
 pub use notes::{
     CreateNote, DropNote, NoteDto, NoteList, NoteStateDto, PromoteNote, PromotedNote, SeenNote,
 };
-pub use problem::{ApiError, Problem, SimilarNoteDto};
+pub use problem::{ApiError, FieldProblemDto, Problem, SimilarNoteDto};
 pub use projects::{CreateProject, ProjectDto, ProjectList, RenameProject};
 pub use questions::{
     AddQuestionComment, AnswerQuestion, CreateQuestion, DecideQuestion, DecisionDto, NewOption,
@@ -106,6 +108,9 @@ pub use session_detail::{
 pub use sessions::{
     DisplayStateDto, SessionClientDto, SessionDto, SessionList, SessionStateDto, SessionTicketDto,
     SubagentDto, SubagentStateDto,
+};
+pub use themes::{
+    ChooseTheme, ColorSchemeDto, ThemeDto, ThemeListDto, ThemeOptionDto, ThemeSettingDto,
 };
 pub use tickets::{
     AcceptTicket, AddStep, ChangeStep, ClaimPlanning, ClaimTicket, ColumnDto, CreateTicket,
@@ -177,6 +182,7 @@ pub struct ApiState {
     pub hooks: Arc<HookService>,
     pub sessions: Arc<SessionService>,
     pub favorites: Arc<FavoriteService>,
+    pub themes: Arc<ThemeService>,
     pub changes: Arc<dyn ChangeFeed>,
     pub signal: ChangeSignal,
     /// Cancelled when the daemon stops; long-lived responses end with it.
@@ -200,6 +206,14 @@ fn account_routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(login::send_login_code))
         .routes(routes!(accounts::update_account, accounts::delete_account))
         .routes(routes!(accounts::set_run_token, accounts::clear_run_token))
+}
+
+fn theme_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> {
+    router
+        .routes(routes!(themes::list_themes, themes::install_theme))
+        .routes(routes!(themes::remove_theme))
+        .routes(routes!(themes::theme_file))
+        .routes(routes!(themes::choose_theme))
 }
 
 fn routes() -> OpenApiRouter<ApiState> {
@@ -290,6 +304,7 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events))
         .merge(account_routes());
+    let v1 = theme_routes(v1);
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     doc.info.license = Some(
@@ -700,6 +715,13 @@ pub(crate) mod tests {
         );
         let (sessions, favorites, hooks) = session_services(&store, &runners, &signal);
         let logins = test_logins(&accounts);
+        let themes = Arc::new(ThemeService::new(
+            store.clone(),
+            Arc::new(crate::themes::fake::Files::default()),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
@@ -723,6 +745,7 @@ pub(crate) mod tests {
             hooks,
             sessions,
             favorites,
+            themes,
             changes: changes.clone(),
             signal,
             shutdown: shutdown.clone(),

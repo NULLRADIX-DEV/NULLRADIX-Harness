@@ -52,6 +52,12 @@ impl Paths {
         })
     }
 
+    /// Installed theme packages, one folder per theme.
+    #[must_use]
+    pub fn themes(&self) -> PathBuf {
+        self.data.join("themes")
+    }
+
     #[must_use]
     pub fn below(home: &Path) -> Self {
         Self {

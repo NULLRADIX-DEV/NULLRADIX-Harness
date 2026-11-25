@@ -267,7 +267,10 @@ fn cli_step(
 /// Writes the lines with saved values filled in; the file holds them each on its own line.
 fn file_step(file: &File, saved: &BTreeMap<String, String>) -> anyhow::Result<(Value, Value)> {
     let path = fill(&file.path, saved);
-    let mut text = String::new();
+    let mut text = file
+        .text
+        .as_ref()
+        .map_or_else(String::new, |text| fill(text, saved));
     for line in &file.lines {
         text.push_str(&fill_value(line, saved).to_string());
         text.push('\n');

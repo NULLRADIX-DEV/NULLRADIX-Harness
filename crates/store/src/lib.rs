@@ -15,6 +15,7 @@ mod questions;
 mod repositories;
 mod runs;
 mod sessions;
+mod themes;
 mod tickets;
 mod worktrees;
 

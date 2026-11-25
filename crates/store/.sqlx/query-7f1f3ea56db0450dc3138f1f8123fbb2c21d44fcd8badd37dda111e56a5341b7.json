@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT version FROM installed_themes WHERE theme_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "version",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "installed_themes",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7f1f3ea56db0450dc3138f1f8123fbb2c21d44fcd8badd37dda111e56a5341b7"
+}

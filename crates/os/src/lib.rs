@@ -1,5 +1,6 @@
 //! Operating system integration for Windows, Linux and macOS.
 
+mod archive;
 mod browser;
 #[cfg(target_os = "macos")]
 mod claude_keychain;
@@ -11,6 +12,10 @@ mod secrets;
 #[cfg(windows)]
 mod windows;
 
+pub use archive::{
+    ArchiveError, Entry, Limits, pack_zip, read_tree, read_within, remove_dir, replace_dir,
+    unpack_zip,
+};
 pub use browser::open_url;
 #[cfg(target_os = "macos")]
 pub use claude_keychain::claude_keychain_password;

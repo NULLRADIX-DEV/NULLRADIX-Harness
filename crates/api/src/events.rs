@@ -39,6 +39,9 @@ pub enum EntityDto {
     InboxOrder,
     Favorite,
     Account,
+    Theme,
+    Setting,
+    Customization,
 }
 
 impl From<Entity> for EntityDto {
@@ -58,6 +61,9 @@ impl From<Entity> for EntityDto {
             Entity::InboxOrder => Self::InboxOrder,
             Entity::Favorite => Self::Favorite,
             Entity::Account => Self::Account,
+            Entity::Theme => Self::Theme,
+            Entity::Setting => Self::Setting,
+            Entity::Customization => Self::Customization,
         }
     }
 }

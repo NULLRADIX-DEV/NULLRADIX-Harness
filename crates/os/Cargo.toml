@@ -11,7 +11,9 @@ publish.workspace = true
 directories.workspace = true
 serde_json.workspace = true
 open.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
+zip.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true, features = ["process", "signal"] }
@@ -29,9 +31,6 @@ windows-sys = { workspace = true, features = [
   "Win32_System_JobObjects",
   "Win32_System_Threading",
 ] }
-
-[dev-dependencies]
-tempfile.workspace = true
 
 [lints]
 workspace = true

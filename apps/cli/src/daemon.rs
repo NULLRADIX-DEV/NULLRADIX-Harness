@@ -20,6 +20,7 @@ use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
+use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
@@ -39,6 +40,7 @@ use crate::config::Config;
 use crate::intake;
 use crate::logging;
 use crate::secrets::OsSecretStore;
+use crate::themes::FolderThemes;
 use crate::token;
 
 /// Time open connections get to finish once a shutdown is requested.
@@ -126,6 +128,13 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
+    let themes = Arc::new(ThemeService::new(
+        Arc::new(store.clone()),
+        Arc::new(FolderThemes::new(config.paths.themes())),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
     let sessions = Arc::new(SessionService::new(
         Arc::new(store.clone()),
         runners.clone(),
@@ -153,6 +162,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         hooks,
         sessions,
         favorites,
+        themes,
         changes: Arc::new(store.clone()),
         signal,
         shutdown: shutdown.clone(),

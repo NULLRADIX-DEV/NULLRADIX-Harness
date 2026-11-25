@@ -1,0 +1,475 @@
+[
+  {
+    "name": "no theme installed",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "file": "<WORK>/night-blue/manifest.json",
+    "lines": 0,
+    "name": "manifest"
+  },
+  {
+    "file": "<WORK>/night-blue/theme.css",
+    "lines": 0,
+    "name": "stylesheet"
+  },
+  {
+    "file": "<WORK>/night-blue/assets/preview.png",
+    "lines": 0,
+    "name": "preview"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-blue",
+      "--out",
+      "<WORK>/night-blue.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the folder",
+    "stderr": "",
+    "stdout": "packed night-blue 1.2.0 (3 files) into <WORK>/night-blue.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/night-blue.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "install the package",
+    "stderr": "",
+    "stdout": "installed night-blue 1.2.0\n"
+  },
+  {
+    "name": "list over http",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "colorScheme": "dark",
+            "id": "night-blue",
+            "installedAt": "<TIME>",
+            "name": "Night Blue",
+            "network": [],
+            "packageVersion": "1.2.0",
+            "previewUrl": "/api/v1/themes/night-blue/files/assets/preview.png",
+            "sdkVersion": "^1.3",
+            "settings": [
+              {
+                "default": true,
+                "hint": null,
+                "key": "dim",
+                "label": "Dim",
+                "type": "boolean"
+              }
+            ],
+            "slots": [],
+            "startColor": "#101018",
+            "styleUrl": "/api/v1/themes/night-blue/files/theme.css?v=1",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the stylesheet comes from the installed folder",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/files/theme.css"
+    },
+    "response": {
+      "status": 200,
+      "text": "[data-theme-mode='night-blue'] { --accent: #6c63ff; }\n"
+    }
+  },
+  {
+    "name": "the preview comes from the installed folder",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/files/assets/preview.png"
+    },
+    "response": {
+      "status": 200,
+      "text": "PNG"
+    }
+  },
+  {
+    "name": "the folder cannot be left through dots",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/files/%2e%2e%2fnight-blue%2fmanifest.json"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "the folder cannot be left through a theme id",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/%2e%2e/files/manifest.json"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a missing file is not found",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/files/missing.css"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a folder is not served",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/files/assets"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/night-blue.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "installing again replaces the theme",
+    "stderr": "",
+    "stdout": "installed night-blue 1.2.0\n"
+  },
+  {
+    "name": "the replaced theme has a new version",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "colorScheme": "dark",
+            "id": "night-blue",
+            "installedAt": "<TIME>",
+            "name": "Night Blue",
+            "network": [],
+            "packageVersion": "1.2.0",
+            "previewUrl": "/api/v1/themes/night-blue/files/assets/preview.png",
+            "sdkVersion": "^1.3",
+            "settings": [
+              {
+                "default": true,
+                "hint": null,
+                "key": "dim",
+                "label": "Dim",
+                "type": "boolean"
+              }
+            ],
+            "slots": [],
+            "startColor": "#101018",
+            "styleUrl": "/api/v1/themes/night-blue/files/theme.css?v=2",
+            "updatedAt": "<TIME>",
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "use",
+      "ghost"
+    ],
+    "exitCode": 1,
+    "name": "an unknown theme cannot be chosen",
+    "stderr": "error: the daemon refused the request: the theme ghost is not installed (theme-not-found)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "theme",
+      "use",
+      "night-blue"
+    ],
+    "exitCode": 0,
+    "name": "choose the installed theme",
+    "stderr": "",
+    "stdout": "now using night-blue\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "list marks the chosen theme",
+    "stderr": "",
+    "stdout": "  nullradix            built in\n  system               built in\n  light                built in\n  dark                 built in\n* night-blue           Night Blue v1.2.0 by Ada\n"
+  },
+  {
+    "name": "choose a built-in theme over http",
+    "request": {
+      "body": {
+        "theme": "light"
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/theme"
+    },
+    "response": {
+      "json": {
+        "theme": "light"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "choose the installed theme again",
+    "request": {
+      "body": {
+        "theme": "night-blue"
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/theme"
+    },
+    "response": {
+      "json": {
+        "theme": "night-blue"
+      },
+      "status": 200
+    }
+  },
+  {
+    "file": "<WORK>/dark/manifest.json",
+    "lines": 0,
+    "name": "a package may not take a built-in name"
+  },
+  {
+    "file": "<WORK>/dark/theme.css",
+    "lines": 0,
+    "name": "reserved style"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/dark",
+      "--out",
+      "<WORK>/dark.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the reserved name",
+    "stderr": "",
+    "stdout": "packed dark 1.0.0 (2 files) into <WORK>/dark.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/dark.nullradix"
+    ],
+    "exitCode": 1,
+    "name": "install the reserved name",
+    "stderr": "error: the daemon refused the request: dark is the name of a built-in theme (theme-id-reserved)\n",
+    "stdout": ""
+  },
+  {
+    "file": "<WORK>/broken/manifest.json",
+    "lines": 0,
+    "name": "a broken manifest"
+  },
+  {
+    "file": "<WORK>/broken/theme.css",
+    "lines": 0,
+    "name": "a broken style"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/broken",
+      "--out",
+      "<WORK>/broken.nullradix"
+    ],
+    "exitCode": 1,
+    "name": "packing names the refused fields",
+    "stderr": "error: the manifest is invalid\n  id: a theme id has 2 to 40 characters from a-z, 0-9 and -\n  name: name is missing\n  version: the version is not a semver version such as 1.2.3\n  author: author is missing\n  sdkVersion: sdkVersion is missing\n  colorScheme: colorScheme is light or dark\n",
+    "stdout": ""
+  },
+  {
+    "file": "<WORK>/notes.nullradix",
+    "lines": 0,
+    "name": "a file that is no package"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/notes.nullradix"
+    ],
+    "exitCode": 1,
+    "name": "installing it is refused",
+    "stderr": "error: the daemon refused the request: not a zip archive: invalid Zip archive: Could not find EOCD (theme-package-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "name": "the refused package left nothing behind",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "night-blue",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "colorScheme": "dark",
+            "id": "night-blue",
+            "installedAt": "<TIME>",
+            "name": "Night Blue",
+            "network": [],
+            "packageVersion": "1.2.0",
+            "previewUrl": "/api/v1/themes/night-blue/files/assets/preview.png",
+            "sdkVersion": "^1.3",
+            "settings": [
+              {
+                "default": true,
+                "hint": null,
+                "key": "dim",
+                "label": "Dim",
+                "type": "boolean"
+              }
+            ],
+            "slots": [],
+            "startColor": "#101018",
+            "styleUrl": "/api/v1/themes/night-blue/files/theme.css?v=2",
+            "updatedAt": "<TIME>",
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "remove with a stale version",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/themes/night-blue?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "theme night-blue was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "remove",
+      "night-blue"
+    ],
+    "exitCode": 0,
+    "name": "remove the chosen theme",
+    "stderr": "",
+    "stdout": "removed night-blue\n"
+  },
+  {
+    "name": "the default is chosen again",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "its files are gone",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/files/theme.css"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  }
+]

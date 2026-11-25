@@ -1,10 +1,11 @@
-import { THEME_LABELS, THEME_MODES, isThemeMode } from '../../shared/lib/theme';
+import { THEME_LABELS, THEME_MODES, isThemeChoice } from '../../shared/lib/theme';
 import { useTheme } from '../../shared/ui/ThemeProvider';
 import { AccountsSection } from '../accounts/AccountsSection';
 import { ProjectsSection } from '../projects/ProjectsSection';
+import { ThemesSection } from '../themes/ThemesSection';
 
 export function SettingsPage() {
-  const { mode, setMode } = useTheme();
+  const { mode, setMode, installed } = useTheme();
   return (
     <div className="page narrow">
       <h1 className="page-title">Settings</h1>
@@ -17,7 +18,7 @@ export function SettingsPage() {
           <select
             value={mode}
             onChange={(event) => {
-              if (isThemeMode(event.target.value)) setMode(event.target.value);
+              if (isThemeChoice(event.target.value)) setMode(event.target.value);
             }}
           >
             {THEME_MODES.map((theme) => (
@@ -25,9 +26,15 @@ export function SettingsPage() {
                 {THEME_LABELS[theme]}
               </option>
             ))}
+            {installed.map((theme) => (
+              <option key={theme.id} value={theme.id}>
+                {theme.name}
+              </option>
+            ))}
           </select>
         </label>
       </section>
+      <ThemesSection />
     </div>
   );
 }

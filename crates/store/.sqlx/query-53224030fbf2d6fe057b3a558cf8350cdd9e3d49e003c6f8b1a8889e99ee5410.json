@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM installed_themes WHERE theme_id = ? RETURNING feed_id AS \"feed_id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "feed_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "installed_themes",
+            "name": "feed_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "53224030fbf2d6fe057b3a558cf8350cdd9e3d49e003c6f8b1a8889e99ee5410"
+}

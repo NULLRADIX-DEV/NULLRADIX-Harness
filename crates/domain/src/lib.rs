@@ -16,6 +16,7 @@ mod run;
 mod session;
 pub mod step;
 mod text;
+mod theme;
 mod ticket;
 mod ticket_values;
 mod timestamp;
@@ -68,6 +69,14 @@ pub use session::{
 };
 pub use step::{STEP_MAX, Step, StepEdit, StepError};
 pub use text::{TextError, optional_text, required_text, utf16_len, utf16_prefix};
+pub use theme::{
+    BUILTIN_THEMES, CLAUDE_DIR, CLAUDE_HOOKS_FILE, ColorScheme, DEFAULT_THEME, FieldError,
+    InstalledTheme, InstalledThemeRecord, MANIFEST_FILE, MAX_ENTRIES, MAX_ENTRY_PATH,
+    MAX_FILE_BYTES, MAX_PACKAGE_BYTES, ManifestDraft, ManifestRecord, PackageError, STYLE_FILE,
+    SelectOption, SettingSpec, ThemeError, ThemeId, ThemeManifest, asset_segments,
+    check_claude_files, check_entry_path, check_theme_css, content_type, host_allowed,
+    is_allowed_extension, is_claude_path, is_hidden,
+};
 pub use ticket::{
     ASSIGNEE_MAX, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange, HUMAN_INTERACTION, HistoryEntry,
     PLANNING_CLAIM_TTL, TITLE_MAX, TargetBranch, Ticket, TicketDraft, TicketRecord, TicketTitle,

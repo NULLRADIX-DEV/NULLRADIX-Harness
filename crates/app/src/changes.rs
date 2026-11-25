@@ -26,6 +26,9 @@ pub enum Entity {
     InboxOrder,
     Favorite,
     Account,
+    Theme,
+    Setting,
+    Customization,
 }
 
 impl Entity {
@@ -135,6 +138,7 @@ mod tests {
         assert_eq!(Entity::Project.as_str(), "project");
         assert_eq!("project".parse::<Entity>(), Ok(Entity::Project));
         assert_eq!(Entity::InboxOrder.as_str(), "inbox-order");
+        assert_eq!(Entity::Setting.as_str(), "setting");
         assert_eq!("inbox-order".parse::<Entity>(), Ok(Entity::InboxOrder));
         assert_eq!(Entity::Account.as_str(), "account");
         assert!("planet".parse::<Entity>().is_err());

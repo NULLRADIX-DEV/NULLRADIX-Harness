@@ -4600,6 +4600,297 @@
         }
       }
     },
+    "/api/v1/settings/theme": {
+      "put": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "choose_theme",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChooseTheme"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChooseTheme"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not built in and not installed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/themes": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "list_themes",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeListDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "install_theme",
+        "requestBody": {
+          "description": "A `.nullradix` theme package, a zip archive",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Replaced the installed theme with the same id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Installed",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the stylesheet"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not a valid package: `theme-package-invalid`, `theme-manifest-invalid` with the refused fields, or `theme-id-reserved`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/themes/{id}": {
+      "delete": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "remove_theme",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Version the removal is based on.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Uninstalled; when it was chosen the default takes over"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/themes/{id}/files/{*path}": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "theme_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Path of the file inside the package.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such file inside the installed theme",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets": {
       "get": {
         "tags": [
@@ -6691,6 +6982,19 @@
           }
         }
       },
+      "ChooseTheme": {
+        "type": "object",
+        "required": [
+          "theme"
+        ],
+        "properties": {
+          "theme": {
+            "type": "string",
+            "description": "A built-in theme or the id of an installed one."
+          }
+        },
+        "additionalProperties": false
+      },
       "ClaimPlanning": {
         "type": "object",
         "required": [
@@ -6777,6 +7081,13 @@
             "type": "boolean"
           }
         }
+      },
+      "ColorSchemeDto": {
+        "type": "string",
+        "enum": [
+          "light",
+          "dark"
+        ]
       },
       "ColumnDto": {
         "type": "string",
@@ -7300,7 +7611,10 @@
           "session",
           "inbox-order",
           "favorite",
-          "account"
+          "account",
+          "theme",
+          "setting",
+          "customization"
         ]
       },
       "FavoriteDto": {
@@ -7407,6 +7721,22 @@
               "$ref": "#/components/schemas/FavoriteDto"
             },
             "description": "Latest marked first."
+          }
+        }
+      },
+      "FieldProblemDto": {
+        "type": "object",
+        "description": "One refused field of an input; lists carry the index, such as `slots[1]`.",
+        "required": [
+          "field",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -8458,6 +8788,13 @@
           },
           "detail": {
             "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldProblemDto"
+            },
+            "description": "Refused fields of the input, for `theme-manifest-invalid`."
           },
           "existing": {
             "type": [
@@ -9834,6 +10171,212 @@
             "description": "Such as `origin/release`, or the branch or commit of the main checkout."
           }
         }
+      },
+      "ThemeDto": {
+        "type": "object",
+        "description": "An installed theme package.",
+        "required": [
+          "id",
+          "name",
+          "packageVersion",
+          "author",
+          "sdkVersion",
+          "colorScheme",
+          "styleUrl",
+          "slots",
+          "network",
+          "settings",
+          "claudeTheme",
+          "installedAt",
+          "updatedAt",
+          "version"
+        ],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "claudeTheme": {
+            "type": "boolean",
+            "description": "Whether the package brings a theme for Claude Code."
+          },
+          "colorScheme": {
+            "$ref": "#/components/schemas/ColorSchemeDto"
+          },
+          "id": {
+            "type": "string"
+          },
+          "installedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "network": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains the theme may load from."
+          },
+          "packageVersion": {
+            "type": "string",
+            "description": "Version of the theme itself, a semver version."
+          },
+          "previewUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of the preview image."
+          },
+          "sdkVersion": {
+            "type": "string",
+            "description": "Range of SDK versions the theme runs with."
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThemeSettingDto"
+            }
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "startColor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "styleUrl": {
+            "type": "string",
+            "description": "URL of the stylesheet the UI links while the theme is chosen."
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Row version for deleting."
+          }
+        }
+      },
+      "ThemeListDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "string",
+            "description": "The chosen theme: a built-in one (`nullradix`, `system`, `light`, `dark`) or an installed id."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThemeDto"
+            },
+            "description": "Installed themes sorted by id."
+          }
+        }
+      },
+      "ThemeOptionDto": {
+        "type": "object",
+        "required": [
+          "value",
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "ThemeSettingDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "label",
+              "default",
+              "type"
+            ],
+            "properties": {
+              "default": {
+                "type": "boolean"
+              },
+              "hint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "boolean"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "label",
+              "options",
+              "default",
+              "type"
+            ],
+            "properties": {
+              "default": {
+                "type": "string"
+              },
+              "hint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ThemeOptionDto"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "select"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A setting the theme offers."
       },
       "TicketDetailDto": {
         "type": "object",

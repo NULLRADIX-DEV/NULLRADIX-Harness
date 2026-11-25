@@ -23,9 +23,11 @@ pub(crate) async fn no_store_for_api(request: Request, next: Next) -> Response {
     let api = request.uri().path().starts_with(API_PREFIX);
     let mut response = next.run(request).await;
     if api {
+        // a handler may choose its own policy, as theme files do
         response
             .headers_mut()
-            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            .entry(header::CACHE_CONTROL)
+            .or_insert(HeaderValue::from_static("no-store"));
     }
     response
 }

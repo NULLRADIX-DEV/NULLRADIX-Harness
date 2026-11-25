@@ -852,6 +852,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/theme": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["choose_theme"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/themes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_themes"];
+        put?: never;
+        post: operations["install_theme"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/themes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_theme"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/themes/{id}/files/{*path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["theme_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets": {
         parameters: {
             query?: never;
@@ -1287,6 +1351,10 @@ export interface components {
             /** Format: uuid */
             runnerId: string;
         };
+        ChooseTheme: {
+            /** @description A built-in theme or the id of an installed one. */
+            theme: string;
+        };
         ClaimPlanning: {
             agent: string;
         };
@@ -1312,6 +1380,8 @@ export interface components {
             path: string;
             removed: boolean;
         };
+        /** @enum {string} */
+        ColorSchemeDto: "light" | "dark";
         /**
          * @description A board column: the statuses plus waiting, which open dependencies derive.
          * @enum {string}
@@ -1453,7 +1523,7 @@ export interface components {
             reason?: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account" | "theme" | "setting" | "customization";
         /** @description A marked session; its state is the live one while the session still exists. */
         FavoriteDto: {
             /** @description Shell command that resumes the session in its folder. */
@@ -1486,6 +1556,11 @@ export interface components {
         FavoriteList: {
             /** @description Latest marked first. */
             items: components["schemas"]["FavoriteDto"][];
+        };
+        /** @description One refused field of an input; lists carry the index, such as `slots[1]`. */
+        FieldProblemDto: {
+            field: string;
+            message: string;
         };
         /** @description Diff of one file, cut to 5000 lines. */
         FileDiffDto: {
@@ -1819,6 +1894,8 @@ export interface components {
         Problem: {
             code: string;
             detail: string;
+            /** @description Refused fields of the input, for `theme-manifest-invalid`. */
+            errors?: components["schemas"]["FieldProblemDto"][];
             /** @description Key of the entity that already exists, such as `ARC-0007` for a duplicate ticket. */
             existing?: string | null;
             /** @description Notes that already describe the finding, for `note-similar`; most similar first. */
@@ -2232,6 +2309,64 @@ export interface components {
             branch: string;
             /** @description Such as `origin/release`, or the branch or commit of the main checkout. */
             from: string;
+        };
+        /** @description An installed theme package. */
+        ThemeDto: {
+            author: string;
+            /** @description Whether the package brings a theme for Claude Code. */
+            claudeTheme: boolean;
+            colorScheme: components["schemas"]["ColorSchemeDto"];
+            id: string;
+            /** Format: int64 */
+            installedAt: number;
+            name: string;
+            /** @description Domains the theme may load from. */
+            network: string[];
+            /** @description Version of the theme itself, a semver version. */
+            packageVersion: string;
+            /** @description URL of the preview image. */
+            previewUrl?: string | null;
+            /** @description Range of SDK versions the theme runs with. */
+            sdkVersion: string;
+            settings: components["schemas"]["ThemeSettingDto"][];
+            slots: string[];
+            startColor?: string | null;
+            /** @description URL of the stylesheet the UI links while the theme is chosen. */
+            styleUrl: string;
+            /** Format: int64 */
+            updatedAt: number;
+            /**
+             * Format: int64
+             * @description Row version for deleting.
+             */
+            version: number;
+        };
+        ThemeListDto: {
+            /** @description The chosen theme: a built-in one (`nullradix`, `system`, `light`, `dark`) or an installed id. */
+            active: string;
+            /** @description Installed themes sorted by id. */
+            items: components["schemas"]["ThemeDto"][];
+        };
+        ThemeOptionDto: {
+            label: string;
+            value: string;
+        };
+        /** @description A setting the theme offers. */
+        ThemeSettingDto: {
+            default: boolean;
+            hint?: string | null;
+            key: string;
+            label: string;
+            /** @enum {string} */
+            type: "boolean";
+        } | {
+            default: string;
+            hint?: string | null;
+            key: string;
+            label: string;
+            options: components["schemas"]["ThemeOptionDto"][];
+            /** @enum {string} */
+            type: "select";
         };
         TicketDetailDto: {
             /** @description Oldest first. */
@@ -5967,6 +6102,233 @@ export interface operations {
                 };
             };
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    choose_theme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChooseTheme"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChooseTheme"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not built in and not installed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_themes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeListDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    install_theme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A `.nullradix` theme package, a zip archive */
+        requestBody: {
+            content: {
+                "application/octet-stream": number[];
+            };
+        };
+        responses: {
+            /** @description Replaced the installed theme with the same id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeDto"];
+                };
+            };
+            /** @description Installed */
+            201: {
+                headers: {
+                    /** @description URL of the stylesheet */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a valid package: `theme-package-invalid`, `theme-manifest-invalid` with the refused fields, or `theme-id-reserved` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    remove_theme: {
+        parameters: {
+            query: {
+                /** @description Version the removal is based on. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                /** @description Theme id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Uninstalled; when it was chosen the default takes over */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    theme_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Theme id. */
+                id: string;
+                /** @description Path of the file inside the package. */
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such file inside the installed theme */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

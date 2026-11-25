@@ -4,17 +4,18 @@ use std::time::Duration;
 use nullradix_api::{
     API_PREFIX, API_VERSION, AcceptTicket, AccountDto, AccountList, AccountLoginDto,
     AccountStatusList, AddComment, AddQuestionComment, AddStep, AnswerQuestion, BoardDeleted,
-    BoardDto, BoardList, ChangeStep, ClaimPlanning, ClaimSession, ClaimTicket, CommentDto,
-    CommentList, CreateAccount, CreateAccountLogin, CreateBoard, CreateNote, CreateProject,
-    CreateQuestion, CreateTicket, DecideQuestion, DropNote, FavoriteDto, FavoriteList, FileDiffDto,
-    FinishTicket, FinishedTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto,
-    HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite, MoveStep, MoveTicket, NextPlanning,
-    NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList, PromoteNote,
-    PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard,
-    RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SeenNote,
-    SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository, SetRunToken,
-    StartLogin, StartRun, StartTicket, StartedTicket, TicketDetailDto, TicketDto, TicketList,
-    TranscriptPageDto, UpdateAccount, UpdateTicket, WritePlan,
+    BoardDto, BoardList, ChangeStep, ChooseTheme, ClaimPlanning, ClaimSession, ClaimTicket,
+    CommentDto, CommentList, CreateAccount, CreateAccountLogin, CreateBoard, CreateNote,
+    CreateProject, CreateQuestion, CreateTicket, DecideQuestion, DropNote, FavoriteDto,
+    FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto,
+    HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite,
+    MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto,
+    ProjectList, PromoteNote, PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList,
+    ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto, RunList, RunOutput,
+    RunnerList, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList,
+    SetBoardRepository, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, ThemeDto,
+    ThemeListDto, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateAccount,
+    UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -463,6 +464,52 @@ impl Client {
             .call()
             .map_err(|source| self.unreachable(source))?;
         decode(&mut response, 200)
+    }
+
+    /// Installed themes and the chosen one.
+    pub fn list_themes(&self) -> Result<ThemeListDto, ClientError> {
+        self.get_json("/themes")
+    }
+
+    /// Installs a `.nullradix` package, or replaces the theme with the same id.
+    pub fn install_theme(&self, package: &[u8]) -> Result<ThemeDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/themes"))
+            .header("Authorization", &self.authorization()?)
+            .header("Content-Type", "application/octet-stream")
+            .send(package)
+            .map_err(|source| self.unreachable(source))?;
+        let expected = if response.status().as_u16() == 200 {
+            200
+        } else {
+            201
+        };
+        decode(&mut response, expected)
+    }
+
+    /// Chooses a built-in or an installed theme.
+    pub fn choose_theme(&self, theme: &str) -> Result<ChooseTheme, ClientError> {
+        let input = ChooseTheme {
+            theme: theme.to_owned(),
+        };
+        let mut response = self
+            .agent
+            .put(&self.url("/settings/theme"))
+            .header("Authorization", &self.authorization()?)
+            .send_json(&input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn remove_theme(&self, id: &str, version: i64) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!("/themes/{}?version={version}", segment(id))))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
     }
 
     /// Favorites, latest marked first; only those of `repository` when given.
@@ -1135,6 +1182,20 @@ mod tests {
         ))
     }
 
+    fn theme_service(
+        store: &Arc<Store>,
+        signal: &ChangeSignal,
+    ) -> Arc<nullradix_app::themes::ThemeService> {
+        Arc::new(nullradix_app::themes::ThemeService::new(
+            store.clone(),
+            Arc::new(nullradix_app::themes::UnavailableFiles),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ))
+    }
+
+    #[allow(clippy::too_many_lines, reason = "wires every service")]
     async fn test_state(ready: std::sync::mpsc::Sender<Secret>) -> ApiState {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
@@ -1226,6 +1287,7 @@ mod tests {
             hooks,
             sessions,
             favorites,
+            themes: theme_service(&store, &signal),
             changes: store,
             signal,
             shutdown: tokio_util::sync::CancellationToken::new(),
