@@ -324,6 +324,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dispatcher/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_dispatch_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -852,6 +868,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{id}/screenshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_screenshots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{id}/screenshots/{screenshot}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["screenshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{id}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["run_transcript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -1304,6 +1368,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        AbortCategoryDto: "timeout" | "max-turns" | "context" | "exit-code" | "claude-error" | "usage-limit" | "start-failed" | "vanished";
+        AbortDto: {
+            category: components["schemas"]["AbortCategoryDto"];
+            reason: string;
+        };
         AcceptTicket: {
             /** Format: int64 */
             version?: number | null;
@@ -1719,6 +1789,11 @@ export interface components {
             /** @description Own answer instead of an option. */
             text?: string | null;
         };
+        DeniedToolDto: {
+            /** Format: int32 */
+            count: number;
+            tool: string;
+        };
         DiffHunkDto: {
             /** @description Such as `@@ -1,3 +1,4 @@`. */
             header: string;
@@ -1731,6 +1806,18 @@ export interface components {
         };
         /** @enum {string} */
         DiffLineKindDto: "add" | "remove" | "context";
+        /** @description Purpose and settings of a Claude run of the dispatcher. */
+        DispatchDto: {
+            /** Format: uuid */
+            accountId?: string | null;
+            /** @description Hash of the dispatcher configuration the run started with. */
+            configHash: string;
+            kind: components["schemas"]["RunKindDto"];
+            profile: components["schemas"]["RunProfileDto"];
+            /** @description Key of the ticket, or of the question for research; kept when it is deleted. */
+            subjectKey?: string | null;
+            trigger: components["schemas"]["RunTriggerDto"];
+        };
         /** @description The dispatcher's whole configuration; a save replaces all of it. */
         DispatcherConfigDto: {
             /** Format: int64 */
@@ -2052,6 +2139,11 @@ export interface components {
         };
         /** @enum {string} */
         JoinWorktreesDto: "none" | "same-spec";
+        /**
+         * @description What a log line is about.
+         * @enum {string}
+         */
+        LineKindDto: "start" | "say" | "read" | "edit" | "search" | "test" | "run" | "todo" | "tool" | "ok" | "fail" | "done" | "abort" | "raw";
         /** @description The code the browser shows after logging in. */
         LoginCode: {
             /** Format: password */
@@ -2079,6 +2171,19 @@ export interface components {
         };
         /** @enum {string} */
         MergeStrategyDto: "merge" | "squash";
+        ModelUsageDto: {
+            /** Format: int64 */
+            cacheReadTokens?: number | null;
+            /** Format: int64 */
+            cacheWriteTokens?: number | null;
+            /** Format: double */
+            costUsd?: number | null;
+            /** Format: int64 */
+            inputTokens?: number | null;
+            model: string;
+            /** Format: int64 */
+            outputTokens?: number | null;
+        };
         /** @description A move of one step to another number. */
         MoveStep: {
             expectText?: string | null;
@@ -2535,10 +2640,21 @@ export interface components {
             profile: string;
             when: components["schemas"]["RuleConditionDto"];
         };
+        /** @description A run with its prompt, call and the rows that belong to it. */
+        RunDetailDto: components["schemas"]["RunDto"] & {
+            /** @description Arguments after the program, as the run was started. */
+            args: string[];
+            /** @description Working folder of a Claude run. */
+            cwd?: string | null;
+            deniedTools: components["schemas"]["DeniedToolDto"][];
+            prompt?: string | null;
+            screenshots: components["schemas"]["ScreenshotDto"][];
+        };
         /** @description A run as the API shows it; timestamps are Unix milliseconds. */
         RunDto: {
             /** Format: int64 */
             createdAt: number;
+            dispatch?: components["schemas"]["DispatchDto"] | null;
             error?: string | null;
             /** Format: int32 */
             exitCode?: number | null;
@@ -2547,12 +2663,18 @@ export interface components {
             /** Format: uuid */
             id: string;
             label: string;
+            result?: components["schemas"]["RunResultDto"] | null;
             /** Format: int64 */
             startedAt?: number | null;
             status: components["schemas"]["RunStatusDto"];
             /** Format: int64 */
             version: number;
         };
+        /**
+         * @description What a run does.
+         * @enum {string}
+         */
+        RunKindDto: "work" | "merge" | "research" | "plan";
         RunList: {
             items: components["schemas"]["RunDto"][];
         };
@@ -2561,8 +2683,54 @@ export interface components {
             finished: boolean;
             lines: components["schemas"]["OutputLineDto"][];
         };
+        /** @description The profile a run started with, as it was then. */
+        RunProfileDto: {
+            effort?: string | null;
+            /**
+             * Format: uuid
+             * @description Gone when the profile was deleted since.
+             */
+            id?: string | null;
+            /** Format: int32 */
+            maxTurns: number;
+            model?: string | null;
+            name: string;
+            /** Format: int32 */
+            timeoutMinutes: number;
+        };
+        /** @description What the dispatcher read from the output of a finished run. */
+        RunResultDto: {
+            abort?: components["schemas"]["AbortDto"] | null;
+            claudeSessionId?: string | null;
+            /**
+             * Format: int32
+             * @description Tool calls Claude Code refused; empty without a result to count them in.
+             */
+            deniedCount?: number | null;
+            usage?: components["schemas"]["RunUsageDto"] | null;
+        };
         /** @enum {string} */
         RunStatusDto: "starting" | "running" | "succeeded" | "failed" | "cancelled" | "timed-out" | "lost";
+        /** @enum {string} */
+        RunTriggerDto: "dispatcher" | "manual";
+        /** @description Cost and tokens Claude reported for a run. */
+        RunUsageDto: {
+            /** Format: int64 */
+            cacheReadTokens?: number | null;
+            /** Format: int64 */
+            cacheWriteTokens?: number | null;
+            /** Format: double */
+            costUsd?: number | null;
+            /** Format: int64 */
+            inputTokens?: number | null;
+            /** @description The model that cost the most. */
+            model?: string | null;
+            models: components["schemas"]["ModelUsageDto"][];
+            /** Format: int64 */
+            numTurns?: number | null;
+            /** Format: int64 */
+            outputTokens?: number | null;
+        };
         /** @description A machine that checks out repositories. */
         RunnerDto: {
             /** Format: uuid */
@@ -2577,6 +2745,20 @@ export interface components {
         };
         /** @enum {string} */
         RunnerOsDto: "windows" | "linux" | "macos";
+        ScreenshotDto: {
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: uuid */
+            id: string;
+            mediaType: string;
+            /** @description The tool call that took it. */
+            toolUseId?: string | null;
+        };
+        ScreenshotList: {
+            items: components["schemas"]["ScreenshotDto"][];
+        };
         /** @description The finding stood out again. */
         SeenNote: {
             /** @description Key of the ticket it stood out at. */
@@ -2710,6 +2892,17 @@ export interface components {
         };
         /** @enum {string} */
         SourceDto: "custom" | "standard";
+        /** @description A Claude run to start from the dispatcher configuration; the scheduler uses the same use case. */
+        StartDispatchRunBody: {
+            /** @description Absolute working directory on the daemon's machine. */
+            cwd: string;
+            kind: components["schemas"]["RunKindDto"];
+            /** @description A profile by name; none takes the one of the kind, else the default. */
+            profile?: string | null;
+            prompt: string;
+            /** @description Ticket key, or question key for research runs. */
+            subjectKey: string;
+        };
         StartLogin: {
             /** @description Filled into the login page of the browser. */
             email?: string | null;
@@ -2949,6 +3142,16 @@ export interface components {
             text: string;
             truncated: boolean;
         };
+        TranscriptDto: {
+            /** @description The run ended and no output is left. */
+            finished: boolean;
+            /**
+             * Format: int64
+             * @description The last output line read; ask for lines after it.
+             */
+            lastSeq: number;
+            lines: components["schemas"]["TranscriptLineDto"][];
+        };
         /** @description One transcript entry; a later page repeating an id replaces the entry. */
         TranscriptEntryDto: {
             at: string;
@@ -2994,6 +3197,20 @@ export interface components {
             path?: string | null;
             /** Format: int64 */
             sizeBytes?: number | null;
+        };
+        /** @description One readable line of the run log. */
+        TranscriptLineDto: {
+            /** @description The exact call or the whole message when the text is cut. */
+            detail?: string | null;
+            kind: components["schemas"]["LineKindDto"];
+            /** @description Id of the tool call, on a call and on its result. */
+            reference?: string | null;
+            /**
+             * Format: int64
+             * @description The output line it came from.
+             */
+            seq: number;
+            text: string;
         };
         TranscriptPageDto: {
             available: boolean;
@@ -4570,6 +4787,74 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    start_dispatch_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartDispatchRunBody"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the new run */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Browser sessions cannot start runs */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The ticket or question does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner could not start it */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6584,6 +6869,16 @@ export interface operations {
             query?: {
                 /** @description Newest runs first, at most 500. */
                 limit?: number;
+                /** @description Only runs about this ticket, such as `ARC-0042`. */
+                ticketKey?: string;
+                /** @description Only runs about this question, such as `ARC-Q0007`. */
+                questionKey?: string;
+                /** @description Only runs of this kind. */
+                kind?: components["schemas"]["RunKindDto"];
+                /** @description Only the run of this Claude Code session, together with `runId`. */
+                sessionId?: string;
+                /** @description With `sessionId`: the run that started the session. */
+                runId?: string;
             };
             header?: never;
             path?: never;
@@ -6600,6 +6895,14 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6685,7 +6988,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunDto"];
+                    "application/json": components["schemas"]["RunDetailDto"];
                 };
             };
             401: {
@@ -6796,6 +7099,168 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_screenshots: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    screenshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run id. */
+                id: string;
+                /** @description Screenshot id. */
+                screenshot: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    run_transcript: {
+        parameters: {
+            query?: {
+                /** @description Read output lines after this sequence number. */
+                after?: number;
+                /** @description At most this many output lines, up to 1000. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

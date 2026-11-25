@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
+import { sessionRunQuery } from '../runs/dispatchQueries';
+import { RunView } from '../runs/RunView';
 import { ChangesView } from './ChangesView';
 import { formatDuration, sessionRuntime, sessionTitle, withLiveState } from './format';
 import { useRefreshChangesOnGrowth } from './liveChanges';
@@ -11,7 +13,13 @@ import { TranscriptView } from './TranscriptView';
 import { useTranscript } from './transcript';
 import { useNow } from '../../shared/lib/useNow';
 
-type Tab = 'transcript' | 'changes';
+type Tab = 'transcript' | 'changes' | 'run';
+
+const TAB_LABELS: Readonly<Record<Tab, string>> = {
+  transcript: 'Transcript',
+  changes: 'Changes',
+  run: 'Run',
+};
 
 export const CLIENT_LABELS: Readonly<Record<SessionClient, string>> = {
   nullradix: 'NULLRADIX',
@@ -115,6 +123,9 @@ function Detail({
   const now = useNow(true);
   const { transcript, retry } = useTranscript(sessionId, version);
   const session = withLiveState(detail.session, now);
+  const { data: run } = useQuery(sessionRunQuery(sessionId, session.runName));
+  const tabs: Tab[] = run ? ['transcript', 'changes', 'run'] : ['transcript', 'changes'];
+  const shown = tabs.includes(tab) ? tab : 'transcript';
   return (
     <>
       <div className="sd-kicker">
@@ -129,31 +140,31 @@ function Detail({
       <Facts detail={detail} now={now} />
       <Todos detail={detail} />
       <div role="tablist" aria-label="Session detail" className="sd-tabs">
-        {(['transcript', 'changes'] as const).map((name) => (
+        {tabs.map((name) => (
           <button
             key={name}
             type="button"
             role="tab"
-            aria-selected={tab === name}
-            className={tab === name ? 'btn small on' : 'btn small'}
+            aria-selected={shown === name}
+            className={shown === name ? 'btn small on' : 'btn small'}
             onClick={() => {
               setTab(name);
             }}
           >
-            {name === 'transcript' ? 'Transcript' : 'Changes'}
+            {TAB_LABELS[name]}
           </button>
         ))}
       </div>
       <div role="tabpanel" className="sd-panel">
-        {tab === 'transcript' ? (
+        {shown === 'transcript' && (
           <TranscriptView
             transcript={transcript}
             running={session.displayState === 'running'}
             onRetry={retry}
           />
-        ) : (
-          <ChangesView sessionId={sessionId} />
         )}
+        {shown === 'changes' && <ChangesView sessionId={sessionId} />}
+        {shown === 'run' && run && <RunView run={run} defaultOpen />}
       </div>
     </>
   );

@@ -1824,6 +1824,96 @@
         }
       }
     },
+    "/api/v1/dispatcher/runs": {
+      "post": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "start_dispatch_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartDispatchRunBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the new run"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Browser sessions cannot start runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The ticket or question does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner could not start it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/events": {
       "get": {
         "tags": [
@@ -4525,6 +4615,52 @@
               "format": "int32",
               "minimum": 0
             }
+          },
+          {
+            "name": "ticketKey",
+            "in": "query",
+            "description": "Only runs about this ticket, such as `ARC-0042`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "questionKey",
+            "in": "query",
+            "description": "Only runs about this question, such as `ARC-Q0007`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Only runs of this kind.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RunKindDto"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "query",
+            "description": "Only the run of this Claude Code session, together with `runId`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "query",
+            "description": "With `sessionId`: the run that started the session.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -4538,6 +4674,15 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -4650,7 +4795,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RunDto"
+                  "$ref": "#/components/schemas/RunDetailDto"
                 }
               }
             }
@@ -4804,6 +4949,235 @@
             }
           },
           "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/screenshots": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "list_screenshots",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenshotList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/screenshots/{screenshot}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "screenshot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "screenshot",
+            "in": "path",
+            "description": "Screenshot id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The image",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/transcript": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "run_transcript",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Read output lines after this sequence number.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "At most this many output lines, up to 1000.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -7331,6 +7705,34 @@
   },
   "components": {
     "schemas": {
+      "AbortCategoryDto": {
+        "type": "string",
+        "enum": [
+          "timeout",
+          "max-turns",
+          "context",
+          "exit-code",
+          "claude-error",
+          "usage-limit",
+          "start-failed",
+          "vanished"
+        ]
+      },
+      "AbortDto": {
+        "type": "object",
+        "required": [
+          "category",
+          "reason"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/AbortCategoryDto"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "AcceptTicket": {
         "type": "object",
         "properties": {
@@ -8676,6 +9078,23 @@
           }
         }
       },
+      "DeniedToolDto": {
+        "type": "object",
+        "required": [
+          "tool",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tool": {
+            "type": "string"
+          }
+        }
+      },
       "DiffHunkDto": {
         "type": "object",
         "required": [
@@ -8718,6 +9137,45 @@
           "remove",
           "context"
         ]
+      },
+      "DispatchDto": {
+        "type": "object",
+        "description": "Purpose and settings of a Claude run of the dispatcher.",
+        "required": [
+          "kind",
+          "trigger",
+          "profile",
+          "configHash"
+        ],
+        "properties": {
+          "accountId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "configHash": {
+            "type": "string",
+            "description": "Hash of the dispatcher configuration the run started with."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RunKindDto"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/RunProfileDto"
+          },
+          "subjectKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Key of the ticket, or of the question for research; kept when it is deleted."
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/RunTriggerDto"
+          }
+        }
       },
       "DispatcherConfigDto": {
         "type": "object",
@@ -9731,6 +10189,26 @@
           "same-spec"
         ]
       },
+      "LineKindDto": {
+        "type": "string",
+        "description": "What a log line is about.",
+        "enum": [
+          "start",
+          "say",
+          "read",
+          "edit",
+          "search",
+          "test",
+          "run",
+          "todo",
+          "tool",
+          "ok",
+          "fail",
+          "done",
+          "abort",
+          "raw"
+        ]
+      },
       "LoginCode": {
         "type": "object",
         "description": "The code the browser shows after logging in.",
@@ -9813,6 +10291,52 @@
           "merge",
           "squash"
         ]
+      },
+      "ModelUsageDto": {
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "cacheReadTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "cacheWriteTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "inputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "model": {
+            "type": "string"
+          },
+          "outputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
       },
       "MoveStep": {
         "type": "object",
@@ -11260,6 +11784,56 @@
         },
         "additionalProperties": false
       },
+      "RunDetailDto": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RunDto"
+          },
+          {
+            "type": "object",
+            "required": [
+              "args",
+              "deniedTools",
+              "screenshots"
+            ],
+            "properties": {
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments after the program, as the run was started."
+              },
+              "cwd": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Working folder of a Claude run."
+              },
+              "deniedTools": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DeniedToolDto"
+                }
+              },
+              "prompt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "screenshots": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ScreenshotDto"
+                }
+              }
+            }
+          }
+        ],
+        "description": "A run with its prompt, call and the rows that belong to it."
+      },
       "RunDto": {
         "type": "object",
         "description": "A run as the API shows it; timestamps are Unix milliseconds.",
@@ -11274,6 +11848,17 @@
           "createdAt": {
             "type": "integer",
             "format": "int64"
+          },
+          "dispatch": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DispatchDto",
+                "description": "Purpose and settings of a Claude run of the dispatcher; none for a plain command."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "error": {
             "type": [
@@ -11302,6 +11887,17 @@
           "label": {
             "type": "string"
           },
+          "result": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RunResultDto",
+                "description": "What was read from the output once a Claude run ended."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "startedAt": {
             "type": [
               "integer",
@@ -11317,6 +11913,16 @@
             "format": "int64"
           }
         }
+      },
+      "RunKindDto": {
+        "type": "string",
+        "description": "What a run does.",
+        "enum": [
+          "work",
+          "merge",
+          "research",
+          "plan"
+        ]
       },
       "RunList": {
         "type": "object",
@@ -11351,6 +11957,91 @@
           }
         }
       },
+      "RunProfileDto": {
+        "type": "object",
+        "description": "The profile a run started with, as it was then.",
+        "required": [
+          "name",
+          "maxTurns",
+          "timeoutMinutes"
+        ],
+        "properties": {
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Gone when the profile was deleted since."
+          },
+          "maxTurns": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "timeoutMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "RunResultDto": {
+        "type": "object",
+        "description": "What the dispatcher read from the output of a finished run.",
+        "properties": {
+          "abort": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AbortDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "claudeSessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deniedCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Tool calls Claude Code refused; empty without a result to count them in.",
+            "minimum": 0
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RunUsageDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "RunStatusDto": {
         "type": "string",
         "enum": [
@@ -11362,6 +12053,77 @@
           "timed-out",
           "lost"
         ]
+      },
+      "RunTriggerDto": {
+        "type": "string",
+        "enum": [
+          "dispatcher",
+          "manual"
+        ]
+      },
+      "RunUsageDto": {
+        "type": "object",
+        "description": "Cost and tokens Claude reported for a run.",
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "cacheReadTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "cacheWriteTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "inputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model that cost the most."
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelUsageDto"
+            }
+          },
+          "numTurns": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "outputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
       },
       "RunnerDto": {
         "type": "object",
@@ -11410,6 +12172,54 @@
           "linux",
           "macos"
         ]
+      },
+      "ScreenshotDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "mediaType",
+          "bytes",
+          "createdAt"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "toolUseId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tool call that took it."
+          }
+        }
+      },
+      "ScreenshotList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScreenshotDto"
+            }
+          }
+        }
       },
       "SeenNote": {
         "type": "object",
@@ -11809,6 +12619,40 @@
           "custom",
           "standard"
         ]
+      },
+      "StartDispatchRunBody": {
+        "type": "object",
+        "description": "A Claude run to start from the dispatcher configuration; the scheduler uses the same use case.",
+        "required": [
+          "kind",
+          "subjectKey",
+          "prompt",
+          "cwd"
+        ],
+        "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Absolute working directory on the daemon's machine."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RunKindDto"
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A profile by name; none takes the one of the kind, else the default."
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "subjectKey": {
+            "type": "string",
+            "description": "Ticket key, or question key for research runs."
+          }
+        },
+        "additionalProperties": false
       },
       "StartLogin": {
         "type": "object",
@@ -12646,6 +13490,31 @@
           }
         }
       },
+      "TranscriptDto": {
+        "type": "object",
+        "required": [
+          "lines",
+          "lastSeq",
+          "finished"
+        ],
+        "properties": {
+          "finished": {
+            "type": "boolean",
+            "description": "The run ended and no output is left."
+          },
+          "lastSeq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The last output line read; ask for lines after it."
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptLineDto"
+            }
+          }
+        }
+      },
       "TranscriptEntryDto": {
         "oneOf": [
           {
@@ -12838,6 +13707,42 @@
             ],
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "TranscriptLineDto": {
+        "type": "object",
+        "description": "One readable line of the run log.",
+        "required": [
+          "seq",
+          "kind",
+          "text"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The exact call or the whole message when the text is cut."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LineKindDto"
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Id of the tool call, on a call and on its result."
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The output line it came from."
+          },
+          "text": {
+            "type": "string"
           }
         }
       },

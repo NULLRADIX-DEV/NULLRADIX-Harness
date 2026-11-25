@@ -8,6 +8,10 @@ import { recheckSession } from '../session/queries';
 
 export type Run = components['schemas']['RunDto'];
 export type RunStatus = components['schemas']['RunStatusDto'];
+export type Dispatch = components['schemas']['DispatchDto'];
+export type RunKind = components['schemas']['RunKindDto'];
+export type AbortCategory = components['schemas']['AbortCategoryDto'];
+export type RunUsage = components['schemas']['RunUsageDto'];
 export type OutputLine = components['schemas']['OutputLineDto'];
 
 export const RUN_LIST_LIMIT = 50;

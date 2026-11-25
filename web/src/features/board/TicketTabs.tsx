@@ -1,4 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { ticketRunsQuery } from '../runs/dispatchQueries';
+import { TicketRuns } from '../runs/TicketRuns';
 import type { TicketDetail } from '../tickets/queries';
 import { TextTab, type TextField } from './TextTab';
 import { TicketComments } from './TicketComments';
@@ -6,7 +9,7 @@ import { TicketHistory } from './TicketHistory';
 import { TicketSteps } from './TicketSteps';
 import type { TicketActions } from './useTicketActions';
 
-type TabKey = TextField | 'steps' | 'comments' | 'history';
+type TabKey = TextField | 'steps' | 'comments' | 'runs' | 'history';
 
 interface Tab {
   key: TabKey;
@@ -25,6 +28,7 @@ const TEXTS: Readonly<Record<TextField, { label: string; empty: string }>> = {
 // Content of a ticket in tabs; every panel stays mounted so open drafts survive a switch.
 export function TicketTabs({ detail, actions }: { detail: TicketDetail; actions: TicketActions }) {
   const { ticket, steps, history, comments } = detail;
+  const { data: runs = [] } = useQuery(ticketRunsQuery(ticket.key));
   const [active, setActive] = useState<TabKey>('description');
   const buttons = useRef(new Map<TabKey, HTMLButtonElement>());
   const id = useId();
@@ -59,6 +63,12 @@ export function TicketTabs({ detail, actions }: { detail: TicketDetail; actions:
       label: `Comments (${String(comments.length)})`,
       filled: false,
       content: <TicketComments comments={comments} actions={actions} />,
+    },
+    {
+      key: 'runs',
+      label: runs.length > 0 ? `Runs (${String(runs.length)})` : 'Runs',
+      filled: false,
+      content: <TicketRuns ticketKey={ticket.key} />,
     },
     {
       key: 'history',
