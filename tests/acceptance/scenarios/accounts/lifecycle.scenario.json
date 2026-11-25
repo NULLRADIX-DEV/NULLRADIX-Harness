@@ -1,0 +1,99 @@
+{
+  "title": "Accounts are added, limited, disabled, given a token that never shows, and removed",
+  "steps": [
+    { "name": "list in the CLI", "cli": { "args": ["account", "list"] } },
+    {
+      "name": "add over HTTP",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts",
+        "body": { "name": "Max (private)" }
+      },
+      "save": { "max": "json.id" }
+    },
+    { "name": "add in the CLI", "cli": { "args": ["account", "add", "Work"] } },
+    {
+      "name": "add with a relative folder",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts",
+        "body": { "name": "Odd", "configDir": "relative/folder" }
+      }
+    },
+    { "name": "list over HTTP", "http": { "method": "GET", "path": "/api/v1/accounts" } },
+    {
+      "name": "set limits in the CLI",
+      "cli": {
+        "args": ["account", "set", "max-private", "--limit-five-hour", "50", "--limit-week", "80"]
+      }
+    },
+    {
+      "name": "update with a stale version",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/accounts/{{max}}",
+        "body": { "version": 1, "name": "Max stale" }
+      }
+    },
+    {
+      "name": "update a limit out of range",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/accounts/{{max}}",
+        "body": { "version": 2, "limitWeek": 101 }
+      }
+    },
+    {
+      "name": "remove a limit and make it a fallback",
+      "cli": {
+        "args": ["account", "set", "max-private", "--limit-week", "none", "--fallback", "true"]
+      }
+    },
+    {
+      "name": "disable in the CLI",
+      "cli": { "args": ["account", "disable", "max-private"] }
+    },
+    {
+      "name": "enable in the CLI",
+      "cli": { "args": ["account", "enable", "max-private"] }
+    },
+    {
+      "name": "disable once more",
+      "cli": { "args": ["account", "disable", "max-private"] }
+    },
+    {
+      "name": "set a token from standard input",
+      "cli": {
+        "args": ["account", "token", "set", "max-private"],
+        "stdin": "sk-ant-oat01-acceptance-fake-token\n"
+      }
+    },
+    {
+      "name": "refuse a token of the wrong shape",
+      "cli": {
+        "args": ["account", "token", "set", "work"],
+        "stdin": "not-a-run-token\n"
+      }
+    },
+    {
+      "name": "token body missing",
+      "http": { "method": "PUT", "path": "/api/v1/accounts/{{max}}/run-token", "body": {} }
+    },
+    {
+      "name": "list shows the token as set",
+      "http": { "method": "GET", "path": "/api/v1/accounts" }
+    },
+    { "name": "clear the token", "cli": { "args": ["account", "token", "clear", "max-private"] } },
+    { "name": "remove the default account", "cli": { "args": ["account", "remove", "default"] } },
+    { "name": "remove an unknown account", "cli": { "args": ["account", "remove", "nobody"] } },
+    {
+      "name": "remove with its folder",
+      "cli": { "args": ["account", "remove", "max-private", "--delete-dir"] }
+    },
+    {
+      "name": "delete again over HTTP",
+      "http": { "method": "DELETE", "path": "/api/v1/accounts/{{max}}?version=1" }
+    },
+    { "name": "list at the end", "http": { "method": "GET", "path": "/api/v1/accounts" } }
+  ]
+}

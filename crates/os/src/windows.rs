@@ -11,7 +11,25 @@ use std::process::{Child, Command};
 use std::ptr;
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, GetLastError, INVALID_HANDLE_VALUE,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_NOT_FOUND, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
+    LocalFree,
+};
+#[cfg(test)]
+use windows_sys::Win32::Security::Authorization::{
+    ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW,
+};
+use windows_sys::Win32::Security::Authorization::{
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    SE_FILE_OBJECT, SetNamedSecurityInfoW,
+};
+use windows_sys::Win32::Security::Credentials::{
+    CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree, CredReadW,
+    CredWriteW,
+};
+use windows_sys::Win32::Security::{
+    ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, GetTokenInformation,
+    OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
@@ -23,9 +41,9 @@ use windows_sys::Win32::System::JobObjects::{
 };
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED,
-    CreateProcessW, DETACHED_PROCESS, GetExitCodeProcess, OpenProcess, OpenThread,
-    PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
-    STARTUPINFOW, THREAD_SUSPEND_RESUME,
+    CreateProcessW, DETACHED_PROCESS, GetCurrentProcess, GetExitCodeProcess, OpenProcess,
+    OpenProcessToken, OpenThread, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+    ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOW, THREAD_SUSPEND_RESUME,
 };
 
 const STILL_ACTIVE: u32 = 259;
@@ -248,6 +266,282 @@ fn resume(pid: u32) -> io::Result<()> {
         return Err(io::Error::other(format!("process {pid} has no thread")));
     }
     Ok(())
+}
+
+/// Largest secret Windows keeps in one credential.
+pub(crate) const CREDENTIAL_MAX: usize = 2560;
+
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(iter::once(0)).collect()
+}
+
+/// The generic credential stored under `target`, if any.
+pub(crate) fn credential_read(target: &str) -> io::Result<Option<Vec<u8>>> {
+    let target = wide(target);
+    let mut found: *mut CREDENTIALW = ptr::null_mut();
+    // SAFETY: target is NUL-terminated and found is a valid out pointer.
+    let read = unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &raw mut found) };
+    if read == 0 {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == i32::try_from(ERROR_NOT_FOUND).ok() {
+            Ok(None)
+        } else {
+            Err(error)
+        };
+    }
+    // SAFETY: CredReadW filled found with a credential whose blob holds the stated size.
+    let blob = unsafe {
+        let credential = &*found;
+        let size = usize::try_from(credential.CredentialBlobSize).unwrap_or(0);
+        if size == 0 || credential.CredentialBlob.is_null() {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(credential.CredentialBlob, size).to_vec()
+        }
+    };
+    // SAFETY: found came from CredReadW and is freed exactly once.
+    unsafe { CredFree(found.cast::<c_void>()) };
+    Ok(Some(blob))
+}
+
+/// Stores or replaces the generic credential under `target`, kept for this machine.
+pub(crate) fn credential_write(target: &str, user: &str, secret: &[u8]) -> io::Result<()> {
+    let size = u32::try_from(secret.len())
+        .ok()
+        .filter(|_| secret.len() <= CREDENTIAL_MAX)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "secret too large"))?;
+    let mut target = wide(target);
+    let mut user = wide(user);
+    let mut blob = secret.to_vec();
+    // SAFETY: an all-zero credential is valid; the fields set below are all that is used.
+    let mut credential: CREDENTIALW = unsafe { std::mem::zeroed() };
+    credential.Type = CRED_TYPE_GENERIC;
+    credential.TargetName = target.as_mut_ptr();
+    credential.UserName = user.as_mut_ptr();
+    credential.CredentialBlobSize = size;
+    credential.CredentialBlob = blob.as_mut_ptr();
+    credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
+    // SAFETY: the credential points at buffers that outlive the call; Windows copies them.
+    let written = unsafe { CredWriteW(&raw const credential, 0) };
+    if written == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Removes the generic credential under `target`; a missing one is no error.
+pub(crate) fn credential_delete(target: &str) -> io::Result<()> {
+    let target = wide(target);
+    // SAFETY: target is NUL-terminated.
+    let deleted = unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) };
+    if deleted == 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != i32::try_from(ERROR_NOT_FOUND).ok() {
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+fn path_wide(path: &Path) -> Vec<u16> {
+    path.as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect()
+}
+
+/// The user of this process: the SID in the token, which stays the same when run elevated.
+pub(crate) struct UserSid {
+    // u64 units keep the TOKEN_USER structure aligned
+    buffer: Vec<u64>,
+    text: String,
+}
+
+impl UserSid {
+    pub(crate) fn current() -> io::Result<Self> {
+        let mut token: HANDLE = ptr::null_mut();
+        // SAFETY: the pseudo handle of this process is always valid and token is an out pointer.
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: token was just opened and is closed exactly once, whatever the outcome.
+        let token = unsafe { OwnedHandle::from_raw_handle(token) };
+        let mut needed = 0_u32;
+        // SAFETY: a null buffer of size 0 only asks for the size.
+        unsafe {
+            GetTokenInformation(
+                token.as_raw_handle(),
+                TokenUser,
+                ptr::null_mut(),
+                0,
+                &raw mut needed,
+            );
+        }
+        let units = usize::try_from(needed)
+            .map_err(|_| io::Error::other("token information too large"))?
+            .div_ceil(8)
+            .max(1);
+        let mut buffer = vec![0_u64; units];
+        // SAFETY: buffer holds at least `needed` bytes and token is open with query rights.
+        let read = unsafe {
+            GetTokenInformation(
+                token.as_raw_handle(),
+                TokenUser,
+                buffer.as_mut_ptr().cast::<c_void>(),
+                needed,
+                &raw mut needed,
+            )
+        };
+        if read == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut sid = Self {
+            buffer,
+            text: String::new(),
+        };
+        let mut raw: *mut u16 = ptr::null_mut();
+        // SAFETY: the buffer holds a TOKEN_USER whose SID points into the same buffer.
+        let converted = unsafe { ConvertSidToStringSidW(sid.pointer(), &raw mut raw) };
+        if converted == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut length = 0;
+        // SAFETY: raw is NUL-terminated, so the scan stops inside the allocation.
+        while unsafe { *raw.add(length) } != 0 {
+            length += 1;
+        }
+        // SAFETY: the first `length` units were just read.
+        sid.text = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(raw, length) });
+        // SAFETY: raw was allocated by the conversion and is freed once.
+        unsafe { LocalFree(raw.cast::<c_void>()) };
+        Ok(sid)
+    }
+
+    fn pointer(&self) -> PSID {
+        // SAFETY: the buffer was filled by GetTokenInformation(TokenUser) and is aligned for it.
+        unsafe { (*self.buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid }
+    }
+
+    /// The SID as text, such as `S-1-5-21-...`.
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
+}
+
+/// Makes the current user the owner and the only one with access to the file or folder.
+pub(crate) fn restrict_to_current_user(path: &Path) -> io::Result<()> {
+    let user = UserSid::current()?;
+    let sddl = wide(&format!("D:P(A;OICI;FA;;;{})", user.text()));
+    let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
+    // SAFETY: sddl is NUL-terminated and descriptor is a valid out pointer.
+    let converted = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &raw mut descriptor,
+            ptr::null_mut(),
+        )
+    };
+    if converted == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut present = 0;
+    let mut defaulted = 0;
+    let mut dacl: *mut ACL = ptr::null_mut();
+    // SAFETY: descriptor came from the conversion above and the out pointers are valid.
+    let found = unsafe {
+        GetSecurityDescriptorDacl(
+            descriptor,
+            &raw mut present,
+            &raw mut dacl,
+            &raw mut defaulted,
+        )
+    };
+    let result = if found == 0 || present == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        let target = path_wide(path);
+        // SAFETY: target is NUL-terminated; descriptor and user outlive the call.
+        let status = unsafe {
+            SetNamedSecurityInfoW(
+                target.as_ptr().cast_mut(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                user.pointer(),
+                ptr::null_mut(),
+                dacl,
+                ptr::null_mut(),
+            )
+        };
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(
+                i32::try_from(status).unwrap_or(i32::MAX),
+            ))
+        }
+    };
+    // SAFETY: descriptor was allocated by the conversion and is freed exactly once.
+    unsafe { LocalFree(descriptor) };
+    result
+}
+
+/// Owner and access list of a file or folder in SDDL text, as `O:<sid>D:P(A;OICI;FA;;;<sid>)`.
+#[cfg(test)]
+pub(crate) fn dacl_sddl(path: &Path) -> io::Result<String> {
+    let target = path_wide(path);
+    let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
+    // SAFETY: target is NUL-terminated and descriptor is a valid out pointer.
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            target.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &raw mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::from_raw_os_error(
+            i32::try_from(status).unwrap_or(i32::MAX),
+        ));
+    }
+    let mut text: *mut u16 = ptr::null_mut();
+    // SAFETY: descriptor was filled in above and text is a valid out pointer.
+    let converted = unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor,
+            SDDL_REVISION_1,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &raw mut text,
+            ptr::null_mut(),
+        )
+    };
+    let result = if converted == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        let mut length = 0;
+        // SAFETY: text is NUL-terminated, so the scan stops inside the allocation.
+        while unsafe { *text.add(length) } != 0 {
+            length += 1;
+        }
+        // SAFETY: the first `length` units were just read.
+        let units = unsafe { std::slice::from_raw_parts(text, length) };
+        Ok(String::from_utf16_lossy(units))
+    };
+    // SAFETY: both buffers were allocated by the calls above and are freed once.
+    unsafe {
+        if !text.is_null() {
+            LocalFree(text.cast::<c_void>());
+        }
+        LocalFree(descriptor);
+    }
+    result
 }
 
 #[cfg(test)]

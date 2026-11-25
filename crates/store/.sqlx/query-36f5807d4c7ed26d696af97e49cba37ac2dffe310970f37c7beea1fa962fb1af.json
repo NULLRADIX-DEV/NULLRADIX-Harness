@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE claude_accounts\n             SET name = ?, enabled = ?, is_fallback = ?, limit_five_hour_pct = ?,\n                 limit_week_pct = ?, token_secret_ref = ?, updated_at = ?, version = ?\n             WHERE id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "36f5807d4c7ed26d696af97e49cba37ac2dffe310970f37c7beea1fa962fb1af"
+}

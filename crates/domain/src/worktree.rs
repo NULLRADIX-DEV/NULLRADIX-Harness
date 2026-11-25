@@ -223,6 +223,17 @@ const SLUG_MAX: usize = 40;
 /// Short title for branch names: lowercase, umlauts spelled out, other runs one dash.
 #[must_use]
 pub fn slug(title: &str) -> String {
+    let slug = slug_from(title, SLUG_MAX);
+    if slug.is_empty() {
+        String::from("ticket")
+    } else {
+        slug
+    }
+}
+
+/// Like `slug`, cut to `max` characters and empty when nothing usable is left.
+#[must_use]
+pub(crate) fn slug_from(title: &str, max: usize) -> String {
     let mut dashed = String::with_capacity(title.len());
     for letter in title.to_lowercase().chars() {
         match letter {
@@ -235,20 +246,15 @@ pub fn slug(title: &str) -> String {
             _ => {}
         }
     }
-    let slug = shorten(dashed.trim_matches('-'));
-    if slug.is_empty() {
-        String::from("ticket")
-    } else {
-        slug
-    }
+    shorten(dashed.trim_matches('-'), max)
 }
 
 /// Cuts at the last dash within the limit, so no word is split.
-fn shorten(slug: &str) -> String {
-    if slug.len() <= SLUG_MAX {
+fn shorten(slug: &str, max: usize) -> String {
+    if slug.len() <= max {
         return slug.to_owned();
     }
-    let cut = &slug[..SLUG_MAX];
+    let cut = &slug[..max];
     let short = match cut.rfind('-') {
         Some(dash) if dash > 0 => &cut[..dash],
         _ => cut,

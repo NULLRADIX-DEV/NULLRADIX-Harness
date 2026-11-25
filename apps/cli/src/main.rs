@@ -1,5 +1,6 @@
 //! The `nullradix` command line and daemon.
 
+mod account;
 mod board;
 mod comment;
 mod config;
@@ -15,6 +16,7 @@ mod plan;
 mod project;
 mod question;
 mod run;
+mod secrets;
 mod selection;
 mod session;
 mod status;
@@ -59,6 +61,9 @@ enum Command {
     Status,
     /// Open the web UI in the browser
     Open,
+    /// Manage the Claude accounts runs are spread over
+    #[command(subcommand)]
+    Account(account::AccountCommand),
     /// Manage projects
     #[command(subcommand)]
     Project(project::ProjectCommand),
@@ -146,6 +151,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         }
         Command::Status => status::run(profile, cli.home.as_deref()),
         Command::Open => open::run(profile, cli.home.as_deref()),
+        Command::Account(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            account::run(command, &client)
+        }
         Command::Project(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             project::run(command, &client)

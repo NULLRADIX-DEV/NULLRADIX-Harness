@@ -1,0 +1,389 @@
+[
+  {
+    "name": "add an account",
+    "request": {
+      "body": {
+        "name": "Max"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "configDir": "<HOME>/data/accounts/max",
+        "createdAt": "<TIME>",
+        "enabled": true,
+        "fallback": false,
+        "hasRunToken": false,
+        "id": "<ID-1>",
+        "limitFiveHour": null,
+        "limitWeek": null,
+        "name": "Max",
+        "slug": "max",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/accounts/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "no login yet",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/accounts/<ID-1>/login"
+    },
+    "response": {
+      "json": {
+        "code": "login-not-found",
+        "detail": "account max has had no login yet",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:login-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a code without a login",
+    "request": {
+      "body": {
+        "code": "fake-code"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts/<ID-1>/login/code"
+    },
+    "response": {
+      "json": {
+        "code": "account-login-not-running",
+        "detail": "no login is running for account max",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:account-login-not-running"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "refuse an email with shell characters",
+    "request": {
+      "body": {
+        "email": "max@example.com & calc"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts/<ID-1>/login"
+    },
+    "response": {
+      "json": {
+        "code": "account-invalid",
+        "detail": "max@example.com & calc does not look like an email address",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:account-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "start the login",
+    "request": {
+      "body": {
+        "email": "max@example.com"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts/<ID-1>/login"
+    },
+    "response": {
+      "json": {
+        "output": "",
+        "startedAt": "<TIME>",
+        "state": "running",
+        "url": null
+      },
+      "status": 202
+    }
+  },
+  {
+    "field": "url",
+    "name": "the login page shows",
+    "reached": "https://claude.ai/oauth/authorize?client=fake-claude",
+    "wait": "/api/v1/accounts/<ID-1>/login"
+  },
+  {
+    "name": "send a wrong code",
+    "request": {
+      "body": {
+        "code": "wrong"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts/<ID-1>/login/code"
+    },
+    "response": {
+      "status": 204
+    }
+  },
+  {
+    "field": "state",
+    "name": "the login failed",
+    "reached": "failed",
+    "wait": "/api/v1/accounts/<ID-1>/login"
+  },
+  {
+    "name": "try again",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/accounts/<ID-1>/login"
+    },
+    "response": {
+      "json": {
+        "output": "",
+        "startedAt": "<TIME>",
+        "state": "running",
+        "url": null
+      },
+      "status": 202
+    }
+  },
+  {
+    "field": "url",
+    "name": "wait for the page again",
+    "reached": "https://claude.ai/oauth/authorize?client=fake-claude",
+    "wait": "/api/v1/accounts/<ID-1>/login"
+  },
+  {
+    "name": "send the right code",
+    "request": {
+      "body": {
+        "code": "fake-code"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts/<ID-1>/login/code"
+    },
+    "response": {
+      "status": 204
+    }
+  },
+  {
+    "field": "state",
+    "name": "the login is done",
+    "reached": "done",
+    "wait": "/api/v1/accounts/<ID-1>/login"
+  },
+  {
+    "name": "how it went",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/accounts/<ID-1>/login"
+    },
+    "response": {
+      "json": {
+        "output": "Opening browser to sign in...\nIf the browser did not open, visit: https://claude.ai/oauth/authorize?client=fake-claude\nPaste code here if prompted > \nLogin successful.\n",
+        "startedAt": "<TIME>",
+        "state": "done",
+        "url": "https://claude.ai/oauth/authorize?client=fake-claude"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the account is logged in",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/accounts/usage"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "accountId": "<ID-2>",
+            "email": null,
+            "folder": "<HOME>/data/.claude",
+            "loggedIn": false,
+            "login": null,
+            "slug": "default",
+            "usage": {
+              "available": false,
+              "fetchedAt": null,
+              "fiveHour": null,
+              "plan": null,
+              "reason": "no-login",
+              "sevenDay": null
+            }
+          },
+          {
+            "accountId": "<ID-1>",
+            "email": "fake@example.com",
+            "folder": "<HOME>/data/accounts/max",
+            "loggedIn": true,
+            "login": {
+              "output": "Opening browser to sign in...\nIf the browser did not open, visit: https://claude.ai/oauth/authorize?client=fake-claude\nPaste code here if prompted > \nLogin successful.\n",
+              "startedAt": "<TIME>",
+              "state": "done",
+              "url": "https://claude.ai/oauth/authorize?client=fake-claude"
+            },
+            "slug": "max",
+            "usage": {
+              "available": false,
+              "fetchedAt": null,
+              "fiveHour": null,
+              "plan": null,
+              "reason": "no-login",
+              "sevenDay": null
+            }
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "add and log in with an email only",
+    "request": {
+      "body": {
+        "email": "new@example.com"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts/login"
+    },
+    "response": {
+      "json": {
+        "account": {
+          "configDir": "<HOME>/data/accounts/new-example-com",
+          "createdAt": "<TIME>",
+          "enabled": true,
+          "fallback": false,
+          "hasRunToken": false,
+          "id": "<ID-3>",
+          "limitFiveHour": null,
+          "limitWeek": null,
+          "name": "new@example.com",
+          "slug": "new-example-com",
+          "updatedAt": "<TIME>",
+          "version": 1
+        },
+        "login": {
+          "output": "",
+          "startedAt": "<TIME>",
+          "state": "running",
+          "url": null
+        }
+      },
+      "status": 202
+    }
+  },
+  {
+    "name": "cancel it",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/accounts/<ID-3>/login"
+    },
+    "response": {
+      "status": 204
+    }
+  },
+  {
+    "field": "state",
+    "name": "it was cancelled",
+    "reached": "cancelled",
+    "wait": "/api/v1/accounts/<ID-3>/login"
+  },
+  {
+    "cli": [
+      "account",
+      "login",
+      "max",
+      "--no-wait"
+    ],
+    "exitCode": 0,
+    "name": "log in from the CLI without waiting",
+    "stderr": "",
+    "stdout": "login started for max\n"
+  },
+  {
+    "cli": [
+      "account",
+      "login",
+      "nobody"
+    ],
+    "exitCode": 1,
+    "name": "log in a missing account",
+    "stderr": "error: no account has the id nobody, `nullradix account list` shows them\n",
+    "stdout": ""
+  },
+  {
+    "name": "refuse a login for an unknown id",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/accounts/<ID-4>/login"
+    },
+    "response": {
+      "json": {
+        "code": "account-not-found",
+        "detail": "account <ID-4> does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:account-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "the accounts at the end",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "accountsDir": "<HOME>/data/accounts",
+        "items": [
+          {
+            "configDir": null,
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-2>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "Default",
+            "slug": "default",
+            "updatedAt": "<TIME>",
+            "version": 1
+          },
+          {
+            "configDir": "<HOME>/data/accounts/max",
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-1>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "Max",
+            "slug": "max",
+            "updatedAt": "<TIME>",
+            "version": 1
+          },
+          {
+            "configDir": "<HOME>/data/accounts/new-example-com",
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-3>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "new@example.com",
+            "slug": "new-example-com",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  }
+]

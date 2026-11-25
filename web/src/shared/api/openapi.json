@@ -10,6 +10,764 @@
     "version": "1"
   },
   "paths": {
+    "/api/v1/accounts": {
+      "get": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "list_accounts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "create_account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccount"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the new account"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The folder belongs to another account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/login": {
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "create_account_login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccountLogin"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "The account is added and its login runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountLoginDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/usage": {
+      "get": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "account_usage",
+        "parameters": [
+          {
+            "name": "fresh",
+            "in": "query",
+            "description": "Asks the endpoint again instead of using a reading of the last minute.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountStatusList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountId}": {
+      "delete": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "delete_account",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Version the deletion is based on.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "deleteDir",
+            "in": "query",
+            "description": "Also delete the account's own Claude folder, only allowed below the accounts folder.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The account is gone"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The default account stays, or the folder is not the account's own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "update_account",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccount"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountId}/login": {
+      "get": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "get_login",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account, or it had no login yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "start_login",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartLogin"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "The login runs; a running one is ended first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "cancel_login",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The login is ended, or there was none"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountId}/login/code": {
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "send_login_code",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginCode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The code went to the running login"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No login runs for the account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountId}/run-token": {
+      "put": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "set_run_token",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRunToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The token does not look like one of `claude setup-token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The secret store did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "clear_run_token",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Version the change is based on.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/handoff": {
       "get": {
         "tags": [
@@ -5373,6 +6131,176 @@
         },
         "additionalProperties": false
       },
+      "AccountDto": {
+        "type": "object",
+        "description": "A Claude account as the API shows it; the run token itself never leaves the daemon.",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "enabled",
+          "fallback",
+          "hasRunToken",
+          "createdAt",
+          "updatedAt",
+          "version"
+        ],
+        "properties": {
+          "configDir": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Claude folder as typed; none for the default account, which uses the server login."
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "fallback": {
+            "type": "boolean",
+            "description": "Only used when no other allowed account is free."
+          },
+          "hasRunToken": {
+            "type": "boolean",
+            "description": "Whether runs of this account start with a stored long-lived token."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limitFiveHour": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Usage ceiling in percent for the five hour window; none uses the dispatcher's default."
+          },
+          "limitWeek": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Usage ceiling in percent for the week; none uses the dispatcher's default."
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Short id used in labels such as `account:max` and on the command line."
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AccountList": {
+        "type": "object",
+        "required": [
+          "items",
+          "accountsDir"
+        ],
+        "properties": {
+          "accountsDir": {
+            "type": "string",
+            "description": "Folder where new accounts get their own subfolders."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountDto"
+            }
+          }
+        }
+      },
+      "AccountLoginDto": {
+        "type": "object",
+        "description": "A new account that is logged in right away.",
+        "required": [
+          "account",
+          "login"
+        ],
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountDto"
+          },
+          "login": {
+            "$ref": "#/components/schemas/LoginDto"
+          }
+        }
+      },
+      "AccountStatusDto": {
+        "type": "object",
+        "description": "What is known about an account's Claude login and limits.",
+        "required": [
+          "accountId",
+          "slug",
+          "loggedIn",
+          "folder",
+          "usage"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "folder": {
+            "type": "string",
+            "description": "The folder Claude Code uses for the account."
+          },
+          "loggedIn": {
+            "type": "boolean"
+          },
+          "login": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LoginDto",
+                "description": "The latest `claude auth login` of the account, while the daemon remembers it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slug": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageDto"
+          }
+        }
+      },
+      "AccountStatusList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountStatusDto"
+            }
+          }
+        }
+      },
       "ActorKindDto": {
         "type": "string",
         "enum": [
@@ -5947,6 +6875,44 @@
           }
         }
       },
+      "CreateAccount": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "configDir": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An existing Claude folder to take over, such as `~/.mcacc/work`; else a new one is made."
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateAccountLogin": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Without a name the account is named after its email once it is logged in."
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateBoard": {
         "type": "object",
         "required": [
@@ -6333,7 +7299,8 @@
           "question",
           "session",
           "inbox-order",
-          "favorite"
+          "favorite",
+          "account"
         ]
       },
       "FavoriteDto": {
@@ -7036,6 +8003,58 @@
           }
         },
         "additionalProperties": false
+      },
+      "LoginCode": {
+        "type": "object",
+        "description": "The code the browser shows after logging in.",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "format": "password"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LoginDto": {
+        "type": "object",
+        "description": "How a `claude auth login` of an account stands.",
+        "required": [
+          "state",
+          "startedAt",
+          "output"
+        ],
+        "properties": {
+          "output": {
+            "type": "string",
+            "description": "The end of what Claude Code printed; the reason when the login failed."
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/LoginStateDto"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The login page, for when no browser opened."
+          }
+        }
+      },
+      "LoginStateDto": {
+        "type": "string",
+        "enum": [
+          "running",
+          "done",
+          "failed",
+          "cancelled"
+        ]
       },
       "MarkFavorite": {
         "type": "object",
@@ -8505,6 +9524,27 @@
         },
         "additionalProperties": false
       },
+      "SetRunToken": {
+        "type": "object",
+        "description": "The long-lived token of `claude setup-token`; it is only ever sent, never returned.",
+        "required": [
+          "token",
+          "version"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "format": "password",
+            "example": "sk-ant-oat01-..."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version the change is based on."
+          }
+        },
+        "additionalProperties": false
+      },
       "SimilarNoteDto": {
         "type": "object",
         "description": "A note the similarity check found.",
@@ -8532,6 +9572,19 @@
             "type": "string"
           }
         }
+      },
+      "StartLogin": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Filled into the login page of the browser."
+          }
+        },
+        "additionalProperties": false
       },
       "StartRun": {
         "type": "object",
@@ -9358,6 +10411,57 @@
           }
         }
       },
+      "UpdateAccount": {
+        "type": "object",
+        "description": "A change of fields; left out fields stay, `null` removes a limit.",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "fallback": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "limitFiveHour": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "maximum": 100,
+            "minimum": 1
+          },
+          "limitWeek": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "maximum": 100,
+            "minimum": 1
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version the change is based on; a newer stored version fails with `version-conflict`."
+          }
+        },
+        "additionalProperties": false
+      },
       "UpdateTicket": {
         "type": "object",
         "description": "A change of fields; left out fields stay, `null` clears those that may be empty.",
@@ -9516,6 +10620,94 @@
           }
         },
         "additionalProperties": false
+      },
+      "UsageDto": {
+        "type": "object",
+        "description": "The limits of the subscription behind an account; without numbers `reason` says why.",
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "fetchedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the numbers were read, in Unix milliseconds."
+          },
+          "fiveHour": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsageWindowDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Subscription plan such as `max`."
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsageReasonDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sevenDay": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsageWindowDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "UsageReasonDto": {
+        "type": "string",
+        "enum": [
+          "disabled",
+          "no-login",
+          "token-expired",
+          "request-failed",
+          "rate-limited"
+        ]
+      },
+      "UsageWindowDto": {
+        "type": "object",
+        "description": "How much of a limit window is used.",
+        "required": [
+          "percent"
+        ],
+        "properties": {
+          "percent": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "resetsAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the window starts over, in Unix milliseconds."
+          }
+        }
       },
       "WaitingDto": {
         "type": "object",

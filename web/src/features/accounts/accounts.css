@@ -1,0 +1,144 @@
+/* Claude accounts in settings, built on the project list rows */
+.account-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+
+.account-name-field {
+  flex: 1;
+  min-width: 180px;
+}
+
+.account-add {
+  margin-bottom: 16px;
+}
+
+.account-more {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.account-more summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.account-more .field {
+  margin-top: 8px;
+}
+
+.account-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.account-dir {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.account-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+}
+
+.account-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.account-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.account-limit input.short {
+  width: 64px;
+}
+
+.account-token {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.account-token-field {
+  flex: 1;
+  min-width: 220px;
+}
+
+.account-token .field-hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.account-badge {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--idle-bg);
+  color: var(--idle-fg);
+  font-size: 12px;
+}
+
+.account-usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+
+.account-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-meter meter {
+  width: 90px;
+  height: 8px;
+}
+
+.account-meter.over strong {
+  color: var(--blocked-fg);
+}
+
+.account-login {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+}
+
+.account-login p {
+  margin: 0;
+}
+
+.account-login .form-row {
+  width: 100%;
+}
+
+.account-login-output {
+  margin: 0;
+  padding: 8px 10px;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--idle-bg);
+  font-size: 12px;
+  white-space: pre-wrap;
+}

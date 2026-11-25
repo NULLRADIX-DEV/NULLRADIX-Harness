@@ -75,6 +75,12 @@ pub fn claude_config_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// The user's home folder, if the system names one.
+#[must_use]
+pub fn home_dir() -> Option<PathBuf> {
+    BaseDirs::new().map(|base| base.home_dir().to_path_buf())
+}
+
 /// macOS keeps logs in `~/Library/Logs`; elsewhere they sit in the state or data directory.
 fn logs_dir(
     macos: bool,

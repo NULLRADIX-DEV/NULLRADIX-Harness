@@ -2,17 +2,19 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, AcceptTicket, AddComment, AddQuestionComment, AddStep, AnswerQuestion,
-    BoardDeleted, BoardDto, BoardList, ChangeStep, ClaimPlanning, ClaimSession, ClaimTicket,
-    CommentDto, CommentList, CreateBoard, CreateNote, CreateProject, CreateQuestion, CreateTicket,
-    DecideQuestion, DropNote, FavoriteDto, FavoriteList, FileDiffDto, FinishTicket, FinishedTicket,
-    Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList,
-    MarkFavorite, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList,
-    Problem, ProjectDto, ProjectList, PromoteNote, PromotedNote, QuestionCommentDto,
-    QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard, RenameProject, RepositoryList,
-    RunDto, RunList, RunOutput, RunnerList, SeenNote, SessionChangesDto, SessionDetailDto,
-    SessionDto, SessionList, SetBoardRepository, StartRun, StartTicket, StartedTicket,
-    TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateTicket, WritePlan,
+    API_PREFIX, API_VERSION, AcceptTicket, AccountDto, AccountList, AccountLoginDto,
+    AccountStatusList, AddComment, AddQuestionComment, AddStep, AnswerQuestion, BoardDeleted,
+    BoardDto, BoardList, ChangeStep, ClaimPlanning, ClaimSession, ClaimTicket, CommentDto,
+    CommentList, CreateAccount, CreateAccountLogin, CreateBoard, CreateNote, CreateProject,
+    CreateQuestion, CreateTicket, DecideQuestion, DropNote, FavoriteDto, FavoriteList, FileDiffDto,
+    FinishTicket, FinishedTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto,
+    HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite, MoveStep, MoveTicket, NextPlanning,
+    NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList, PromoteNote,
+    PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard,
+    RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SeenNote,
+    SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository, SetRunToken,
+    StartLogin, StartRun, StartTicket, StartedTicket, TicketDetailDto, TicketDto, TicketList,
+    TranscriptPageDto, UpdateAccount, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -144,6 +146,105 @@ impl Client {
             .delete(&self.url(&format!("/projects/{id}?version={version}")))
             .header("Authorization", &self.authorization()?)
             .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    pub fn list_accounts(&self) -> Result<AccountList, ClientError> {
+        self.get_json("/accounts")
+    }
+
+    /// Login and limits of every account; `fresh` asks Anthropic again.
+    pub fn account_usage(&self, fresh: bool) -> Result<AccountStatusList, ClientError> {
+        self.get_json(&format!("/accounts/usage?fresh={fresh}"))
+    }
+
+    pub fn create_account(&self, input: &CreateAccount) -> Result<AccountDto, ClientError> {
+        self.post_json("/accounts", input, 201)
+    }
+
+    pub fn update_account(
+        &self,
+        id: Uuid,
+        input: &UpdateAccount,
+    ) -> Result<AccountDto, ClientError> {
+        let mut response = self
+            .agent
+            .patch(&self.url(&format!("/accounts/{id}")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn delete_account(
+        &self,
+        id: Uuid,
+        version: i64,
+        delete_dir: bool,
+    ) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!(
+                "/accounts/{id}?version={version}&deleteDir={delete_dir}"
+            )))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    pub fn set_run_token(&self, id: Uuid, input: &SetRunToken) -> Result<AccountDto, ClientError> {
+        let mut response = self
+            .agent
+            .put(&self.url(&format!("/accounts/{id}/run-token")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn clear_run_token(&self, id: Uuid, version: i64) -> Result<AccountDto, ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!("/accounts/{id}/run-token?version={version}")))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn create_account_login(
+        &self,
+        input: &CreateAccountLogin,
+    ) -> Result<AccountLoginDto, ClientError> {
+        self.post_json("/accounts/login", input, 202)
+    }
+
+    pub fn start_login(&self, id: Uuid, input: &StartLogin) -> Result<LoginDto, ClientError> {
+        self.post_json(&format!("/accounts/{id}/login"), input, 202)
+    }
+
+    pub fn get_login(&self, id: Uuid) -> Result<LoginDto, ClientError> {
+        self.get_json(&format!("/accounts/{id}/login"))
+    }
+
+    pub fn cancel_login(&self, id: Uuid) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!("/accounts/{id}/login")))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    pub fn send_login_code(&self, id: Uuid, input: &LoginCode) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/accounts/{id}/login/code")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
             .map_err(|source| self.unreachable(source))?;
         expect_empty(&mut response, 204)
     }
@@ -980,6 +1081,60 @@ mod tests {
         (runner, Arc::new(runners))
     }
 
+    /// Claude Code is not installed, so a login ends at once with the reason.
+    fn login_service(
+        accounts: &Arc<nullradix_app::accounts::AccountService>,
+    ) -> Arc<nullradix_app::login::LoginService> {
+        Arc::new(nullradix_app::login::LoginService::new(
+            Arc::new(nullradix_runner::LocalLoginRunner::with_launcher(
+                String::from("nullradix-no-such-claude"),
+                Vec::new(),
+            )),
+            accounts.clone(),
+            Arc::new(nullradix_runner::LocalClaudeLogins::new(
+                Some(std::env::temp_dir().join("nullradix-client-tests-home")),
+                None,
+            )),
+            Arc::new(SystemClock),
+        ))
+    }
+
+    fn usage_service() -> Arc<nullradix_app::usage::UsageService> {
+        Arc::new(nullradix_app::usage::UsageService::new(
+            Arc::new(nullradix_runner::LocalClaudeLogins::new(
+                Some(std::env::temp_dir().join("nullradix-client-tests-home")),
+                None,
+            )),
+            Arc::new(nullradix_runner::CurlUsageApi::anthropic()),
+            Arc::new(SystemClock),
+        ))
+    }
+
+    fn account_service(
+        store: &Arc<Store>,
+        signal: &ChangeSignal,
+    ) -> Arc<nullradix_app::accounts::AccountService> {
+        Arc::new(nullradix_app::accounts::AccountService::new(
+            store.clone(),
+            Arc::new(nullradix_app::secrets::MemorySecretStore::new()),
+            Arc::new(nullradix_runner::LocalAccountFolders::new(
+                std::env::temp_dir().join("nullradix-client-tests-accounts"),
+            )),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ))
+    }
+
+    fn project_service(store: &Arc<Store>, signal: &ChangeSignal) -> Arc<ProjectService> {
+        Arc::new(ProjectService::new(
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ))
+    }
+
     async fn test_state(ready: std::sync::mpsc::Sender<Secret>) -> ApiState {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
@@ -989,12 +1144,8 @@ mod tests {
         ));
         ready.send(auth.local_token(None).await.unwrap()).unwrap();
         let signal = ChangeSignal::new();
-        let projects = Arc::new(ProjectService::new(
-            store.clone(),
-            Arc::new(SystemClock),
-            Arc::new(UuidV7Generator),
-            signal.clone(),
-        ));
+        let projects = project_service(&store, &signal);
+        let accounts = account_service(&store, &signal);
         let (runner, runners) = local_runner(&store, &signal).await;
         let runs = RunService::new(
             store.clone(),
@@ -1059,6 +1210,9 @@ mod tests {
         ApiState {
             auth,
             projects,
+            accounts: accounts.clone(),
+            usage: usage_service(),
+            logins: login_service(&accounts),
             boards,
             tickets,
             comments,
@@ -1196,6 +1350,106 @@ mod tests {
         assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
     }
 
+    #[test]
+    fn manages_accounts_and_run_tokens() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        let list = client.list_accounts().unwrap();
+        assert_eq!(list.items.len(), 1);
+        assert_eq!(list.items[0].slug, "default");
+
+        let created = client
+            .create_account(&CreateAccount {
+                name: String::from("Max"),
+                config_dir: None,
+            })
+            .unwrap();
+        assert_eq!(created.slug, "max");
+        let updated = client
+            .update_account(
+                created.id,
+                &UpdateAccount {
+                    version: created.version,
+                    enabled: Some(false),
+                    limit_week: Some(Some(80)),
+                    ..UpdateAccount::default()
+                },
+            )
+            .unwrap();
+        assert!(!updated.enabled);
+        assert_eq!(updated.limit_week, Some(80));
+        let with_token = client
+            .set_run_token(
+                created.id,
+                &SetRunToken {
+                    token: String::from("sk-ant-oat01-fake-token"),
+                    version: updated.version,
+                },
+            )
+            .unwrap();
+        assert!(with_token.has_run_token);
+        let without = client
+            .clear_run_token(created.id, with_token.version)
+            .unwrap();
+        assert!(!without.has_run_token);
+        client
+            .delete_account(created.id, without.version, true)
+            .unwrap();
+        assert_eq!(client.list_accounts().unwrap().items.len(), 1);
+        let gone = client.delete_account(created.id, 1, false).unwrap_err();
+        assert!(matches!(gone, ClientError::Refused { status: 404, .. }));
+    }
+
+    #[test]
+    fn reads_the_login_and_limits_of_the_accounts() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        for fresh in [false, true] {
+            let status = client.account_usage(fresh).unwrap();
+            assert_eq!(status.items.len(), 1);
+            let default = &status.items[0];
+            assert_eq!(default.slug, "default");
+            assert!(!default.logged_in);
+            assert!(!default.usage.available);
+            assert_eq!(
+                default.usage.reason,
+                Some(nullradix_api::UsageReasonDto::NoLogin)
+            );
+        }
+    }
+
+    #[test]
+    fn logs_accounts_in_and_reports_a_claude_that_cannot_start() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        let started = client
+            .create_account_login(&CreateAccountLogin {
+                name: Some(String::from("Max")),
+                email: Some(String::from("max@example.com")),
+            })
+            .unwrap();
+        assert_eq!(started.account.slug, "max");
+        assert_eq!(started.login.state, nullradix_api::LoginStateDto::Failed);
+        assert!(started.login.output.contains("could not be started"));
+        let shown = client.get_login(started.account.id).unwrap();
+        assert_eq!(shown, started.login);
+        let again = client
+            .start_login(started.account.id, &StartLogin::default())
+            .unwrap();
+        assert_eq!(again.state, nullradix_api::LoginStateDto::Failed);
+        let refused = client
+            .send_login_code(
+                started.account.id,
+                &LoginCode {
+                    code: String::from("abc"),
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(refused, ClientError::Refused { status: 409, .. }));
+        client.cancel_login(started.account.id).unwrap();
+        let ghost = client.get_login(uuid::Uuid::from_u128(9)).unwrap_err();
+        assert!(matches!(ghost, ClientError::Refused { status: 404, .. }));
+    }
     #[test]
     fn typed_note_numbers_stay_one_path_segment() {
         assert_eq!(segment("12"), "12");

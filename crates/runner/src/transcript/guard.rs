@@ -3,6 +3,7 @@
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use nullradix_app::AppError;
 use nullradix_app::session_detail::{check_transcript_path, transcript_path_invalid};
@@ -11,9 +12,41 @@ use nullradix_domain::RunnerOs;
 /// Claude Code keeps the transcripts of a config folder in this subfolder.
 const PROJECTS: &str = "projects";
 
+/// Config folders that may be read, shared with whoever keeps them current.
+#[derive(Debug, Clone, Default)]
+pub struct TranscriptRoots(Arc<RwLock<Vec<PathBuf>>>);
+
+impl TranscriptRoots {
+    #[must_use]
+    pub fn new(roots: Vec<PathBuf>) -> Self {
+        Self(Arc::new(RwLock::new(roots)))
+    }
+
+    /// Replaces the folders; guards that share this handle see them at once.
+    pub fn replace(&self, roots: Vec<PathBuf>) {
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = roots;
+    }
+
+    #[must_use]
+    pub fn get(&self) -> Vec<PathBuf> {
+        self.0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl PartialEq for TranscriptRoots {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl Eq for TranscriptRoots {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TranscriptGuard {
-    roots: Vec<PathBuf>,
+    roots: TranscriptRoots,
     fold: bool,
 }
 
@@ -60,7 +93,13 @@ fn unavailable(error: &io::Error) -> AppError {
 
 impl TranscriptGuard {
     /// Allows the `projects` folder of each of the config folders `roots`, and any a path names.
+    #[cfg(test)]
     pub(crate) fn new(roots: Vec<PathBuf>) -> Self {
+        Self::shared(TranscriptRoots::new(roots))
+    }
+
+    /// Like `new`, with folders that change while the guard lives.
+    pub(crate) fn shared(roots: TranscriptRoots) -> Self {
         Self {
             roots,
             fold: RunnerOs::current().ignores_path_case(),
@@ -70,11 +109,11 @@ impl TranscriptGuard {
     /// The config folder whose `projects` folder holds `file`: a listed one, else the one it names.
     fn root_of(&self, file: &Path) -> Option<PathBuf> {
         let wanted = parts(file, self.fold);
-        let listed = self.roots.iter().find(|root| {
+        let listed = self.roots.get().into_iter().find(|root| {
             let allowed = parts(&root.join(PROJECTS), self.fold);
             wanted.len() > allowed.len() && wanted.starts_with(&allowed)
         });
-        listed.cloned().or_else(|| Self::named_root(file))
+        listed.or_else(|| Self::named_root(file))
     }
 
     /// Hooks report transcripts of any config folder: `<root>/projects/<encoded cwd>/.../<file>`.
@@ -156,6 +195,27 @@ mod tests {
         assert_eq!(guard.file(&text(&folder)).unwrap(), None);
     }
 
+    #[test]
+    fn a_config_folder_added_while_the_guard_lives_is_read_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("accounts").join("max");
+        // not shaped like an encoded working folder, so only a listed root allows it
+        let folder = root.join("projects").join("plain");
+        fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("s.jsonl");
+        fs::write(&file, "{}\n").unwrap();
+
+        let roots = TranscriptRoots::new(Vec::new());
+        let guard = TranscriptGuard::shared(roots.clone());
+        assert_eq!(
+            guard.file(&text(&file)).unwrap_err().code(),
+            "transcript-path-invalid"
+        );
+        roots.replace(vec![root]);
+        assert!(guard.file(&text(&file)).unwrap().is_some());
+        roots.replace(Vec::new());
+        assert!(guard.file(&text(&file)).is_err());
+    }
     #[test]
     fn a_listed_config_folder_counts_and_a_file_beside_projects_does_not() {
         let (_dir, root, file) = config();

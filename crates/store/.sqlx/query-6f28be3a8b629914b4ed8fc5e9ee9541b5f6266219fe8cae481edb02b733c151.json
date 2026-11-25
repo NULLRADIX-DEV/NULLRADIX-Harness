@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO claude_accounts\n               (id, slug, name, config_dir, enabled, is_fallback, position,\n                limit_five_hour_pct, limit_week_pct, token_secret_ref,\n                created_at, updated_at, version)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 13
+    },
+    "nullable": []
+  },
+  "hash": "6f28be3a8b629914b4ed8fc5e9ee9541b5f6266219fe8cae481edb02b733c151"
+}

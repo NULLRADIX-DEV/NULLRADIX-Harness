@@ -82,6 +82,8 @@ pub(crate) struct Config {
     pub(crate) allowed_hosts: Vec<String>,
     pub(crate) log_filter: String,
     pub(crate) web_dir: Option<PathBuf>,
+    /// A home override keeps secrets and Claude logins away from the real ones of the user.
+    pub(crate) isolated: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -110,13 +112,10 @@ impl Config {
     ) -> Result<Self, ConfigError> {
         let paths = Paths::resolve(profile.app_name(), home)?;
         let file = read_file(&paths.config.join("config.toml"))?;
-        Ok(Self::merge(
-            profile,
-            paths,
-            file,
-            overrides,
-            bundled_web_dir(),
-        ))
+        Ok(Self {
+            isolated: home.is_some(),
+            ..Self::merge(profile, paths, file, overrides, bundled_web_dir())
+        })
     }
 
     fn merge(
@@ -153,6 +152,7 @@ impl Config {
             allowed_hosts,
             log_filter,
             web_dir,
+            isolated: false,
         }
     }
 }

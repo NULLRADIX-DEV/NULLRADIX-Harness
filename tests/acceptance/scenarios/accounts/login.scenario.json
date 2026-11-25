@@ -1,0 +1,125 @@
+{
+  "title": "An account logs in through Claude Code with the code of the browser",
+  "steps": [
+    {
+      "name": "add an account",
+      "http": { "method": "POST", "path": "/api/v1/accounts", "body": { "name": "Max" } },
+      "save": { "max": "json.id" }
+    },
+    {
+      "name": "no login yet",
+      "http": { "method": "GET", "path": "/api/v1/accounts/{{max}}/login" }
+    },
+    {
+      "name": "a code without a login",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts/{{max}}/login/code",
+        "body": { "code": "fake-code" }
+      }
+    },
+    {
+      "name": "refuse an email with shell characters",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts/{{max}}/login",
+        "body": { "email": "max@example.com & calc" }
+      }
+    },
+    {
+      "name": "start the login",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts/{{max}}/login",
+        "body": { "email": "max@example.com" }
+      }
+    },
+    {
+      "name": "the login page shows",
+      "wait": {
+        "path": "/api/v1/accounts/{{max}}/login",
+        "field": "url",
+        "equals": "https://claude.ai/oauth/authorize?client=fake-claude"
+      }
+    },
+    {
+      "name": "send a wrong code",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts/{{max}}/login/code",
+        "body": { "code": "wrong" }
+      }
+    },
+    {
+      "name": "the login failed",
+      "wait": { "path": "/api/v1/accounts/{{max}}/login", "field": "state", "equals": "failed" }
+    },
+    {
+      "name": "try again",
+      "http": { "method": "POST", "path": "/api/v1/accounts/{{max}}/login", "body": {} }
+    },
+    {
+      "name": "wait for the page again",
+      "wait": {
+        "path": "/api/v1/accounts/{{max}}/login",
+        "field": "url",
+        "equals": "https://claude.ai/oauth/authorize?client=fake-claude"
+      }
+    },
+    {
+      "name": "send the right code",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts/{{max}}/login/code",
+        "body": { "code": "fake-code" }
+      }
+    },
+    {
+      "name": "the login is done",
+      "wait": { "path": "/api/v1/accounts/{{max}}/login", "field": "state", "equals": "done" }
+    },
+    {
+      "name": "how it went",
+      "http": { "method": "GET", "path": "/api/v1/accounts/{{max}}/login" }
+    },
+    {
+      "name": "the account is logged in",
+      "http": { "method": "GET", "path": "/api/v1/accounts/usage" }
+    },
+    {
+      "name": "add and log in with an email only",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts/login",
+        "body": { "email": "new@example.com" }
+      },
+      "save": { "fresh": "json.account.id" }
+    },
+    {
+      "name": "cancel it",
+      "http": { "method": "DELETE", "path": "/api/v1/accounts/{{fresh}}/login" }
+    },
+    {
+      "name": "it was cancelled",
+      "wait": {
+        "path": "/api/v1/accounts/{{fresh}}/login",
+        "field": "state",
+        "equals": "cancelled"
+      }
+    },
+    {
+      "name": "log in from the CLI without waiting",
+      "cli": { "args": ["account", "login", "max", "--no-wait"] }
+    },
+    { "name": "log in a missing account", "cli": { "args": ["account", "login", "nobody"] } },
+    {
+      "name": "refuse a login for an unknown id",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts/00000000-0000-0000-0000-000000000009/login",
+        "body": {}
+      }
+    },
+    { "name": "the accounts at the end", "http": { "method": "GET", "path": "/api/v1/accounts" } }
+  ]
+}

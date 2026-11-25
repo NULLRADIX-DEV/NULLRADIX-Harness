@@ -25,6 +25,7 @@ pub enum Entity {
     Session,
     InboxOrder,
     Favorite,
+    Account,
 }
 
 impl Entity {
@@ -135,6 +136,7 @@ mod tests {
         assert_eq!("project".parse::<Entity>(), Ok(Entity::Project));
         assert_eq!(Entity::InboxOrder.as_str(), "inbox-order");
         assert_eq!("inbox-order".parse::<Entity>(), Ok(Entity::InboxOrder));
+        assert_eq!(Entity::Account.as_str(), "account");
         assert!("planet".parse::<Entity>().is_err());
         for op in [ChangeOp::Insert, ChangeOp::Update, ChangeOp::Delete] {
             assert_eq!(op.as_str().parse::<ChangeOp>(), Ok(op));

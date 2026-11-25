@@ -1,5 +1,6 @@
 //! HTTP API served by the daemon.
 
+mod accounts;
 mod auth;
 mod boards;
 mod comments;
@@ -10,6 +11,7 @@ mod health;
 mod hooks;
 mod host;
 mod inbox;
+mod login;
 mod notes;
 mod problem;
 mod projects;
@@ -19,6 +21,7 @@ mod runs;
 mod session_detail;
 mod sessions;
 mod tickets;
+mod usage;
 mod web;
 mod worktrees;
 
@@ -32,12 +35,14 @@ use axum::extract::State;
 use axum::http::{HeaderValue, Request, StatusCode, header};
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
+use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
+use nullradix_app::login::LoginService;
 use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::QuestionService;
@@ -45,6 +50,7 @@ use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
 use nullradix_app::tickets::TicketService;
+use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
 use tokio::net::TcpListener;
@@ -58,6 +64,7 @@ use utoipa::{Modify, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+pub use accounts::{AccountDto, AccountList, CreateAccount, SetRunToken, UpdateAccount};
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
 pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
 pub use comments::{ActorKindDto, AddComment, CommentDto, CommentList, SystemMarkerDto};
@@ -69,6 +76,9 @@ pub use hooks::{HookEventDto, HookEventList, HookKindDto, HookReplyDto, Recorded
 pub use host::AllowedHosts;
 pub use inbox::{
     InboxCounts, InboxItemDto, InboxItemTypeDto, InboxKindDto, InboxList, InboxOrder, InboxRefDto,
+};
+pub use login::{
+    AccountLoginDto, CreateAccountLogin, LoginCode, LoginDto, LoginStateDto, StartLogin,
 };
 pub use notes::{
     CreateNote, DropNote, NoteDto, NoteList, NoteStateDto, PromoteNote, PromotedNote, SeenNote,
@@ -103,6 +113,7 @@ pub use tickets::{
     NextPlanningClaim, PriorityDto, ReleaseTicket, StepDto, TicketDetailDto, TicketDto, TicketList,
     TicketStatusDto, UpdateTicket, WritePlan,
 };
+pub use usage::{AccountStatusDto, AccountStatusList, UsageDto, UsageReasonDto, UsageWindowDto};
 pub use worktrees::{
     CleanedWorktree, FinishTicket, FinishedTicket, StartTicket, StartedTicket, TargetCreatedDto,
 };
@@ -149,6 +160,9 @@ impl std::fmt::Debug for ApiState {
 pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub projects: Arc<ProjectService>,
+    pub accounts: Arc<AccountService>,
+    pub usage: Arc<UsageService>,
+    pub logins: Arc<LoginService>,
     pub boards: Arc<BoardService>,
     pub tickets: Arc<TicketService>,
     pub comments: Arc<CommentService>,
@@ -171,6 +185,21 @@ pub struct ApiState {
     pub secure_cookies: bool,
     /// Built web UI to serve next to the API, if any.
     pub web_dir: Option<PathBuf>,
+}
+
+fn account_routes() -> OpenApiRouter<ApiState> {
+    OpenApiRouter::new()
+        .routes(routes!(accounts::list_accounts, accounts::create_account))
+        .routes(routes!(usage::account_usage))
+        .routes(routes!(login::create_account_login))
+        .routes(routes!(
+            login::get_login,
+            login::start_login,
+            login::cancel_login
+        ))
+        .routes(routes!(login::send_login_code))
+        .routes(routes!(accounts::update_account, accounts::delete_account))
+        .routes(routes!(accounts::set_run_token, accounts::clear_run_token))
 }
 
 fn routes() -> OpenApiRouter<ApiState> {
@@ -259,7 +288,8 @@ fn routes() -> OpenApiRouter<ApiState> {
         ))
         .routes(routes!(sessions::list_ticket_sessions))
         .routes(routes!(hooks::receive_hook))
-        .routes(routes!(hooks::list_hook_events));
+        .routes(routes!(hooks::list_hook_events))
+        .merge(account_routes());
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     doc.info.license = Some(
@@ -380,6 +410,9 @@ pub(crate) mod tests {
         pub(crate) person: Arc<nullradix_domain::Actor>,
         pub(crate) changes: Arc<dyn ChangeFeed>,
         pub(crate) shutdown: CancellationToken,
+        pub(crate) accounts: Arc<AccountService>,
+        pub(crate) logins: Arc<LoginService>,
+        pub(crate) _accounts_dir: tempfile::TempDir,
     }
 
     pub(crate) async fn test_api() -> TestApi {
@@ -503,6 +536,120 @@ pub(crate) mod tests {
         (sessions, favorites, hooks)
     }
 
+    /// A logged in account with a fixed answer from the usage endpoint.
+    struct FakeClaude;
+
+    #[async_trait::async_trait]
+    impl nullradix_app::usage::ClaudeLogins for FakeClaude {
+        async fn read(
+            &self,
+            _dir: Option<&nullradix_domain::ConfigDir>,
+        ) -> nullradix_app::usage::LoginRead {
+            nullradix_app::usage::LoginRead::Found(nullradix_app::usage::ClaudeLogin {
+                token: nullradix_app::secrets::SecretValue::new("sk-ant-oat01-api-test"),
+                expires_at: None,
+                plan: Some(String::from("max")),
+            })
+        }
+
+        async fn email(&self, _dir: Option<&nullradix_domain::ConfigDir>) -> Option<String> {
+            Some(String::from("me@example.com"))
+        }
+
+        fn folder(&self, _dir: Option<&nullradix_domain::ConfigDir>) -> String {
+            String::from("/claude")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl nullradix_app::usage::UsageApi for FakeClaude {
+        async fn fetch(
+            &self,
+            _token: &nullradix_app::secrets::SecretValue,
+        ) -> Result<nullradix_app::usage::UsageReply, AppError> {
+            use nullradix_app::usage::UsageWindow;
+            Ok(nullradix_app::usage::UsageReply {
+                status: 200,
+                five_hour: Some(UsageWindow {
+                    percent: 42,
+                    resets_at: Some(nullradix_domain::Timestamp::from_millis(1_900_000_000_000)),
+                }),
+                seven_day: Some(UsageWindow {
+                    percent: 7,
+                    resets_at: None,
+                }),
+                retry_after: None,
+            })
+        }
+    }
+
+    /// A login that never ends by itself and accepts every code.
+    struct IdleLogin;
+
+    #[async_trait::async_trait]
+    impl nullradix_app::login::LoginRunner for IdleLogin {
+        async fn start(
+            &self,
+            _spec: &nullradix_app::login::LoginSpec,
+        ) -> Result<nullradix_app::login::LoginProcess, AppError> {
+            let (output_sender, output) = tokio::sync::mpsc::channel(1);
+            let (exit_sender, exit) = tokio::sync::oneshot::channel();
+            let (input, mut typed) = tokio::sync::mpsc::channel::<String>(4);
+            tokio::spawn(async move { while typed.recv().await.is_some() {} });
+            // killing ends the output and reports an exit, as a real process does
+            let alive = std::sync::Mutex::new(Some((output_sender, exit_sender)));
+            Ok(nullradix_app::login::LoginProcess {
+                output,
+                exit,
+                input,
+                kill: Box::new(move || {
+                    if let Some((_, exit)) = alive.lock().unwrap().take() {
+                        let _ = exit.send(None);
+                    }
+                }),
+            })
+        }
+    }
+
+    fn test_logins(accounts: &Arc<AccountService>) -> Arc<LoginService> {
+        Arc::new(LoginService::new(
+            Arc::new(IdleLogin),
+            accounts.clone(),
+            Arc::new(FakeClaude),
+            Arc::new(SystemClock),
+        ))
+    }
+
+    fn test_usage() -> Arc<UsageService> {
+        Arc::new(UsageService::new(
+            Arc::new(FakeClaude),
+            Arc::new(FakeClaude),
+            Arc::new(SystemClock),
+        ))
+    }
+
+    fn test_accounts(
+        store: &Arc<Store>,
+        signal: &ChangeSignal,
+    ) -> (Arc<AccountService>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let accounts = Arc::new(AccountService::new(
+            store.clone(),
+            Arc::new(nullradix_app::secrets::MemorySecretStore::new()),
+            Arc::new(nullradix_runner::LocalAccountFolders::new(
+                dir.path().join("accounts"),
+            )),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        (accounts, dir)
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "wires every service of the test daemon"
+    )]
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
@@ -519,6 +666,7 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let (accounts, accounts_dir) = test_accounts(&store, &signal);
         let changes: Arc<dyn ChangeFeed> = store.clone();
         let (runner, runners) = test_runners(&store, &signal).await;
         let boards = Arc::new(BoardService::new(
@@ -551,9 +699,13 @@ pub(crate) mod tests {
             std::time::Duration::from_millis(50),
         );
         let (sessions, favorites, hooks) = session_services(&store, &runners, &signal);
+        let logins = test_logins(&accounts);
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
+            accounts: accounts.clone(),
+            usage: test_usage(),
+            logins: logins.clone(),
             boards: boards.clone(),
             tickets,
             comments,
@@ -588,6 +740,9 @@ pub(crate) mod tests {
             person,
             changes,
             shutdown,
+            accounts,
+            logins,
+            _accounts_dir: accounts_dir,
         }
     }
 
