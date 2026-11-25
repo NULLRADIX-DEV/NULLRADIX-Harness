@@ -12,9 +12,21 @@ pub fn process_alive(pid: u32) -> bool {
     {
         crate::windows::process_alive(pid)
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        std::path::Path::new("/proc").join(pid.to_string()).exists()
+        use nix::errno::Errno;
+        use nix::sys::signal::kill;
+        let Ok(raw) = i32::try_from(pid) else {
+            return false;
+        };
+        if raw == 0 {
+            return false;
+        }
+        // signal 0 only checks; a process owned by someone else still exists
+        matches!(
+            kill(nix::unistd::Pid::from_raw(raw), None),
+            Ok(()) | Err(Errno::EPERM)
+        )
     }
 }
 
@@ -116,7 +128,7 @@ impl ProcessTree {
 
     fn finish(&mut self) -> io::Result<ExitStatus> {
         if !self.reaped {
-            // stragglers die while the unreaped main process still reserves their group id
+            // stragglers die first; a group with live members keeps its id
             let _ = self.kill_rest();
         }
         let status = self.child.wait()?;
@@ -125,7 +137,7 @@ impl ProcessTree {
     }
 
     /// Whether the main process exited, without reaping it.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn main_exited(&mut self, block: bool) -> io::Result<bool> {
         use nix::errno::Errno;
         use nix::sys::wait::{Id, WaitPidFlag, WaitStatus, waitid};
@@ -146,8 +158,8 @@ impl ProcessTree {
         }
     }
 
-    /// Whether the main process exited; Windows keeps its id while we hold its handle.
-    #[cfg(windows)]
+    /// Whether the main process exited; waitid is missing here, so it is reaped.
+    #[cfg(not(target_os = "linux"))]
     fn main_exited(&mut self, block: bool) -> io::Result<bool> {
         if block {
             self.child.wait()?;

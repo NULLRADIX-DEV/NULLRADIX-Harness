@@ -130,6 +130,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_macos_migration_keeps_every_row_that_points_at_a_runner() {
+        const BEFORE: i64 = 20_261_125_050_000;
+        let dir = tempfile::tempdir().unwrap();
+        let options = SqliteConnectOptions::new()
+            .filename(dir.path().join("nullradix.db"))
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        MIGRATOR.run_to(BEFORE, &pool).await.unwrap();
+        for sql in [
+            "INSERT INTO runners (id, name, os, created_at, updated_at) VALUES (x'01010101010101010101010101010101', 'local', 'linux', 1, 1)",
+            "INSERT INTO repositories (id, name, created_at, updated_at) VALUES (x'02020202020202020202020202020202', 'arches', 1, 1)",
+            "INSERT INTO checkouts (id, repository_id, runner_id, path, path_key, created_at, updated_at) VALUES (x'03030303030303030303030303030303', x'02020202020202020202020202020202', x'01010101010101010101010101010101', '/work/arches', '/work/arches', 1, 1)",
+            "INSERT INTO worktrees (id, repository_id, runner_id, branch, path, desired_state, actual_state, created_at, updated_at) VALUES (x'04040404040404040404040404040404', x'02020202020202020202020202020202', x'01010101010101010101010101010101', 'ARC-1', '/work/arches-wt', 'present', 'present', 1, 1)",
+            "INSERT INTO claude_sessions (id, feed_id, repository_id, runner_id, cwd, state, started_at, last_event_at, touched) VALUES ('s-1', x'05050505050505050505050505050505', x'02020202020202020202020202020202', x'01010101010101010101010101010101', '/work/arches', 'idle', 1, 1, 1)",
+        ] {
+            sqlx::query(sql).execute(&pool).await.unwrap();
+        }
+        MIGRATOR.run(&pool).await.unwrap();
+
+        let kept_rows: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM checkouts WHERE runner_id = x'01010101010101010101010101010101'),
+                    (SELECT count(*) FROM worktrees WHERE runner_id = x'01010101010101010101010101010101'),
+                    (SELECT count(*) FROM claude_sessions WHERE runner_id = x'01010101010101010101010101010101')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(kept_rows, (1, 1, 1));
+        let kept: (String, String, i64) = sqlx::query_as("SELECT name, os, version FROM runners")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(kept, ("local".to_owned(), "linux".to_owned(), 1));
+        let dangling = sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert!(dangling.is_empty());
+        let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(foreign_keys, 1);
+
+        let add = |id: &str, os: &str| {
+            sqlx::query(
+                "INSERT INTO runners (id, name, os, created_at, updated_at) VALUES (?1, ?2, ?2, 1, 1)",
+            )
+            .bind(id.as_bytes().to_vec())
+            .bind(os.to_owned())
+            .execute(&pool)
+        };
+        assert!(add("0123456789abcdef", "macos").await.is_ok());
+        assert!(add("fedcba9876543210", "plan9").await.is_err());
+        let referenced = sqlx::query("DELETE FROM runners WHERE name = 'local'")
+            .execute(&pool)
+            .await;
+        assert!(referenced.is_err());
+        pool.close().await;
+    }
+
+    #[tokio::test]
     async fn concurrent_writers_commit_one_after_another() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("nullradix.db")).await.unwrap();

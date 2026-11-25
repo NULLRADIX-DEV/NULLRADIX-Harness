@@ -22,6 +22,7 @@ pub enum RepositoryError {
 pub enum RunnerOs {
     Windows,
     Linux,
+    Macos,
 }
 
 impl RunnerOs {
@@ -30,9 +31,17 @@ impl RunnerOs {
     pub const fn current() -> Self {
         if cfg!(windows) {
             Self::Windows
+        } else if cfg!(target_os = "macos") {
+            Self::Macos
         } else {
             Self::Linux
         }
+    }
+
+    /// Whether folder names that differ only by case are the same folder.
+    #[must_use]
+    pub const fn ignores_path_case(self) -> bool {
+        matches!(self, Self::Windows | Self::Macos)
     }
 
     #[must_use]
@@ -355,6 +364,15 @@ mod tests {
         assert_eq!(runner.version(), Version::INITIAL);
         assert_eq!(runner.os().as_str(), "linux");
         assert_eq!("windows".parse::<RunnerOs>(), Ok(RunnerOs::Windows));
+        assert_eq!("macos".parse::<RunnerOs>(), Ok(RunnerOs::Macos));
+        assert_eq!(RunnerOs::Macos.as_str(), "macos");
+        assert!(RunnerOs::Windows.ignores_path_case());
+        assert!(RunnerOs::Macos.ignores_path_case());
+        assert!(!RunnerOs::Linux.ignores_path_case());
+        assert_eq!(
+            RunnerOs::current().ignores_path_case(),
+            cfg!(any(windows, target_os = "macos"))
+        );
         let repository = Repository::new(id(2), RepositoryName::parse("arches").unwrap(), now);
         let checkout = Checkout::new(
             id(3),

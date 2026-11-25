@@ -1524,7 +1524,7 @@ export interface components {
             items: components["schemas"]["RunnerDto"][];
         };
         /** @enum {string} */
-        RunnerOsDto: "windows" | "linux";
+        RunnerOsDto: "windows" | "linux" | "macos";
         /** @description The finding stood out again. */
         SeenNote: {
             /** @description Key of the ticket it stood out at. */

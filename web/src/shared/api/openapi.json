@@ -6969,7 +6969,8 @@
         "type": "string",
         "enum": [
           "windows",
-          "linux"
+          "linux",
+          "macos"
         ]
       },
       "SeenNote": {
