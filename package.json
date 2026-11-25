@@ -1,6 +1,7 @@
 {
   "name": "nullradix",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "license": "MIT",
   "prettier": {

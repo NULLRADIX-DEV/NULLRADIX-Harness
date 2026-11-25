@@ -8,4 +8,6 @@ Local workbench for running many Claude Code sessions in parallel: board, git wo
 > [!WARNING]
 > NULLRADIX is being rebuilt from the ground up. The last working version is tag [`legacy-final`](https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/tree/legacy-final).
 
-Based on [Nexus](https://github.com/BenjaminBiber/Nexus) by Benjamin Biber. MIT licensed.
+NULLRADIX grew out of the idea behind [Nexus](https://github.com/BenjaminBiber/Nexus) by Benjamin Biber, with thanks. The code is being rewritten from the ground up, and the features are being changed and extended.
+
+Copyright (c) 2026 NULLRADIX-Dev. All rights reserved. The source is visible but not open source; see [LICENSE.md](LICENSE.md).
