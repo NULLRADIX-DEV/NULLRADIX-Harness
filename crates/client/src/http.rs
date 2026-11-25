@@ -900,16 +900,7 @@ mod tests {
             signal.clone(),
             FAST,
         );
-        let sessions = Arc::new(nullradix_app::sessions::SessionService::new(
-            store.clone(),
-            runners.clone(),
-            Arc::new(SystemClock),
-            Arc::new(UuidV7Generator),
-            signal.clone(),
-        ));
-        let hooks = Arc::new(
-            HookService::new(store.clone(), Arc::new(SystemClock)).with_sessions(sessions.clone()),
-        );
+        let (sessions, hooks) = hook_services(&store, &runners, &signal);
         let boards = Arc::new(nullradix_app::boards::BoardService::new(
             store.clone(),
             store.clone(),
@@ -982,6 +973,27 @@ mod tests {
             secure_cookies: false,
             web_dir: None,
         }
+    }
+
+    fn hook_services(
+        store: &Arc<Store>,
+        runners: &Arc<nullradix_app::repositories::RunnerService>,
+        signal: &ChangeSignal,
+    ) -> (
+        Arc<nullradix_app::sessions::SessionService>,
+        Arc<HookService>,
+    ) {
+        let sessions = Arc::new(nullradix_app::sessions::SessionService::new(
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let hooks = Arc::new(
+            HookService::new(store.clone(), Arc::new(SystemClock)).with_sessions(sessions.clone()),
+        );
+        (sessions, hooks)
     }
 
     fn note_service(

@@ -1,7 +1,7 @@
 use axum::Json;
 use axum::extract::State;
 use nullradix_app::sessions::{SessionLine, SessionQuery};
-use nullradix_domain::{DisplayState, SessionClient, SessionState, SubagentState};
+use nullradix_domain::{DisplayState, SessionClient, SessionState, SubagentState, Timestamp};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -159,7 +159,7 @@ impl From<SessionLine> for SessionDto {
             listening: line.view.listening,
             started_at: record.started_at.as_millis(),
             last_event_at: record.last_event_at.as_millis(),
-            ended_at: record.ended_at.map(|at| at.as_millis()),
+            ended_at: record.ended_at.map(Timestamp::as_millis),
             runtime_ms: i64::try_from(line.view.runtime.as_millis()).unwrap_or(i64::MAX),
             model: record.model.clone(),
             transcript_path: record.transcript_path.clone(),
@@ -173,7 +173,7 @@ impl From<SessionLine> for SessionDto {
                     kind: agent.kind.clone(),
                     state: agent.state.into(),
                     started_at: agent.started_at.as_millis(),
-                    ended_at: agent.ended_at.map(|at| at.as_millis()),
+                    ended_at: agent.ended_at.map(Timestamp::as_millis),
                 })
                 .collect(),
             tickets: line

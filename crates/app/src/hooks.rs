@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use nullradix_domain::{HookError, HookEvent, Timestamp};
+use nullradix_domain::{HookError, HookEvent, HookKind, Timestamp};
 
 use crate::sessions::SessionService;
 use crate::{AppError, Clock};
@@ -28,6 +28,10 @@ pub struct HookReply {
     /// Variables for the environment of the session.
     pub env: BTreeMap<String, String>,
 }
+
+/// Names the session's later CLI calls read, as legacy exported them at session start.
+pub const SESSION_VAR: &str = "NULLRADIX_SESSION";
+pub const TICKET_VAR: &str = "NULLRADIX_TICKET";
 
 #[must_use]
 pub fn invalid(error: &HookError) -> AppError {
@@ -80,7 +84,30 @@ impl HookService {
                 "hook event"
             );
         }
-        Ok(HookReply::default())
+        let mut reply = HookReply::default();
+        if event.kind() == HookKind::SessionStart {
+            reply.env = self.session_env(event).await;
+        }
+        Ok(reply)
+    }
+
+    /// The session id and its first ticket for the session's environment.
+    async fn session_env(&self, event: &HookEvent) -> BTreeMap<String, String> {
+        let id = event.session().as_str();
+        let mut env = BTreeMap::from([(SESSION_VAR.to_owned(), id.to_owned())]);
+        let Some(sessions) = &self.sessions else {
+            return env;
+        };
+        // the hook answer must not fail on a lookup of what was just stored
+        match sessions.get(id).await {
+            Ok(session) => {
+                if let Some(ticket) = session.tickets.first() {
+                    env.insert(TICKET_VAR.to_owned(), ticket.key.to_string());
+                }
+            }
+            Err(error) => tracing::warn!(%error, session = id, "cannot read the session"),
+        }
+        env
     }
 
     pub async fn recent(&self, limit: u32) -> Result<Vec<HookEvent>, AppError> {

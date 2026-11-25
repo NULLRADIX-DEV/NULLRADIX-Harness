@@ -407,6 +407,30 @@ pub(crate) mod tests {
         (tickets, comments, questions, worktrees, notes)
     }
 
+    async fn test_runners(
+        store: &Arc<Store>,
+        signal: &ChangeSignal,
+    ) -> (Arc<nullradix_runner::LocalRunner>, Arc<RunnerService>) {
+        let runner = Arc::new(nullradix_runner::LocalRunner::new(
+            std::env::temp_dir().join("nullradix-api-tests"),
+            nullradix_runner::SupervisorCommand {
+                program: PathBuf::from("nullradix-missing-supervisor"),
+                args: Vec::new(),
+            },
+        ));
+        let runners = RunnerService::start(
+            store.clone(),
+            store.clone(),
+            runner.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        )
+        .await
+        .unwrap();
+        (runner, Arc::new(runners))
+    }
+
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
@@ -424,25 +448,7 @@ pub(crate) mod tests {
             signal.clone(),
         ));
         let changes: Arc<dyn ChangeFeed> = store.clone();
-        let runner = Arc::new(nullradix_runner::LocalRunner::new(
-            std::env::temp_dir().join("nullradix-api-tests"),
-            nullradix_runner::SupervisorCommand {
-                program: PathBuf::from("nullradix-missing-supervisor"),
-                args: Vec::new(),
-            },
-        ));
-        let runners = Arc::new(
-            RunnerService::start(
-                store.clone(),
-                store.clone(),
-                runner.clone(),
-                Arc::new(SystemClock),
-                Arc::new(UuidV7Generator),
-                signal.clone(),
-            )
-            .await
-            .unwrap(),
-        );
+        let (runner, runners) = test_runners(&store, &signal).await;
         let boards = Arc::new(BoardService::new(
             store.clone(),
             store.clone(),

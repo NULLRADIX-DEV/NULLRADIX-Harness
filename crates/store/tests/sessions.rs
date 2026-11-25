@@ -2,6 +2,7 @@
 
 mod common;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
@@ -341,10 +342,28 @@ async fn the_ticket_a_hook_names_is_linked_once() {
         ticket: Some(String::from("arc-1, ARC-99")),
         ..HookDetails::default()
     };
-    f.hook(HookKind::SessionStart, "s1", "/x", named()).await;
-    f.hook(HookKind::UserPrompt, "s1", "/x", named()).await;
-    f.hook(HookKind::SessionStart, "s2", "/x", HookDetails::default())
-        .await;
+    let started = f.event(HookKind::SessionStart, "s1", "/x", named());
+    let reply = f.hooks.receive(&started).await.unwrap();
+    let exported: Vec<(&str, &str)> = reply
+        .env
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    assert_eq!(
+        exported,
+        [
+            ("NULLRADIX_SESSION", "s1"),
+            ("NULLRADIX_TICKET", "ARC-0001")
+        ]
+    );
+    let prompt = f.event(HookKind::UserPrompt, "s1", "/x", named());
+    assert_eq!(f.hooks.receive(&prompt).await.unwrap().env, BTreeMap::new());
+    let bare = f.event(HookKind::SessionStart, "s2", "/x", HookDetails::default());
+    let reply = f.hooks.receive(&bare).await.unwrap();
+    assert_eq!(
+        reply.env,
+        BTreeMap::from([(String::from("NULLRADIX_SESSION"), String::from("s2"))])
+    );
     assert_eq!(f.sessions.get("s2").await.unwrap().tickets, Vec::new());
     let line = f.sessions.get("s1").await.unwrap();
     assert_eq!(line.tickets.len(), 1);
@@ -469,13 +488,8 @@ impl Raw {
     }
 }
 
-#[tokio::test]
-async fn sessions_in_the_worktree_of_an_in_progress_ticket_are_linked_to_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("nullradix.db");
-    let f = fixture_on(Arc::new(Store::open(&path).await.unwrap())).await;
-    let url = format!("sqlite:{}", path.display().to_string().replace('\\', "/"));
-    let raw = Raw(sqlx::SqlitePool::connect(&url).await.unwrap());
+/// A board bound to `/work/arches` with one backlog ticket per title; returns the repository.
+async fn tickets_in_a_repository(f: &Fixture, titles: &[&str]) -> uuid::Uuid {
     let ids = Arc::new(UuidV7Generator);
     let person = local_person(f.store.as_ref(), "anna", ids.as_ref(), f.clock.as_ref())
         .await
@@ -514,15 +528,14 @@ async fn sessions_in_the_worktree_of_an_in_progress_ticket_are_linked_to_it() {
         )
         .await
         .unwrap();
-    let repository = bound.board.repository().unwrap().as_uuid();
     let options = WriteOptions {
         by_person: true,
         force: false,
         allow_duplicate: true,
     };
-    for title in ["Live", "Backlog", "Released", "Removed", "Second"] {
+    for title in titles {
         let input = NewTicket {
-            title: title.to_owned(),
+            title: (*title).to_owned(),
             ..NewTicket::default()
         };
         tickets
@@ -530,6 +543,18 @@ async fn sessions_in_the_worktree_of_an_in_progress_ticket_are_linked_to_it() {
             .await
             .unwrap();
     }
+    bound.board.repository().unwrap().as_uuid()
+}
+
+#[tokio::test]
+async fn sessions_in_the_worktree_of_an_in_progress_ticket_are_linked_to_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nullradix.db");
+    let f = fixture_on(Arc::new(Store::open(&path).await.unwrap())).await;
+    let url = format!("sqlite:{}", path.display().to_string().replace('\\', "/"));
+    let raw = Raw(sqlx::SqlitePool::connect(&url).await.unwrap());
+    let titles = ["Live", "Backlog", "Released", "Removed", "Second"];
+    let repository = tickets_in_a_repository(&f, &titles).await;
     for number in [1, 3, 4, 5] {
         raw.status(number, "in-progress").await;
     }

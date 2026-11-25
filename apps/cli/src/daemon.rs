@@ -53,18 +53,8 @@ pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
     runtime.block_on(serve(config, discovery))
 }
 
-async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> {
-    let store = Store::open(&config.paths.data.join("nullradix.db"))
-        .await
-        .context("cannot open the database")?;
-    let auth = Arc::new(AuthService::new(
-        Arc::new(store.clone()),
-        Arc::new(SystemClock),
-        Arc::new(UuidV7Generator),
-    ));
-    ensure_local_token(config, &auth).await?;
-    let pruned = auth.prune_expired_sessions().await?;
-    tracing::debug!(pruned, "expired sessions removed");
+/// Binds the loopback address and announces it in the discovery file.
+async fn listen(config: &Config, discovery: &DiscoveryFile) -> anyhow::Result<TcpListener> {
     if !config.address.ip().is_loopback() {
         bail!(
             "refusing to listen on {}: credentials would travel unencrypted, use a loopback address",
@@ -90,6 +80,22 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         data = %config.paths.data.display(),
         "daemon started"
     );
+    Ok(listener)
+}
+
+async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> {
+    let store = Store::open(&config.paths.data.join("nullradix.db"))
+        .await
+        .context("cannot open the database")?;
+    let auth = Arc::new(AuthService::new(
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+    ));
+    ensure_local_token(config, &auth).await?;
+    let pruned = auth.prune_expired_sessions().await?;
+    tracing::debug!(pruned, "expired sessions removed");
+    let listener = listen(config, &discovery).await?;
     let signal = ChangeSignal::new();
     let shutdown = CancellationToken::new();
     let projects = Arc::new(ProjectService::new(

@@ -191,7 +191,7 @@ impl SessionService {
         let mut next = base.apply(event);
         let shown = next.as_ref().unwrap_or(&base);
         if shown.record().repository.is_none()
-            && let Some(Some(repository)) = known
+            && let Some(repository) = known
             && let Some(number) = write.next_number(repository).await?
         {
             next = Some(shown.located(repository, number));
@@ -259,11 +259,10 @@ impl SessionService {
         Ok(linked)
     }
 
-    /// What is known about the repository of `cwd`: `None` when it still has to be looked up.
-    fn known(&self, cwd: &str) -> Option<Option<Id<Repository>>> {
+    /// The repository of `cwd` once a lookup found one.
+    fn known(&self, cwd: &str) -> Option<Id<Repository>> {
         match self.located.lock().get(cwd) {
-            Some(Located::Known(Some(repository), _)) => Some(Some(*repository)),
-            Some(Located::Known(None, at)) if at.elapsed() < UNKNOWN_FOR => Some(None),
+            Some(Located::Known(Some(repository), _)) => Some(*repository),
             _ => None,
         }
     }
@@ -286,7 +285,7 @@ impl SessionService {
             return Ok(());
         }
         // found meanwhile: the event came after the lookup placed the others
-        if let Some(Some(repository)) = self.known(cwd) {
+        if let Some(repository) = self.known(cwd) {
             return self.place(cwd, repository).await;
         }
         let service = Arc::clone(self);
