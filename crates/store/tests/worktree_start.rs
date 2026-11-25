@@ -87,6 +87,9 @@ impl RunnerPort for FakeGit {
 
     async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError> {
         self.removals.lock().unwrap().push(request.clone());
+        if !self.folders.lock().unwrap().contains(&request.path) {
+            return Ok(WorktreeRemoval::Missing);
+        }
         if let Some(reason) = *self.keep.lock().unwrap() {
             return Ok(WorktreeRemoval::Kept(reason.to_owned()));
         }
@@ -735,7 +738,8 @@ async fn readiness_waits_for_every_live_ticket_and_is_written_only_on_change() {
     assert_eq!(ready.cleanup[0].removal, kept);
     let record = fixture.worktree_of(&host).await.record().clone();
     assert!(record.ready_to_merge);
-    assert_eq!(record.version, before.next().next());
+    // ready, the claim and its release with the reason
+    assert_eq!(record.version, before.next().next().next());
     assert_eq!(record.desired, DesiredState::Present);
     assert_eq!(
         record.last_error.as_deref(),
@@ -743,10 +747,10 @@ async fn readiness_waits_for_every_live_ticket_and_is_written_only_on_change() {
     );
     let unchanged = fixture.done(&host, "/work/arches").await.unwrap();
     assert!(unchanged.ready_to_merge);
-    assert_eq!(
-        fixture.worktree_of(&host).await.record().version,
-        record.version
-    );
+    let again = fixture.worktree_of(&host).await.record().clone();
+    assert!(again.ready_to_merge);
+    assert_eq!(again.desired, DesiredState::Present);
+    assert_eq!(again.last_error, record.last_error);
 }
 
 #[tokio::test]
@@ -849,5 +853,81 @@ async fn start_removes_ready_worktrees_before_it_begins() {
     assert_eq!(
         (record.desired, record.actual, record.last_error),
         (DesiredState::Absent, ActualState::Removed, None)
+    );
+}
+
+#[tokio::test]
+async fn a_worktree_claimed_by_another_cleanup_is_left_to_it() {
+    let fixture = fixture().await;
+    let key = fixture.ticket("Fix").await;
+    let started = fixture
+        .start(&key, "/work/arches", StartMode::New)
+        .await
+        .unwrap();
+    *fixture.git.keep.lock().unwrap() = Some("busy");
+    fixture.done(&key, "/work/arches").await.unwrap();
+    *fixture.git.keep.lock().unwrap() = None;
+    let id = fixture.worktree_of(&key).await.id();
+    let now = nullradix_domain::Timestamp::from_millis(i64::MAX / 2);
+    let mut write = nullradix_app::tickets::TicketRepository::begin(fixture.store.as_ref())
+        .await
+        .unwrap();
+    assert!(write.claim_removal(id, now).await.unwrap().is_some());
+    assert!(write.claim_removal(id, now).await.unwrap().is_none());
+    write.commit().await.unwrap();
+    let calls = fixture.git.removals.lock().unwrap().len();
+    let second = fixture.ticket("Second").await;
+    let next = fixture
+        .start(&second, "/work/arches", StartMode::AutoJoin)
+        .await
+        .unwrap();
+    assert_eq!(next.cleanup, Vec::new());
+    assert!(!next.joined);
+    assert_eq!(fixture.git.removals.lock().unwrap().len(), calls);
+    let mut write = nullradix_app::tickets::TicketRepository::begin(fixture.store.as_ref())
+        .await
+        .unwrap();
+    assert!(write.mark_removed(id, now).await.unwrap().is_some());
+    let late = write.mark_kept(id, Some("vanished"), now).await.unwrap();
+    assert!(late.is_none());
+    assert!(write.claim_removal(id, now).await.unwrap().is_none());
+    write.commit().await.unwrap();
+    let record = fixture.worktree_of(&key).await.record().clone();
+    assert_eq!(
+        (record.desired, record.actual, record.last_error),
+        (DesiredState::Absent, ActualState::Removed, None)
+    );
+    assert_eq!(record.path.as_str(), started.worktree);
+}
+
+#[tokio::test]
+async fn a_hand_deleted_ready_worktree_is_skipped_silently() {
+    let fixture = fixture().await;
+    let key = fixture.ticket("Fix").await;
+    let started = fixture
+        .start(&key, "/work/arches", StartMode::New)
+        .await
+        .unwrap();
+    fixture
+        .git
+        .folders
+        .lock()
+        .unwrap()
+        .remove(&started.worktree);
+    let finished = fixture.done(&key, "/work/arches").await.unwrap();
+    assert!(finished.ready_to_merge);
+    assert_eq!(finished.cleanup, Vec::new());
+    let second = fixture.ticket("Second").await;
+    let next = fixture
+        .start(&second, "/work/arches", StartMode::New)
+        .await
+        .unwrap();
+    assert_eq!(next.cleanup, Vec::new());
+    assert_eq!(fixture.git.removals.lock().unwrap().len(), 2);
+    let record = fixture.worktree_of(&key).await.record().clone();
+    assert!(record.ready_to_merge);
+    assert_eq!(
+        (record.desired, record.actual, record.last_error),
+        (DesiredState::Present, ActualState::Present, None)
     );
 }

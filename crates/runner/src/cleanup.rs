@@ -38,7 +38,7 @@ pub(crate) async fn remove(request: &RemoveWorktree) -> Result<WorktreeRemoval, 
     let (folder, cwd) = (path.clone(), PathBuf::from(&request.cwd));
     let (exists, inside) = blocking(move || (folder.exists(), contains(&folder, &cwd))).await?;
     if !exists {
-        return Ok(kept("the folder does not exist"));
+        return Ok(WorktreeRemoval::Missing);
     }
     if inside {
         return Ok(kept("the current folder is inside it"));
@@ -257,7 +257,7 @@ mod tests {
         let (root, path) = setup(dir.path());
         let gone = dir.path().join("arches-worktrees").join("ARC-0002");
         let removal = remove(&request(&root, &gone, &root)).await.unwrap();
-        assert_eq!(removal, kept("the folder does not exist"));
+        assert_eq!(removal, WorktreeRemoval::Missing);
         assert!(path.exists());
     }
 

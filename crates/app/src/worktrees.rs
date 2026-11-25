@@ -50,6 +50,8 @@ pub enum WorktreeRemoval {
     Removed,
     /// The folder stays; the reason says why.
     Kept(String),
+    /// The folder is gone already; nothing is reported or recorded, as in legacy.
+    Missing,
 }
 
 /// A worktree with every ticket it ever served, in join order.
@@ -109,17 +111,23 @@ pub trait WorktreeWrite: Send {
         ready: bool,
         at: Timestamp,
     ) -> Result<Option<Change>, AppError>;
-    /// The runner removed the folder: desired absent, actual removed, no error.
+    /// Claims a present worktree for removal (desired absent); `None` when another cleanup has it.
+    async fn claim_removal(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
+    /// The runner removed the claimed folder: actual removed, no error.
     async fn mark_removed(
         &mut self,
         worktree: Id<Worktree>,
         at: Timestamp,
     ) -> Result<Option<Change>, AppError>;
-    /// The runner kept the folder; the reason becomes the last error.
+    /// Releases the claim (desired present); a reason becomes the last error, a removed row stays.
     async fn mark_kept(
         &mut self,
         worktree: Id<Worktree>,
-        reason: &str,
+        reason: Option<&str>,
         at: Timestamp,
     ) -> Result<Option<Change>, AppError>;
 }

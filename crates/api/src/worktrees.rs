@@ -64,6 +64,8 @@ impl From<Cleaned> for CleanedWorktree {
         let kept_because = match cleaned.removal {
             WorktreeRemoval::Removed => None,
             WorktreeRemoval::Kept(reason) => Some(reason),
+            // cleanup never reports a missing folder; kept for completeness
+            WorktreeRemoval::Missing => Some(String::from("the folder does not exist")),
         };
         Self {
             path: cleaned.path,

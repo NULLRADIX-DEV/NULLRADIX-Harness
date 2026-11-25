@@ -282,6 +282,26 @@ async fn set_ready(
     updated(connection, changed, at).await
 }
 
+async fn claim_removal(
+    connection: &mut SqliteConnection,
+    worktree: Id<Worktree>,
+    at: Timestamp,
+) -> Result<Option<Change>, AppError> {
+    let id = worktree.as_uuid();
+    let millis = at.as_millis();
+    let changed = sqlx::query_scalar!(
+        r#"UPDATE worktrees SET desired_state = 'absent', updated_at = ?1, version = version + 1
+           WHERE id = ?2 AND desired_state = 'present' AND actual_state <> 'removed'
+           RETURNING id AS "id: Uuid""#,
+        millis,
+        id,
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(database)?;
+    updated(connection, changed, at).await
+}
+
 async fn mark_removed(
     connection: &mut SqliteConnection,
     worktree: Id<Worktree>,
@@ -291,11 +311,9 @@ async fn mark_removed(
     let millis = at.as_millis();
     let changed = sqlx::query_scalar!(
         r#"UPDATE worktrees
-           SET desired_state = 'absent', actual_state = 'removed', last_error = NULL,
-               observed_at = ?1, updated_at = ?1, version = version + 1
-           WHERE id = ?2
-             AND NOT (desired_state = 'absent' AND actual_state = 'removed'
-                      AND last_error IS NULL)
+           SET actual_state = 'removed', last_error = NULL, observed_at = ?1, updated_at = ?1,
+               version = version + 1
+           WHERE id = ?2 AND desired_state = 'absent' AND actual_state <> 'removed'
            RETURNING id AS "id: Uuid""#,
         millis,
         id,
@@ -309,14 +327,16 @@ async fn mark_removed(
 async fn mark_kept(
     connection: &mut SqliteConnection,
     worktree: Id<Worktree>,
-    reason: &str,
+    reason: Option<&str>,
     at: Timestamp,
 ) -> Result<Option<Change>, AppError> {
     let id = worktree.as_uuid();
     let millis = at.as_millis();
     let changed = sqlx::query_scalar!(
-        r#"UPDATE worktrees SET last_error = ?1, updated_at = ?2, version = version + 1
-           WHERE id = ?3 AND last_error IS NOT ?1
+        r#"UPDATE worktrees
+           SET desired_state = 'present', last_error = coalesce(?1, last_error), updated_at = ?2,
+               version = version + 1
+           WHERE id = ?3 AND desired_state = 'absent' AND actual_state <> 'removed'
            RETURNING id AS "id: Uuid""#,
         reason,
         millis,
@@ -474,6 +494,14 @@ impl WorktreeWrite for Write {
         set_ready(&mut self.0, worktree, ready, at).await
     }
 
+    async fn claim_removal(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        claim_removal(&mut self.0, worktree, at).await
+    }
+
     async fn mark_removed(
         &mut self,
         worktree: Id<Worktree>,
@@ -485,7 +513,7 @@ impl WorktreeWrite for Write {
     async fn mark_kept(
         &mut self,
         worktree: Id<Worktree>,
-        reason: &str,
+        reason: Option<&str>,
         at: Timestamp,
     ) -> Result<Option<Change>, AppError> {
         mark_kept(&mut self.0, worktree, reason, at).await

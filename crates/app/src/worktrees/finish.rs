@@ -132,6 +132,10 @@ impl WorktreeService {
             {
                 continue;
             }
+            // a concurrent cleanup that claimed it first does the work alone
+            if !self.claim(worktree.id()).await? {
+                continue;
+            }
             let request = RemoveWorktree {
                 root: place.root.clone(),
                 path: worktree.path().as_str().to_owned(),
@@ -142,6 +146,9 @@ impl WorktreeService {
                 Err(error) => WorktreeRemoval::Kept(error.message().to_owned()),
             };
             self.record_removal(worktree.id(), &removal).await?;
+            if removal == WorktreeRemoval::Missing {
+                continue;
+            }
             cleaned.push(Cleaned {
                 path: request.path,
                 branch: worktree.branch().as_str().to_owned(),
@@ -149,6 +156,18 @@ impl WorktreeService {
             });
         }
         Ok(cleaned)
+    }
+
+    /// Claims the worktree for this cleanup; false when it is gone or claimed already.
+    async fn claim(&self, worktree: Id<Worktree>) -> Result<bool, AppError> {
+        let mut write = self.tickets.repository().begin().await?;
+        let change = write.claim_removal(worktree, self.clock.now()).await?;
+        write.commit().await?;
+        let claimed = change.is_some();
+        if let Some(change) = change {
+            self.signal.notify(&change);
+        }
+        Ok(claimed)
     }
 
     /// Writes what the runner answered; the row and the branch stay either way.
@@ -161,7 +180,8 @@ impl WorktreeService {
         let mut write = self.tickets.repository().begin().await?;
         let change = match removal {
             WorktreeRemoval::Removed => write.mark_removed(worktree, now).await?,
-            WorktreeRemoval::Kept(reason) => write.mark_kept(worktree, reason, now).await?,
+            WorktreeRemoval::Kept(reason) => write.mark_kept(worktree, Some(reason), now).await?,
+            WorktreeRemoval::Missing => write.mark_kept(worktree, None, now).await?,
         };
         write.commit().await?;
         if let Some(change) = change {

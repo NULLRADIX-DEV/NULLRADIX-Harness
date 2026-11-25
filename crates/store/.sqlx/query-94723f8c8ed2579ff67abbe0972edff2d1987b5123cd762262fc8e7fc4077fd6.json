@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "UPDATE worktrees SET last_error = ?1, updated_at = ?2, version = version + 1\n           WHERE id = ?3 AND last_error IS NOT ?1\n           RETURNING id AS \"id: Uuid\"",
+  "query": "UPDATE worktrees SET desired_state = 'absent', updated_at = ?1, version = version + 1\n           WHERE id = ?2 AND desired_state = 'present' AND actual_state <> 'removed'\n           RETURNING id AS \"id: Uuid\"",
   "describe": {
     "columns": [
       {
@@ -16,11 +16,11 @@
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 2
     },
     "nullable": [
       false
     ]
   },
-  "hash": "b576103b59c8577883c891c09e91ec2968f0b4e683ddc353e4ed9d6ca02e8287"
+  "hash": "94723f8c8ed2579ff67abbe0972edff2d1987b5123cd762262fc8e7fc4077fd6"
 }
