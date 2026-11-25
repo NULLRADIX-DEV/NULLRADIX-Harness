@@ -1,6 +1,7 @@
 import { THEME_LABELS, THEME_MODES, isThemeChoice } from '../../shared/lib/theme';
 import { useTheme } from '../../shared/ui/ThemeProvider';
 import { AccountsSection } from '../accounts/AccountsSection';
+import { DispatcherSection } from '../dispatcher/DispatcherSection';
 import { ProjectsSection } from '../projects/ProjectsSection';
 import { CustomizationsSection } from '../customizations/CustomizationsSection';
 import { ThemesSection } from '../themes/ThemesSection';
@@ -12,6 +13,7 @@ export function SettingsPage() {
       <h1 className="page-title">Settings</h1>
       <ProjectsSection />
       <AccountsSection />
+      <DispatcherSection />
       <section className="panel page-section">
         <h2>Appearance</h2>
         <label className="field">

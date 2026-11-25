@@ -1,0 +1,182 @@
+/* Dispatcher settings: grouped fields and editable tables of profiles, ladder and rules */
+.dispatcher-note {
+  margin: 0;
+  font-size: 13px;
+}
+
+.dispatcher-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dispatcher-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.dispatcher-group > .field-hint {
+  margin: 0;
+}
+
+.setting {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.setting > label {
+  color: var(--text-soft);
+}
+
+.setting input.short {
+  width: 96px;
+}
+
+.setting input:not(.short):not([type='checkbox']),
+.setting select {
+  width: 100%;
+  max-width: 420px;
+}
+
+.setting.wide textarea {
+  max-width: 640px;
+}
+
+.setting-check > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.setting .field-hint,
+.setting .form-error {
+  margin: 0;
+}
+
+.dispatcher-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dispatcher-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dispatcher-row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+}
+
+.dispatcher-row.profile {
+  grid-template-columns: minmax(90px, 1.2fr) minmax(80px, 1fr) 90px 72px 80px minmax(80px, 1fr) auto;
+}
+
+.dispatcher-row.rule {
+  grid-template-columns:
+    minmax(90px, 1.2fr) minmax(70px, 1fr) 72px 88px minmax(80px, 1fr) minmax(80px, 1fr)
+    auto;
+}
+
+.dispatcher-row.ladder {
+  grid-template-columns: 24px minmax(120px, 280px) auto;
+}
+
+.dispatcher-row.head {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dispatcher-row input,
+.dispatcher-row select {
+  width: 100%;
+  min-width: 0;
+}
+
+.dispatcher-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.dispatcher-row-errors {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dispatcher-row-errors .form-error {
+  margin: 0;
+  font-size: 12px;
+}
+
+.account-picker {
+  position: relative;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.account-picker summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-picker-menu {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+  margin-top: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: 0 4px 16px var(--shadow-faint);
+}
+
+.account-picker-menu label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dispatcher-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+@media (max-width: 720px) {
+  .dispatcher-row.head {
+    display: none;
+  }
+
+  .dispatcher-row.profile,
+  .dispatcher-row.rule {
+    grid-template-columns: 1fr 1fr;
+  }
+}

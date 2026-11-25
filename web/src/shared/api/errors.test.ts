@@ -41,6 +41,17 @@ describe('unwrap', () => {
     expect(() => unwrap(result)).toThrow(expect.objectContaining({ existing: null, similar: [] }));
   });
 
+  it('keeps the refused fields of invalid input', () => {
+    const invalid = {
+      ...problem,
+      status: 422,
+      code: 'dispatcher-config-invalid',
+      errors: [{ field: 'wip', message: 'must be a whole number from 0' }],
+    };
+    expect(new ApiProblemError(invalid).fields).toEqual(invalid.errors);
+    expect(new ApiProblemError(problem).fields).toEqual([]);
+  });
+
   it('keeps the key of an existing entity', () => {
     const duplicate = { ...problem, status: 409, code: 'ticket-duplicate', existing: 'ARC-0007' };
     expect(new ApiProblemError(duplicate).existing).toBe('ARC-0007');
