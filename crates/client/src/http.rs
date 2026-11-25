@@ -981,7 +981,7 @@ mod tests {
             questions,
             worktrees,
             notes,
-            inbox: Arc::new(nullradix_app::inbox::InboxService::new(store.clone())),
+            inbox: inbox_service(&store, &signal),
             runners,
             person: Arc::new(person),
             runs,
@@ -1029,6 +1029,17 @@ mod tests {
             store.clone(),
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
+            signal.clone(),
+        ))
+    }
+
+    fn inbox_service(
+        store: &Arc<Store>,
+        signal: &nullradix_app::ChangeSignal,
+    ) -> Arc<nullradix_app::inbox::InboxService> {
+        Arc::new(nullradix_app::inbox::InboxService::new(
+            store.clone(),
+            Arc::new(SystemClock),
             signal.clone(),
         ))
     }

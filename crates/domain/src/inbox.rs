@@ -1,7 +1,7 @@
 //! The inbox: what waits for a person, how urgent it is and the order they chose.
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use strum::{EnumIter, IntoEnumIterator, IntoStaticStr};
@@ -175,8 +175,6 @@ pub enum InboxError {
     InvalidKind(String),
     #[error("\"{0}\" is not an inbox entry such as ticket:ARC-0001, question:ARC-Q0001 or note:7")]
     InvalidKey(String),
-    #[error("an order holds at most {INBOX_ORDER_MAX} entries, not {0}")]
-    TooMany(usize),
 }
 
 /// One entry of the inbox.
@@ -288,18 +286,20 @@ impl InboxCounts {
     }
 }
 
-/// A saved order without repeats, refused beyond [`INBOX_ORDER_MAX`] entries.
-pub fn order(entries: Vec<InboxRef>) -> Result<Vec<InboxRef>, InboxError> {
-    if entries.len() > INBOX_ORDER_MAX {
-        return Err(InboxError::TooMany(entries.len()));
-    }
-    let mut unique: Vec<InboxRef> = Vec::with_capacity(entries.len());
+/// A saved order without repeats, cut to the first [`INBOX_ORDER_MAX`] entries.
+#[must_use]
+pub fn order(entries: Vec<InboxRef>) -> Vec<InboxRef> {
+    let mut seen: HashSet<InboxRef> = HashSet::with_capacity(entries.len());
+    let mut unique: Vec<InboxRef> = Vec::with_capacity(entries.len().min(INBOX_ORDER_MAX));
     for entry in entries {
-        if !unique.contains(&entry) {
+        if unique.len() == INBOX_ORDER_MAX {
+            break;
+        }
+        if seen.insert(entry.clone()) {
             unique.push(entry);
         }
     }
-    Ok(unique)
+    unique
 }
 
 /// Title and detail of an open note: seen count and the body beyond the title.
@@ -487,13 +487,15 @@ mod tests {
     }
 
     #[test]
-    fn orders_drop_repeats_and_have_a_limit() {
+    fn orders_drop_repeats_and_keep_the_first_entries() {
         assert_eq!(
-            order(vec![ticket(1), ticket(1), InboxRef::Note(2)]).unwrap(),
+            order(vec![ticket(1), ticket(1), InboxRef::Note(2)]),
             [ticket(1), InboxRef::Note(2)]
         );
         let many = (1..=1001).map(InboxRef::Note).collect();
-        assert_eq!(order(many), Err(InboxError::TooMany(1001)));
+        let kept = order(many);
+        assert_eq!(kept.len(), INBOX_ORDER_MAX);
+        assert_eq!(kept.last(), Some(&InboxRef::Note(1000)));
     }
 
     #[test]

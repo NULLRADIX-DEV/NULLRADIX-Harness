@@ -1129,7 +1129,7 @@ export interface components {
             reason?: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order";
         /** @description Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged. */
         FinishTicket: {
             /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
@@ -1288,6 +1288,11 @@ export interface components {
             counts: components["schemas"]["InboxCounts"];
             items: components["schemas"]["InboxItemDto"][];
             /**
+             * Format: int64
+             * @description Version of the saved order; send it back when saving or resetting the order.
+             */
+            orderVersion: number;
+            /**
              * Format: int32
              * @description Entries of every kind.
              */
@@ -1295,8 +1300,13 @@ export interface components {
         };
         /** @description The order of the inbox, first entry on top; entries not named come above it. */
         InboxOrder: {
-            /** @description At most 1000; repeats and entries that do not exist are dropped. */
+            /** @description Repeats, entries that do not exist and entries beyond the first 1000 are dropped. */
             items: components["schemas"]["InboxRefDto"][];
+            /**
+             * Format: int64
+             * @description The `orderVersion` the order is based on; a stale one fails with `version-conflict`.
+             */
+            version: number;
         };
         /** @description What an entry points at, such as ticket `ARC-0001` or note `7`. */
         InboxRefDto: {
@@ -2323,6 +2333,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2335,7 +2354,10 @@ export interface operations {
     };
     clear_inbox_order: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description The `orderVersion` the reset is based on. */
+                version: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2350,6 +2372,23 @@ export interface operations {
                 content?: never;
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -248,7 +248,11 @@ async fn start_board(
         questions,
         worktrees,
         notes,
-        inbox: Arc::new(InboxService::new(Arc::new(store.clone()))),
+        inbox: Arc::new(InboxService::new(
+            Arc::new(store.clone()),
+            Arc::new(SystemClock),
+            signal.clone(),
+        )),
         person: Arc::new(person),
     })
 }

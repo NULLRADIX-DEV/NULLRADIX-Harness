@@ -1,4 +1,5 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRef } from 'react';
 import { api, type components } from '../../shared/api/client';
 import { unwrap, unwrapEmpty } from '../../shared/api/errors';
 import type { ChangeRegistry } from '../../shared/live/registry';
@@ -34,11 +35,12 @@ export const inboxKeys = {
   list: (boardId: string | null) => [...inboxKeys.all, 'list', boardId ?? 'all'] as const,
 };
 
-// Tickets, questions and notes make up the inbox, so any of their changes refetches it.
+// Tickets, questions, notes and the saved order make up the inbox, so any change refetches it.
 export const inboxLive: ChangeRegistry = {
   ticket: [inboxKeys.all],
   question: [inboxKeys.all],
   note: [inboxKeys.all],
+  'inbox-order': [inboxKeys.all],
   board: [inboxKeys.all],
 };
 
@@ -65,17 +67,38 @@ export function moveItem<T>(items: readonly T[], from: number, to: number): read
   return next;
 }
 
-// Shows the new order at once and restores the old one when saving fails.
+// The key an entry is dragged and ordered by.
+export function entryKey(item: Pick<InboxItem, 'type' | 'key'>): string {
+  return `${item.type}:${item.key}`;
+}
+
+const ORDER_MUTATION = ['inbox', 'order'] as const;
+
+// Shows the new order at once, saves one order after the other and reloads when all are done.
 export function useSaveOrder(boardId: string | null) {
   const queryClient = useQueryClient();
   const key = inboxKeys.list(boardId);
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
   return useMutation({
-    mutationFn: async (items: readonly InboxItem[]) =>
-      unwrap(
-        await api.PUT('/api/v1/me/inbox/order', {
-          body: { items: items.map((item) => ({ type: item.type, key: item.key })) },
-        }),
-      ),
+    mutationKey: ORDER_MUTATION,
+    mutationFn: (items: readonly InboxItem[]) => {
+      const run = queue.current
+        .catch(() => undefined)
+        .then(async () => {
+          const version = queryClient.getQueryData<InboxList>(key)?.orderVersion ?? 1;
+          const saved = unwrap(
+            await api.PUT('/api/v1/me/inbox/order', {
+              body: { items: items.map((item) => ({ type: item.type, key: item.key })), version },
+            }),
+          );
+          queryClient.setQueryData<InboxList>(key, (current) =>
+            current ? { ...current, orderVersion: saved.version } : current,
+          );
+          return saved;
+        });
+      queue.current = run;
+      return run;
+    },
     onMutate: async (items) => {
       await queryClient.cancelQueries({ queryKey: key });
       const before = queryClient.getQueryData<InboxList>(key);
@@ -85,14 +108,19 @@ export function useSaveOrder(boardId: string | null) {
     onError: (_error, _items, context) => {
       if (context?.before) queryClient.setQueryData(key, context.before);
     },
+    onSettled: () => {
+      // the last of several queued saves reloads what the daemon kept
+      if (queryClient.isMutating({ mutationKey: ORDER_MUTATION }) > 1) return;
+      return queryClient.invalidateQueries({ queryKey: inboxKeys.all });
+    },
   });
 }
 
 export function useResetOrder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      unwrapEmpty(await api.DELETE('/api/v1/me/inbox/order'));
+    mutationFn: async (version: number) => {
+      unwrapEmpty(await api.DELETE('/api/v1/me/inbox/order', { params: { query: { version } } }));
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: inboxKeys.all }),
   });

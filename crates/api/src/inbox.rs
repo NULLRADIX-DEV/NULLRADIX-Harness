@@ -1,6 +1,7 @@
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
+use nullradix_app::AppError;
 use nullradix_app::inbox::{InboxList as List, OrderEntry};
 use nullradix_domain::{Id, InboxCounts as Counts, InboxItem, InboxKind, InboxRef};
 use serde::{Deserialize, Serialize};
@@ -153,11 +154,14 @@ impl From<Counts> for InboxCounts {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct InboxList {
     pub items: Vec<InboxItemDto>,
     pub counts: InboxCounts,
     /// Entries of every kind.
     pub total: u32,
+    /// Version of the saved order; send it back when saving or resetting the order.
+    pub order_version: i64,
 }
 
 impl From<List> for InboxList {
@@ -166,16 +170,27 @@ impl From<List> for InboxList {
             items: list.items.into_iter().map(InboxItemDto::from).collect(),
             counts: list.counts.into(),
             total: list.total,
+            order_version: list.order_version.value(),
         }
     }
 }
 
 /// The order of the inbox, first entry on top; entries not named come above it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InboxOrder {
-    /// At most 1000; repeats and entries that do not exist are dropped.
+    /// Repeats, entries that do not exist and entries beyond the first 1000 are dropped.
     pub items: Vec<InboxRefDto>,
+    /// The `orderVersion` the order is based on; a stale one fails with `version-conflict`.
+    pub version: i64,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query, rename_all = "camelCase")]
+pub(crate) struct OrderVersionQuery {
+    /// The `orderVersion` the reset is based on.
+    version: i64,
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -219,6 +234,7 @@ pub(crate) async fn get_inbox(
     responses(
         (status = 200, description = "The stored order", body = InboxOrder),
         (status = 401, body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
         (status = 422, body = Problem),
     )
 )]
@@ -234,9 +250,13 @@ pub(crate) async fn save_inbox_order(
             key: &item.key,
         })
         .collect();
-    let saved = state.inbox.save_order(&entries).await?;
+    let saved = state
+        .inbox
+        .save_order(&entries, AppError::client_version(input.version)?)
+        .await?;
     Ok(Json(InboxOrder {
-        items: saved.iter().map(InboxRefDto::from).collect(),
+        items: saved.order.iter().map(InboxRefDto::from).collect(),
+        version: saved.version.value(),
     }))
 }
 
@@ -244,15 +264,22 @@ pub(crate) async fn save_inbox_order(
     delete,
     path = "/me/inbox/order",
     tag = "inbox",
+    params(OrderVersionQuery),
     responses(
         (status = 204, description = "Back to the default order"),
         (status = 401, body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, body = Problem),
     )
 )]
 pub(crate) async fn clear_inbox_order(
     State(state): State<ApiState>,
+    ApiQuery(query): ApiQuery<OrderVersionQuery>,
 ) -> Result<StatusCode, ApiError> {
-    state.inbox.clear_order().await?;
+    state
+        .inbox
+        .clear_order(AppError::client_version(query.version)?)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -275,6 +302,7 @@ mod tests {
         assert_eq!(status, 200);
         assert_eq!(json["total"], 0);
         assert_eq!(json["counts"]["merge"], 0);
+        assert_eq!(json["orderVersion"], 1);
         let (status, _, json) = send(&api.router, get("/api/v1/me/inbox?kind=bogus")).await;
         assert_eq!(status, 422);
         assert_eq!(json["code"], "inbox-kind-invalid");
@@ -289,21 +317,54 @@ mod tests {
                 .body(Body::from(body.to_owned()))
                 .unwrap()
         };
-        let (status, _, json) =
-            send(&api.router, put(r#"{"items":[{"type":"note","key":"7"}]}"#)).await;
-        assert_eq!(status, 200);
-        assert_eq!(json["items"], serde_json::json!([]));
         let (status, _, json) = send(
             &api.router,
-            put(r#"{"items":[{"type":"ticket","key":"seven"}]}"#),
+            put(r#"{"items":[{"type":"note","key":"7"}],"version":1}"#),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(json["items"], serde_json::json!([]));
+        assert_eq!(json["version"], 2);
+        let (status, _, json) = send(&api.router, get("/api/v1/me/inbox")).await;
+        assert_eq!(status, 200);
+        assert_eq!(json["orderVersion"], 2);
+        let (status, _, json) = send(
+            &api.router,
+            put(r#"{"items":[{"type":"note","key":"7"}],"version":1}"#),
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(json["code"], "version-conflict");
+        let (status, _, json) = send(
+            &api.router,
+            put(r#"{"items":[{"type":"ticket","key":"seven"}],"version":2}"#),
         )
         .await;
         assert_eq!(status, 422);
         assert_eq!(json["code"], "inbox-key-invalid");
-        let request = bearer(Request::delete("/api/v1/me/inbox/order"), &api.token)
+        let (status, _, json) = send(&api.router, put(r#"{"items":[],"version":0}"#)).await;
+        assert_eq!(status, 422);
+        assert_eq!(json["code"], "version-invalid");
+
+        let delete = |version: u32| {
+            bearer(
+                Request::delete(format!("/api/v1/me/inbox/order?version={version}")),
+                &api.token,
+            )
             .body(Body::empty())
-            .unwrap();
-        let (status, _, _) = send(&api.router, request).await;
+            .unwrap()
+        };
+        let (status, _, json) = send(&api.router, delete(1)).await;
+        assert_eq!(status, 409);
+        assert_eq!(json["code"], "version-conflict");
+        let (status, _, _) = send(&api.router, delete(2)).await;
         assert_eq!(status, 204);
+
+        let changes = api.changes.changes_since(0, 100).await.unwrap();
+        let orders = changes
+            .iter()
+            .filter(|change| change.entity == nullradix_app::Entity::InboxOrder)
+            .count();
+        assert_eq!(orders, 2, "saving and resetting both reach the change feed");
     }
 }

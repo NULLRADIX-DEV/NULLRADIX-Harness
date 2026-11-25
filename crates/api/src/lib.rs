@@ -505,7 +505,11 @@ pub(crate) mod tests {
             questions,
             worktrees,
             notes,
-            inbox: Arc::new(InboxService::new(store.clone())),
+            inbox: Arc::new(InboxService::new(
+                store.clone(),
+                Arc::new(SystemClock),
+                signal.clone(),
+            )),
             runners: runners.clone(),
             person: person.clone(),
             runs,

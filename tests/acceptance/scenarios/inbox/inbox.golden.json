@@ -801,6 +801,7 @@
             "waitingTickets": 0
           }
         ],
+        "orderVersion": 1,
         "total": 5
       },
       "status": 200
@@ -827,7 +828,8 @@
             "key": "1",
             "type": "note"
           }
-        ]
+        ],
+        "version": 1
       },
       "method": "PUT",
       "path": "/api/v1/me/inbox/order"
@@ -843,7 +845,8 @@
             "key": "ARC-0002",
             "type": "ticket"
           }
-        ]
+        ],
+        "version": 2
       },
       "status": 200
     }
@@ -857,7 +860,8 @@
             "key": "store",
             "type": "question"
           }
-        ]
+        ],
+        "version": 2
       },
       "method": "PUT",
       "path": "/api/v1/me/inbox/order"
@@ -871,6 +875,27 @@
         "type": "urn:nullradix:problem:inbox-key-invalid"
       },
       "status": 422
+    }
+  },
+  {
+    "name": "an old version is refused",
+    "request": {
+      "body": {
+        "items": [],
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/me/inbox/order"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "inbox order was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
     }
   },
   {
@@ -921,7 +946,7 @@
     "name": "reset the order",
     "request": {
       "method": "DELETE",
-      "path": "/api/v1/me/inbox/order"
+      "path": "/api/v1/me/inbox/order?version=2"
     },
     "response": {
       "status": 204
@@ -974,6 +999,7 @@
             "waitingTickets": 0
           }
         ],
+        "orderVersion": 3,
         "total": 3
       },
       "status": 200

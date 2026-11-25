@@ -5,3 +5,11 @@ CREATE TABLE inbox_order (
   item_id   BLOB NOT NULL CHECK (length(item_id) = 16),
   UNIQUE (item_type, item_id)
 ) STRICT;
+
+-- one row counts the writes of the saved order, so a stale client is refused
+CREATE TABLE inbox_order_state (
+  id      INTEGER PRIMARY KEY CHECK (id = 1),
+  version INTEGER NOT NULL CHECK (version >= 1)
+) STRICT;
+
+INSERT INTO inbox_order_state (id, version) VALUES (1, 1);

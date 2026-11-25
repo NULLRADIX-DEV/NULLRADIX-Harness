@@ -1,18 +1,19 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use nullradix_app::AppError;
 use nullradix_app::inbox::{
-    InboxBoard, InboxNote, InboxQuestion, InboxRepository, InboxSnapshot, InboxTicket,
+    InboxBoard, InboxNote, InboxQuestion, InboxRepository, InboxSnapshot, InboxTicket, ORDER_ID,
+    OrderWrite,
 };
+use nullradix_app::{AppError, ChangeOp, Entity};
 use nullradix_domain::{
-    Id, InboxRef, Priority, ProjectKey, QuestionKey, TicketKey, TicketStatus, Timestamp,
+    Id, InboxRef, Priority, ProjectKey, QuestionKey, TicketKey, TicketStatus, Timestamp, Version,
 };
 use sqlx::SqliteConnection;
 use uuid::Uuid;
 
 use crate::error::database;
-use crate::{Store, StoreError};
+use crate::{Store, StoreError, change_feed};
 
 fn corrupt(what: &str) -> StoreError {
     StoreError::Corrupt(format!("invalid {what}"))
@@ -223,6 +224,31 @@ async fn item_id(
     }
 }
 
+/// Counts one more write of the saved order; any other version than `expected` is stale.
+async fn bump(connection: &mut SqliteConnection, expected: Version) -> Result<Version, AppError> {
+    let expected = expected.value();
+    let next = sqlx::query_scalar!(
+        r#"UPDATE inbox_order_state SET version = version + 1
+           WHERE id = 1 AND version = ?
+           RETURNING version AS "version!: i64""#,
+        expected,
+    )
+    .fetch_optional(connection)
+    .await
+    .map_err(database)?;
+    next.map(Version::from_stored)
+        .ok_or_else(|| AppError::version_conflict("inbox", "order"))
+}
+
+async fn order_version(connection: &mut SqliteConnection) -> Result<Version, StoreError> {
+    let version = sqlx::query_scalar!(
+        r#"SELECT version AS "version!: i64" FROM inbox_order_state WHERE id = 1"#
+    )
+    .fetch_one(connection)
+    .await?;
+    Ok(Version::from_stored(version))
+}
+
 #[async_trait]
 impl InboxRepository for Store {
     async fn snapshot(&self) -> Result<InboxSnapshot, AppError> {
@@ -234,13 +260,20 @@ impl InboxRepository for Store {
             questions: questions(&mut read).await?,
             notes: notes(&mut read).await?,
             order: saved_order(&mut read).await?,
+            order_version: order_version(&mut read).await?,
         };
         read.commit().await.map_err(database)?;
         Ok(snapshot)
     }
 
-    async fn save_order(&self, order: &[InboxRef]) -> Result<Vec<InboxRef>, AppError> {
+    async fn save_order(
+        &self,
+        order: &[InboxRef],
+        expected: Version,
+        at: Timestamp,
+    ) -> Result<OrderWrite, AppError> {
         let mut write = self.begin().await?;
+        let version = bump(&mut write, expected).await?;
         sqlx::query!("DELETE FROM inbox_order")
             .execute(&mut *write)
             .await
@@ -263,15 +296,42 @@ impl InboxRepository for Store {
             .map_err(database)?;
             saved.push(entry.clone());
         }
+        let change = change_feed::record(
+            &mut write,
+            Entity::InboxOrder,
+            ORDER_ID,
+            ChangeOp::Update,
+            at,
+        )
+        .await?;
         write.commit().await.map_err(database)?;
-        Ok(saved)
+        Ok(OrderWrite {
+            order: saved,
+            version,
+            change,
+        })
     }
 
-    async fn clear_order(&self) -> Result<(), AppError> {
+    async fn clear_order(&self, expected: Version, at: Timestamp) -> Result<OrderWrite, AppError> {
+        let mut write = self.begin().await?;
+        let version = bump(&mut write, expected).await?;
         sqlx::query!("DELETE FROM inbox_order")
-            .execute(&self.writer)
+            .execute(&mut *write)
             .await
             .map_err(database)?;
-        Ok(())
+        let change = change_feed::record(
+            &mut write,
+            Entity::InboxOrder,
+            ORDER_ID,
+            ChangeOp::Delete,
+            at,
+        )
+        .await?;
+        write.commit().await.map_err(database)?;
+        Ok(OrderWrite {
+            order: Vec::new(),
+            version,
+            change,
+        })
     }
 }

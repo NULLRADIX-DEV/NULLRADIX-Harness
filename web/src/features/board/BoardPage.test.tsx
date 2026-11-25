@@ -123,6 +123,22 @@ describe('BoardPage', () => {
     expect(screen.getByRole('combobox', { name: 'Board' })).toHaveValue(OTHER_BOARD);
   });
 
+  it('opens the board and the notes dialog an inbox link names, then clears the address', async () => {
+    const other = board({
+      id: OTHER_BOARD,
+      projectId: OTHER_PROJECT,
+      projectKey: 'NX',
+      name: 'Nexus',
+    });
+    boardServer({ boards: [board(), other], entries: [entry(ticket())] });
+    renderApp(`/board?board=${OTHER_BOARD}&notes=1`);
+    expect(await screen.findByRole('dialog', { name: 'Notes on Nexus' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Board' })).toHaveValue(OTHER_BOARD);
+    expect(window.localStorage.getItem(BOARD_STORAGE_KEY)).toBe(OTHER_BOARD);
+    await userEvent.click(screen.getByRole('button', { name: 'Close notes' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('creates a ticket with the fields of the dialog', async () => {
     const { api } = boardServer();
     renderApp('/board');

@@ -524,6 +524,16 @@
               }
             }
           },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "422": {
             "content": {
               "application/json": {
@@ -540,11 +550,42 @@
           "inbox"
         ],
         "operationId": "clear_inbox_order",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "query",
+            "description": "The `orderVersion` the reset is based on.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "Back to the default order"
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -5657,7 +5698,8 @@
           "comment",
           "note",
           "question",
-          "session"
+          "session",
+          "inbox-order"
         ]
       },
       "FinishTicket": {
@@ -6149,7 +6191,8 @@
         "required": [
           "items",
           "counts",
-          "total"
+          "total",
+          "orderVersion"
         ],
         "properties": {
           "counts": {
@@ -6160,6 +6203,11 @@
             "items": {
               "$ref": "#/components/schemas/InboxItemDto"
             }
+          },
+          "orderVersion": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version of the saved order; send it back when saving or resetting the order."
           },
           "total": {
             "type": "integer",
@@ -6173,7 +6221,8 @@
         "type": "object",
         "description": "The order of the inbox, first entry on top; entries not named come above it.",
         "required": [
-          "items"
+          "items",
+          "version"
         ],
         "properties": {
           "items": {
@@ -6181,7 +6230,12 @@
             "items": {
               "$ref": "#/components/schemas/InboxRefDto"
             },
-            "description": "At most 1000; repeats and entries that do not exist are dropped."
+            "description": "Repeats, entries that do not exist and entries beyond the first 1000 are dropped."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The `orderVersion` the order is based on; a stale one fails with `version-conflict`."
           }
         },
         "additionalProperties": false

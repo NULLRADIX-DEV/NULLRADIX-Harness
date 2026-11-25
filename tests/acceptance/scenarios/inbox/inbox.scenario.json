@@ -146,7 +146,8 @@
             { "type": "ticket", "key": "arc-2" },
             { "type": "ticket", "key": "ARC-99" },
             { "type": "note", "key": "1" }
-          ]
+          ],
+          "version": 1
         }
       }
     },
@@ -155,7 +156,15 @@
       "http": {
         "method": "PUT",
         "path": "/api/v1/me/inbox/order",
-        "body": { "items": [{ "type": "question", "key": "store" }] }
+        "body": { "items": [{ "type": "question", "key": "store" }], "version": 2 }
+      }
+    },
+    {
+      "name": "an old version is refused",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/me/inbox/order",
+        "body": { "items": [], "version": 1 }
       }
     },
     { "name": "new entries on top, then the order", "cli": { "args": ["inbox", "--md"] } },
@@ -170,7 +179,7 @@
     { "name": "what is left", "cli": { "args": ["inbox", "--md"] } },
     {
       "name": "reset the order",
-      "http": { "method": "DELETE", "path": "/api/v1/me/inbox/order" }
+      "http": { "method": "DELETE", "path": "/api/v1/me/inbox/order?version=2" }
     },
     {
       "name": "back to urgency",
