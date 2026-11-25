@@ -142,11 +142,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-5>",
         "label": "git init",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2

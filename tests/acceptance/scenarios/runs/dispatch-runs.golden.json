@@ -1,0 +1,1574 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "first ticket",
+    "request": {
+      "body": {
+        "title": "Build the login"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "backlog",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-4>",
+        "key": "ARC-0001",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 1,
+        "openQuestions": [],
+        "plan": "",
+        "plannedAt": null,
+        "plannedBy": null,
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Build the login",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false,
+        "worktree": null
+      },
+      "location": "/api/v1/tickets/ARC-0001",
+      "status": 201
+    }
+  },
+  {
+    "name": "second ticket",
+    "request": {
+      "body": {
+        "title": "Fix the logout"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "backlog",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-5>",
+        "key": "ARC-0002",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 2,
+        "openQuestions": [],
+        "plan": "",
+        "plannedAt": null,
+        "plannedBy": null,
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Fix the logout",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false,
+        "worktree": null
+      },
+      "location": "/api/v1/tickets/ARC-0002",
+      "status": 201
+    }
+  },
+  {
+    "name": "a question",
+    "request": {
+      "body": {
+        "title": "Which session store?"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/questions"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "question": {
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "decision": null,
+          "dependsOn": [],
+          "description": "",
+          "id": "<ID-6>",
+          "key": "ARC-Q0001",
+          "number": 1,
+          "occasion": null,
+          "optionCount": 0,
+          "originKind": "human",
+          "originName": "tester",
+          "originSession": null,
+          "projectId": "<ID-1>",
+          "ready": true,
+          "researched": false,
+          "state": "open",
+          "tags": [],
+          "tickets": [],
+          "title": "Which session store?",
+          "updatedAt": "<TIME>",
+          "version": 1,
+          "waitingOn": []
+        },
+        "research": []
+      },
+      "location": "/api/v1/questions/ARC-Q0001",
+      "status": 201
+    }
+  },
+  {
+    "name": "a work run costs money",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "kind": "work",
+        "prompt": "Build the login. [fake-claude:usage]",
+        "subjectKey": "arc-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/dispatcher/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": {
+          "accountId": null,
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "work",
+          "profile": {
+            "effort": "high",
+            "id": "<ID-7>",
+            "maxTurns": 80,
+            "model": "opus",
+            "name": "medium",
+            "timeoutMinutes": 90
+          },
+          "subjectKey": "ARC-0001",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-8>",
+        "label": "work ARC-0001",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-8>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "the work run ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-8>"
+  },
+  {
+    "name": "its cost and tokens",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-8>"
+    },
+    "response": {
+      "json": {
+        "args": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--max-turns",
+          "80",
+          "--model",
+          "opus",
+          "--effort",
+          "high",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep",
+          "Bash(harness:*)",
+          "Bash(nullradix:*)",
+          "Bash(node:*)",
+          "Bash(npm test:*)",
+          "Bash(npm run:*)",
+          "Bash(git status:*)",
+          "Bash(git diff:*)",
+          "Bash(git log:*)",
+          "Bash(git branch:*)",
+          "Bash(git add:*)",
+          "Bash(git commit:*)"
+        ],
+        "createdAt": "<TIME>",
+        "cwd": "<WORK>",
+        "deniedTools": [],
+        "dispatch": {
+          "accountId": null,
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "work",
+          "profile": {
+            "effort": "high",
+            "id": "<ID-7>",
+            "maxTurns": 80,
+            "model": "opus",
+            "name": "medium",
+            "timeoutMinutes": 90
+          },
+          "subjectKey": "ARC-0001",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": 0,
+        "finishedAt": "<TIME>",
+        "id": "<ID-8>",
+        "label": "work ARC-0001",
+        "prompt": "Build the login. [fake-claude:usage]",
+        "result": {
+          "abort": null,
+          "claudeSessionId": "fake-session-1",
+          "deniedCount": 0,
+          "usage": {
+            "cacheReadTokens": 9000,
+            "cacheWriteTokens": 150,
+            "costUsd": 0.4321,
+            "inputTokens": 1200,
+            "model": "fake-opus",
+            "models": [
+              {
+                "cacheReadTokens": null,
+                "cacheWriteTokens": null,
+                "costUsd": 0.01,
+                "inputTokens": 10,
+                "model": "fake-haiku",
+                "outputTokens": 2
+              },
+              {
+                "cacheReadTokens": 9000,
+                "cacheWriteTokens": 150,
+                "costUsd": 0.4221,
+                "inputTokens": 1190,
+                "model": "fake-opus",
+                "outputTokens": 338
+              }
+            ],
+            "numTurns": 7,
+            "outputTokens": 340
+          }
+        },
+        "screenshots": [],
+        "startedAt": "<TIME>",
+        "status": "succeeded",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a merge session hits the usage limit",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "kind": "merge",
+        "profile": "large",
+        "prompt": "Merge it. [fake-claude:usage-limit]",
+        "subjectKey": "ARC-0001"
+      },
+      "method": "POST",
+      "path": "/api/v1/dispatcher/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": {
+          "accountId": null,
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "merge",
+          "profile": {
+            "effort": "max",
+            "id": "<ID-9>",
+            "maxTurns": 150,
+            "model": "opus",
+            "name": "large",
+            "timeoutMinutes": 120
+          },
+          "subjectKey": "ARC-0001",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-10>",
+        "label": "merge ARC-0001",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-10>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "the merge session failed",
+    "reached": "failed",
+    "wait": "/api/v1/runs/<ID-10>"
+  },
+  {
+    "name": "its abort",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-10>"
+    },
+    "response": {
+      "json": {
+        "args": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--max-turns",
+          "150",
+          "--model",
+          "opus",
+          "--effort",
+          "max",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep",
+          "Bash(harness:*)",
+          "Bash(nullradix:*)",
+          "Bash(node:*)",
+          "Bash(npm test:*)",
+          "Bash(npm run:*)",
+          "Bash(git status:*)",
+          "Bash(git diff:*)",
+          "Bash(git log:*)",
+          "Bash(git branch:*)",
+          "Bash(git add:*)",
+          "Bash(git commit:*)",
+          "Bash(git merge:*)",
+          "Bash(git checkout:*)"
+        ],
+        "createdAt": "<TIME>",
+        "cwd": "<WORK>",
+        "deniedTools": [],
+        "dispatch": {
+          "accountId": null,
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "merge",
+          "profile": {
+            "effort": "max",
+            "id": "<ID-9>",
+            "maxTurns": 150,
+            "model": "opus",
+            "name": "large",
+            "timeoutMinutes": 120
+          },
+          "subjectKey": "ARC-0001",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": 1,
+        "finishedAt": "<TIME>",
+        "id": "<ID-10>",
+        "label": "merge ARC-0001",
+        "prompt": "Merge it. [fake-claude:usage-limit]",
+        "result": {
+          "abort": {
+            "category": "usage-limit",
+            "reason": "usage limit: Claude AI usage limit reached|1760000000"
+          },
+          "claudeSessionId": "fake-session-1",
+          "deniedCount": 0,
+          "usage": {
+            "cacheReadTokens": null,
+            "cacheWriteTokens": null,
+            "costUsd": null,
+            "inputTokens": null,
+            "model": null,
+            "models": [],
+            "numTurns": 1,
+            "outputTokens": null
+          }
+        },
+        "screenshots": [],
+        "startedAt": "<TIME>",
+        "status": "failed",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a research run runs out of turns",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "kind": "research",
+        "prompt": "Research it. [fake-claude:max-turns]",
+        "subjectKey": "arc-q1"
+      },
+      "method": "POST",
+      "path": "/api/v1/dispatcher/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": {
+          "accountId": null,
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "research",
+          "profile": {
+            "effort": "high",
+            "id": "<ID-7>",
+            "maxTurns": 80,
+            "model": "opus",
+            "name": "medium",
+            "timeoutMinutes": 90
+          },
+          "subjectKey": "ARC-Q0001",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-11>",
+        "label": "research ARC-Q0001",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-11>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "the research run failed",
+    "reached": "failed",
+    "wait": "/api/v1/runs/<ID-11>"
+  },
+  {
+    "name": "its category",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-11>"
+    },
+    "response": {
+      "json": {
+        "args": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--max-turns",
+          "80",
+          "--model",
+          "opus",
+          "--effort",
+          "high",
+          "--permission-mode",
+          "default",
+          "--disallowedTools",
+          "MultiEdit",
+          "NotebookEdit",
+          "Bash(git commit:*)",
+          "Bash(git push:*)",
+          "Bash(git checkout:*)",
+          "Bash(git reset:*)",
+          "Bash(git switch:*)",
+          "Bash(git merge:*)",
+          "Bash(git rebase:*)",
+          "Bash(npm:*)",
+          "Bash(node:*)",
+          "Bash(git diff --output:*)",
+          "Bash(git log --output:*)",
+          "Bash(git show --output:*)",
+          "--allowedTools",
+          "Read",
+          "Glob",
+          "Grep",
+          "Write(./research.json)",
+          "Edit(./research.json)",
+          "Bash(nullradix question show:*)",
+          "Bash(nullradix ticket show:*)",
+          "Bash(nullradix ticket list:*)",
+          "Bash(git log:*)",
+          "Bash(git show:*)"
+        ],
+        "createdAt": "<TIME>",
+        "cwd": "<WORK>",
+        "deniedTools": [],
+        "dispatch": {
+          "accountId": null,
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "research",
+          "profile": {
+            "effort": "high",
+            "id": "<ID-7>",
+            "maxTurns": 80,
+            "model": "opus",
+            "name": "medium",
+            "timeoutMinutes": 90
+          },
+          "subjectKey": "ARC-Q0001",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": 1,
+        "finishedAt": "<TIME>",
+        "id": "<ID-11>",
+        "label": "research ARC-Q0001",
+        "prompt": "Research it. [fake-claude:max-turns]",
+        "result": {
+          "abort": {
+            "category": "max-turns",
+            "reason": "maximum number of turns (80) reached"
+          },
+          "claudeSessionId": "fake-session-1",
+          "deniedCount": 0,
+          "usage": {
+            "cacheReadTokens": 9000,
+            "cacheWriteTokens": 150,
+            "costUsd": 0.4321,
+            "inputTokens": 1200,
+            "model": "fake-opus",
+            "models": [
+              {
+                "cacheReadTokens": null,
+                "cacheWriteTokens": null,
+                "costUsd": 0.01,
+                "inputTokens": 10,
+                "model": "fake-haiku",
+                "outputTokens": 2
+              },
+              {
+                "cacheReadTokens": 9000,
+                "cacheWriteTokens": 150,
+                "costUsd": 0.4221,
+                "inputTokens": 1190,
+                "model": "fake-opus",
+                "outputTokens": 338
+              }
+            ],
+            "numTurns": 7,
+            "outputTokens": 340
+          }
+        },
+        "screenshots": [],
+        "startedAt": "<TIME>",
+        "status": "failed",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a plan run is refused some tools",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "kind": "plan",
+        "profile": "small",
+        "prompt": "Plan it. [fake-claude:denied]",
+        "subjectKey": "ARC-0002"
+      },
+      "method": "POST",
+      "path": "/api/v1/dispatcher/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": {
+          "accountId": null,
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "plan",
+          "profile": {
+            "effort": "high",
+            "id": "<ID-12>",
+            "maxTurns": 40,
+            "model": "sonnet",
+            "name": "small",
+            "timeoutMinutes": 45
+          },
+          "subjectKey": "ARC-0002",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-13>",
+        "label": "plan ARC-0002",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-13>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "the plan run ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-13>"
+  },
+  {
+    "name": "its denied tools",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-13>"
+    },
+    "response": {
+      "json": {
+        "args": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--max-turns",
+          "40",
+          "--model",
+          "sonnet",
+          "--effort",
+          "high",
+          "--permission-mode",
+          "default",
+          "--disallowedTools",
+          "MultiEdit",
+          "NotebookEdit",
+          "Bash(git commit:*)",
+          "Bash(git push:*)",
+          "Bash(git checkout:*)",
+          "Bash(git reset:*)",
+          "Bash(git switch:*)",
+          "Bash(git merge:*)",
+          "Bash(git rebase:*)",
+          "Bash(npm:*)",
+          "Bash(node:*)",
+          "Bash(git diff --output:*)",
+          "Bash(git log --output:*)",
+          "Bash(git show --output:*)",
+          "Bash(nullradix ticket set:*)",
+          "Bash(nullradix ticket claim:*)",
+          "Bash(nullradix ticket start:*)",
+          "Bash(nullradix ticket done:*)",
+          "Bash(nullradix ticket delete:*)",
+          "--allowedTools",
+          "Read",
+          "Glob",
+          "Grep",
+          "Write(./plan.json)",
+          "Edit(./plan.json)",
+          "Bash(nullradix ticket show:*)",
+          "Bash(nullradix ticket list:*)",
+          "Bash(nullradix plan write:*)",
+          "Bash(nullradix comment:*)",
+          "Bash(nullradix note list:*)",
+          "Bash(nullradix question add:*)",
+          "Bash(git log:*)",
+          "Bash(git show:*)"
+        ],
+        "createdAt": "<TIME>",
+        "cwd": "<WORK>",
+        "deniedTools": [
+          {
+            "count": 2,
+            "tool": "Bash"
+          },
+          {
+            "count": 1,
+            "tool": "Write"
+          }
+        ],
+        "dispatch": {
+          "accountId": null,
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "plan",
+          "profile": {
+            "effort": "high",
+            "id": "<ID-12>",
+            "maxTurns": 40,
+            "model": "sonnet",
+            "name": "small",
+            "timeoutMinutes": 45
+          },
+          "subjectKey": "ARC-0002",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": 0,
+        "finishedAt": "<TIME>",
+        "id": "<ID-13>",
+        "label": "plan ARC-0002",
+        "prompt": "Plan it. [fake-claude:denied]",
+        "result": {
+          "abort": null,
+          "claudeSessionId": "fake-session-1",
+          "deniedCount": 3,
+          "usage": {
+            "cacheReadTokens": 9000,
+            "cacheWriteTokens": 150,
+            "costUsd": 0.4321,
+            "inputTokens": 1200,
+            "model": "fake-opus",
+            "models": [
+              {
+                "cacheReadTokens": null,
+                "cacheWriteTokens": null,
+                "costUsd": 0.01,
+                "inputTokens": 10,
+                "model": "fake-haiku",
+                "outputTokens": 2
+              },
+              {
+                "cacheReadTokens": 9000,
+                "cacheWriteTokens": 150,
+                "costUsd": 0.4221,
+                "inputTokens": 1190,
+                "model": "fake-opus",
+                "outputTokens": 338
+              }
+            ],
+            "numTurns": 7,
+            "outputTokens": 340
+          }
+        },
+        "screenshots": [],
+        "startedAt": "<TIME>",
+        "status": "succeeded",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a run that takes a screenshot",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "kind": "work",
+        "prompt": "Look. [fake-claude:image]",
+        "subjectKey": "ARC-0002"
+      },
+      "method": "POST",
+      "path": "/api/v1/dispatcher/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": {
+          "accountId": null,
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "work",
+          "profile": {
+            "effort": "high",
+            "id": "<ID-7>",
+            "maxTurns": 80,
+            "model": "opus",
+            "name": "medium",
+            "timeoutMinutes": 90
+          },
+          "subjectKey": "ARC-0002",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-14>",
+        "label": "work ARC-0002",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-14>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "the screenshot run ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-14>"
+  },
+  {
+    "name": "its screenshots",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-14>/screenshots"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "bytes": 70,
+            "createdAt": "<TIME>",
+            "id": "<ID-15>",
+            "mediaType": "image/png",
+            "toolUseId": "toolu_image"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "runs of a ticket",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0001"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": null,
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "merge",
+              "profile": {
+                "effort": "max",
+                "id": "<ID-9>",
+                "maxTurns": 150,
+                "model": "opus",
+                "name": "large",
+                "timeoutMinutes": 120
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": 1,
+            "finishedAt": "<TIME>",
+            "id": "<ID-10>",
+            "label": "merge ARC-0001",
+            "result": {
+              "abort": {
+                "category": "usage-limit",
+                "reason": "usage limit: Claude AI usage limit reached|1760000000"
+              },
+              "claudeSessionId": "fake-session-1",
+              "deniedCount": 0,
+              "usage": {
+                "cacheReadTokens": null,
+                "cacheWriteTokens": null,
+                "costUsd": null,
+                "inputTokens": null,
+                "model": null,
+                "models": [],
+                "numTurns": 1,
+                "outputTokens": null
+              }
+            },
+            "startedAt": "<TIME>",
+            "status": "failed",
+            "version": 3
+          },
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": null,
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "work",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-7>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": 0,
+            "finishedAt": "<TIME>",
+            "id": "<ID-8>",
+            "label": "work ARC-0001",
+            "result": {
+              "abort": null,
+              "claudeSessionId": "fake-session-1",
+              "deniedCount": 0,
+              "usage": {
+                "cacheReadTokens": 9000,
+                "cacheWriteTokens": 150,
+                "costUsd": 0.4321,
+                "inputTokens": 1200,
+                "model": "fake-opus",
+                "models": [
+                  {
+                    "cacheReadTokens": null,
+                    "cacheWriteTokens": null,
+                    "costUsd": 0.01,
+                    "inputTokens": 10,
+                    "model": "fake-haiku",
+                    "outputTokens": 2
+                  },
+                  {
+                    "cacheReadTokens": 9000,
+                    "cacheWriteTokens": 150,
+                    "costUsd": 0.4221,
+                    "inputTokens": 1190,
+                    "model": "fake-opus",
+                    "outputTokens": 338
+                  }
+                ],
+                "numTurns": 7,
+                "outputTokens": 340
+              }
+            },
+            "startedAt": "<TIME>",
+            "status": "succeeded",
+            "version": 3
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "runs with a lower case key",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=arc-1"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": null,
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "merge",
+              "profile": {
+                "effort": "max",
+                "id": "<ID-9>",
+                "maxTurns": 150,
+                "model": "opus",
+                "name": "large",
+                "timeoutMinutes": 120
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": 1,
+            "finishedAt": "<TIME>",
+            "id": "<ID-10>",
+            "label": "merge ARC-0001",
+            "result": {
+              "abort": {
+                "category": "usage-limit",
+                "reason": "usage limit: Claude AI usage limit reached|1760000000"
+              },
+              "claudeSessionId": "fake-session-1",
+              "deniedCount": 0,
+              "usage": {
+                "cacheReadTokens": null,
+                "cacheWriteTokens": null,
+                "costUsd": null,
+                "inputTokens": null,
+                "model": null,
+                "models": [],
+                "numTurns": 1,
+                "outputTokens": null
+              }
+            },
+            "startedAt": "<TIME>",
+            "status": "failed",
+            "version": 3
+          },
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": null,
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "work",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-7>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": 0,
+            "finishedAt": "<TIME>",
+            "id": "<ID-8>",
+            "label": "work ARC-0001",
+            "result": {
+              "abort": null,
+              "claudeSessionId": "fake-session-1",
+              "deniedCount": 0,
+              "usage": {
+                "cacheReadTokens": 9000,
+                "cacheWriteTokens": 150,
+                "costUsd": 0.4321,
+                "inputTokens": 1200,
+                "model": "fake-opus",
+                "models": [
+                  {
+                    "cacheReadTokens": null,
+                    "cacheWriteTokens": null,
+                    "costUsd": 0.01,
+                    "inputTokens": 10,
+                    "model": "fake-haiku",
+                    "outputTokens": 2
+                  },
+                  {
+                    "cacheReadTokens": 9000,
+                    "cacheWriteTokens": 150,
+                    "costUsd": 0.4221,
+                    "inputTokens": 1190,
+                    "model": "fake-opus",
+                    "outputTokens": 338
+                  }
+                ],
+                "numTurns": 7,
+                "outputTokens": 340
+              }
+            },
+            "startedAt": "<TIME>",
+            "status": "succeeded",
+            "version": 3
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "runs of a ticket by kind",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0002&kind=plan"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": null,
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "plan",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-12>",
+                "maxTurns": 40,
+                "model": "sonnet",
+                "name": "small",
+                "timeoutMinutes": 45
+              },
+              "subjectKey": "ARC-0002",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": 0,
+            "finishedAt": "<TIME>",
+            "id": "<ID-13>",
+            "label": "plan ARC-0002",
+            "result": {
+              "abort": null,
+              "claudeSessionId": "fake-session-1",
+              "deniedCount": 3,
+              "usage": {
+                "cacheReadTokens": 9000,
+                "cacheWriteTokens": 150,
+                "costUsd": 0.4321,
+                "inputTokens": 1200,
+                "model": "fake-opus",
+                "models": [
+                  {
+                    "cacheReadTokens": null,
+                    "cacheWriteTokens": null,
+                    "costUsd": 0.01,
+                    "inputTokens": 10,
+                    "model": "fake-haiku",
+                    "outputTokens": 2
+                  },
+                  {
+                    "cacheReadTokens": 9000,
+                    "cacheWriteTokens": 150,
+                    "costUsd": 0.4221,
+                    "inputTokens": 1190,
+                    "model": "fake-opus",
+                    "outputTokens": 338
+                  }
+                ],
+                "numTurns": 7,
+                "outputTokens": 340
+              }
+            },
+            "startedAt": "<TIME>",
+            "status": "succeeded",
+            "version": 3
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "runs of a question",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?questionKey=ARC-Q0001"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": null,
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "research",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-7>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-Q0001",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": 1,
+            "finishedAt": "<TIME>",
+            "id": "<ID-11>",
+            "label": "research ARC-Q0001",
+            "result": {
+              "abort": {
+                "category": "max-turns",
+                "reason": "maximum number of turns (80) reached"
+              },
+              "claudeSessionId": "fake-session-1",
+              "deniedCount": 0,
+              "usage": {
+                "cacheReadTokens": 9000,
+                "cacheWriteTokens": 150,
+                "costUsd": 0.4321,
+                "inputTokens": 1200,
+                "model": "fake-opus",
+                "models": [
+                  {
+                    "cacheReadTokens": null,
+                    "cacheWriteTokens": null,
+                    "costUsd": 0.01,
+                    "inputTokens": 10,
+                    "model": "fake-haiku",
+                    "outputTokens": 2
+                  },
+                  {
+                    "cacheReadTokens": 9000,
+                    "cacheWriteTokens": 150,
+                    "costUsd": 0.4221,
+                    "inputTokens": 1190,
+                    "model": "fake-opus",
+                    "outputTokens": 338
+                  }
+                ],
+                "numTurns": 7,
+                "outputTokens": 340
+              }
+            },
+            "startedAt": "<TIME>",
+            "status": "failed",
+            "version": 3
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "runs of a ticket without any",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0099"
+    },
+    "response": {
+      "json": {
+        "items": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "an empty key",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey="
+    },
+    "response": {
+      "json": {
+        "code": "ticket-id-invalid",
+        "detail": " is no ticket key, expected something like ARC-0042",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:ticket-id-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a broken key",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=..%2Fx"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-id-invalid",
+        "detail": "../x is no ticket key, expected something like ARC-0042",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:ticket-id-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a ticket and a question together",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0001&questionKey=ARC-Q0001"
+    },
+    "response": {
+      "json": {
+        "code": "run-filter-invalid",
+        "detail": "name a ticket or a question, not both",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:run-filter-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the log of the work run",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-8>/transcript"
+    },
+    "response": {
+      "json": {
+        "finished": true,
+        "lastSeq": 4,
+        "lines": [
+          {
+            "detail": null,
+            "kind": "start",
+            "reference": null,
+            "seq": 1,
+            "text": "Claude starts (fake-opus)"
+          },
+          {
+            "detail": null,
+            "kind": "say",
+            "reference": null,
+            "seq": 2,
+            "text": "Working on ARC-0001."
+          },
+          {
+            "detail": "$ nullradix ticket show ARC-0001",
+            "kind": "run",
+            "reference": "toolu_1",
+            "seq": 2,
+            "text": "nullradix ticket show ARC-0001"
+          },
+          {
+            "detail": null,
+            "kind": "ok",
+            "reference": "toolu_1",
+            "seq": 3,
+            "text": ""
+          },
+          {
+            "detail": null,
+            "kind": "done",
+            "reference": null,
+            "seq": 4,
+            "text": "done, 7 turns, 1 min"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the log in pages",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-8>/transcript?after=1&limit=2"
+    },
+    "response": {
+      "json": {
+        "finished": false,
+        "lastSeq": 3,
+        "lines": [
+          {
+            "detail": null,
+            "kind": "say",
+            "reference": null,
+            "seq": 2,
+            "text": "Working on ARC-0001."
+          },
+          {
+            "detail": "$ nullradix ticket show ARC-0001",
+            "kind": "run",
+            "reference": "toolu_1",
+            "seq": 2,
+            "text": "nullradix ticket show ARC-0001"
+          },
+          {
+            "detail": null,
+            "kind": "ok",
+            "reference": "toolu_1",
+            "seq": 3,
+            "text": ""
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the log of the failed merge",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-10>/transcript"
+    },
+    "response": {
+      "json": {
+        "finished": true,
+        "lastSeq": 2,
+        "lines": [
+          {
+            "detail": null,
+            "kind": "start",
+            "reference": null,
+            "seq": 1,
+            "text": "Claude starts (fake-opus)"
+          },
+          {
+            "detail": null,
+            "kind": "done",
+            "reference": null,
+            "seq": 2,
+            "text": "done, 1 turns"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "an unknown screenshot",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-8>/screenshots/<ID-16>"
+    },
+    "response": {
+      "json": {
+        "code": "run-artifact-not-found",
+        "detail": "run <ID-8> has no such screenshot",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:run-artifact-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a run of an unknown ticket",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "kind": "work",
+        "prompt": "Go.",
+        "subjectKey": "ARC-0099"
+      },
+      "method": "POST",
+      "path": "/api/v1/dispatcher/runs"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-not-found",
+        "detail": "ticket ARC-0099 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:ticket-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a research run needs a question key",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "kind": "research",
+        "prompt": "Go.",
+        "subjectKey": "ARC-0001"
+      },
+      "method": "POST",
+      "path": "/api/v1/dispatcher/runs"
+    },
+    "response": {
+      "json": {
+        "code": "question-id-invalid",
+        "detail": "ARC-0001 is no question key, expected something like ARC-Q0007",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:question-id-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a run with an unknown profile",
+    "request": {
+      "body": {
+        "cwd": "<WORK>",
+        "kind": "work",
+        "profile": "giant",
+        "prompt": "Go.",
+        "subjectKey": "ARC-0001"
+      },
+      "method": "POST",
+      "path": "/api/v1/dispatcher/runs"
+    },
+    "response": {
+      "json": {
+        "code": "dispatch-profile-unknown",
+        "detail": "there is no profile named \"giant\"",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:dispatch-profile-unknown"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "run",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "the runs in the CLI",
+    "stderr": "",
+    "stdout": "<ID-14>  succeeded   work ARC-0002\n<ID-13>  succeeded   plan ARC-0002\n<ID-11>  failed      research ARC-Q0001\n<ID-10>  failed      merge ARC-0001\n<ID-8>  succeeded   work ARC-0001\n"
+  }
+]

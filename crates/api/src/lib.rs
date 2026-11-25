@@ -5,6 +5,7 @@ mod auth;
 mod boards;
 mod comments;
 mod customizations;
+mod dispatch_runs;
 mod dispatcher_config;
 mod dispatcher_prompts;
 mod events;
@@ -44,6 +45,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::CustomizationService;
+use nullradix_app::dispatch::runs::DispatchRuns;
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
@@ -80,6 +82,11 @@ pub use customizations::{
     BaseStateDto, CreateCustomization, CustomizationDto, CustomizationList, EffectiveDto,
     ExtensionPointDto, FindingDto as CustomizationFindingDto, OverlayKindDto, OverlayStateDto,
     RebaseCustomization, SourceDto, UpdateCustomization,
+};
+pub use dispatch_runs::{
+    AbortCategoryDto, AbortDto, DeniedToolDto, DispatchDto, LineKindDto, ModelUsageDto,
+    RunDetailDto, RunKindDto, RunProfileDto, RunResultDto, RunTriggerDto, RunUsageDto,
+    ScreenshotDto, ScreenshotList, StartDispatchRunBody, TranscriptDto, TranscriptLineDto,
 };
 pub use dispatcher_config::{
     AccountStrategyDto, AutopilotSettingsDto, ClaudeSettingsDto, DispatcherConfigDto,
@@ -203,6 +210,7 @@ pub struct ApiState {
     /// The person every token and browser session acts for.
     pub person: Arc<nullradix_domain::Actor>,
     pub runs: Arc<RunService>,
+    pub dispatch_runs: Arc<DispatchRuns>,
     pub hooks: Arc<HookService>,
     pub sessions: Arc<SessionService>,
     pub favorites: Arc<FavoriteService>,
@@ -252,6 +260,17 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
         .routes(routes!(customizations::effective_customization))
 }
 
+fn run_routes() -> OpenApiRouter<ApiState> {
+    OpenApiRouter::new()
+        .routes(routes!(runs::list_runs, runs::start_run))
+        .routes(routes!(runs::get_run))
+        .routes(routes!(runs::cancel_run))
+        .routes(routes!(runs::run_output))
+        .routes(routes!(dispatch_runs::run_transcript))
+        .routes(routes!(dispatch_runs::list_screenshots))
+        .routes(routes!(dispatch_runs::screenshot))
+}
+
 fn dispatcher_routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::new()
         .routes(routes!(
@@ -265,6 +284,7 @@ fn dispatcher_routes() -> OpenApiRouter<ApiState> {
             dispatcher_prompts::reset_prompt
         ))
         .routes(routes!(dispatcher_prompts::preview_prompt))
+        .routes(routes!(dispatch_runs::start_dispatch_run))
 }
 
 fn routes() -> OpenApiRouter<ApiState> {
@@ -336,10 +356,6 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(notes::drop_note))
         .routes(routes!(inbox::get_inbox))
         .routes(routes!(inbox::save_inbox_order, inbox::clear_inbox_order))
-        .routes(routes!(runs::list_runs, runs::start_run))
-        .routes(routes!(runs::get_run))
-        .routes(routes!(runs::cancel_run))
-        .routes(routes!(runs::run_output))
         .routes(routes!(sessions::list_sessions))
         .routes(routes!(sessions::get_session))
         .routes(routes!(session_detail::session_detail))
@@ -355,7 +371,8 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(sessions::list_ticket_sessions))
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events))
-        .merge(account_routes());
+        .merge(account_routes())
+        .merge(run_routes());
     let v1 = extension_routes(v1).merge(dispatcher_routes());
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
@@ -763,12 +780,27 @@ pub(crate) mod tests {
         );
         let runs = RunService::new(
             store.clone(),
-            runner,
+            runner.clone(),
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
             signal.clone(),
             std::time::Duration::from_millis(50),
         );
+        let dispatcher_config = Arc::new(DispatcherConfigService::new(
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let dispatch_runs = Arc::new(DispatchRuns::new(
+            runs.clone(),
+            dispatcher_config.clone(),
+            accounts.clone(),
+            store.clone(),
+            store.clone(),
+            runner,
+        ));
         let (sessions, favorites, hooks) = session_services(&store, &runners, &signal);
         let logins = test_logins(&accounts);
         let customizations = Arc::new(CustomizationService::new(
@@ -818,6 +850,7 @@ pub(crate) mod tests {
             runners: runners.clone(),
             person: person.clone(),
             runs,
+            dispatch_runs,
             hooks,
             sessions,
             favorites,

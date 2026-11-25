@@ -1411,12 +1411,21 @@ mod tests {
         let (runner, runners) = local_runner(&store, &signal).await;
         let runs = RunService::new(
             store.clone(),
-            runner,
+            runner.clone(),
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
             signal.clone(),
             FAST,
         );
+        let dispatcher_config = dispatcher_service(&store, &signal);
+        let dispatch_runs = Arc::new(nullradix_app::dispatch::runs::DispatchRuns::new(
+            runs.clone(),
+            dispatcher_config.clone(),
+            accounts.clone(),
+            store.clone(),
+            store.clone(),
+            runner,
+        ));
         let (sessions, favorites, hooks) = hook_services(&store, &runners, &signal);
         let boards = Arc::new(nullradix_app::boards::BoardService::new(
             store.clone(),
@@ -1494,6 +1503,7 @@ mod tests {
             runners,
             person: Arc::new(person),
             runs,
+            dispatch_runs,
             hooks,
             sessions,
             favorites,

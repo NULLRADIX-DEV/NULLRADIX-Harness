@@ -19,11 +19,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-1>",
         "label": "fake claude",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2
@@ -46,12 +48,19 @@
     },
     "response": {
       "json": {
+        "args": [],
         "createdAt": "<TIME>",
+        "cwd": null,
+        "deniedTools": [],
+        "dispatch": null,
         "error": null,
         "exitCode": 0,
         "finishedAt": "<TIME>",
         "id": "<ID-1>",
         "label": "fake claude",
+        "prompt": null,
+        "result": null,
+        "screenshots": [],
         "startedAt": "<TIME>",
         "status": "succeeded",
         "version": 3

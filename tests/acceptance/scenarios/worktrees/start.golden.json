@@ -102,11 +102,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-5>",
         "label": "git init",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2
@@ -147,11 +149,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-6>",
         "label": "git commit",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2
@@ -186,11 +190,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-7>",
         "label": "git config",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2
@@ -227,11 +233,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-8>",
         "label": "git init",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2
@@ -576,11 +584,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-11>",
         "label": "git worktree list",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2

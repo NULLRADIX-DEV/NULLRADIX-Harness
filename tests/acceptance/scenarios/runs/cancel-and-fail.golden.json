@@ -14,11 +14,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-1>",
         "label": "sleeper",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2
@@ -36,11 +38,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-1>",
         "label": "sleeper",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2
@@ -85,11 +89,13 @@
     "response": {
       "json": {
         "createdAt": "<TIME>",
+        "dispatch": null,
         "error": null,
         "exitCode": null,
         "finishedAt": null,
         "id": "<ID-2>",
         "label": "missing",
+        "result": null,
         "startedAt": "<TIME>",
         "status": "running",
         "version": 2
@@ -112,12 +118,19 @@
     },
     "response": {
       "json": {
+        "args": [],
         "createdAt": "<TIME>",
+        "cwd": null,
+        "deniedTools": [],
+        "dispatch": null,
         "error": "cannot start nullradix-no-such-program: program not found",
         "exitCode": 127,
         "finishedAt": "<TIME>",
         "id": "<ID-2>",
         "label": "missing",
+        "prompt": null,
+        "result": null,
+        "screenshots": [],
         "startedAt": "<TIME>",
         "status": "failed",
         "version": 3
