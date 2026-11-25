@@ -201,6 +201,7 @@
     },
     "response": {
       "json": {
+        "comments": [],
         "history": [
           {
             "actorId": "<ID-3>",
@@ -354,6 +355,7 @@
     },
     "response": {
       "json": {
+        "comments": [],
         "history": [
           {
             "actorId": "<ID-3>",
@@ -474,6 +476,7 @@
     },
     "response": {
       "json": {
+        "comments": [],
         "history": [
           {
             "actorId": "<ID-3>",
@@ -574,6 +577,7 @@
     },
     "response": {
       "json": {
+        "comments": [],
         "history": [
           {
             "actorId": "<ID-3>",
@@ -771,6 +775,7 @@
     },
     "response": {
       "json": {
+        "comments": [],
         "history": [
           {
             "actorId": "<ID-3>",
@@ -938,6 +943,7 @@
     },
     "response": {
       "json": {
+        "comments": [],
         "history": [
           {
             "actorId": "<ID-3>",

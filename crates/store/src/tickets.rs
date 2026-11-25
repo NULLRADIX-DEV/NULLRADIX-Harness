@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::boards::missed;
 use crate::error::{database, missed_guard};
-use crate::{Store, StoreError, change_feed};
+use crate::{Store, StoreError, change_feed, comments};
 
 fn corrupt(what: &str) -> StoreError {
     StoreError::Corrupt(format!("invalid {what}"))
@@ -311,7 +311,7 @@ async fn dependency_index(
 }
 
 /// The id of the ticket with this key.
-async fn ticket_id(
+pub(crate) async fn ticket_id(
     connection: &mut SqliteConnection,
     key: &TicketKey,
 ) -> Result<Option<Uuid>, StoreError> {
@@ -393,12 +393,14 @@ impl TicketRepository for Store {
         let index = dependency_index(&mut read).await?;
         let history = history(&mut read, id).await?;
         let steps = steps(&mut read, id).await?;
+        let comments = comments::ticket_comments(&mut read, id, false).await?;
         read.commit().await.map_err(database)?;
         Ok(Some(TicketRead {
             row,
             index,
             history,
             steps,
+            comments,
         }))
     }
 }

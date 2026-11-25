@@ -14,6 +14,7 @@ use nullradix_domain::{
     validate_dependencies, waits_for_a_person,
 };
 
+use crate::comments::{CommentLine, CommentWrite};
 use crate::projects::ProjectRepository;
 use crate::worktrees::WorktreeWrite;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator, boards};
@@ -78,11 +79,13 @@ pub struct TicketRead {
     pub index: DependencyIndex,
     pub history: Vec<HistoryLine>,
     pub steps: Vec<Step>,
+    /// Oldest first.
+    pub comments: Vec<CommentLine>,
 }
 
 /// One write; dropping it without [`TicketWrite::commit`] undoes everything.
 #[async_trait]
-pub trait TicketWrite: WorktreeWrite + Send {
+pub trait TicketWrite: WorktreeWrite + CommentWrite + Send {
     /// The board with the key of its project.
     async fn board(&mut self, id: Id<Board>) -> Result<Option<(Board, ProjectKey)>, AppError>;
     /// Tickets on the board that are neither done nor not needed.
@@ -170,6 +173,8 @@ pub struct TicketDetail {
     pub view: TicketView,
     pub history: Vec<HistoryLine>,
     pub steps: Vec<Step>,
+    /// Oldest first.
+    pub comments: Vec<CommentLine>,
 }
 
 /// Input of a new ticket; what is left out gets the legacy default.
@@ -615,6 +620,7 @@ impl TicketService {
             view: TicketView::new(read.row, &read.index),
             history: read.history,
             steps: read.steps,
+            comments: read.comments,
         })
     }
 

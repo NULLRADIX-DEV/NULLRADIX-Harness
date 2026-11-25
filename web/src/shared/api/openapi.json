@@ -2422,6 +2422,129 @@
         }
       }
     },
+    "/api/v1/tickets/{ticketKey}/comments": {
+      "get": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "list_comments",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "add_comment",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Empty body or an invalid author name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticketKey}/done": {
       "post": {
         "tags": [
@@ -3307,6 +3430,43 @@
         },
         "additionalProperties": false
       },
+      "ActorKindDto": {
+        "type": "string",
+        "enum": [
+          "human",
+          "session",
+          "subagent",
+          "dispatcher",
+          "system"
+        ]
+      },
+      "AddComment": {
+        "type": "object",
+        "description": "A new comment; leading and trailing whitespace is dropped.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
+          "body": {
+            "type": "string"
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller: the comment counts as delivered and names a session author."
+          }
+        },
+        "additionalProperties": false
+      },
       "AddStep": {
         "type": "object",
         "description": "A new work step.",
@@ -3641,6 +3801,69 @@
           "not-needed"
         ]
       },
+      "CommentDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "ticketKey",
+          "authorId",
+          "authorName",
+          "authorKind",
+          "body",
+          "createdAt"
+        ],
+        "properties": {
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorKind": {
+            "$ref": "#/components/schemas/ActorKindDto"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "systemMarker": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SystemMarkerDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ticketKey": {
+            "type": "string"
+          }
+        }
+      },
+      "CommentList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommentDto"
+            },
+            "description": "Oldest first."
+          }
+        }
+      },
       "CreateBoard": {
         "type": "object",
         "required": [
@@ -3766,7 +3989,8 @@
           "run",
           "runner",
           "repository",
-          "worktree"
+          "worktree",
+          "comment"
         ]
       },
       "FinishTicket": {
@@ -4797,6 +5021,25 @@
           }
         }
       },
+      "SystemMarkerDto": {
+        "type": "string",
+        "description": "What a dispatcher comment reports.",
+        "enum": [
+          "start",
+          "abort",
+          "pause",
+          "question",
+          "merged",
+          "merge-conflict",
+          "merge-wait",
+          "merge",
+          "setup",
+          "research-empty",
+          "plan-empty",
+          "review",
+          "review-returned"
+        ]
+      },
       "TargetCreatedDto": {
         "type": "object",
         "required": [
@@ -4818,9 +5061,17 @@
         "required": [
           "ticket",
           "history",
-          "steps"
+          "steps",
+          "comments"
         ],
         "properties": {
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommentDto"
+            },
+            "description": "Oldest first."
+          },
           "history": {
             "type": "array",
             "items": {

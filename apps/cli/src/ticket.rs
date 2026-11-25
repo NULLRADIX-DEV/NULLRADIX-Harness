@@ -14,6 +14,7 @@ use nullradix_domain::{Priority, TicketKey, TicketStatus, Timestamp};
 use uuid::Uuid;
 
 use crate::board::local_runner;
+use crate::comment;
 use crate::project;
 use crate::selection::{BoardChoice, BoardOption};
 
@@ -28,12 +29,17 @@ pub(crate) enum TicketCommand {
         /// Add the history of changes
         #[arg(long)]
         history: bool,
+        /// Show older agent comments too; only the last three show otherwise
+        #[arg(long)]
+        all_comments: bool,
         /// Print JSON instead of text
         #[arg(long)]
         json: bool,
     },
     /// Create a ticket on a board
     Create(CreateArgs),
+    /// Comment on a ticket: progress, evidence or a reason
+    Comment(comment::CommentArgs),
     /// Change fields of a ticket
     Set(Box<SetArgs>),
     /// Move a ticket to another column
@@ -292,18 +298,24 @@ pub(crate) fn run(
 ) -> anyhow::Result<ExitCode> {
     match command {
         TicketCommand::List(args) => list(&args, client, choice)?,
-        TicketCommand::Show { key, history, json } => {
+        TicketCommand::Show {
+            key,
+            history,
+            all_comments,
+            json,
+        } => {
             let key = TicketKey::parse(&key)?;
             let detail = client.get_ticket(&key.to_string())?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&detail)?);
             } else {
-                for line in show_lines(&detail, history) {
+                for line in show_lines(&detail, history, all_comments) {
                     println!("{line}");
                 }
             }
         }
         TicketCommand::Create(args) => create(args, client, choice)?,
+        TicketCommand::Comment(args) => comment::run(args, client)?,
         TicketCommand::Set(args) => set(*args, client)?,
         TicketCommand::Move {
             key,
@@ -665,7 +677,7 @@ fn priority_name(priority: PriorityDto) -> &'static str {
     Priority::from(priority).as_str()
 }
 
-fn show_lines(detail: &TicketDetailDto, history: bool) -> Vec<String> {
+fn show_lines(detail: &TicketDetailDto, history: bool, all_comments: bool) -> Vec<String> {
     let ticket = &detail.ticket;
     let mut head = vec![
         format!(
@@ -723,6 +735,11 @@ fn show_lines(detail: &TicketDetailDto, history: bool) -> Vec<String> {
                 lines.extend(guidance.lines().map(|line| format!("        {line}")));
             }
         }
+    }
+    if !detail.comments.is_empty() {
+        lines.push(String::new());
+        lines.push(String::from("## Comments"));
+        lines.extend(comment::comment_lines(&detail.comments, all_comments));
     }
     if history {
         lines.push(String::new());

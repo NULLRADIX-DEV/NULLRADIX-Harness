@@ -2,6 +2,7 @@
 
 mod board;
 mod board_rules;
+mod comment;
 mod hook;
 mod id;
 mod project;
@@ -20,6 +21,7 @@ pub use board_rules::{
     DependencyIndex, LABEL_MAX, RuleError, display_order, normalize_dependencies, normalize_labels,
     validate_dependencies,
 };
+pub use comment::{Comment, CommentBody, CommentError, CommentRecord, SystemMarker};
 pub use hook::{HookDetails, HookError, HookEvent, HookKind, SessionRef};
 pub use id::{Id, ParseIdError};
 pub use project::{Project, ProjectError, ProjectKey, ProjectName};

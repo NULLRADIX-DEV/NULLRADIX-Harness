@@ -11,6 +11,9 @@ static UUID: LazyLock<Option<Regex>> = LazyLock::new(|| {
 static SECRET: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{64}\b").ok());
 /// A full git object name, as `git -c core.abbrev=40` prints commits.
 static COMMIT: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{40}\b").ok());
+/// A moment as the CLI prints it, such as `2026-11-25T10:00:00.000Z`.
+static MOMENT: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\b").ok());
 static PID: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\bpid \d+").ok());
 /// The rest of a path behind a placeholder, so Windows and Unix record the same separators.
 static PATH_TAIL: LazyLock<Option<Regex>> =
@@ -94,6 +97,9 @@ impl Normalizer {
         }
         if let Some(commit) = COMMIT.as_ref() {
             text = commit.replace_all(&text, "<COMMIT>").into_owned();
+        }
+        if let Some(moment) = MOMENT.as_ref() {
+            text = moment.replace_all(&text, "<TIME>").into_owned();
         }
         if let Some(pid) = PID.as_ref() {
             text = pid.replace_all(&text, "pid <PID>").into_owned();

@@ -1,0 +1,106 @@
+{
+  "title": "Comments are appended to tickets and shown like on the legacy board",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "create",
+      "cli": { "args": ["ticket", "create", "Login page", "--board", "{{board}}"] }
+    },
+    {
+      "name": "comment as the person",
+      "cli": { "args": ["ticket", "comment", "arc-1", "Please check the login"] }
+    },
+    {
+      "name": "a named author outside a session is a person",
+      "cli": {
+        "args": ["ticket", "comment", "ARC-1", "--body-file", "-", "--author", "claude"],
+        "stdin": "Step 1 done\nTests pass\n"
+      }
+    },
+    {
+      "name": "comment over http",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/comments",
+        "body": { "body": " Step 2 done ", "author": "claude", "session": "s-1" }
+      }
+    },
+    {
+      "name": "another agent comment",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/comments",
+        "body": { "body": "Step 3 done", "author": "claude", "session": "s-1" }
+      }
+    },
+    {
+      "name": "and one more",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/comments",
+        "body": { "body": "Step 4 done", "author": "claude", "session": "s-1" }
+      }
+    },
+    {
+      "name": "a dispatched agent",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/comments",
+        "body": { "body": "Ready for review", "author": "junior-ARC-0001", "session": "s-2" }
+      }
+    },
+    {
+      "name": "empty comment",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/comments",
+        "body": { "body": "  " }
+      }
+    },
+    {
+      "name": "unknown ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-9/comments",
+        "body": { "body": "Hello" }
+      }
+    },
+    {
+      "name": "empty comment from the cli",
+      "cli": { "args": ["ticket", "comment", "ARC-1", " "] }
+    },
+    {
+      "name": "show keeps the last agent comments",
+      "cli": { "args": ["ticket", "show", "ARC-1"] }
+    },
+    {
+      "name": "show all comments",
+      "cli": { "args": ["ticket", "show", "ARC-1", "--all-comments"] }
+    },
+    {
+      "name": "list",
+      "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1/comments" }
+    },
+    {
+      "name": "the detail carries the comments and a new version",
+      "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1" }
+    }
+  ]
+}

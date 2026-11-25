@@ -3,6 +3,7 @@
 mod auth;
 mod boards;
 mod change_feed;
+mod comments;
 mod error;
 mod hooks;
 mod projects;

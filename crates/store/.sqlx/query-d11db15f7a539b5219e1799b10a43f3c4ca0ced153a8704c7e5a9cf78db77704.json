@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE comments SET delivered_to_agent_at = ?\n                 WHERE id = ? AND delivered_to_agent_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d11db15f7a539b5219e1799b10a43f3c4ca0ced153a8704c7e5a9cf78db77704"
+}

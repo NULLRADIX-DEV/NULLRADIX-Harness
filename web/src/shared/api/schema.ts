@@ -452,6 +452,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_comments"];
+        put?: never;
+        post: operations["add_comment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticketKey}/done": {
         parameters: {
             query?: never;
@@ -604,6 +620,16 @@ export interface components {
             /** Format: int64 */
             version?: number | null;
         };
+        /** @enum {string} */
+        ActorKindDto: "human" | "session" | "subagent" | "dispatcher" | "system";
+        /** @description A new comment; leading and trailing whitespace is dropped. */
+        AddComment: {
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
+            body: string;
+            /** @description Agent session of the caller: the comment counts as delivered and names a session author. */
+            session?: string | null;
+        };
         /** @description A new work step. */
         AddStep: {
             /**
@@ -717,6 +743,23 @@ export interface components {
          * @enum {string}
          */
         ColumnDto: "backlog" | "waiting" | "in-planning" | "planned" | "in-progress" | "blocked" | "done" | "not-needed";
+        CommentDto: {
+            /** Format: uuid */
+            authorId: string;
+            authorKind: components["schemas"]["ActorKindDto"];
+            authorName: string;
+            body: string;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: uuid */
+            id: string;
+            systemMarker?: components["schemas"]["SystemMarkerDto"] | null;
+            ticketKey: string;
+        };
+        CommentList: {
+            /** @description Oldest first. */
+            items: components["schemas"]["CommentDto"][];
+        };
         CreateBoard: {
             name: string;
         };
@@ -745,7 +788,7 @@ export interface components {
             title: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment";
         /** @description Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged. */
         FinishTicket: {
             /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
@@ -1056,12 +1099,19 @@ export interface components {
             /** Format: int64 */
             seq: number;
         };
+        /**
+         * @description What a dispatcher comment reports.
+         * @enum {string}
+         */
+        SystemMarkerDto: "start" | "abort" | "pause" | "question" | "merged" | "merge-conflict" | "merge-wait" | "merge" | "setup" | "research-empty" | "plan-empty" | "review" | "review-returned";
         TargetCreatedDto: {
             branch: string;
             /** @description Such as `origin/release`, or the branch or commit of the main checkout. */
             from: string;
         };
         TicketDetailDto: {
+            /** @description Oldest first. */
+            comments: components["schemas"]["CommentDto"][];
             /** @description Oldest first. */
             history: components["schemas"]["HistoryDto"][];
             steps: components["schemas"]["StepDto"][];
@@ -2980,6 +3030,103 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_comments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    add_comment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddComment"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Empty body or an invalid author name */
             422: {
                 headers: {
                     [name: string]: unknown;

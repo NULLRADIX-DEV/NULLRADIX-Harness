@@ -10,6 +10,7 @@ export type Ticket = components['schemas']['TicketDto'];
 export type TicketDetail = components['schemas']['TicketDetailDto'];
 export type Step = components['schemas']['StepDto'];
 export type HistoryLine = components['schemas']['HistoryDto'];
+export type Comment = components['schemas']['CommentDto'];
 export type Column = components['schemas']['ColumnDto'];
 export type TicketStatus = components['schemas']['TicketStatusDto'];
 export type Priority = components['schemas']['PriorityDto'];
@@ -26,9 +27,10 @@ export const ticketKeys = {
 
 const TICKET_LISTS = ticketKeys.lists();
 
-// A ticket change also moves the open ticket count of its board.
+// A ticket change also moves the open ticket count of its board; comments live in the detail.
 export const ticketsLive: ChangeRegistry = {
   ticket: [ticketKeys.all, boardKeys.all],
+  comment: [ticketKeys.all],
 };
 
 export function ticketsQuery(boardId: string) {
@@ -225,4 +227,24 @@ export function useMoveStep() {
       }),
     ),
   );
+}
+
+export interface AddCommentVars {
+  key: string;
+  body: string;
+}
+
+// The comment comes back alone; the detail refetches with it and the new version.
+export function useAddComment() {
+  const changed = useTicketsChanged();
+  return useMutation({
+    mutationFn: async ({ key, body }: AddCommentVars) =>
+      unwrap(
+        await api.POST('/api/v1/tickets/{ticketKey}/comments', {
+          params: { path: { ticketKey: key } },
+          body: { body },
+        }),
+      ),
+    onSettled: changed,
+  });
 }

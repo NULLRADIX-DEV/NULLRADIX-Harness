@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  useAddComment,
   useAddStep,
   useChangeStep,
   useDeleteTicket,
@@ -27,6 +28,7 @@ export interface TicketActions {
   changeStep: (id: string, change: StepChange) => Promise<boolean>;
   removeStep: (id: string, expectText: string) => Promise<boolean>;
   moveStep: (id: string, to: number, expectText: string) => Promise<boolean>;
+  comment: (body: string) => Promise<boolean>;
 }
 
 // Every change of an open ticket, based on the version of the last read.
@@ -38,6 +40,7 @@ export function useTicketActions(ticket: Ticket): TicketActions {
   const change = useChangeStep();
   const removeOne = useRemoveStep();
   const moveOne = useMoveStep();
+  const addComment = useAddComment();
   const [failure, setFailure] = useState<unknown>(null);
   const { key, version } = ticket;
 
@@ -53,7 +56,7 @@ export function useTicketActions(ticket: Ticket): TicketActions {
   }
 
   return {
-    busy: [update, moveTicket, deleteTicket, add, change, removeOne, moveOne].some(
+    busy: [update, moveTicket, deleteTicket, add, change, removeOne, moveOne, addComment].some(
       (mutation) => mutation.isPending,
     ),
     failure,
@@ -76,5 +79,6 @@ export function useTicketActions(ticket: Ticket): TicketActions {
     changeStep: (id, fields) => run(() => change.mutateAsync({ key, id, change: fields })),
     removeStep: (id, expectText) => run(() => removeOne.mutateAsync({ key, id, expectText })),
     moveStep: (id, to, expectText) => run(() => moveOne.mutateAsync({ key, id, to, expectText })),
+    comment: (body) => run(() => addComment.mutateAsync({ key, body })),
   };
 }

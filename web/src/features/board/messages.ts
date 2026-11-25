@@ -32,6 +32,7 @@ const TICKET_MESSAGES: ProblemMessages = {
   'nothing-changed': 'Nothing changed.',
   'title-empty': 'The title must not be empty.',
   'step-empty': 'A step needs a text.',
+  'comment-empty': 'A comment needs a text.',
   'target-branch-invalid': 'This is not a valid branch name.',
   'target-branch-locked': 'The target branch can only change before the ticket starts.',
 };
