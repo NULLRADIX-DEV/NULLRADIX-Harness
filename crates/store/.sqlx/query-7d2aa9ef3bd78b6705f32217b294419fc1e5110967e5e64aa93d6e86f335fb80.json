@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT l.ticket_id AS \"ticket_id: Uuid\", p.key AS project_key, t.number, l.position,\n                  l.joined_at, l.released_at\n           FROM worktree_tickets l\n           JOIN tickets t ON t.id = l.ticket_id\n           JOIN projects p ON p.id = t.project_id\n           WHERE l.worktree_id = ?\n           ORDER BY l.position",
+  "query": "SELECT l.ticket_id AS \"ticket_id: Uuid\", p.key AS \"project_key?\",\n                  t.number AS \"number?\", d.human_key AS \"deleted_key?\", l.position,\n                  l.joined_at, l.released_at\n           FROM worktree_tickets l\n           LEFT JOIN tickets t ON t.id = l.ticket_id\n           LEFT JOIN projects p ON p.id = t.project_id\n           LEFT JOIN deleted_items d ON d.entity = 'ticket' AND d.entity_id = l.ticket_id\n           WHERE l.worktree_id = ?\n           ORDER BY l.position",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
         }
       },
       {
-        "name": "project_key",
+        "name": "project_key?",
         "ordinal": 1,
         "type_info": "Text",
         "origin": {
@@ -26,7 +26,7 @@
         }
       },
       {
-        "name": "number",
+        "name": "number?",
         "ordinal": 2,
         "type_info": "Integer",
         "origin": {
@@ -37,8 +37,19 @@
         }
       },
       {
-        "name": "position",
+        "name": "deleted_key?",
         "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deleted_items",
+            "name": "human_key"
+          }
+        }
+      },
+      {
+        "name": "position",
+        "ordinal": 4,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "joined_at",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "released_at",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -75,12 +86,13 @@
     },
     "nullable": [
       false,
-      false,
-      false,
+      true,
+      true,
+      true,
       false,
       false,
       true
     ]
   },
-  "hash": "1a5d74e243c5ae25b0003084d1b531695330e0b02673416f92d6697077a56c3b"
+  "hash": "7d2aa9ef3bd78b6705f32217b294419fc1e5110967e5e64aa93d6e86f335fb80"
 }

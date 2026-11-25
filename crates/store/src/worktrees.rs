@@ -4,9 +4,9 @@ use nullradix_app::worktrees::{
 };
 use nullradix_app::{AppError, Change, ChangeOp, Entity};
 use nullradix_domain::{
-    ActualState, DesiredState, Id, ProjectKey, SetupState, TargetBranch, Ticket, TicketKey,
-    Timestamp, Version, Worktree, WorktreeBranch, WorktreePath, WorktreePurpose, WorktreeRecord,
-    WorktreeTicket,
+    ActualState, DesiredState, Id, ProjectKey, Repository, Runner, SetupState, TargetBranch,
+    Ticket, TicketKey, Timestamp, Version, Worktree, WorktreeBranch, WorktreePath, WorktreePurpose,
+    WorktreeRecord, WorktreeTicket,
 };
 use sqlx::SqliteConnection;
 use uuid::Uuid;
@@ -236,11 +236,13 @@ async fn entry(
         return Ok(None);
     };
     let links = sqlx::query!(
-        r#"SELECT l.ticket_id AS "ticket_id: Uuid", p.key AS project_key, t.number, l.position,
+        r#"SELECT l.ticket_id AS "ticket_id: Uuid", p.key AS "project_key?",
+                  t.number AS "number?", d.human_key AS "deleted_key?", l.position,
                   l.joined_at, l.released_at
            FROM worktree_tickets l
-           JOIN tickets t ON t.id = l.ticket_id
-           JOIN projects p ON p.id = t.project_id
+           LEFT JOIN tickets t ON t.id = l.ticket_id
+           LEFT JOIN projects p ON p.id = t.project_id
+           LEFT JOIN deleted_items d ON d.entity = 'ticket' AND d.entity_id = l.ticket_id
            WHERE l.worktree_id = ?
            ORDER BY l.position"#,
         id,
@@ -250,12 +252,20 @@ async fn entry(
     let tickets = links
         .into_iter()
         .map(|link| {
-            let project =
-                ProjectKey::parse(&link.project_key).map_err(|_| corrupt("project key"))?;
-            let number = u32::try_from(link.number).map_err(|_| corrupt("ticket number"))?;
+            // a deleted ticket stays in the list under the key of its tombstone
+            let key = match (link.project_key, link.number, link.deleted_key) {
+                (Some(project), Some(number), _) => {
+                    let project =
+                        ProjectKey::parse(&project).map_err(|_| corrupt("project key"))?;
+                    let number = u32::try_from(number).map_err(|_| corrupt("ticket number"))?;
+                    TicketKey::new(project, number)
+                }
+                (_, _, Some(key)) => TicketKey::parse(&key).map_err(|_| corrupt("ticket key"))?,
+                _ => return Err(corrupt("linked ticket")),
+            };
             Ok(WorktreeTicket {
                 ticket: Id::from_uuid(link.ticket_id),
-                key: TicketKey::new(project, number),
+                key,
                 position: u32::try_from(link.position).map_err(|_| corrupt("link position"))?,
                 joined_at: Timestamp::from_millis(link.joined_at),
                 released_at: link.released_at.map(Timestamp::from_millis),
@@ -323,32 +333,6 @@ impl WorktreeWrite for Write {
 
 #[async_trait]
 impl WorktreeRepository for Store {
-    async fn insert(&self, worktree: &Worktree, owner: Id<Ticket>) -> Result<Change, AppError> {
-        let mut tx = self.begin().await?;
-        let change = insert(&mut tx, worktree, owner).await?;
-        tx.commit().await.map_err(database)?;
-        Ok(change)
-    }
-
-    async fn join(
-        &self,
-        worktree: Id<Worktree>,
-        ticket: Id<Ticket>,
-        at: Timestamp,
-    ) -> Result<Change, AppError> {
-        let mut tx = self.begin().await?;
-        let change = join(&mut tx, worktree, ticket, at).await?;
-        tx.commit().await.map_err(database)?;
-        Ok(change)
-    }
-
-    async fn release(&self, ticket: Id<Ticket>, at: Timestamp) -> Result<Option<Change>, AppError> {
-        let mut tx = self.begin().await?;
-        let change = release(&mut tx, ticket, at).await?;
-        tx.commit().await.map_err(database)?;
-        Ok(change)
-    }
-
     async fn get(&self, id: Id<Worktree>) -> Result<Option<WorktreeEntry>, AppError> {
         let mut read = self.reader.begin().await.map_err(database)?;
         let found = entry(&mut read, id.as_uuid()).await?;
@@ -361,5 +345,33 @@ impl WorktreeRepository for Store {
         let found = live(&mut read, ticket).await?;
         read.commit().await.map_err(database)?;
         Ok(found)
+    }
+
+    async fn list(
+        &self,
+        repository: Id<Repository>,
+        runner: Id<Runner>,
+    ) -> Result<Vec<WorktreeEntry>, AppError> {
+        let repository = repository.as_uuid();
+        let runner = runner.as_uuid();
+        let mut read = self.reader.begin().await.map_err(database)?;
+        let ids = sqlx::query_scalar!(
+            r#"SELECT id AS "id: Uuid" FROM worktrees
+               WHERE repository_id = ? AND runner_id = ?
+               ORDER BY created_at, id"#,
+            repository,
+            runner,
+        )
+        .fetch_all(&mut *read)
+        .await
+        .map_err(database)?;
+        let mut entries = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(found) = entry(&mut read, id).await? {
+                entries.push(found);
+            }
+        }
+        read.commit().await.map_err(database)?;
+        Ok(entries)
     }
 }

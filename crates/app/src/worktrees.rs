@@ -1,7 +1,9 @@
 //! Worktree records: legacy `worktrees.json` with the tickets each worktree served.
 
 use async_trait::async_trait;
-use nullradix_domain::{Id, Ticket, Timestamp, Worktree, WorktreeBranch, WorktreeTicket};
+use nullradix_domain::{
+    Id, Repository, Runner, Ticket, Timestamp, Worktree, WorktreeBranch, WorktreeTicket,
+};
 
 use crate::{AppError, Change};
 
@@ -49,20 +51,18 @@ pub trait WorktreeWrite: Send {
     ) -> Result<Option<WorktreeEntry>, AppError>;
 }
 
-/// The same changes, each in a transaction of its own, and the reads.
+/// Reads of the registry; links change only with a ticket, through [`WorktreeWrite`].
 #[async_trait]
 pub trait WorktreeRepository: Send + Sync {
-    async fn insert(&self, worktree: &Worktree, owner: Id<Ticket>) -> Result<Change, AppError>;
-    async fn join(
-        &self,
-        worktree: Id<Worktree>,
-        ticket: Id<Ticket>,
-        at: Timestamp,
-    ) -> Result<Change, AppError>;
-    async fn release(&self, ticket: Id<Ticket>, at: Timestamp) -> Result<Option<Change>, AppError>;
     async fn get(&self, id: Id<Worktree>) -> Result<Option<WorktreeEntry>, AppError>;
     /// The worktree the ticket is linked to right now.
     async fn of_ticket(&self, ticket: Id<Ticket>) -> Result<Option<WorktreeEntry>, AppError>;
+    /// Worktrees of the repository on the runner in registry order, oldest first.
+    async fn list(
+        &self,
+        repository: Id<Repository>,
+        runner: Id<Runner>,
+    ) -> Result<Vec<WorktreeEntry>, AppError>;
 }
 
 /// Another live worktree of the repository on that runner has the branch.

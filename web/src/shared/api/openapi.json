@@ -4739,7 +4739,7 @@
               "string",
               "null"
             ],
-            "description": "Only `null`, which clears branch and worktree together; a value is refused."
+            "description": "Only null, which clears both branch and worktree; a value is refused."
           },
           "dependsOn": {
             "type": [
@@ -4855,7 +4855,7 @@
               "string",
               "null"
             ],
-            "description": "Only `null`, like `branch`."
+            "description": "Only null, which clears both branch and worktree; a value is refused."
           }
         },
         "additionalProperties": false

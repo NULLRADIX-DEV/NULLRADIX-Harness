@@ -401,7 +401,7 @@ pub struct UpdateTicket {
     )]
     #[schema(value_type = Option<String>, nullable)]
     pub target_branch: Option<Option<String>>,
-    /// Only `null`, which clears branch and worktree together; a value is refused.
+    /// Only null, which clears both branch and worktree; a value is refused.
     #[serde(
         default,
         deserialize_with = "present",
@@ -409,7 +409,7 @@ pub struct UpdateTicket {
     )]
     #[schema(value_type = Option<String>, nullable)]
     pub branch: Option<Option<String>>,
-    /// Only `null`, like `branch`.
+    /// Only null, which clears both branch and worktree; a value is refused.
     #[serde(
         default,
         deserialize_with = "present",

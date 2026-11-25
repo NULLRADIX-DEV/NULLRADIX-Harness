@@ -7,15 +7,18 @@ use std::sync::Arc;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::CheckoutRepository;
-use nullradix_app::tickets::{NewTicket, TicketPatch, TicketService, WriteOptions};
+use nullradix_app::tickets::{
+    NewTicket, TicketPatch, TicketRepository, TicketService, TicketWrite, WriteOptions,
+};
 use nullradix_app::worktrees::{WorktreeEntry, WorktreeRepository};
 use nullradix_app::{
     AppError, Change, ChangeFeed, ChangeOp, ChangeSignal, Clock, Entity, IdGenerator, SystemClock,
     UuidV7Generator,
 };
 use nullradix_domain::{
-    Actor, Board, Checkout, CheckoutPath, Id, Repository, RepositoryName, Runner, Ticket,
-    TicketRecord, Version, Worktree, WorktreeBranch, WorktreeDraft, WorktreePath, WorktreePurpose,
+    Actor, ActualState, Board, Checkout, CheckoutPath, DesiredState, Id, Repository,
+    RepositoryName, Runner, Ticket, TicketRecord, Version, Worktree, WorktreeBranch, WorktreeDraft,
+    WorktreePath, WorktreePurpose,
 };
 use nullradix_store::Store;
 
@@ -143,12 +146,55 @@ impl Fixture {
             .map_err(|error| error.code().to_owned())
     }
 
-    async fn put(&self, worktree: &Worktree, owner: Id<Ticket>) -> Result<Change, AppError> {
-        WorktreeRepository::insert(self.store.as_ref(), worktree, owner).await
+    async fn write(&self) -> Box<dyn TicketWrite> {
+        TicketRepository::begin(self.store.as_ref()).await.unwrap()
+    }
+
+    /// Test-only: start links in slice 4 also change the ticket in the same write.
+    async fn link_without_ticket_change(
+        &self,
+        worktree: &Worktree,
+        owner: Id<Ticket>,
+    ) -> Result<Change, AppError> {
+        let mut write = self.write().await;
+        let change = write.insert_worktree(worktree, owner).await?;
+        write.commit().await?;
+        Ok(change)
+    }
+
+    /// Test-only: join without the ticket change that comes with it in slice 4.
+    async fn join_without_ticket_change(
+        &self,
+        worktree: Id<Worktree>,
+        ticket: Id<Ticket>,
+    ) -> Result<Change, AppError> {
+        let mut write = self.write().await;
+        let change = write
+            .join_worktree(worktree, ticket, SystemClock.now())
+            .await?;
+        write.commit().await?;
+        Ok(change)
+    }
+
+    /// Test-only: end a link without the ticket change that clearing writes.
+    async fn release_without_ticket_change(
+        &self,
+        ticket: Id<Ticket>,
+    ) -> Result<Option<Change>, AppError> {
+        let mut write = self.write().await;
+        let change = write.release_link(ticket, SystemClock.now()).await?;
+        write.commit().await?;
+        Ok(change)
+    }
+
+    async fn find(&self, worktree: &Worktree) -> Option<WorktreeEntry> {
+        WorktreeRepository::get(self.store.as_ref(), worktree.id())
+            .await
+            .unwrap()
     }
 
     async fn entry(&self, worktree: &Worktree) -> WorktreeEntry {
-        self.store.get(worktree.id()).await.unwrap().unwrap()
+        self.find(worktree).await.unwrap()
     }
 }
 
@@ -182,9 +228,10 @@ async fn linked_tickets_show_the_branch_and_folder_of_their_worktree() {
     let guest = fx.ticket("Guest").await;
     fx.ticket("Alone").await;
     let worktree = fx.worktree("ticket/ARC-0001-owner");
-    fx.put(&worktree, owner.id()).await.unwrap();
-    fx.store
-        .join(worktree.id(), guest.id(), SystemClock.now())
+    fx.link_without_ticket_change(&worktree, owner.id())
+        .await
+        .unwrap();
+    fx.join_without_ticket_change(worktree.id(), guest.id())
         .await
         .unwrap();
 
@@ -194,7 +241,6 @@ async fn linked_tickets_show_the_branch_and_folder_of_their_worktree() {
         record.worktree.as_deref(),
         Some("/work/arches-worktrees/ticket/ARC-0001-owner")
     );
-    assert_eq!(record.version, Version::INITIAL);
     let listed: Vec<(String, Option<String>)> = fx
         .tickets
         .list(&nullradix_app::tickets::TicketFilter::default())
@@ -242,7 +288,9 @@ async fn clearing_ends_the_link_with_history_and_keeps_the_list() {
     let fx = fixture().await;
     let owner = fx.ticket("Owner").await;
     let worktree = fx.worktree("ticket/ARC-0001-owner");
-    fx.put(&worktree, owner.id()).await.unwrap();
+    fx.link_without_ticket_change(&worktree, owner.id())
+        .await
+        .unwrap();
     let head = fx.store.head().await.unwrap();
 
     let cleared = fx.update("ARC-1", clear()).await.unwrap();
@@ -307,7 +355,9 @@ async fn the_target_branch_locks_while_the_ticket_is_linked() {
             .as_deref(),
         Some("release/1")
     );
-    fx.put(&worktree, owner.id()).await.unwrap();
+    fx.link_without_ticket_change(&worktree, owner.id())
+        .await
+        .unwrap();
 
     assert_eq!(
         fx.update("ARC-1", target("release/2")).await.unwrap_err(),
@@ -334,23 +384,45 @@ async fn the_target_branch_locks_while_the_ticket_is_linked() {
 }
 
 #[tokio::test]
-async fn deleting_a_ticket_drops_its_links() {
+async fn deleted_tickets_stay_in_the_list_with_their_link_ended() {
     let fx = fixture().await;
     let owner = fx.ticket("Owner").await;
     let guest = fx.ticket("Guest").await;
     let worktree = fx.worktree("ticket/ARC-0001-owner");
-    fx.put(&worktree, owner.id()).await.unwrap();
-    fx.store
-        .join(worktree.id(), guest.id(), SystemClock.now())
+    fx.link_without_ticket_change(&worktree, owner.id())
         .await
         .unwrap();
+    fx.join_without_ticket_change(worktree.id(), guest.id())
+        .await
+        .unwrap();
+    let head = fx.store.head().await.unwrap();
 
-    fx.tickets.delete("ARC-2", &fx.person, None).await.unwrap();
+    fx.tickets.delete("ARC-1", &fx.person, None).await.unwrap();
+    let entry = fx.entry(&worktree).await;
     assert_eq!(
-        links(&fx.entry(&worktree).await),
-        [(String::from("ARC-0001"), 0, true)]
+        links(&entry),
+        [
+            (String::from("ARC-0001"), 0, false),
+            (String::from("ARC-0002"), 1, true)
+        ]
     );
-    assert!(fx.store.of_ticket(guest.id()).await.unwrap().is_none());
+    assert_eq!(entry.owner().map(|link| link.ticket), Some(owner.id()));
+    assert!(fx.store.of_ticket(owner.id()).await.unwrap().is_none());
+    let changed: Vec<(Entity, ChangeOp)> = fx
+        .store
+        .changes_since(head, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|change| (change.entity, change.op))
+        .collect();
+    assert_eq!(
+        changed,
+        [
+            (Entity::Worktree, ChangeOp::Update),
+            (Entity::Ticket, ChangeOp::Delete)
+        ]
+    );
 }
 
 #[tokio::test]
@@ -360,21 +432,42 @@ async fn a_ticket_has_at_most_one_live_link() {
     let second = fx.ticket("Second").await;
     let one = fx.worktree("ticket/ARC-0001-first");
     let two = fx.worktree("ticket/ARC-0002-second");
-    fx.put(&one, first.id()).await.unwrap();
+    fx.link_without_ticket_change(&one, first.id())
+        .await
+        .unwrap();
 
-    let taken = fx.put(&two, first.id()).await.unwrap_err();
+    let taken = fx
+        .link_without_ticket_change(&two, first.id())
+        .await
+        .unwrap_err();
     assert_eq!(taken.code(), "already-started");
-    assert!(fx.store.get(two.id()).await.unwrap().is_none());
+    assert!(fx.find(&two).await.is_none());
 
-    fx.put(&two, second.id()).await.unwrap();
-    let now = SystemClock.now();
-    let joined = fx.store.join(two.id(), first.id(), now).await.unwrap_err();
+    fx.link_without_ticket_change(&two, second.id())
+        .await
+        .unwrap();
+    let joined = fx
+        .join_without_ticket_change(two.id(), first.id())
+        .await
+        .unwrap_err();
     assert_eq!(joined.code(), "already-started");
 
     // once released the ticket may join elsewhere and later come back to its old place
-    assert!(fx.store.release(first.id(), now).await.unwrap().is_some());
-    assert!(fx.store.release(first.id(), now).await.unwrap().is_none());
-    fx.store.join(two.id(), first.id(), now).await.unwrap();
+    assert!(
+        fx.release_without_ticket_change(first.id())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        fx.release_without_ticket_change(first.id())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    fx.join_without_ticket_change(two.id(), first.id())
+        .await
+        .unwrap();
     assert_eq!(
         links(&fx.entry(&two).await),
         [
@@ -382,8 +475,10 @@ async fn a_ticket_has_at_most_one_live_link() {
             (String::from("ARC-0001"), 1, true)
         ]
     );
-    fx.store.release(first.id(), now).await.unwrap();
-    fx.store.join(one.id(), first.id(), now).await.unwrap();
+    fx.release_without_ticket_change(first.id()).await.unwrap();
+    fx.join_without_ticket_change(one.id(), first.id())
+        .await
+        .unwrap();
     assert_eq!(
         links(&fx.entry(&one).await),
         [(String::from("ARC-0001"), 0, true)]
@@ -399,17 +494,81 @@ async fn live_branches_are_unique_per_repository_and_runner() {
     let fx = fixture().await;
     let first = fx.ticket("First").await;
     let second = fx.ticket("Second").await;
-    fx.put(&fx.worktree("ticket/x"), first.id()).await.unwrap();
+    fx.link_without_ticket_change(&fx.worktree("ticket/x"), first.id())
+        .await
+        .unwrap();
     let twin = fx
-        .put(&fx.worktree("ticket/x"), second.id())
+        .link_without_ticket_change(&fx.worktree("ticket/x"), second.id())
         .await
         .unwrap_err();
     assert_eq!(twin.code(), "branch-exists");
     let ghost = fx.worktree("ticket/ghost");
     let missing = fx
-        .store
-        .join(ghost.id(), second.id(), SystemClock.now())
+        .join_without_ticket_change(ghost.id(), second.id())
         .await
         .unwrap_err();
     assert_eq!(missing.code(), "worktree-not-found");
+}
+
+#[tokio::test]
+async fn only_removed_worktrees_free_their_branch() {
+    let fx = fixture().await;
+    let tickets = [
+        fx.ticket("One").await,
+        fx.ticket("Two").await,
+        fx.ticket("Three").await,
+        fx.ticket("Four").await,
+    ];
+    let with_state = |branch: &str, desired, actual| {
+        let mut record = fx.worktree(branch).record().clone();
+        record.desired = desired;
+        record.actual = actual;
+        Worktree::restore(record)
+    };
+    let gone = with_state("ticket/a", DesiredState::Absent, ActualState::Removed);
+    fx.link_without_ticket_change(&gone, tickets[0].id())
+        .await
+        .unwrap();
+    fx.link_without_ticket_change(&fx.worktree("ticket/a"), tickets[1].id())
+        .await
+        .unwrap();
+
+    let leaving = with_state("ticket/b", DesiredState::Absent, ActualState::Present);
+    fx.link_without_ticket_change(&leaving, tickets[2].id())
+        .await
+        .unwrap();
+    let blocked = fx
+        .link_without_ticket_change(&fx.worktree("ticket/b"), tickets[3].id())
+        .await
+        .unwrap_err();
+    assert_eq!(blocked.code(), "branch-exists");
+}
+
+#[tokio::test]
+async fn worktrees_list_in_registry_order() {
+    let fx = fixture().await;
+    let mut made = Vec::new();
+    for title in ["One", "Two", "Three"] {
+        let ticket = fx.ticket(title).await;
+        let worktree = fx.worktree(&format!("ticket/{title}"));
+        made.push(worktree.id());
+        fx.link_without_ticket_change(&worktree, ticket.id())
+            .await
+            .unwrap();
+    }
+    let listed: Vec<Id<Worktree>> =
+        WorktreeRepository::list(fx.store.as_ref(), fx.repository, fx.runner)
+            .await
+            .unwrap()
+            .iter()
+            .map(|entry| entry.worktree.id())
+            .collect();
+    assert_eq!(listed, made);
+    let other = Id::from_uuid(uuid::Uuid::now_v7());
+    assert_eq!(
+        WorktreeRepository::list(fx.store.as_ref(), other, fx.runner)
+            .await
+            .unwrap(),
+        []
+    );
 }

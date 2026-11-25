@@ -22,12 +22,14 @@ CREATE TABLE worktrees (
 -- a removed entry keeps its row and branch name; only live ones must be unique
 CREATE UNIQUE INDEX ux_worktrees_branch_live ON worktrees (repository_id, runner_id, branch)
   WHERE actual_state <> 'removed' OR desired_state = 'present';
+-- registry order: --join and the dispatcher take the first match
+CREATE INDEX ix_worktrees_registry ON worktrees (repository_id, runner_id, created_at, id);
 CREATE INDEX ix_worktrees_reconcile ON worktrees (runner_id) WHERE desired_state <> actual_state;
 
--- legacy tickets[] of an entry: rows stay when the link ends, only released_at is set
+-- legacy tickets[] of an entry: rows stay when the link ends or the ticket is deleted
 CREATE TABLE worktree_tickets (
   worktree_id BLOB NOT NULL REFERENCES worktrees (id) ON DELETE CASCADE,
-  ticket_id   BLOB NOT NULL REFERENCES tickets (id) ON DELETE CASCADE,
+  ticket_id   BLOB NOT NULL CHECK (length(ticket_id) = 16),
   position    INTEGER NOT NULL CHECK (position >= 0),
   joined_at   INTEGER NOT NULL,
   released_at INTEGER,

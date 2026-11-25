@@ -1410,6 +1410,10 @@ pub(crate) async fn remove(
         }
     }
     for ticket in tickets {
+        // the worktree keeps the ticket in its list; only the live link ends
+        if let Some(change) = write.release_link(ticket.id(), at).await? {
+            done.push(change);
+        }
         let tombstone = Tombstone::of(Id::from_uuid(ids.next_uuid()), ticket, actor.id(), at);
         done.push(write.delete(ticket, &tombstone).await?);
     }

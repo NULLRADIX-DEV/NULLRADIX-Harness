@@ -1046,7 +1046,7 @@ export interface components {
              * @description Moves the ticket to another board of its project.
              */
             boardId?: string | null;
-            /** @description Only `null`, which clears branch and worktree together; a value is refused. */
+            /** @description Only null, which clears both branch and worktree; a value is refused. */
             branch?: string | null;
             /** @description Replaces the dependencies and then ignores the add list; the remove list applies last. */
             dependsOn?: string[] | null;
@@ -1070,7 +1070,7 @@ export interface components {
              * @description Version the change is based on.
              */
             version: number;
-            /** @description Only `null`, like `branch`. */
+            /** @description Only null, which clears both branch and worktree; a value is refused. */
             worktree?: string | null;
         };
         /** @description A plan; at least one of plan, handbook and diagram. */
