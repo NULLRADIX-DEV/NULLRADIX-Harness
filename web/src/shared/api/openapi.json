@@ -273,6 +273,46 @@
         }
       }
     },
+    "/api/v1/favorites": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "list_favorites",
+        "parameters": [
+          {
+            "name": "repositoryId",
+            "in": "query",
+            "description": "Only favorites in this repository.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -3596,6 +3636,123 @@
         }
       }
     },
+    "/api/v1/sessions/{sessionId}/favorite": {
+      "put": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "mark_favorite",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkFavorite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Neither a session nor a favorite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "unmark_favorite",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not marked any more, also when it never was"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sessions/{sessionId}/transcript": {
       "get": {
         "tags": [
@@ -6175,8 +6332,116 @@
           "note",
           "question",
           "session",
-          "inbox-order"
+          "inbox-order",
+          "favorite"
         ]
+      },
+      "FavoriteDto": {
+        "type": "object",
+        "description": "A marked session; its state is the live one while the session still exists.",
+        "required": [
+          "sessionId",
+          "note",
+          "tickets",
+          "cwd",
+          "cwdExists",
+          "label",
+          "markedAt",
+          "state",
+          "displayState",
+          "live",
+          "lastEventAt",
+          "resumedAs",
+          "command",
+          "version"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command that resumes the session in its folder."
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "cwdExists": {
+            "type": "boolean",
+            "description": "Whether the folder still exists, so the command can work."
+          },
+          "displayState": {
+            "$ref": "#/components/schemas/DisplayStateDto"
+          },
+          "label": {
+            "type": "string",
+            "description": "Name to show, such as `SE-001: Fix the login`; may be empty."
+          },
+          "lastEventAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Whether the session is still in the session list."
+          },
+          "markedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "note": {
+            "type": "string"
+          },
+          "repositoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "resumedAs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResumptionDto"
+            },
+            "description": "Later sessions that resumed this one, oldest first."
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SessionStateDto"
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ticket keys of the session, or of the snapshot once it is gone."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "FavoriteList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FavoriteDto"
+            },
+            "description": "Latest marked first."
+          }
+        }
       },
       "FileDiffDto": {
         "type": "object",
@@ -6771,6 +7036,18 @@
           }
         },
         "additionalProperties": false
+      },
+      "MarkFavorite": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Replaces the note; left out keeps it. Cut to 2000 characters."
+          }
+        }
       },
       "Me": {
         "type": "object",
@@ -7734,6 +8011,22 @@
             "items": {
               "$ref": "#/components/schemas/OptionDto"
             }
+          }
+        }
+      },
+      "ResumptionDto": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sessionId": {
+            "type": "string"
           }
         }
       },

@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use clap::Subcommand;
 use nullradix_api::{
-    ChangeOriginDto, DiffLineKindDto, DisplayStateDto, FileDiffDto, FileStatusDto,
+    ChangeOriginDto, DiffLineKindDto, DisplayStateDto, FavoriteDto, FileDiffDto, FileStatusDto,
     SessionChangesDto, SessionClientDto, SessionDetailDto, SessionDto, SubagentStateDto,
     SystemLevelDto, TodoStatusDto, TranscriptEntryDto,
 };
@@ -60,6 +60,32 @@ pub(crate) enum SessionCommand {
     Changes {
         /// Claude Code's session id
         session_id: String,
+        /// Print JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Mark a session as favorite, kept to resume later; marking again updates it
+    #[command(after_help = "Example:\n  nullradix session favorite 0123abcd --note \"login fix\"")]
+    Favorite {
+        /// Claude Code's session id
+        session_id: String,
+        /// Note on why the session matters; replaces the old one
+        #[arg(long)]
+        note: Option<String>,
+        /// Print JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove the favorite mark of a session
+    Unfavorite {
+        /// Claude Code's session id
+        session_id: String,
+    },
+    /// List favorite sessions with the command that resumes each
+    Favorites {
+        /// Only favorites in this repository id
+        #[arg(long)]
+        repository: Option<Uuid>,
         /// Print JSON instead of text
         #[arg(long)]
         json: bool,
@@ -126,6 +152,36 @@ pub(crate) fn run(command: SessionCommand, client: &Client) -> anyhow::Result<Ex
                 print_lines(&change_lines(&changes));
             }
         }
+        SessionCommand::Favorite {
+            session_id,
+            note,
+            json,
+        } => {
+            let favorite = client.mark_favorite(&session_id, note.as_deref())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&favorite)?);
+            } else {
+                println!("{} is a favorite.", short(&favorite.session_id));
+                print_lines(&favorite_lines(&favorite));
+            }
+        }
+        SessionCommand::Unfavorite { session_id } => {
+            client.unmark_favorite(&session_id)?;
+            println!("{} is no favorite.", short(&session_id));
+        }
+        SessionCommand::Favorites { repository, json } => {
+            let repository = repository.map(|id| id.to_string());
+            let favorites = client.list_favorites(repository.as_deref())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&favorites)?);
+            } else if favorites.items.is_empty() {
+                println!("No favorites.");
+            } else {
+                for favorite in &favorites.items {
+                    print_lines(&favorite_lines(favorite));
+                }
+            }
+        }
         SessionCommand::Diff {
             session_id,
             path,
@@ -140,6 +196,45 @@ pub(crate) fn run(command: SessionCommand, client: &Client) -> anyhow::Result<Ex
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// State, name, short id and tickets, then note, folder, resumptions and the command.
+fn favorite_lines(favorite: &FavoriteDto) -> Vec<String> {
+    let name = if favorite.label.is_empty() {
+        "(untitled)"
+    } else {
+        &favorite.label
+    };
+    let tickets = if favorite.tickets.is_empty() {
+        String::from("-")
+    } else {
+        favorite.tickets.join(",")
+    };
+    let mut lines = vec![format!(
+        "{:<8} {name}  [{}]  {tickets}{}",
+        state_label(favorite.display_state),
+        short(&favorite.session_id),
+        if favorite.live { "" } else { "  (gone)" },
+    )];
+    if !favorite.note.is_empty() {
+        lines.push(format!("    note: {}", favorite.note));
+    }
+    let missing = if favorite.cwd_exists {
+        ""
+    } else {
+        " (missing)"
+    };
+    lines.push(format!("    folder: {}{missing}", favorite.cwd));
+    if !favorite.resumed_as.is_empty() {
+        let resumed: Vec<&str> = favorite
+            .resumed_as
+            .iter()
+            .map(|resumption| short(&resumption.session_id))
+            .collect();
+        lines.push(format!("    resumed as: {}", resumed.join(", ")));
+    }
+    lines.push(format!("    {}", favorite.command));
+    lines
 }
 
 fn print_lines(lines: &[String]) {
@@ -484,8 +579,8 @@ fn show_lines(session: &SessionDto) -> Vec<String> {
 mod tests {
     use clap::Parser;
     use nullradix_api::{
-        ChangedFileDto, DiffHunkDto, DiffLineDto, SessionStateDto, SubagentDto, TodoItemDto,
-        TokenTotalsDto, ToolResultDto, TranscriptInfoDto,
+        ChangedFileDto, DiffHunkDto, DiffLineDto, ResumptionDto, SessionStateDto, SubagentDto,
+        TodoItemDto, TokenTotalsDto, ToolResultDto, TranscriptInfoDto,
     };
 
     use super::*;
@@ -688,6 +783,47 @@ mod tests {
             diff_lines(&diff),
             ["--- src/a.rs", "@@ -1,1 +1,1 @@", "-a", "+b"]
         );
+    }
+
+    #[test]
+    fn favorites_show_note_folder_resumptions_and_command() {
+        let favorite = FavoriteDto {
+            session_id: String::from("0123456789abcdef"),
+            repository_id: None,
+            note: String::from("login fix"),
+            tickets: vec![String::from("ARC-0001")],
+            cwd: String::from("/repo"),
+            cwd_exists: false,
+            title: Some(String::from("Fix the login")),
+            label: String::from("SE-001: Fix the login"),
+            marked_at: 0,
+            state: SessionStateDto::Ended,
+            display_state: DisplayStateDto::Ended,
+            live: false,
+            last_event_at: 0,
+            resumed_as: vec![ResumptionDto {
+                session_id: String::from("fedcba9876543210"),
+                at: 0,
+            }],
+            command: String::from("cd \"/repo\" && claude --resume 0123456789abcdef"),
+            version: 1,
+        };
+        assert_eq!(
+            favorite_lines(&favorite),
+            [
+                "ended    SE-001: Fix the login  [01234567]  ARC-0001  (gone)",
+                "    note: login fix",
+                "    folder: /repo (missing)",
+                "    resumed as: fedcba98",
+                "    cd \"/repo\" && claude --resume 0123456789abcdef",
+            ]
+        );
+        let cli = Cli::try_parse_from(["session", "favorite", "abc", "--note", "x"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            SessionCommand::Favorite { note: Some(note), .. } if note == "x"
+        ));
+        assert!(Cli::try_parse_from(["session", "unfavorite"]).is_err());
     }
 
     #[test]

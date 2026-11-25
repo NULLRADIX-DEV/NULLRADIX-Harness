@@ -207,7 +207,7 @@ async fn load(
         .collect()
 }
 
-async fn one(
+pub(crate) async fn one(
     connection: &mut SqliteConnection,
     id: &SessionRef,
 ) -> Result<Option<StoredSession>, StoreError> {

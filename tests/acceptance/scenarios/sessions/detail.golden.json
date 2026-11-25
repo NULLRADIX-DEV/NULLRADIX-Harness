@@ -423,6 +423,19 @@
   },
   {
     "cli": [
+      "session",
+      "favorite",
+      "s-1",
+      "--note",
+      "The notes work"
+    ],
+    "exitCode": 0,
+    "name": "mark the session as favorite",
+    "stderr": "",
+    "stdout": "s-1 is a favorite.\nidle     SE-001: Write the notes file please  [s-1]  ARC-0001\n    note: The notes work\n    folder: <WORK>/arches\n    cd \"<WORK>/arches\" && claude --resume s-1\n"
+  },
+  {
+    "cli": [
       "hook",
       "session-start"
     ],
@@ -430,6 +443,86 @@
     "name": "the next start hands back the name",
     "stderr": "",
     "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"sessionTitle\":\"SE-001: Write the notes file please\"}}\n"
+  },
+  {
+    "cli": [
+      "hook",
+      "session-start"
+    ],
+    "exitCode": 0,
+    "name": "a session resumes in the same folder",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "session",
+      "favorites"
+    ],
+    "exitCode": 0,
+    "name": "the favorites",
+    "stderr": "",
+    "stdout": "idle     SE-001: Write the notes file please  [s-1]  ARC-0001\n    note: The notes work\n    folder: <WORK>/arches\n    resumed as: s-3\n    cd \"<WORK>/arches\" && claude --resume s-1\n"
+  },
+  {
+    "name": "the favorites over http",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/favorites"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "command": "cd \"<WORK>/arches\" && claude --resume s-1",
+            "cwd": "<WORK>/arches",
+            "cwdExists": true,
+            "displayState": "idle",
+            "label": "SE-001: Write the notes file please",
+            "lastEventAt": "<TIME>",
+            "live": true,
+            "markedAt": "<TIME>",
+            "note": "The notes work",
+            "repositoryId": "<ID-5>",
+            "resumedAs": [
+              {
+                "at": "<TIME>",
+                "sessionId": "s-3"
+              }
+            ],
+            "sessionId": "s-1",
+            "state": "idle",
+            "tickets": [
+              "ARC-0001"
+            ],
+            "title": "Write the notes file please",
+            "version": 3
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "session",
+      "unfavorite",
+      "s-1"
+    ],
+    "exitCode": 0,
+    "name": "unmark the session",
+    "stderr": "",
+    "stdout": "s-1 is no favorite.\n"
+  },
+  {
+    "cli": [
+      "session",
+      "favorites"
+    ],
+    "exitCode": 0,
+    "name": "no favorites left",
+    "stderr": "",
+    "stdout": "No favorites.\n"
   },
   {
     "cli": [

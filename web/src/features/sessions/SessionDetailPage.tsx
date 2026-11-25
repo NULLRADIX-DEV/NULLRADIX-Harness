@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router';
 import { ChangesView } from './ChangesView';
 import { formatDuration, sessionRuntime, sessionTitle, withLiveState } from './format';
 import { sessionDetailQuery, sessionKeys, type SessionClient, type SessionDetail } from './queries';
+import { FavoriteStar } from './Favorites';
 import { SessionStateBadge } from './SessionStateBadge';
 import { TranscriptView } from './TranscriptView';
 import { useTranscript } from './transcript';
@@ -116,6 +117,7 @@ function Detail({
   return (
     <>
       <div className="sd-kicker">
+        <FavoriteStar sessionId={session.id} />
         <span className="badge">{CLIENT_LABELS[detail.client]}</span>
         <SessionStateBadge state={session.displayState} />
         <span className="mono muted" title={session.id}>

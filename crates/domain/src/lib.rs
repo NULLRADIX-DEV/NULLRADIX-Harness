@@ -3,6 +3,7 @@
 mod board;
 mod board_rules;
 mod comment;
+mod favorite;
 mod hook;
 mod id;
 mod inbox;
@@ -26,6 +27,10 @@ pub use board_rules::{
     validate_dependencies,
 };
 pub use comment::{Comment, CommentBody, CommentError, CommentOn, CommentRecord, SystemMarker};
+pub use favorite::{
+    FAVORITE_NOTE_MAX, Favorite, FavoriteRecord, Resumption, favorite_note, resume_command,
+    resumed_favorite,
+};
 pub use hook::{HookDetails, HookError, HookEvent, HookKind, SessionRef};
 pub use id::{Id, ParseIdError};
 pub use inbox::{

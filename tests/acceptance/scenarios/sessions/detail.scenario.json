@@ -1,5 +1,5 @@
 {
-  "title": "A session shows what it did from its transcript and takes a ticket",
+  "title": "A session shows what it did from its transcript, takes a ticket and is kept as favorite",
   "env": {
     "CLAUDE_CODE_ENTRYPOINT": "cli",
     "NULLRADIX_HOOK_DEADLINE_MS": "4500"
@@ -10,18 +10,27 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/projects",
-        "body": { "key": "ARC", "name": "Arches" }
+        "body": {
+          "key": "ARC",
+          "name": "Arches"
+        }
       },
-      "save": { "project": "json.id" }
+      "save": {
+        "project": "json.id"
+      }
     },
     {
       "name": "board",
       "http": {
         "method": "POST",
         "path": "/api/v1/projects/{{project}}/boards",
-        "body": { "name": "Main" }
+        "body": {
+          "name": "Main"
+        }
       },
-      "save": { "main": "json.id" }
+      "save": {
+        "main": "json.id"
+      }
     },
     {
       "name": "init a repository",
@@ -36,19 +45,30 @@
           "timeoutSeconds": 30
         }
       },
-      "save": { "init": "json.id" }
+      "save": {
+        "init": "json.id"
+      }
     },
     {
       "name": "initialized",
-      "wait": { "path": "/api/v1/runs/{{init}}", "field": "status", "equals": "succeeded" }
+      "wait": {
+        "path": "/api/v1/runs/{{init}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
     },
     {
       "name": "bind the board",
-      "cli": { "args": ["board", "repo", "{{main}}", "{{WORK}}/arches"] }
+      "cli": {
+        "args": ["board", "repo", "{{main}}", "{{WORK}}/arches"]
+      }
     },
     {
       "name": "a ticket",
-      "cli": { "args": ["ticket", "create", "Write the notes"], "cwd": "{{WORK}}/arches" }
+      "cli": {
+        "args": ["ticket", "create", "Write the notes"],
+        "cwd": "{{WORK}}/arches"
+      }
     },
     {
       "name": "the transcript Claude Code wrote",
@@ -62,7 +82,10 @@
             "entrypoint": "cli",
             "gitBranch": "main",
             "version": "2.1.0",
-            "message": { "role": "user", "content": "Write the notes file please" }
+            "message": {
+              "role": "user",
+              "content": "Write the notes file please"
+            }
           },
           {
             "type": "assistant",
@@ -73,12 +96,18 @@
               "id": "m-1",
               "model": "fake-opus",
               "content": [
-                { "type": "thinking", "thinking": "" },
+                {
+                  "type": "thinking",
+                  "thinking": ""
+                },
                 {
                   "type": "tool_use",
                   "id": "w-1",
                   "name": "Write",
-                  "input": { "file_path": "notes.txt", "content": "one\ntwo\n" }
+                  "input": {
+                    "file_path": "notes.txt",
+                    "content": "one\ntwo\n"
+                  }
                 }
               ],
               "usage": {
@@ -95,10 +124,16 @@
             "timestamp": "2026-11-25T08:00:02.000Z",
             "message": {
               "content": [
-                { "type": "tool_result", "tool_use_id": "w-1", "content": "File created" }
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "w-1",
+                  "content": "File created"
+                }
               ]
             },
-            "toolUseResult": { "type": "create" }
+            "toolUseResult": {
+              "type": "create"
+            }
           },
           {
             "type": "assistant",
@@ -112,7 +147,9 @@
                   "type": "tool_use",
                   "id": "b-1",
                   "name": "Bash",
-                  "input": { "command": "cat notes.txt" }
+                  "input": {
+                    "command": "cat notes.txt"
+                  }
                 }
               ]
             }
@@ -139,7 +176,12 @@
             "message": {
               "id": "m-3",
               "model": "fake-opus",
-              "content": [{ "type": "text", "text": "The notes are written." }]
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The notes are written."
+                }
+              ]
             }
           }
         ]
@@ -159,7 +201,11 @@
     },
     {
       "name": "the repository is found",
-      "wait": { "path": "/api/v1/sessions/s-1", "field": "number", "equals": 1 }
+      "wait": {
+        "path": "/api/v1/sessions/s-1",
+        "field": "number",
+        "equals": 1
+      }
     },
     {
       "name": "the first prompt names the session",
@@ -176,77 +222,160 @@
       "name": "a later prompt keeps the name",
       "cli": {
         "args": ["hook", "user-prompt"],
-        "stdin": { "session_id": "s-1", "cwd": "{{WORK}}/arches", "prompt": "And check it" }
+        "stdin": {
+          "session_id": "s-1",
+          "cwd": "{{WORK}}/arches",
+          "prompt": "And check it"
+        }
       }
     },
     {
       "name": "stop",
       "cli": {
         "args": ["hook", "stop"],
-        "stdin": { "session_id": "s-1", "cwd": "{{WORK}}/arches" }
+        "stdin": {
+          "session_id": "s-1",
+          "cwd": "{{WORK}}/arches"
+        }
       }
     },
     {
       "name": "the detail",
-      "http": { "method": "GET", "path": "/api/v1/sessions/s-1/detail" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/sessions/s-1/detail"
+      }
     },
     {
       "name": "show with the detail",
-      "cli": { "args": ["session", "show", "s-1"] }
+      "cli": {
+        "args": ["session", "show", "s-1"]
+      }
     },
     {
       "name": "the transcript",
-      "http": { "method": "GET", "path": "/api/v1/sessions/s-1/transcript" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/sessions/s-1/transcript"
+      }
     },
     {
       "name": "the transcript after its end",
-      "http": { "method": "GET", "path": "/api/v1/sessions/s-1/transcript?after=100000&limit=10" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/sessions/s-1/transcript?after=100000&limit=10"
+      }
     },
     {
       "name": "the transcript in the CLI",
-      "cli": { "args": ["session", "transcript", "s-1"] }
+      "cli": {
+        "args": ["session", "transcript", "s-1"]
+      }
     },
     {
       "name": "the changes",
-      "cli": { "args": ["session", "changes", "s-1"] }
+      "cli": {
+        "args": ["session", "changes", "s-1"]
+      }
     },
     {
       "name": "the diff",
-      "cli": { "args": ["session", "diff", "s-1", "notes.txt"] }
+      "cli": {
+        "args": ["session", "diff", "s-1", "notes.txt"]
+      }
     },
     {
       "name": "a path outside the checkout",
-      "http": { "method": "GET", "path": "/api/v1/sessions/s-1/changes/file?path=..%2Fs-1.jsonl" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/sessions/s-1/changes/file?path=..%2Fs-1.jsonl"
+      }
     },
     {
       "name": "a file that did not change",
-      "cli": { "args": ["session", "diff", "s-1", "other.txt"] }
+      "cli": {
+        "args": ["session", "diff", "s-1", "other.txt"]
+      }
     },
     {
       "name": "the session takes the ticket",
       "http": {
         "method": "POST",
         "path": "/api/v1/sessions/s-1/claim",
-        "body": { "ticketKey": "ARC-1" }
+        "body": {
+          "ticketKey": "ARC-1"
+        }
+      }
+    },
+    {
+      "name": "mark the session as favorite",
+      "cli": {
+        "args": ["session", "favorite", "s-1", "--note", "The notes work"]
       }
     },
     {
       "name": "the next start hands back the name",
       "cli": {
         "args": ["hook", "session-start"],
-        "stdin": { "session_id": "s-1", "cwd": "{{WORK}}/arches", "source": "resume" }
+        "stdin": {
+          "session_id": "s-1",
+          "cwd": "{{WORK}}/arches",
+          "source": "resume"
+        }
+      }
+    },
+    {
+      "name": "a session resumes in the same folder",
+      "cli": {
+        "args": ["hook", "session-start"],
+        "stdin": {
+          "session_id": "s-3",
+          "cwd": "{{WORK}}/arches",
+          "source": "resume"
+        }
+      }
+    },
+    {
+      "name": "the favorites",
+      "cli": {
+        "args": ["session", "favorites"]
+      }
+    },
+    {
+      "name": "the favorites over http",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/favorites"
+      }
+    },
+    {
+      "name": "unmark the session",
+      "cli": {
+        "args": ["session", "unfavorite", "s-1"]
+      }
+    },
+    {
+      "name": "no favorites left",
+      "cli": {
+        "args": ["session", "favorites"]
       }
     },
     {
       "name": "a session without transcript",
       "cli": {
         "args": ["hook", "session-start"],
-        "stdin": { "session_id": "s-2", "cwd": "{{WORK}}" }
+        "stdin": {
+          "session_id": "s-2",
+          "cwd": "{{WORK}}"
+        }
       }
     },
     {
       "name": "its detail is empty",
-      "http": { "method": "GET", "path": "/api/v1/sessions/s-2/detail" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/sessions/s-2/detail"
+      }
     }
   ]
 }

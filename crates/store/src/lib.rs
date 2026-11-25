@@ -5,6 +5,7 @@ mod boards;
 mod change_feed;
 mod comments;
 mod error;
+mod favorites;
 mod hooks;
 mod inbox;
 mod notes;

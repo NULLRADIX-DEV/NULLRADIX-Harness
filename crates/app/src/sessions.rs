@@ -14,6 +14,7 @@ use parking_lot::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
+use crate::favorites::FavoriteService;
 use crate::repositories::RunnerService;
 use crate::session_detail::{
     ChangeRequest, DEFAULT_PAGE_LIMIT, DiffRequest, FileDiff, MAX_PAGE_LIMIT, SessionChanges,
@@ -160,6 +161,7 @@ pub struct SessionService {
     signal: ChangeSignal,
     located: Mutex<HashMap<String, Located>>,
     lookups: Mutex<Vec<JoinHandle<()>>>,
+    favorites: Option<Arc<FavoriteService>>,
 }
 
 impl std::fmt::Debug for SessionService {
@@ -185,7 +187,15 @@ impl SessionService {
             signal,
             located: Mutex::new(HashMap::new()),
             lookups: Mutex::new(Vec::new()),
+            favorites: None,
         }
+    }
+
+    /// Also lets favorites follow their sessions and catch resumptions.
+    #[must_use]
+    pub fn with_favorites(mut self, favorites: Arc<FavoriteService>) -> Self {
+        self.favorites = Some(favorites);
+        self
     }
 
     /// Records the hook event and applies it to its session in one write.
@@ -225,6 +235,16 @@ impl SessionService {
         write.commit().await?;
         if let Some(change) = &change {
             self.signal.notify(change);
+        }
+        if let Some(favorites) = &self.favorites
+            && change.is_some()
+        {
+            let resumed = event.kind() == HookKind::SessionStart
+                && event.details().source.as_deref() == Some("resume");
+            // the event is stored; a favorite that cannot follow must not fail its hook
+            if let Err(error) = favorites.follow(&session, resumed).await {
+                tracing::warn!(%error, session = id.as_str(), "cannot update favorites");
+            }
         }
         // the event is stored; a failed lookup must not fail its hook
         if session.record().repository.is_none()

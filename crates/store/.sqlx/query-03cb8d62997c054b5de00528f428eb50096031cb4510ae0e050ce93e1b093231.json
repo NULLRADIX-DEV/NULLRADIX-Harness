@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO favorite_resumes (favorite_session_id, resumed_session_id, position,\n                                           resumed_at)\n             VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "03cb8d62997c054b5de00528f428eb50096031cb4510ae0e050ce93e1b093231"
+}

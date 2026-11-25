@@ -5,14 +5,14 @@ use nullradix_api::{
     API_PREFIX, API_VERSION, AcceptTicket, AddComment, AddQuestionComment, AddStep, AnswerQuestion,
     BoardDeleted, BoardDto, BoardList, ChangeStep, ClaimPlanning, ClaimSession, ClaimTicket,
     CommentDto, CommentList, CreateBoard, CreateNote, CreateProject, CreateQuestion, CreateTicket,
-    DecideQuestion, DropNote, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health,
-    HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList, MoveStep, MoveTicket,
-    NextPlanning, NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList,
-    PromoteNote, PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList, ReleaseTicket,
-    RenameBoard, RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SeenNote,
-    SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository, StartRun,
-    StartTicket, StartedTicket, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto,
-    UpdateTicket, WritePlan,
+    DecideQuestion, DropNote, FavoriteDto, FavoriteList, FileDiffDto, FinishTicket, FinishedTicket,
+    Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList,
+    MarkFavorite, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList,
+    Problem, ProjectDto, ProjectList, PromoteNote, PromotedNote, QuestionCommentDto,
+    QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard, RenameProject, RepositoryList,
+    RunDto, RunList, RunOutput, RunnerList, SeenNote, SessionChangesDto, SessionDetailDto,
+    SessionDto, SessionList, SetBoardRepository, StartRun, StartTicket, StartedTicket,
+    TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -362,6 +362,43 @@ impl Client {
             .call()
             .map_err(|source| self.unreachable(source))?;
         decode(&mut response, 200)
+    }
+
+    /// Favorites, latest marked first; only those of `repository` when given.
+    pub fn list_favorites(&self, repository: Option<&str>) -> Result<FavoriteList, ClientError> {
+        let mut request = self
+            .agent
+            .get(&self.url("/favorites"))
+            .header("Authorization", &self.authorization()?);
+        if let Some(repository) = repository {
+            request = request.query("repositoryId", repository);
+        }
+        let mut response = request.call().map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    /// Marks the session; a note replaces the old one, none keeps it.
+    pub fn mark_favorite(&self, id: &str, note: Option<&str>) -> Result<FavoriteDto, ClientError> {
+        let input = MarkFavorite {
+            note: note.map(str::to_owned),
+        };
+        let mut response = self
+            .agent
+            .put(&self.url(&format!("/sessions/{}/favorite", segment(id))))
+            .header("Authorization", &self.authorization()?)
+            .send_json(&input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn unmark_favorite(&self, id: &str) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!("/sessions/{}/favorite", segment(id))))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
     }
 
     /// Links the ticket to the session, as a session taking a ticket does.
@@ -967,7 +1004,7 @@ mod tests {
             signal.clone(),
             FAST,
         );
-        let (sessions, hooks) = hook_services(&store, &runners, &signal);
+        let (sessions, favorites, hooks) = hook_services(&store, &runners, &signal);
         let boards = Arc::new(nullradix_app::boards::BoardService::new(
             store.clone(),
             store.clone(),
@@ -1034,6 +1071,7 @@ mod tests {
             runs,
             hooks,
             sessions,
+            favorites,
             changes: store,
             signal,
             shutdown: tokio_util::sync::CancellationToken::new(),
@@ -1049,19 +1087,30 @@ mod tests {
         signal: &ChangeSignal,
     ) -> (
         Arc<nullradix_app::sessions::SessionService>,
+        Arc<nullradix_app::favorites::FavoriteService>,
         Arc<HookService>,
     ) {
-        let sessions = Arc::new(nullradix_app::sessions::SessionService::new(
+        let favorites = Arc::new(nullradix_app::favorites::FavoriteService::new(
             store.clone(),
             runners.clone(),
             Arc::new(SystemClock),
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let sessions = Arc::new(
+            nullradix_app::sessions::SessionService::new(
+                store.clone(),
+                runners.clone(),
+                Arc::new(SystemClock),
+                Arc::new(UuidV7Generator),
+                signal.clone(),
+            )
+            .with_favorites(favorites.clone()),
+        );
         let hooks = Arc::new(
             HookService::new(store.clone(), Arc::new(SystemClock)).with_sessions(sessions.clone()),
         );
-        (sessions, hooks)
+        (sessions, favorites, hooks)
     }
 
     fn note_service(

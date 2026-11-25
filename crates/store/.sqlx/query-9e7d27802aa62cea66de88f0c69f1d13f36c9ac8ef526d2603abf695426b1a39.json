@@ -1,0 +1,134 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT session_id AS \"session_id!\", repository_id AS \"repository_id?: Uuid\", note,\n                  cwd, title, ticket_keys, last_state, last_event_at, marked_at, version\n           FROM favorites\n           WHERE (?1 IS NULL OR repository_id = ?1) AND (?2 IS NULL OR session_id = ?2)\n           ORDER BY marked_at DESC, session_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "session_id!",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "session_id"
+          }
+        }
+      },
+      {
+        "name": "repository_id?: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "repository_id"
+          }
+        }
+      },
+      {
+        "name": "note",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "note"
+          }
+        }
+      },
+      {
+        "name": "cwd",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "cwd"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "ticket_keys",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "ticket_keys"
+          }
+        }
+      },
+      {
+        "name": "last_state",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "last_state"
+          }
+        }
+      },
+      {
+        "name": "last_event_at",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "last_event_at"
+          }
+        }
+      },
+      {
+        "name": "marked_at",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "marked_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9e7d27802aa62cea66de88f0c69f1d13f36c9ac8ef526d2603abf695426b1a39"
+}

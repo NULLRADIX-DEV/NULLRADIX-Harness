@@ -100,6 +100,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_favorites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -692,6 +708,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{sessionId}/favorite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["mark_favorite"];
+        post?: never;
+        delete: operations["unmark_favorite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{sessionId}/transcript": {
         parameters: {
             query?: never;
@@ -1243,7 +1275,40 @@ export interface components {
             reason?: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite";
+        /** @description A marked session; its state is the live one while the session still exists. */
+        FavoriteDto: {
+            /** @description Shell command that resumes the session in its folder. */
+            command: string;
+            cwd: string;
+            /** @description Whether the folder still exists, so the command can work. */
+            cwdExists: boolean;
+            displayState: components["schemas"]["DisplayStateDto"];
+            /** @description Name to show, such as `SE-001: Fix the login`; may be empty. */
+            label: string;
+            /** Format: int64 */
+            lastEventAt: number;
+            /** @description Whether the session is still in the session list. */
+            live: boolean;
+            /** Format: int64 */
+            markedAt: number;
+            note: string;
+            /** Format: uuid */
+            repositoryId?: string | null;
+            /** @description Later sessions that resumed this one, oldest first. */
+            resumedAs: components["schemas"]["ResumptionDto"][];
+            sessionId: string;
+            state: components["schemas"]["SessionStateDto"];
+            /** @description Ticket keys of the session, or of the snapshot once it is gone. */
+            tickets: string[];
+            title?: string | null;
+            /** Format: int64 */
+            version: number;
+        };
+        FavoriteList: {
+            /** @description Latest marked first. */
+            items: components["schemas"]["FavoriteDto"][];
+        };
         /** @description Diff of one file, cut to 5000 lines. */
         FileDiffDto: {
             hunks: components["schemas"]["DiffHunkDto"][];
@@ -1436,6 +1501,10 @@ export interface components {
         InboxRefDto: {
             key: string;
             type: components["schemas"]["InboxItemTypeDto"];
+        };
+        MarkFavorite: {
+            /** @description Replaces the note; left out keeps it. Cut to 2000 characters. */
+            note?: string | null;
         };
         /** @description The caller as the daemon sees it. */
         Me: {
@@ -1721,6 +1790,11 @@ export interface components {
             /** Format: uuid */
             id: string;
             options: components["schemas"]["OptionDto"][];
+        };
+        ResumptionDto: {
+            /** Format: int64 */
+            at: number;
+            sessionId: string;
         };
         /** @description A run as the API shows it; timestamps are Unix milliseconds. */
         RunDto: {
@@ -2370,6 +2444,36 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_favorites: {
+        parameters: {
+            query?: {
+                /** @description Only favorites in this repository. */
+                repositoryId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoriteList"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4852,6 +4956,102 @@ export interface operations {
             };
             /** @description The session's runner is not reachable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    mark_favorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkFavorite"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoriteDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Neither a session nor a favorite */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unmark_favorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Not marked any more, also when it never was */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
