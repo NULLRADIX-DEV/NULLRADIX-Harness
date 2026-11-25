@@ -31,6 +31,7 @@ pub enum EntityDto {
     Run,
     Runner,
     Repository,
+    Worktree,
 }
 
 impl From<Entity> for EntityDto {
@@ -42,6 +43,7 @@ impl From<Entity> for EntityDto {
             Entity::Run => Self::Run,
             Entity::Runner => Self::Runner,
             Entity::Repository => Self::Repository,
+            Entity::Worktree => Self::Worktree,
         }
     }
 }

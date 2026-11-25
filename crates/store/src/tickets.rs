@@ -51,6 +51,8 @@ struct Row {
     needs_planning: i64,
     blocked_reason: Option<String>,
     target_branch: Option<String>,
+    branch: Option<String>,
+    worktree: Option<String>,
     planned_by: Option<String>,
     planned_at: Option<i64>,
     planning_claim_by: Option<String>,
@@ -96,6 +98,8 @@ impl Row {
             needs_planning: self.needs_planning != 0,
             blocked_reason: self.blocked_reason,
             target_branch,
+            branch: self.branch,
+            worktree: self.worktree,
             planned: stamp(self.planned_by, self.planned_at, "plan")?,
             planning_claim: stamp(
                 self.planning_claim_by,
@@ -148,13 +152,16 @@ async fn rows(connection: &mut SqliteConnection, at: Selection) -> Result<Vec<Ro
         r#"SELECT t.id AS "id: Uuid", p.key AS project_key, t.project_id AS "project_id: Uuid",
                   t.board_id AS "board_id: Uuid", t.number, t.title, t.description, t.acceptance,
                   t.plan, t.handbook, t.diagram, t.status, t.priority, t.sort_order, t.assignee,
-                  t.needs_planning, t.blocked_reason, t.target_branch, t.planned_by,
+                  t.needs_planning, t.blocked_reason, t.target_branch,
+                  w.branch AS "branch?", w.path AS "worktree?", t.planned_by,
                   t.planned_at, t.planning_claim_by, t.planning_claim_at,
                   t.created_by AS "created_by: Uuid", a.name AS created_by_name, t.created_at,
                   t.updated_at, t.version
            FROM tickets t
            JOIN projects p ON p.id = t.project_id
            JOIN actors a ON a.id = t.created_by
+           LEFT JOIN worktree_tickets l ON l.ticket_id = t.id AND l.released_at IS NULL
+           LEFT JOIN worktrees w ON w.id = l.worktree_id
            WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)
              AND (?3 IS NULL OR t.id = ?3)"#,
         at.project,
@@ -424,7 +431,7 @@ async fn missing_scope(
     Ok(())
 }
 
-struct Write(Transaction<'static, Sqlite>);
+pub(crate) struct Write(pub(crate) Transaction<'static, Sqlite>);
 
 #[async_trait]
 impl TicketWrite for Write {

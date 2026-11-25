@@ -95,6 +95,7 @@
         "assignee": null,
         "blockedReason": null,
         "boardId": "<ID-2>",
+        "branch": null,
         "column": "backlog",
         "createdAt": "<TIME>",
         "createdById": "<ID-3>",
@@ -125,7 +126,8 @@
         "unlocks": [],
         "updatedAt": "<TIME>",
         "version": 1,
-        "waiting": false
+        "waiting": false,
+        "worktree": null
       },
       "location": "/api/v1/tickets/ARC-0001",
       "status": 201
@@ -170,6 +172,7 @@
             "assignee": null,
             "blockedReason": null,
             "boardId": "<ID-4>",
+            "branch": null,
             "column": "backlog",
             "createdAt": "<TIME>",
             "createdById": "<ID-3>",
@@ -200,7 +203,8 @@
             "unlocks": [],
             "updatedAt": "<TIME>",
             "version": 2,
-            "waiting": false
+            "waiting": false,
+            "worktree": null
           }
         ]
       },

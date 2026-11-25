@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO worktree_tickets (worktree_id, ticket_id, position, joined_at)\n         VALUES (?, ?, 0, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "2b85a9965e51f6eb00a9b6187f304312ab4075f821f06e28ea7361327f53cd8b"
+}

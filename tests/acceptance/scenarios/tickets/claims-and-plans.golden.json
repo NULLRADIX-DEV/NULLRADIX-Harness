@@ -66,6 +66,7 @@
         "assignee": null,
         "blockedReason": null,
         "boardId": "<ID-2>",
+        "branch": null,
         "column": "backlog",
         "createdAt": "<TIME>",
         "createdById": "<ID-3>",
@@ -96,7 +97,8 @@
         "unlocks": [],
         "updatedAt": "<TIME>",
         "version": 1,
-        "waiting": false
+        "waiting": false,
+        "worktree": null
       },
       "location": "/api/v1/tickets/ARC-0001",
       "status": 201
@@ -117,6 +119,7 @@
         "assignee": null,
         "blockedReason": null,
         "boardId": "<ID-2>",
+        "branch": null,
         "column": "backlog",
         "createdAt": "<TIME>",
         "createdById": "<ID-3>",
@@ -147,7 +150,8 @@
         "unlocks": [],
         "updatedAt": "<TIME>",
         "version": 1,
-        "waiting": false
+        "waiting": false,
+        "worktree": null
       },
       "location": "/api/v1/tickets/ARC-0002",
       "status": 201
@@ -219,6 +223,7 @@
           "assignee": null,
           "blockedReason": null,
           "boardId": "<ID-2>",
+          "branch": null,
           "column": "backlog",
           "createdAt": "<TIME>",
           "createdById": "<ID-3>",
@@ -249,7 +254,8 @@
           "unlocks": [],
           "updatedAt": "<TIME>",
           "version": 1,
-          "waiting": false
+          "waiting": false,
+          "worktree": null
         }
       },
       "status": 200
@@ -472,6 +478,7 @@
           "assignee": "claude",
           "blockedReason": "Human Interaction: Review before merge",
           "boardId": "<ID-2>",
+          "branch": null,
           "column": "blocked",
           "createdAt": "<TIME>",
           "createdById": "<ID-3>",
@@ -502,7 +509,8 @@
           "unlocks": [],
           "updatedAt": "<TIME>",
           "version": 5,
-          "waiting": false
+          "waiting": false,
+          "worktree": null
         }
       },
       "status": 200
@@ -710,6 +718,7 @@
           "assignee": "claude",
           "blockedReason": null,
           "boardId": "<ID-2>",
+          "branch": null,
           "column": "done",
           "createdAt": "<TIME>",
           "createdById": "<ID-3>",
@@ -740,7 +749,8 @@
           "unlocks": [],
           "updatedAt": "<TIME>",
           "version": 6,
-          "waiting": false
+          "waiting": false,
+          "worktree": null
         }
       },
       "status": 200

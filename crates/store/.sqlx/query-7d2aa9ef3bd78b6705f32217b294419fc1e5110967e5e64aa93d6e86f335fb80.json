@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.ticket_id AS \"ticket_id: Uuid\", p.key AS \"project_key?\",\n                  t.number AS \"number?\", d.human_key AS \"deleted_key?\", l.position,\n                  l.joined_at, l.released_at\n           FROM worktree_tickets l\n           LEFT JOIN tickets t ON t.id = l.ticket_id\n           LEFT JOIN projects p ON p.id = t.project_id\n           LEFT JOIN deleted_items d ON d.entity = 'ticket' AND d.entity_id = l.ticket_id\n           WHERE l.worktree_id = ?\n           ORDER BY l.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "ticket_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "ticket_id"
+          }
+        }
+      },
+      {
+        "name": "project_key?",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "number?",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "deleted_key?",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deleted_items",
+            "name": "human_key"
+          }
+        }
+      },
+      {
+        "name": "position",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "name": "joined_at",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "joined_at"
+          }
+        }
+      },
+      {
+        "name": "released_at",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "released_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "7d2aa9ef3bd78b6705f32217b294419fc1e5110967e5e64aa93d6e86f335fb80"
+}

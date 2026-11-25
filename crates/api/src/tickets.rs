@@ -7,6 +7,7 @@ use nullradix_app::tickets::{
     self, HistoryLine, NewTicket, PlanInput, StepGuard, StepPatch, TicketDetail, TicketFilter,
     TicketPatch, TicketScope, TicketView, WriteOptions,
 };
+use nullradix_app::worktrees;
 use nullradix_domain::{Column, Id, Priority, TicketKey, TicketStatus, Version};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -143,6 +144,10 @@ pub struct TicketDto {
     pub blocked_reason: Option<String>,
     /// Branch the ticket merges into; none means the default branch.
     pub target_branch: Option<String>,
+    /// Branch of the worktree the ticket works in right now.
+    pub branch: Option<String>,
+    /// Folder of that worktree on its runner.
+    pub worktree: Option<String>,
     pub planned_by: Option<String>,
     pub planned_at: Option<i64>,
     /// Who plans the ticket now; a claim lives 15 minutes.
@@ -190,6 +195,8 @@ impl From<TicketView> for TicketDto {
                 .target_branch
                 .as_ref()
                 .map(|branch| branch.as_str().to_owned()),
+            branch: record.branch.clone(),
+            worktree: record.worktree.clone(),
             planned_by: record.planned.as_ref().map(|(name, _)| name.clone()),
             planned_at: record.planned.as_ref().map(|(_, at)| at.as_millis()),
             planning_claim_by: record.planning_claim.as_ref().map(|(name, _)| name.clone()),
@@ -394,6 +401,22 @@ pub struct UpdateTicket {
     )]
     #[schema(value_type = Option<String>, nullable)]
     pub target_branch: Option<Option<String>>,
+    /// Only null, which clears both branch and worktree; a value is refused.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<String>, nullable)]
+    pub branch: Option<Option<String>>,
+    /// Only null, which clears both branch and worktree; a value is refused.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<String>, nullable)]
+    pub worktree: Option<Option<String>>,
     /// Lifts the dependency, question and not-needed locks.
     #[serde(default)]
     pub force: bool,
@@ -770,6 +793,11 @@ pub(crate) async fn update_ticket(
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<UpdateTicket>,
 ) -> Result<Json<TicketDetailDto>, ApiError> {
+    let link = [&input.branch, &input.worktree];
+    if link.iter().any(|given| matches!(given, Some(Some(_)))) {
+        return Err(worktrees::link_only_clears().into());
+    }
+    let clear_link = link.iter().any(|given| given.is_some());
     let expected = AppError::client_version(input.version)?;
     let options = writer(&principal, input.force);
     let changes = TicketPatch {
@@ -790,6 +818,7 @@ pub(crate) async fn update_ticket(
         depends_on_remove: input.depends_on_remove,
         board: input.board_id.map(Id::from_uuid),
         target_branch: input.target_branch,
+        clear_link,
     };
     let detail = state
         .tickets

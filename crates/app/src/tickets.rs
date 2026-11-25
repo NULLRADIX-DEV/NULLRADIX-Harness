@@ -9,12 +9,13 @@ use nullradix_domain::{
     HistoryEntry, Id, Priority, Project, ProjectKey, RuleError, StatusFacts, StatusLock,
     StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError, Ticket, TicketDraft,
     TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle, Timestamp, Tombstone, Version,
-    changes, check_status_change, display_order, normalize_dependencies, normalize_labels,
-    optional_text, planning_candidate, planning_claim_alive, step, strip_fence,
+    changes, check_status_change, check_target_lock, display_order, normalize_dependencies,
+    normalize_labels, optional_text, planning_candidate, planning_claim_alive, step, strip_fence,
     validate_dependencies, waits_for_a_person,
 };
 
 use crate::projects::ProjectRepository;
+use crate::worktrees::WorktreeWrite;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator, boards};
 
 /// How many tickets one move to another board may carry, as in legacy.
@@ -81,7 +82,7 @@ pub struct TicketRead {
 
 /// One write; dropping it without [`TicketWrite::commit`] undoes everything.
 #[async_trait]
-pub trait TicketWrite: Send {
+pub trait TicketWrite: WorktreeWrite + Send {
     /// The board with the key of its project.
     async fn board(&mut self, id: Id<Board>) -> Result<Option<(Board, ProjectKey)>, AppError>;
     /// Tickets on the board that are neither done nor not needed.
@@ -109,7 +110,7 @@ pub trait TicketWrite: Send {
     async fn board_tickets(&mut self, board: Id<Board>) -> Result<Vec<Ticket>, AppError>;
     /// Tickets that depend on `ticket`.
     async fn dependents(&mut self, ticket: Id<Ticket>) -> Result<Vec<Ticket>, AppError>;
-    /// Stores the ticket with its labels and dependencies if the row still has `expected`.
+    /// Stores the ticket, labels and dependencies if still at `expected`; not the link.
     async fn update(
         &mut self,
         ticket: &Ticket,
@@ -228,6 +229,8 @@ pub struct TicketPatch {
     /// Moves the ticket to another board of its project.
     pub board: Option<Id<Board>>,
     pub target_branch: Option<Option<String>>,
+    /// Clears branch and worktree together; the worktree keeps the ticket in its list.
+    pub clear_link: bool,
 }
 
 impl TicketPatch {
@@ -325,6 +328,9 @@ pub fn invalid(error: &TicketError) -> AppError {
         TicketError::TargetBranchTooLong(_) => AppError::invalid("value-too-long", message),
         TicketError::InvalidTargetBranch(_) | TicketError::TicketBranchTarget(_) => {
             AppError::invalid("target-branch-invalid", message)
+        }
+        TicketError::TargetBranchLocked { .. } => {
+            AppError::invalid("target-branch-locked", message)
         }
     }
 }
@@ -631,6 +637,9 @@ impl TicketService {
         let after = apply(write.as_mut(), &before, patch, status, priority, &index).await?;
         check_change(&before, &after, &index, options)?;
         let now = self.clock.now();
+        if patch.clear_link {
+            write.release_link(before.id(), now).await?;
+        }
         let revised = before.revised(after, now);
         let history = self.history(&before, &revised, actor, now, None);
         let change = write.update(&revised, expected, &history).await?;
@@ -1283,11 +1292,15 @@ async fn apply(
     if let Some(acceptance) = &patch.acceptance {
         after.acceptance.clone_from(acceptance);
     }
+    if patch.clear_link {
+        after.clear_link();
+    }
     if let Some(target) = &patch.target_branch {
         after.target_branch = match target {
             Some(text) => TargetBranch::parse(text).map_err(|error| invalid(&error))?,
             None => None,
         };
+        check_target_lock(old, &after).map_err(|error| invalid(&error))?;
     }
     if patch.changes_dependencies() {
         let removed = dependency_keys(patch.depends_on_remove.as_deref().unwrap_or_default())?;
@@ -1397,6 +1410,10 @@ pub(crate) async fn remove(
         }
     }
     for ticket in tickets {
+        // the worktree keeps the ticket in its list; only the live link ends
+        if let Some(change) = write.release_link(ticket.id(), at).await? {
+            done.push(change);
+        }
         let tombstone = Tombstone::of(Id::from_uuid(ids.next_uuid()), ticket, actor.id(), at);
         done.push(write.delete(ticket, &tombstone).await?);
     }
@@ -1428,6 +1445,13 @@ mod tests {
             (
                 invalid(&TicketError::TicketBranchTarget(String::from("ticket"))),
                 "target-branch-invalid",
+            ),
+            (
+                invalid(&TicketError::TargetBranchLocked {
+                    key: String::from("ARC-0001"),
+                    branch: String::from("ticket/ARC-0001-a"),
+                }),
+                "target-branch-locked",
             ),
             (
                 broken_rule(&RuleError::DependencyCycle(vec![key.clone()])),

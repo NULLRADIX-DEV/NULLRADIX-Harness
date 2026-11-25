@@ -141,6 +141,9 @@ pub(crate) struct SetArgs {
     /// Branch to merge into; empty or none means the default branch
     #[arg(long)]
     target_branch: Option<String>,
+    /// Clear branch and worktree on the ticket; the branch and folder themselves stay
+    #[arg(long)]
+    clear_branch: bool,
     /// Board of the same project to move the ticket to
     #[arg(long)]
     to_board: Option<Uuid>,
@@ -412,6 +415,8 @@ fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
         depends_on_remove: keys(args.depends_on_remove),
         board_id: args.to_board,
         target_branch: args.target_branch.as_deref().map(none_or),
+        branch: args.clear_branch.then_some(None),
+        worktree: args.clear_branch.then_some(None),
         force: args.force,
     };
     // without fields the daemon answers nothing-changed before it looks at the version
@@ -561,27 +566,7 @@ fn show_lines(detail: &TicketDetailDto, history: bool) -> Vec<String> {
     if !ticket.acceptance.is_empty() {
         lines.push(format!("Acceptance: {}", ticket.acceptance));
     }
-    if !ticket.depends_on.is_empty() {
-        let states: Vec<String> = ticket
-            .depends_on
-            .iter()
-            .map(|key| {
-                let state = if ticket.depends_open.contains(key) {
-                    "open"
-                } else {
-                    "met"
-                };
-                format!("{key} ({state})")
-            })
-            .collect();
-        lines.push(format!("Depends on: {}", states.join(", ")));
-    }
-    if !ticket.dependents.is_empty() {
-        lines.push(format!("Needed by: {}", ticket.dependents.join(", ")));
-    }
-    if let Some(target) = &ticket.target_branch {
-        lines.push(format!("Target branch: {target}"));
-    }
+    lines.extend(relation_lines(ticket));
     let sections = [
         ("Description", &ticket.description),
         ("Plan", &ticket.plan),
@@ -629,6 +614,40 @@ fn show_lines(detail: &TicketDetailDto, history: bool) -> Vec<String> {
                 entry.actor_name
             ));
         }
+    }
+    lines
+}
+
+/// Dependencies, dependents and the branches of the ticket.
+fn relation_lines(ticket: &TicketDto) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !ticket.depends_on.is_empty() {
+        let states: Vec<String> = ticket
+            .depends_on
+            .iter()
+            .map(|key| {
+                let state = if ticket.depends_open.contains(key) {
+                    "open"
+                } else {
+                    "met"
+                };
+                format!("{key} ({state})")
+            })
+            .collect();
+        lines.push(format!("Depends on: {}", states.join(", ")));
+    }
+    if !ticket.dependents.is_empty() {
+        lines.push(format!("Needed by: {}", ticket.dependents.join(", ")));
+    }
+    if let Some(target) = &ticket.target_branch {
+        lines.push(format!("Target branch: {target}"));
+    }
+    if let Some(branch) = &ticket.branch {
+        let folder = ticket
+            .worktree
+            .as_ref()
+            .map_or_else(String::new, |path| format!(" (worktree {path})"));
+        lines.push(format!("Branch: {branch}{folder}"));
     }
     lines
 }
