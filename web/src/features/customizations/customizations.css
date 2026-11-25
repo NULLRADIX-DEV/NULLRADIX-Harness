@@ -1,0 +1,31 @@
+.customization-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.customization-row {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.customization-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.customization-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.customization-content {
+  width: 100%;
+  min-height: 140px;
+  font-family: var(--font-mono);
+}
+
+.customization-create {
+  margin-top: 12px;
+}

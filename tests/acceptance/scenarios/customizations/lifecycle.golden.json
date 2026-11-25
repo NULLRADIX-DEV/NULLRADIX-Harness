@@ -1,0 +1,369 @@
+[
+  {
+    "cli": [
+      "customize",
+      "overview"
+    ],
+    "exitCode": 0,
+    "name": "nothing is customized",
+    "stderr": "",
+    "stdout": "nothing is customized, start with `nullradix customize set`\n"
+  },
+  {
+    "file": "<WORK>/review.md",
+    "lines": 0,
+    "name": "a skill with a head"
+  },
+  {
+    "cli": [
+      "customize",
+      "set",
+      "skill",
+      "review",
+      "--file",
+      "<WORK>/review.md"
+    ],
+    "exitCode": 0,
+    "name": "customize the skill",
+    "stderr": "",
+    "stdout": "skill review: new, active, base -\n"
+  },
+  {
+    "file": "<WORK>/terse.md",
+    "lines": 0,
+    "name": "an output style without a head"
+  },
+  {
+    "cli": [
+      "customize",
+      "set",
+      "output-style",
+      "terse",
+      "--file",
+      "<WORK>/terse.md"
+    ],
+    "exitCode": 0,
+    "name": "the output style has problems and falls back",
+    "stderr": "",
+    "stdout": "output-style terse: new, fallback, base -\n  problem description-missing: the head has no description\n"
+  },
+  {
+    "cli": [
+      "customize",
+      "overview"
+    ],
+    "exitCode": 0,
+    "name": "overview lists skills first and names the problems",
+    "stderr": "",
+    "stdout": "skill review: new, active, base -\noutput-style terse: new, fallback, base -\n  problem description-missing: the head has no description\n"
+  },
+  {
+    "name": "list over http",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/customizations"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "base": "none",
+            "content": "---\nname: review\ndescription: Reviews a change\n---\nLook at the diff first.\n",
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "kind": "new",
+            "name": "review",
+            "point": "skill",
+            "problems": [],
+            "standard": false,
+            "state": "active",
+            "updatedAt": "<TIME>",
+            "version": 1,
+            "warnings": []
+          },
+          {
+            "base": "none",
+            "content": "Be brief.\n",
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "kind": "new",
+            "name": "terse",
+            "point": "output-style",
+            "problems": [
+              {
+                "code": "description-missing",
+                "message": "the head has no description"
+              }
+            ],
+            "standard": false,
+            "state": "fallback",
+            "updatedAt": "<TIME>",
+            "version": 1,
+            "warnings": []
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "customize",
+      "show",
+      "skill",
+      "review"
+    ],
+    "exitCode": 0,
+    "name": "the skill is in charge",
+    "stderr": "",
+    "stdout": "---\nname: review\ndescription: Reviews a change\n---\nLook at the diff first.\n"
+  },
+  {
+    "cli": [
+      "customize",
+      "show",
+      "output-style",
+      "terse"
+    ],
+    "exitCode": 1,
+    "name": "nothing is in charge of the broken output style",
+    "stderr": "error: the daemon refused the request: output-style terse does not apply and no shipped file takes over (customization-inactive)\n",
+    "stdout": ""
+  },
+  {
+    "file": "<WORK>/terse.md",
+    "lines": 0,
+    "name": "the output style gets a head"
+  },
+  {
+    "cli": [
+      "customize",
+      "set",
+      "output-style",
+      "terse",
+      "--file",
+      "<WORK>/terse.md"
+    ],
+    "exitCode": 0,
+    "name": "setting it again replaces the content",
+    "stderr": "",
+    "stdout": "output-style terse: new, active, base -\n"
+  },
+  {
+    "name": "the same name cannot be created twice",
+    "request": {
+      "body": {
+        "content": "x",
+        "name": "review",
+        "point": "skill"
+      },
+      "method": "POST",
+      "path": "/api/v1/customizations"
+    },
+    "response": {
+      "json": {
+        "code": "customization-exists",
+        "detail": "skill review is already customized",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:customization-exists"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "names are checked",
+    "request": {
+      "body": {
+        "content": "x",
+        "name": "Bad Name",
+        "point": "skill"
+      },
+      "method": "POST",
+      "path": "/api/v1/customizations"
+    },
+    "response": {
+      "json": {
+        "code": "customization-name-invalid",
+        "detail": "a customization name uses lowercase letters, digits and single hyphens, at most 64 characters",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:customization-name-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "customize",
+      "copy",
+      "skill",
+      "review",
+      "--rebase"
+    ],
+    "exitCode": 1,
+    "name": "nothing is shipped to copy",
+    "stderr": "error: the daemon refused the request: there is no shipped skill review (customization-no-standard)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "customize",
+      "copy",
+      "skill",
+      "other"
+    ],
+    "exitCode": 1,
+    "name": "copying a skill that is not shipped is refused",
+    "stderr": "error: the daemon refused the request: there is no shipped skill other (customization-no-standard)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "customize",
+      "disable",
+      "skill",
+      "review"
+    ],
+    "exitCode": 0,
+    "name": "disable the skill",
+    "stderr": "",
+    "stdout": "skill review: new, disabled, base -\n"
+  },
+  {
+    "cli": [
+      "customize",
+      "show",
+      "skill",
+      "review"
+    ],
+    "exitCode": 1,
+    "name": "a disabled skill is not in charge",
+    "stderr": "error: the daemon refused the request: skill review does not apply and no shipped file takes over (customization-inactive)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "customize",
+      "enable",
+      "skill",
+      "review"
+    ],
+    "exitCode": 0,
+    "name": "enable it again",
+    "stderr": "",
+    "stdout": "skill review: new, active, base -\n"
+  },
+  {
+    "name": "read one over http",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/customizations/skill/review"
+    },
+    "response": {
+      "json": {
+        "base": "none",
+        "content": "---\nname: review\ndescription: Reviews a change\n---\nLook at the diff first.\n",
+        "createdAt": "<TIME>",
+        "enabled": true,
+        "kind": "new",
+        "name": "review",
+        "point": "skill",
+        "problems": [],
+        "standard": false,
+        "state": "active",
+        "updatedAt": "<TIME>",
+        "version": 3,
+        "warnings": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a stale version is refused",
+    "request": {
+      "body": {
+        "enabled": false,
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/customizations/skill/review"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "customization skill review was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "the effective text over http",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/customizations/skill/review/effective"
+    },
+    "response": {
+      "json": {
+        "content": "---\nname: review\ndescription: Reviews a change\n---\nLook at the diff first.\n",
+        "problems": [],
+        "source": "custom"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a stale delete is refused",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/customizations/skill/review?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "customization skill review was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "customize",
+      "reset",
+      "skill",
+      "review"
+    ],
+    "exitCode": 0,
+    "name": "reset drops it",
+    "stderr": "",
+    "stdout": "dropped skill review\n"
+  },
+  {
+    "cli": [
+      "customize",
+      "reset",
+      "skill",
+      "review"
+    ],
+    "exitCode": 1,
+    "name": "resetting again says it is gone",
+    "stderr": "error: the daemon refused the request: skill review is not customized (customization-missing)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "customize",
+      "overview"
+    ],
+    "exitCode": 0,
+    "name": "one customization is left",
+    "stderr": "",
+    "stdout": "output-style terse: new, active, base -\n"
+  }
+]

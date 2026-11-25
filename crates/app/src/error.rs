@@ -23,6 +23,17 @@ pub struct SimilarNote {
     pub ticket: Option<String>,
 }
 
+/// A refused field of an input, as manifests of packages report them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldProblem {
+    pub field: String,
+    pub message: String,
+}
+
+/// Boxed apart so a failure stays small.
+#[derive(Debug)]
+struct FieldList(Vec<FieldProblem>);
+
 /// Failure of a use case with a stable machine-readable code.
 #[derive(Debug)]
 pub struct AppError {
@@ -33,6 +44,8 @@ pub struct AppError {
     existing: Option<String>,
     /// Notes that already describe the finding, for `note-similar`.
     similar: Vec<SimilarNote>,
+    /// Refused fields of the input, for `theme-manifest-invalid`.
+    fields: Option<Box<FieldList>>,
     source: Option<Box<dyn Error + Send + Sync>>,
 }
 
@@ -45,6 +58,7 @@ impl AppError {
             message: message.into(),
             existing: None,
             similar: Vec::new(),
+            fields: None,
             source: None,
         }
     }
@@ -129,6 +143,17 @@ impl AppError {
     #[must_use]
     pub fn similar(&self) -> &[SimilarNote] {
         &self.similar
+    }
+
+    #[must_use]
+    pub fn with_fields(mut self, fields: Vec<FieldProblem>) -> Self {
+        self.fields = (!fields.is_empty()).then(|| Box::new(FieldList(fields)));
+        self
+    }
+
+    #[must_use]
+    pub fn fields(&self) -> &[FieldProblem] {
+        self.fields.as_ref().map_or(&[], |list| &list.0)
     }
 
     #[must_use]

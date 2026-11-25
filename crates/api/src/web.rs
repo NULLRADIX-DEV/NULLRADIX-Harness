@@ -23,9 +23,11 @@ pub(crate) async fn no_store_for_api(request: Request, next: Next) -> Response {
     let api = request.uri().path().starts_with(API_PREFIX);
     let mut response = next.run(request).await;
     if api {
+        // a handler may choose its own policy, as theme files do
         response
             .headers_mut()
-            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            .entry(header::CACHE_CONTROL)
+            .or_insert(HeaderValue::from_static("no-store"));
     }
     response
 }
@@ -67,6 +69,16 @@ mod tests {
         assert_eq!(headers["x-frame-options"], "DENY");
         assert_eq!(headers["x-content-type-options"], "nosniff");
         assert_eq!(headers["referrer-policy"], "no-referrer");
+        let csp = headers["content-security-policy"].to_str().unwrap();
+        for part in [
+            "img-src 'self' data:",
+            "font-src 'self' data:",
+            "style-src 'self' 'unsafe-inline'",
+            "connect-src 'self'",
+            "media-src 'self'",
+        ] {
+            assert!(csp.contains(part), "{part} missing in {csp}");
+        }
 
         let (status, _, body) = get(&api.router, "/board/ARC-0001").await;
         assert_eq!(status, StatusCode::OK);

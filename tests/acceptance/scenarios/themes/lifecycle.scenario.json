@@ -1,0 +1,163 @@
+{
+  "title": "Themes are packed, installed, chosen, served from their folder and removed",
+  "steps": [
+    {
+      "name": "no theme installed",
+      "http": { "method": "GET", "path": "/api/v1/themes" }
+    },
+    {
+      "name": "manifest",
+      "file": {
+        "path": "{{WORK}}/night-blue/manifest.json",
+        "text": "{\"id\":\"night-blue\",\"name\":\"Night Blue\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"startColor\":\"#101018\",\"preview\":\"assets/preview.png\",\"slots\":[],\"permissions\":{\"network\":[]},\"settingsSchema\":{\"dim\":{\"type\":\"boolean\",\"label\":\"Dim\",\"default\":true}}}"
+      }
+    },
+    {
+      "name": "stylesheet",
+      "file": {
+        "path": "{{WORK}}/night-blue/theme.css",
+        "text": "[data-theme-mode='night-blue'] { --accent: #6c63ff; }\n"
+      }
+    },
+    {
+      "name": "preview",
+      "file": { "path": "{{WORK}}/night-blue/assets/preview.png", "text": "PNG" }
+    },
+    {
+      "name": "pack the folder",
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-blue", "--out", "{{WORK}}/night-blue.nullradix"]
+      }
+    },
+    {
+      "name": "install the package",
+      "cli": { "args": ["theme", "install", "{{WORK}}/night-blue.nullradix"] }
+    },
+    {
+      "name": "list over http",
+      "http": { "method": "GET", "path": "/api/v1/themes" },
+      "save": { "version": "json.items.0.version" }
+    },
+    {
+      "name": "the stylesheet comes from the installed folder",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/files/theme.css" }
+    },
+    {
+      "name": "the preview comes from the installed folder",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/files/assets/preview.png" }
+    },
+    {
+      "name": "the folder cannot be left through dots",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-blue/files/%2e%2e%2fnight-blue%2fmanifest.json"
+      }
+    },
+    {
+      "name": "the folder cannot be left through a theme id",
+      "http": { "method": "GET", "path": "/api/v1/themes/%2e%2e/files/manifest.json" }
+    },
+    {
+      "name": "a missing file is not found",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/files/missing.css" }
+    },
+    {
+      "name": "a folder is not served",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/files/assets" }
+    },
+    {
+      "name": "installing again replaces the theme",
+      "cli": { "args": ["theme", "install", "{{WORK}}/night-blue.nullradix"] }
+    },
+    {
+      "name": "the replaced theme has a new version",
+      "http": { "method": "GET", "path": "/api/v1/themes" }
+    },
+    {
+      "name": "an unknown theme cannot be chosen",
+      "cli": { "args": ["theme", "use", "ghost"] }
+    },
+    {
+      "name": "choose the installed theme",
+      "cli": { "args": ["theme", "use", "night-blue"] }
+    },
+    {
+      "name": "list marks the chosen theme",
+      "cli": { "args": ["theme", "list"] }
+    },
+    {
+      "name": "choose a built-in theme over http",
+      "http": { "method": "PUT", "path": "/api/v1/settings/theme", "body": { "theme": "light" } }
+    },
+    {
+      "name": "choose the installed theme again",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/theme",
+        "body": { "theme": "night-blue" }
+      }
+    },
+    {
+      "name": "a package may not take a built-in name",
+      "file": {
+        "path": "{{WORK}}/dark/manifest.json",
+        "text": "{\"id\":\"dark\",\"name\":\"Dark\",\"version\":\"1.0.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\"}"
+      }
+    },
+    {
+      "name": "reserved style",
+      "file": { "path": "{{WORK}}/dark/theme.css", "text": "a { color: red }\n" }
+    },
+    {
+      "name": "pack the reserved name",
+      "cli": { "args": ["theme", "pack", "{{WORK}}/dark", "--out", "{{WORK}}/dark.nullradix"] }
+    },
+    {
+      "name": "install the reserved name",
+      "cli": { "args": ["theme", "install", "{{WORK}}/dark.nullradix"] }
+    },
+    {
+      "name": "a broken manifest",
+      "file": {
+        "path": "{{WORK}}/broken/manifest.json",
+        "text": "{\"id\":\"Broken\",\"version\":\"one\",\"colorScheme\":\"blue\"}"
+      }
+    },
+    {
+      "name": "a broken style",
+      "file": { "path": "{{WORK}}/broken/theme.css", "text": "@import 'x.css';\n" }
+    },
+    {
+      "name": "packing names the refused fields",
+      "cli": { "args": ["theme", "pack", "{{WORK}}/broken", "--out", "{{WORK}}/broken.nullradix"] }
+    },
+    {
+      "name": "a file that is no package",
+      "file": { "path": "{{WORK}}/notes.nullradix", "text": "not a zip" }
+    },
+    {
+      "name": "installing it is refused",
+      "cli": { "args": ["theme", "install", "{{WORK}}/notes.nullradix"] }
+    },
+    {
+      "name": "the refused package left nothing behind",
+      "http": { "method": "GET", "path": "/api/v1/themes" }
+    },
+    {
+      "name": "remove with a stale version",
+      "http": { "method": "DELETE", "path": "/api/v1/themes/night-blue?version={{version}}" }
+    },
+    {
+      "name": "remove the chosen theme",
+      "cli": { "args": ["theme", "remove", "night-blue"] }
+    },
+    {
+      "name": "the default is chosen again",
+      "http": { "method": "GET", "path": "/api/v1/themes" }
+    },
+    {
+      "name": "its files are gone",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/files/theme.css" }
+    }
+  ]
+}

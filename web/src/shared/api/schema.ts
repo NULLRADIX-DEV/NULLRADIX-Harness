@@ -196,6 +196,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_customizations"];
+        put?: never;
+        post: operations["create_customization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customizations/{point}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_customization"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_customization"];
+        options?: never;
+        head?: never;
+        patch: operations["update_customization"];
+        trace?: never;
+    };
+    "/api/v1/customizations/{point}/{name}/effective": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["effective_customization"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customizations/{point}/{name}/rebase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rebase_customization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -852,6 +916,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/theme": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["choose_theme"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/themes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_themes"];
+        put?: never;
+        post: operations["install_theme"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/themes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_theme"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/themes/{id}/files/{*path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["theme_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets": {
         parameters: {
             query?: never;
@@ -1207,6 +1335,11 @@ export interface components {
              */
             version?: number | null;
         };
+        /**
+         * @description How the starting point of a replacement compares with the shipped file today.
+         * @enum {string}
+         */
+        BaseStateDto: "none" | "current" | "outdated" | "unknown";
         /** @description What a board deletion took with it. */
         BoardDeleted: {
             /** @description Keys of the deleted tickets by number. */
@@ -1287,6 +1420,10 @@ export interface components {
             /** Format: uuid */
             runnerId: string;
         };
+        ChooseTheme: {
+            /** @description A built-in theme or the id of an installed one. */
+            theme: string;
+        };
         ClaimPlanning: {
             agent: string;
         };
@@ -1312,6 +1449,8 @@ export interface components {
             path: string;
             removed: boolean;
         };
+        /** @enum {string} */
+        ColorSchemeDto: "light" | "dark";
         /**
          * @description A board column: the statuses plus waiting, which open dependencies derive.
          * @enum {string}
@@ -1353,6 +1492,13 @@ export interface components {
         };
         CreateBoard: {
             name: string;
+        };
+        CreateCustomization: {
+            /** @description The whole file with its head; left out copies the shipped file of that name. */
+            content?: string | null;
+            /** @description Lowercase words joined by single hyphens, at most 64 characters. */
+            name: string;
+            point: components["schemas"]["ExtensionPointDto"];
         };
         /** @description A new note: a title that makes sense without context and optional details. */
         CreateNote: {
@@ -1411,6 +1557,31 @@ export interface components {
             targetBranch?: string | null;
             title: string;
         };
+        CustomizationDto: {
+            base: components["schemas"]["BaseStateDto"];
+            content: string;
+            /** Format: int64 */
+            createdAt: number;
+            enabled: boolean;
+            kind: components["schemas"]["OverlayKindDto"];
+            name: string;
+            point: components["schemas"]["ExtensionPointDto"];
+            /** @description Reasons the shipped file stays in charge. */
+            problems: components["schemas"]["FindingDto"][];
+            /** @description Whether a shipped file of that name exists. */
+            standard: boolean;
+            state: components["schemas"]["OverlayStateDto"];
+            /** Format: int64 */
+            updatedAt: number;
+            /** Format: int64 */
+            version: number;
+            /** @description Hints that leave the customization in charge. */
+            warnings: components["schemas"]["FindingDto"][];
+        };
+        CustomizationList: {
+            /** @description Skills first, then output styles, each by name. */
+            items: components["schemas"]["CustomizationDto"][];
+        };
         /** @description Discarding needs a reason; reopening takes none. */
         DecideQuestion: {
             author?: string | null;
@@ -1452,8 +1623,17 @@ export interface components {
             /** @description Why nothing comes of it; required. */
             reason?: string;
         };
+        /** @description The text that is in charge of a name right now. */
+        EffectiveDto: {
+            content: string;
+            /** @description Why the customization does not apply, when the shipped file took over. */
+            problems: components["schemas"]["FindingDto"][];
+            source: components["schemas"]["SourceDto"];
+        };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account" | "theme" | "setting" | "customization";
+        /** @enum {string} */
+        ExtensionPointDto: "skill" | "output-style";
         /** @description A marked session; its state is the live one while the session still exists. */
         FavoriteDto: {
             /** @description Shell command that resumes the session in its folder. */
@@ -1487,6 +1667,11 @@ export interface components {
             /** @description Latest marked first. */
             items: components["schemas"]["FavoriteDto"][];
         };
+        /** @description One refused field of an input; lists carry the index, such as `slots[1]`. */
+        FieldProblemDto: {
+            field: string;
+            message: string;
+        };
         /** @description Diff of one file, cut to 5000 lines. */
         FileDiffDto: {
             hunks: components["schemas"]["DiffHunkDto"][];
@@ -1495,6 +1680,10 @@ export interface components {
         };
         /** @enum {string} */
         FileStatusDto: "added" | "modified" | "deleted" | "renamed";
+        FindingDto: {
+            code: string;
+            message: string;
+        };
         /** @description Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged. */
         FinishTicket: {
             /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
@@ -1811,6 +2000,16 @@ export interface components {
         };
         /** @enum {string} */
         OutputStreamDto: "stdout" | "stderr";
+        /**
+         * @description Replaces a shipped file or comes on top of the shipped ones.
+         * @enum {string}
+         */
+        OverlayKindDto: "replace" | "new";
+        /**
+         * @description Whether the customization applies: problems send it back to the shipped file.
+         * @enum {string}
+         */
+        OverlayStateDto: "active" | "fallback" | "disabled";
         /** @enum {string} */
         PrincipalKind: "token" | "session";
         /** @enum {string} */
@@ -1819,6 +2018,8 @@ export interface components {
         Problem: {
             code: string;
             detail: string;
+            /** @description Refused fields of the input, for `theme-manifest-invalid`. */
+            errors?: components["schemas"]["FieldProblemDto"][];
             /** @description Key of the entity that already exists, such as `ARC-0007` for a duplicate ticket. */
             existing?: string | null;
             /** @description Notes that already describe the finding, for `note-similar`; most similar first. */
@@ -1944,6 +2145,10 @@ export interface components {
             key: string;
             status: components["schemas"]["TicketStatusDto"];
             title: string;
+        };
+        RebaseCustomization: {
+            /** Format: int64 */
+            version: number;
         };
         RecordedHookDto: {
             event: components["schemas"]["HookEventDto"];
@@ -2155,6 +2360,8 @@ export interface components {
             ticketKey?: string | null;
             title: string;
         };
+        /** @enum {string} */
+        SourceDto: "custom" | "standard";
         StartLogin: {
             /** @description Filled into the login page of the browser. */
             email?: string | null;
@@ -2232,6 +2439,64 @@ export interface components {
             branch: string;
             /** @description Such as `origin/release`, or the branch or commit of the main checkout. */
             from: string;
+        };
+        /** @description An installed theme package. */
+        ThemeDto: {
+            author: string;
+            /** @description Whether the package brings a theme for Claude Code. */
+            claudeTheme: boolean;
+            colorScheme: components["schemas"]["ColorSchemeDto"];
+            id: string;
+            /** Format: int64 */
+            installedAt: number;
+            name: string;
+            /** @description Domains the theme may load from. */
+            network: string[];
+            /** @description Version of the theme itself, a semver version. */
+            packageVersion: string;
+            /** @description URL of the preview image. */
+            previewUrl?: string | null;
+            /** @description Range of SDK versions the theme runs with. */
+            sdkVersion: string;
+            settings: components["schemas"]["ThemeSettingDto"][];
+            slots: string[];
+            startColor?: string | null;
+            /** @description URL of the stylesheet the UI links while the theme is chosen. */
+            styleUrl: string;
+            /** Format: int64 */
+            updatedAt: number;
+            /**
+             * Format: int64
+             * @description Row version for deleting.
+             */
+            version: number;
+        };
+        ThemeListDto: {
+            /** @description The chosen theme: `nullradix`, `system`, `light`, `dark` or an installed id. */
+            active: string;
+            /** @description Installed themes sorted by id. */
+            items: components["schemas"]["ThemeDto"][];
+        };
+        ThemeOptionDto: {
+            label: string;
+            value: string;
+        };
+        /** @description A setting the theme offers. */
+        ThemeSettingDto: {
+            default: boolean;
+            hint?: string | null;
+            key: string;
+            label: string;
+            /** @enum {string} */
+            type: "boolean";
+        } | {
+            default: string;
+            hint?: string | null;
+            key: string;
+            label: string;
+            options: components["schemas"]["ThemeOptionDto"][];
+            /** @enum {string} */
+            type: "select";
         };
         TicketDetailDto: {
             /** @description Oldest first. */
@@ -2398,6 +2663,17 @@ export interface components {
             /** Format: int64 */
             limitWeek?: number | null;
             name?: string | null;
+            /**
+             * Format: int64
+             * @description Version the change is based on; a newer stored version fails with `version-conflict`.
+             */
+            version: number;
+        };
+        UpdateCustomization: {
+            /** @description Replaces the content; left out keeps it. */
+            content?: string | null;
+            /** @description Switches the customization on or off; left out keeps it. */
+            enabled?: boolean | null;
             /**
              * Format: int64
              * @description Version the change is based on; a newer stored version fails with `version-conflict`.
@@ -3260,6 +3536,365 @@ export interface operations {
             };
             /** @description The runner is not connected */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_customizations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomizationList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_customization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCustomization"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the customization */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomizationDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Already customized: `customization-exists` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Bad name or content, or nothing shipped to copy: `customization-no-standard` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_customization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Where the customization takes effect. */
+                point: components["schemas"]["ExtensionPointDto"];
+                /** @description Name of the skill or output style. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomizationDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_customization: {
+        parameters: {
+            query: {
+                /** @description Version the deletion is based on. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                /** @description Where the customization takes effect. */
+                point: components["schemas"]["ExtensionPointDto"];
+                /** @description Name of the skill or output style. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dropped; the shipped file is in charge again */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_customization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Where the customization takes effect. */
+                point: components["schemas"]["ExtensionPointDto"];
+                /** @description Name of the skill or output style. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCustomization"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomizationDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    effective_customization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Where the customization takes effect. */
+                point: components["schemas"]["ExtensionPointDto"];
+                /** @description Name of the skill or output style. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The customization when it applies, else the shipped file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EffectiveDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Neither applies */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    rebase_customization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Where the customization takes effect. */
+                point: components["schemas"]["ExtensionPointDto"];
+                /** @description Name of the skill or output style. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RebaseCustomization"];
+            };
+        };
+        responses: {
+            /** @description The shipped file is the new starting point */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomizationDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Nothing shipped: `customization-no-standard` */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5967,6 +6602,233 @@ export interface operations {
                 };
             };
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    choose_theme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChooseTheme"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChooseTheme"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not built in and not installed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_themes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeListDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    install_theme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A `.nullradix` theme package, a zip archive */
+        requestBody: {
+            content: {
+                "application/octet-stream": number[];
+            };
+        };
+        responses: {
+            /** @description Replaced the installed theme with the same id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeDto"];
+                };
+            };
+            /** @description Installed */
+            201: {
+                headers: {
+                    /** @description URL of the stylesheet */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a valid package: `theme-package-invalid`, `theme-manifest-invalid` with the refused fields, or `theme-id-reserved` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    remove_theme: {
+        parameters: {
+            query: {
+                /** @description Version the removal is based on. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                /** @description Theme id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Uninstalled; when it was chosen the default takes over */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    theme_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Theme id. */
+                id: string;
+                /** @description Path of the file inside the package. */
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such file inside the installed theme */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

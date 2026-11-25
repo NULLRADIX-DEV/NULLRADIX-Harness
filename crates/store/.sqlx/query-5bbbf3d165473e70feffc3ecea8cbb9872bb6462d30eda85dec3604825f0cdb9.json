@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT manifest, installed_at, updated_at, version\n         FROM installed_themes WHERE (?1 IS NULL OR theme_id = ?1) ORDER BY theme_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "manifest",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "installed_themes",
+            "name": "manifest"
+          }
+        }
+      },
+      {
+        "name": "installed_at",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "installed_themes",
+            "name": "installed_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "installed_themes",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "installed_themes",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5bbbf3d165473e70feffc3ecea8cbb9872bb6462d30eda85dec3604825f0cdb9"
+}

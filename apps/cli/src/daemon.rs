@@ -10,6 +10,7 @@ use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
+use nullradix_app::customizations::{CustomizationService, NoStandards};
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
@@ -20,6 +21,7 @@ use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
+use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
@@ -39,6 +41,7 @@ use crate::config::Config;
 use crate::intake;
 use crate::logging;
 use crate::secrets::OsSecretStore;
+use crate::themes::FolderThemes;
 use crate::token;
 
 /// Time open connections get to finish once a shutdown is requested.
@@ -119,20 +122,8 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (runner, runners) = start_runners(config, &store, &signal, roots).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let runs = start_runs(&store, runner, &signal).await?;
-    let favorites = Arc::new(FavoriteService::new(
-        Arc::new(store.clone()),
-        runners.clone(),
-        Arc::new(SystemClock),
-        Arc::new(UuidV7Generator),
-        signal.clone(),
-    ));
-    let sessions = Arc::new(SessionService::new(
-        Arc::new(store.clone()),
-        runners.clone(),
-        Arc::new(SystemClock),
-        Arc::new(UuidV7Generator),
-        signal.clone(),
-    ));
+    let (themes, customizations) = start_extensions(config, &store, &signal);
+    let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let state = ApiState {
         auth,
@@ -153,6 +144,8 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         hooks,
         sessions,
         favorites,
+        themes,
+        customizations,
         changes: Arc::new(store.clone()),
         signal,
         shutdown: shutdown.clone(),
@@ -259,6 +252,52 @@ fn claude_logins(config: &Config) -> LocalClaudeLogins {
     } else {
         LocalClaudeLogins::from_environment()
     }
+}
+
+/// Favorites and session details, both read from what the runners found.
+fn start_sessions(
+    store: &Store,
+    runners: &Arc<RunnerService>,
+    signal: &ChangeSignal,
+) -> (Arc<FavoriteService>, Arc<SessionService>) {
+    let favorites = Arc::new(FavoriteService::new(
+        Arc::new(store.clone()),
+        runners.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    let sessions = Arc::new(SessionService::new(
+        Arc::new(store.clone()),
+        runners.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    (favorites, sessions)
+}
+
+/// Themes from the data folder and the customizations in the database.
+fn start_extensions(
+    config: &Config,
+    store: &Store,
+    signal: &ChangeSignal,
+) -> (Arc<ThemeService>, Arc<CustomizationService>) {
+    let themes = Arc::new(ThemeService::new(
+        Arc::new(store.clone()),
+        Arc::new(FolderThemes::new(config.paths.themes())),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    let customizations = Arc::new(CustomizationService::new(
+        Arc::new(store.clone()),
+        Arc::new(NoStandards),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    (themes, customizations)
 }
 
 struct BoardServices {

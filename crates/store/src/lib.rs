@@ -5,6 +5,7 @@ mod auth;
 mod boards;
 mod change_feed;
 mod comments;
+mod customizations;
 mod error;
 mod favorites;
 mod hooks;
@@ -15,6 +16,7 @@ mod questions;
 mod repositories;
 mod runs;
 mod sessions;
+mod themes;
 mod tickets;
 mod worktrees;
 
