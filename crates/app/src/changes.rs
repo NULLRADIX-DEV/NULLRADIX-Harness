@@ -23,6 +23,7 @@ pub enum Entity {
     Note,
     Question,
     Session,
+    InboxOrder,
 }
 
 impl Entity {
@@ -131,6 +132,8 @@ mod tests {
     fn wire_names_round_trip() {
         assert_eq!(Entity::Project.as_str(), "project");
         assert_eq!("project".parse::<Entity>(), Ok(Entity::Project));
+        assert_eq!(Entity::InboxOrder.as_str(), "inbox-order");
+        assert_eq!("inbox-order".parse::<Entity>(), Ok(Entity::InboxOrder));
         assert!("planet".parse::<Entity>().is_err());
         for op in [ChangeOp::Insert, ChangeOp::Update, ChangeOp::Delete] {
             assert_eq!(op.as_str().parse::<ChangeOp>(), Ok(op));

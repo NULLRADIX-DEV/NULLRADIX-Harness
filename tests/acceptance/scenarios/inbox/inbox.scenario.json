@@ -1,0 +1,189 @@
+{
+  "title": "The inbox gathers what waits for the person, keeps their order and drops what is done",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "second board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Side" }
+      },
+      "save": { "side": "json.id" }
+    },
+    { "name": "nothing waits yet", "cli": { "args": ["inbox"] } },
+    {
+      "name": "a ticket to merge",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Merge worktrees" }
+      }
+    },
+    {
+      "name": "its merge failed",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1",
+        "body": { "version": 1, "status": "blocked", "blockedReason": "Merge: conflict in a.rs" }
+      }
+    },
+    {
+      "name": "a ticket to accept",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Login page", "priority": "high" }
+      }
+    },
+    {
+      "name": "it waits for a person",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-2",
+        "body": {
+          "version": 1,
+          "status": "blocked",
+          "blockedReason": "Human Interaction: look at the login page"
+        }
+      }
+    },
+    {
+      "name": "a ticket in planning on the second board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{side}}/tickets",
+        "body": { "title": "Plan the cache", "status": "in-planning" }
+      }
+    },
+    {
+      "name": "a ticket held back by a question",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Store sessions" }
+      }
+    },
+    {
+      "name": "it is blocked",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-4",
+        "body": { "version": 1, "status": "blocked", "blockedReason": "waits for the store" }
+      }
+    },
+    {
+      "name": "a ticket at work waits for nobody",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Busy", "status": "in-progress" }
+      }
+    },
+    {
+      "name": "a question about the held ticket",
+      "cli": {
+        "args": [
+          "question",
+          "add",
+          "Which store?",
+          "--ticket",
+          "ARC-4",
+          "--occasion",
+          "planning ARC-0004",
+          "--author",
+          "claude",
+          "--project",
+          "ARC"
+        ]
+      }
+    },
+    {
+      "name": "a note",
+      "cli": {
+        "args": [
+          "note",
+          "add",
+          "Login page is slow",
+          "--details",
+          "Takes five seconds",
+          "--board",
+          "{{board}}"
+        ]
+      }
+    },
+    { "name": "everything by urgency", "cli": { "args": ["inbox"] } },
+    { "name": "as markdown", "cli": { "args": ["inbox", "--md"] } },
+    { "name": "only some kinds", "cli": { "args": ["inbox", "--kind", "merge, accept"] } },
+    { "name": "one board", "cli": { "args": ["inbox", "--board", "{{side}}"] } },
+    { "name": "an unknown kind", "cli": { "args": ["inbox", "--kind", "review"] } },
+    { "name": "the inbox over http", "http": { "method": "GET", "path": "/api/v1/me/inbox" } },
+    {
+      "name": "save an order",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/me/inbox/order",
+        "body": {
+          "items": [
+            { "type": "note", "key": "1" },
+            { "type": "ticket", "key": "arc-2" },
+            { "type": "ticket", "key": "ARC-99" },
+            { "type": "note", "key": "1" }
+          ],
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "a broken key is refused",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/me/inbox/order",
+        "body": { "items": [{ "type": "question", "key": "store" }], "version": 2 }
+      }
+    },
+    {
+      "name": "an old version is refused",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/me/inbox/order",
+        "body": { "items": [], "version": 1 }
+      }
+    },
+    { "name": "new entries on top, then the order", "cli": { "args": ["inbox", "--md"] } },
+    {
+      "name": "answering the question frees its ticket",
+      "cli": { "args": ["question", "answer", "ARC-Q1", "--text", "SQLite"] }
+    },
+    {
+      "name": "promoting the note takes it out",
+      "cli": { "args": ["note", "promote", "1"] }
+    },
+    { "name": "what is left", "cli": { "args": ["inbox", "--md"] } },
+    {
+      "name": "reset the order",
+      "http": { "method": "DELETE", "path": "/api/v1/me/inbox/order?version=2" }
+    },
+    {
+      "name": "back to urgency",
+      "http": { "method": "GET", "path": "/api/v1/me/inbox?boardId={{board}}&kind=accept,blocked" }
+    }
+  ]
+}

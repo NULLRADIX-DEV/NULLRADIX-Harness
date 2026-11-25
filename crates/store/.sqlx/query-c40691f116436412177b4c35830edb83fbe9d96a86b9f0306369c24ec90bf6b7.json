@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE inbox_order_state SET version = version + 1\n           WHERE id = 1 AND version = ?\n           RETURNING version AS \"version!: i64\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "version!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "inbox_order_state",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c40691f116436412177b4c35830edb83fbe9d96a86b9f0306369c24ec90bf6b7"
+}

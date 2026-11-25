@@ -1,0 +1,81 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT n.rid AS \"number!: i64\", n.board_id AS \"board_id: Uuid\", n.title, n.body,\n                  n.created_at,\n                  (SELECT count(*) FROM note_sightings s WHERE s.note_id = n.id) AS \"sightings!: i64\"\n           FROM notes n\n           WHERE n.state = 'open'\n           ORDER BY n.rid",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "rid"
+          }
+        }
+      },
+      {
+        "name": "board_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "board_id"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "body",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "sightings!: i64",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0184bf009d33a5f62f7a0827255bad4115d416f43da2f3dc1bf343d2cc54b18e"
+}

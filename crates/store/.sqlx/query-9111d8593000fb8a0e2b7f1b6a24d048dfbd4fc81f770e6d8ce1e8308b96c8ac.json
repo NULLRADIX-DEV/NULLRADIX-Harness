@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT tp.key AS \"ticket_project?: String\", t.number AS \"ticket_number?: i64\",\n                  qp.key AS \"question_project?: String\", q.number AS \"question_number?: i64\",\n                  n.rid AS \"note_number?: i64\"\n           FROM inbox_order o\n           LEFT JOIN tickets t ON o.item_type = 'ticket' AND t.id = o.item_id\n           LEFT JOIN projects tp ON tp.id = t.project_id\n           LEFT JOIN questions q ON o.item_type = 'question' AND q.id = o.item_id\n           LEFT JOIN projects qp ON qp.id = q.project_id\n           LEFT JOIN notes n ON o.item_type = 'note' AND n.id = o.item_id\n           ORDER BY o.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "ticket_project?: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "ticket_number?: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "question_project?: String",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "question_number?: i64",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "note_number?: i64",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "rid"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "9111d8593000fb8a0e2b7f1b6a24d048dfbd4fc81f770e6d8ce1e8308b96c8ac"
+}

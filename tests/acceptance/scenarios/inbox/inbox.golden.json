@@ -1,0 +1,1008 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "second board",
+    "request": {
+      "body": {
+        "name": "Side"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-4>",
+        "name": "Side",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "inbox"
+    ],
+    "exitCode": 0,
+    "name": "nothing waits yet",
+    "stderr": "",
+    "stdout": "Nothing waits for you.\n"
+  },
+  {
+    "name": "a ticket to merge",
+    "request": {
+      "body": {
+        "title": "Merge worktrees"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "backlog",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-5>",
+        "key": "ARC-0001",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 1,
+        "openQuestions": [],
+        "plan": "",
+        "plannedAt": null,
+        "plannedBy": null,
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Merge worktrees",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false,
+        "worktree": null
+      },
+      "location": "/api/v1/tickets/ARC-0001",
+      "status": 201
+    }
+  },
+  {
+    "name": "its merge failed",
+    "request": {
+      "body": {
+        "blockedReason": "Merge: conflict in a.rs",
+        "status": "blocked",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Merge: conflict in a.rs"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": "Merge: conflict in a.rs",
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-5>",
+          "key": "ARC-0001",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Merge worktrees",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waiting": false,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a ticket to accept",
+    "request": {
+      "body": {
+        "priority": "high",
+        "title": "Login page"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "backlog",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-6>",
+        "key": "ARC-0002",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 2,
+        "openQuestions": [],
+        "plan": "",
+        "plannedAt": null,
+        "plannedBy": null,
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "high",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Login page",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false,
+        "worktree": null
+      },
+      "location": "/api/v1/tickets/ARC-0002",
+      "status": 201
+    }
+  },
+  {
+    "name": "it waits for a person",
+    "request": {
+      "body": {
+        "blockedReason": "Human Interaction: look at the login page",
+        "status": "blocked",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-2"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: look at the login page"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": "Human Interaction: look at the login page",
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-6>",
+          "key": "ARC-0002",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 2,
+          "openQuestions": [],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "high",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Login page",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waiting": false,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a ticket in planning on the second board",
+    "request": {
+      "body": {
+        "status": "in-planning",
+        "title": "Plan the cache"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-4>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-4>",
+        "branch": null,
+        "column": "in-planning",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-7>",
+        "key": "ARC-0003",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 3,
+        "openQuestions": [],
+        "plan": "",
+        "plannedAt": null,
+        "plannedBy": null,
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "in-planning",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Plan the cache",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false,
+        "worktree": null
+      },
+      "location": "/api/v1/tickets/ARC-0003",
+      "status": 201
+    }
+  },
+  {
+    "name": "a ticket held back by a question",
+    "request": {
+      "body": {
+        "title": "Store sessions"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "backlog",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-8>",
+        "key": "ARC-0004",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 4,
+        "openQuestions": [],
+        "plan": "",
+        "plannedAt": null,
+        "plannedBy": null,
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Store sessions",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false,
+        "worktree": null
+      },
+      "location": "/api/v1/tickets/ARC-0004",
+      "status": 201
+    }
+  },
+  {
+    "name": "it is blocked",
+    "request": {
+      "body": {
+        "blockedReason": "waits for the store",
+        "status": "blocked",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-4"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "waits for the store"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": "waits for the store",
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-8>",
+          "key": "ARC-0004",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 4,
+          "openQuestions": [],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Store sessions",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waiting": false,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a ticket at work waits for nobody",
+    "request": {
+      "body": {
+        "status": "in-progress",
+        "title": "Busy"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "in-progress",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-9>",
+        "key": "ARC-0005",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 5,
+        "openQuestions": [],
+        "plan": "",
+        "plannedAt": null,
+        "plannedBy": null,
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "in-progress",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Busy",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false,
+        "worktree": null
+      },
+      "location": "/api/v1/tickets/ARC-0005",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "question",
+      "add",
+      "Which store?",
+      "--ticket",
+      "ARC-4",
+      "--occasion",
+      "planning ARC-0004",
+      "--author",
+      "claude",
+      "--project",
+      "ARC"
+    ],
+    "exitCode": 0,
+    "name": "a question about the held ticket",
+    "stderr": "",
+    "stdout": "Question ARC-Q0001 created: Which store?\n"
+  },
+  {
+    "cli": [
+      "note",
+      "add",
+      "Login page is slow",
+      "--details",
+      "Takes five seconds",
+      "--board",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "a note",
+    "stderr": "",
+    "stdout": "Note 1 saved.\n"
+  },
+  {
+    "cli": [
+      "inbox"
+    ],
+    "exitCode": 0,
+    "name": "everything by urgency",
+    "stderr": "",
+    "stdout": "1. [Merge failed] ARC-0001  Merge worktrees  (ARC / Main)\n   Merge: conflict in a.rs\n   -> nullradix ticket show ARC-0001\n2. [Question] ARC-Q0001  Which store?  (ARC / Main, 1 ticket(s) waiting)\n   planning ARC-0004\n   -> nullradix question show ARC-Q0001\n3. [Acceptance] ARC-0002  Login page  (ARC / Main)\n   Human Interaction: look at the login page\n   -> nullradix ticket accept ARC-0002\n4. [In planning] ARC-0003  Plan the cache  (ARC / Side)\n   -> nullradix ticket show ARC-0003\n5. [Note] Note 1  Login page is slow  (ARC / Main)\n   Takes five seconds\n   -> nullradix note promote 1\n"
+  },
+  {
+    "cli": [
+      "inbox",
+      "--md"
+    ],
+    "exitCode": 0,
+    "name": "as markdown",
+    "stderr": "",
+    "stdout": "1. **Merge failed** `ARC-0001` Merge worktrees (ARC / Main) - Merge: conflict in a.rs -> `nullradix ticket show ARC-0001`\n2. **Question** `ARC-Q0001` Which store? (ARC / Main, 1 ticket(s) waiting) - planning ARC-0004 -> `nullradix question show ARC-Q0001`\n3. **Acceptance** `ARC-0002` Login page (ARC / Main) - Human Interaction: look at the login page -> `nullradix ticket accept ARC-0002`\n4. **In planning** `ARC-0003` Plan the cache (ARC / Side) -> `nullradix ticket show ARC-0003`\n5. **Note** `Note 1` Login page is slow (ARC / Main) - Takes five seconds -> `nullradix note promote 1`\n"
+  },
+  {
+    "cli": [
+      "inbox",
+      "--kind",
+      "merge, accept"
+    ],
+    "exitCode": 0,
+    "name": "only some kinds",
+    "stderr": "",
+    "stdout": "1. [Merge failed] ARC-0001  Merge worktrees  (ARC / Main)\n   Merge: conflict in a.rs\n   -> nullradix ticket show ARC-0001\n2. [Acceptance] ARC-0002  Login page  (ARC / Main)\n   Human Interaction: look at the login page\n   -> nullradix ticket accept ARC-0002\n"
+  },
+  {
+    "cli": [
+      "inbox",
+      "--board",
+      "<ID-4>"
+    ],
+    "exitCode": 0,
+    "name": "one board",
+    "stderr": "",
+    "stdout": "1. [In planning] ARC-0003  Plan the cache  (ARC / Side)\n   -> nullradix ticket show ARC-0003\n"
+  },
+  {
+    "cli": [
+      "inbox",
+      "--kind",
+      "review"
+    ],
+    "exitCode": 1,
+    "name": "an unknown kind",
+    "stderr": "error: the daemon refused the request: \"review\" is not a kind; allowed: merge, setup, question, accept, blocked, planning, note (inbox-kind-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "name": "the inbox over http",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/me/inbox"
+    },
+    "response": {
+      "json": {
+        "counts": {
+          "accept": 1,
+          "blocked": 0,
+          "merge": 1,
+          "note": 1,
+          "planning": 1,
+          "question": 1,
+          "setup": 0
+        },
+        "items": [
+          {
+            "boardId": "<ID-2>",
+            "boardName": "Main",
+            "detail": "Merge: conflict in a.rs",
+            "key": "ARC-0001",
+            "kind": "merge",
+            "priority": "normal",
+            "projectKey": "ARC",
+            "rank": 1,
+            "sinceAt": "<TIME>",
+            "title": "Merge worktrees",
+            "type": "ticket",
+            "waitingTickets": 0
+          },
+          {
+            "boardId": "<ID-2>",
+            "boardName": "Main",
+            "detail": "planning ARC-0004",
+            "key": "ARC-Q0001",
+            "kind": "question",
+            "priority": null,
+            "projectKey": "ARC",
+            "rank": 3,
+            "sinceAt": "<TIME>",
+            "title": "Which store?",
+            "type": "question",
+            "waitingTickets": 1
+          },
+          {
+            "boardId": "<ID-2>",
+            "boardName": "Main",
+            "detail": "Human Interaction: look at the login page",
+            "key": "ARC-0002",
+            "kind": "accept",
+            "priority": "high",
+            "projectKey": "ARC",
+            "rank": 4,
+            "sinceAt": "<TIME>",
+            "title": "Login page",
+            "type": "ticket",
+            "waitingTickets": 0
+          },
+          {
+            "boardId": "<ID-4>",
+            "boardName": "Side",
+            "detail": null,
+            "key": "ARC-0003",
+            "kind": "planning",
+            "priority": "normal",
+            "projectKey": "ARC",
+            "rank": 6,
+            "sinceAt": "<TIME>",
+            "title": "Plan the cache",
+            "type": "ticket",
+            "waitingTickets": 0
+          },
+          {
+            "boardId": "<ID-2>",
+            "boardName": "Main",
+            "detail": "Takes five seconds",
+            "key": "1",
+            "kind": "note",
+            "priority": null,
+            "projectKey": "ARC",
+            "rank": 7,
+            "sinceAt": "<TIME>",
+            "title": "Login page is slow",
+            "type": "note",
+            "waitingTickets": 0
+          }
+        ],
+        "orderVersion": 1,
+        "total": 5
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "save an order",
+    "request": {
+      "body": {
+        "items": [
+          {
+            "key": "1",
+            "type": "note"
+          },
+          {
+            "key": "arc-2",
+            "type": "ticket"
+          },
+          {
+            "key": "ARC-99",
+            "type": "ticket"
+          },
+          {
+            "key": "1",
+            "type": "note"
+          }
+        ],
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/me/inbox/order"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "key": "1",
+            "type": "note"
+          },
+          {
+            "key": "ARC-0002",
+            "type": "ticket"
+          }
+        ],
+        "version": 2
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a broken key is refused",
+    "request": {
+      "body": {
+        "items": [
+          {
+            "key": "store",
+            "type": "question"
+          }
+        ],
+        "version": 2
+      },
+      "method": "PUT",
+      "path": "/api/v1/me/inbox/order"
+    },
+    "response": {
+      "json": {
+        "code": "inbox-key-invalid",
+        "detail": "\"question:store\" is not an inbox entry such as ticket:ARC-0001, question:ARC-Q0001 or note:7",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:inbox-key-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "an old version is refused",
+    "request": {
+      "body": {
+        "items": [],
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/me/inbox/order"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "inbox order was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "inbox",
+      "--md"
+    ],
+    "exitCode": 0,
+    "name": "new entries on top, then the order",
+    "stderr": "",
+    "stdout": "1. **Merge failed** `ARC-0001` Merge worktrees (ARC / Main) - Merge: conflict in a.rs -> `nullradix ticket show ARC-0001`\n2. **Question** `ARC-Q0001` Which store? (ARC / Main, 1 ticket(s) waiting) - planning ARC-0004 -> `nullradix question show ARC-Q0001`\n3. **In planning** `ARC-0003` Plan the cache (ARC / Side) -> `nullradix ticket show ARC-0003`\n4. **Note** `Note 1` Login page is slow (ARC / Main) - Takes five seconds -> `nullradix note promote 1`\n5. **Acceptance** `ARC-0002` Login page (ARC / Main) - Human Interaction: look at the login page -> `nullradix ticket accept ARC-0002`\n"
+  },
+  {
+    "cli": [
+      "question",
+      "answer",
+      "ARC-Q1",
+      "--text",
+      "SQLite"
+    ],
+    "exitCode": 0,
+    "name": "answering the question frees its ticket",
+    "stderr": "",
+    "stdout": "ARC-Q0001 answered: answer: SQLite.\n"
+  },
+  {
+    "cli": [
+      "note",
+      "promote",
+      "1"
+    ],
+    "exitCode": 0,
+    "name": "promoting the note takes it out",
+    "stderr": "",
+    "stdout": "Note 1 -> ARC-0006 Login page is slow\n"
+  },
+  {
+    "cli": [
+      "inbox",
+      "--md"
+    ],
+    "exitCode": 0,
+    "name": "what is left",
+    "stderr": "",
+    "stdout": "1. **Merge failed** `ARC-0001` Merge worktrees (ARC / Main) - Merge: conflict in a.rs -> `nullradix ticket show ARC-0001`\n2. **Blocked** `ARC-0004` Store sessions (ARC / Main) - waits for the store -> `nullradix ticket show ARC-0004`\n3. **In planning** `ARC-0003` Plan the cache (ARC / Side) -> `nullradix ticket show ARC-0003`\n4. **Acceptance** `ARC-0002` Login page (ARC / Main) - Human Interaction: look at the login page -> `nullradix ticket accept ARC-0002`\n"
+  },
+  {
+    "name": "reset the order",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/me/inbox/order?version=2"
+    },
+    "response": {
+      "status": 204
+    }
+  },
+  {
+    "name": "back to urgency",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/me/inbox?boardId=<ID-2>&kind=accept,blocked"
+    },
+    "response": {
+      "json": {
+        "counts": {
+          "accept": 1,
+          "blocked": 1,
+          "merge": 1,
+          "note": 0,
+          "planning": 0,
+          "question": 0,
+          "setup": 0
+        },
+        "items": [
+          {
+            "boardId": "<ID-2>",
+            "boardName": "Main",
+            "detail": "Human Interaction: look at the login page",
+            "key": "ARC-0002",
+            "kind": "accept",
+            "priority": "high",
+            "projectKey": "ARC",
+            "rank": 4,
+            "sinceAt": "<TIME>",
+            "title": "Login page",
+            "type": "ticket",
+            "waitingTickets": 0
+          },
+          {
+            "boardId": "<ID-2>",
+            "boardName": "Main",
+            "detail": "waits for the store",
+            "key": "ARC-0004",
+            "kind": "blocked",
+            "priority": "normal",
+            "projectKey": "ARC",
+            "rank": 5,
+            "sinceAt": "<TIME>",
+            "title": "Store sessions",
+            "type": "ticket",
+            "waitingTickets": 0
+          }
+        ],
+        "orderVersion": 3,
+        "total": 3
+      },
+      "status": 200
+    }
+  }
+]

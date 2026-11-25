@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT b.id AS \"id: Uuid\", b.name, p.key AS project_key\n           FROM boards b\n           JOIN projects p ON p.id = b.project_id\n           ORDER BY b.created_at, b.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boards",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "project_key",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8cf48153c7d7e1b4aa82ca148b76d88f0a29386e3cf051518cff0514aa148931"
+}

@@ -420,6 +420,183 @@
         ]
       }
     },
+    "/api/v1/me/inbox": {
+      "get": {
+        "tags": [
+          "inbox"
+        ],
+        "operationId": "get_inbox",
+        "parameters": [
+          {
+            "name": "boardId",
+            "in": "query",
+            "description": "Only this board; every board when left out.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Only these kinds, split by commas, such as `merge,accept`; counts cover all kinds.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What waits for the person, in their order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/inbox/order": {
+      "put": {
+        "tags": [
+          "inbox"
+        ],
+        "operationId": "save_inbox_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboxOrder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The stored order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxOrder"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "inbox"
+        ],
+        "operationId": "clear_inbox_order",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "query",
+            "description": "The `orderVersion` the reset is based on.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Back to the default order"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/notes/{noteNumber}": {
       "get": {
         "tags": [
@@ -5521,7 +5698,8 @@
           "comment",
           "note",
           "question",
-          "session"
+          "session",
+          "inbox-order"
         ]
       },
       "FinishTicket": {
@@ -5856,6 +6034,228 @@
             }
           }
         }
+      },
+      "InboxCounts": {
+        "type": "object",
+        "description": "Entries of each kind, before the kind filter.",
+        "required": [
+          "merge",
+          "setup",
+          "question",
+          "accept",
+          "blocked",
+          "planning",
+          "note"
+        ],
+        "properties": {
+          "accept": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "blocked": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "merge": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "note": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "planning": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "question": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "setup": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "InboxItemDto": {
+        "type": "object",
+        "description": "One entry of the inbox; `sinceAt` is Unix milliseconds.",
+        "required": [
+          "type",
+          "key",
+          "kind",
+          "title",
+          "projectKey",
+          "waitingTickets",
+          "sinceAt",
+          "rank"
+        ],
+        "properties": {
+          "boardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "boardName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Block reason, occasion of the question or the rest of the note."
+          },
+          "key": {
+            "type": "string",
+            "description": "Ticket key, question key or note number."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/InboxKindDto"
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityDto",
+                "description": "Tickets only."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "projectKey": {
+            "type": "string"
+          },
+          "rank": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Urgency of the kind, 1 is the most urgent.",
+            "minimum": 0
+          },
+          "sinceAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Last change of a ticket, creation of a question or note."
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/InboxItemTypeDto"
+          },
+          "waitingTickets": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Questions only: open tickets waiting for the answer.",
+            "minimum": 0
+          }
+        }
+      },
+      "InboxItemTypeDto": {
+        "type": "string",
+        "enum": [
+          "ticket",
+          "question",
+          "note"
+        ]
+      },
+      "InboxKindDto": {
+        "type": "string",
+        "description": "Kind of an entry; the order is the urgency, merge first.",
+        "enum": [
+          "merge",
+          "setup",
+          "question",
+          "accept",
+          "blocked",
+          "planning",
+          "note"
+        ]
+      },
+      "InboxList": {
+        "type": "object",
+        "required": [
+          "items",
+          "counts",
+          "total",
+          "orderVersion"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/InboxCounts"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InboxItemDto"
+            }
+          },
+          "orderVersion": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version of the saved order; send it back when saving or resetting the order."
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Entries of every kind.",
+            "minimum": 0
+          }
+        }
+      },
+      "InboxOrder": {
+        "type": "object",
+        "description": "The order of the inbox, first entry on top; entries not named come above it.",
+        "required": [
+          "items",
+          "version"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InboxRefDto"
+            },
+            "description": "Repeats, entries that do not exist and entries beyond the first 1000 are dropped."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The `orderVersion` the order is based on; a stale one fails with `version-conflict`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "InboxRefDto": {
+        "type": "object",
+        "description": "What an entry points at, such as ticket `ARC-0001` or note `7`.",
+        "required": [
+          "type",
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/InboxItemTypeDto"
+          }
+        },
+        "additionalProperties": false
       },
       "Me": {
         "type": "object",

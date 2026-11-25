@@ -148,6 +148,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_inbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/inbox/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["save_inbox_order"];
+        post?: never;
+        delete: operations["clear_inbox_order"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notes/{noteNumber}": {
         parameters: {
             query?: never;
@@ -1097,7 +1129,7 @@ export interface components {
             reason?: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order";
         /** @description Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged. */
         FinishTicket: {
             /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
@@ -1197,6 +1229,89 @@ export interface components {
         };
         ImportedTickets: {
             moved: components["schemas"]["TicketDto"][];
+        };
+        /** @description Entries of each kind, before the kind filter. */
+        InboxCounts: {
+            /** Format: int32 */
+            accept: number;
+            /** Format: int32 */
+            blocked: number;
+            /** Format: int32 */
+            merge: number;
+            /** Format: int32 */
+            note: number;
+            /** Format: int32 */
+            planning: number;
+            /** Format: int32 */
+            question: number;
+            /** Format: int32 */
+            setup: number;
+        };
+        /** @description One entry of the inbox; `sinceAt` is Unix milliseconds. */
+        InboxItemDto: {
+            /** Format: uuid */
+            boardId?: string | null;
+            boardName?: string | null;
+            /** @description Block reason, occasion of the question or the rest of the note. */
+            detail?: string | null;
+            /** @description Ticket key, question key or note number. */
+            key: string;
+            kind: components["schemas"]["InboxKindDto"];
+            priority?: components["schemas"]["PriorityDto"] | null;
+            projectKey: string;
+            /**
+             * Format: int32
+             * @description Urgency of the kind, 1 is the most urgent.
+             */
+            rank: number;
+            /**
+             * Format: int64
+             * @description Last change of a ticket, creation of a question or note.
+             */
+            sinceAt: number;
+            title: string;
+            type: components["schemas"]["InboxItemTypeDto"];
+            /**
+             * Format: int32
+             * @description Questions only: open tickets waiting for the answer.
+             */
+            waitingTickets: number;
+        };
+        /** @enum {string} */
+        InboxItemTypeDto: "ticket" | "question" | "note";
+        /**
+         * @description Kind of an entry; the order is the urgency, merge first.
+         * @enum {string}
+         */
+        InboxKindDto: "merge" | "setup" | "question" | "accept" | "blocked" | "planning" | "note";
+        InboxList: {
+            counts: components["schemas"]["InboxCounts"];
+            items: components["schemas"]["InboxItemDto"][];
+            /**
+             * Format: int64
+             * @description Version of the saved order; send it back when saving or resetting the order.
+             */
+            orderVersion: number;
+            /**
+             * Format: int32
+             * @description Entries of every kind.
+             */
+            total: number;
+        };
+        /** @description The order of the inbox, first entry on top; entries not named come above it. */
+        InboxOrder: {
+            /** @description Repeats, entries that do not exist and entries beyond the first 1000 are dropped. */
+            items: components["schemas"]["InboxRefDto"][];
+            /**
+             * Format: int64
+             * @description The `orderVersion` the order is based on; a stale one fails with `version-conflict`.
+             */
+            version: number;
+        };
+        /** @description What an entry points at, such as ticket `ARC-0001` or note `7`. */
+        InboxRefDto: {
+            key: string;
+            type: components["schemas"]["InboxItemTypeDto"];
         };
         /** @description The caller as the daemon sees it. */
         Me: {
@@ -2129,6 +2244,150 @@ export interface operations {
                 };
             };
             /** @description Invalid event, body or hook name */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_inbox: {
+        parameters: {
+            query?: {
+                /** @description Only this board; every board when left out. */
+                boardId?: string;
+                /** @description Only these kinds, split by commas, such as `merge,accept`; counts cover all kinds. */
+                kind?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What waits for the person, in their order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    save_inbox_order: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InboxOrder"];
+            };
+        };
+        responses: {
+            /** @description The stored order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxOrder"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    clear_inbox_order: {
+        parameters: {
+            query: {
+                /** @description The `orderVersion` the reset is based on. */
+                version: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Back to the default order */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;

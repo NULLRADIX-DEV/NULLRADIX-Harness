@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT q.id AS \"id: Uuid\" FROM questions q\n                   JOIN projects p ON p.id = q.project_id\n                   WHERE p.key = ? AND q.number = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "22be6453fbcfbc1c1046fdc128c0d22f8550aaec9b63d63451931e5a3f0e9bd1"
+}
