@@ -15,7 +15,9 @@ use nullradix_app::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
     TranscriptSource, TranscriptSummary, change_not_found,
 };
-use nullradix_app::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
+use nullradix_app::worktrees::{
+    CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval,
+};
 use nullradix_app::{AppError, ChangeSignal, SystemClock, UuidV7Generator};
 use nullradix_domain::{Id, Run, RunEnd, RunLabel, RunOutcome, RunStatus, Timestamp};
 use nullradix_store::Store;
@@ -105,6 +107,13 @@ impl RunnerPort for ScriptedRunner {
 
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError> {
         Ok(vec![false; paths.len()])
+    }
+
+    async fn ensure_worktree(
+        &self,
+        _request: &EnsureWorktree,
+    ) -> Result<EnsuredWorktree, AppError> {
+        Err(AppError::unavailable("runner-failed", "runs nothing"))
     }
 
     async fn remove_worktree(

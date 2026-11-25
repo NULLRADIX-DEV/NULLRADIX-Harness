@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE worktrees\n           SET desired_state = 'present', actual_state = 'present', last_error = NULL,\n               observed_at = ?1, updated_at = ?1, version = version + 1\n           WHERE id = ?2 AND desired_state = 'present' AND actual_state <> 'removed'\n           RETURNING id AS \"id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "29f958cfed15455d5cba899c234d44c89fc3b2b8d5086385240b3533a21eaaf8"
+}

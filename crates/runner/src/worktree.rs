@@ -9,7 +9,7 @@ use nullradix_app::worktrees::{
 };
 
 /// Allows long paths for this call even when the repository config could not be set.
-const LONG_PATHS: [&str; 2] = ["-c", "core.longpaths=true"];
+pub(crate) const LONG_PATHS: [&str; 2] = ["-c", "core.longpaths=true"];
 
 /// Runs git with argv and no shell, without a timeout as in legacy.
 pub(crate) async fn output(cwd: &Path, args: &[&str]) -> Result<Output, AppError> {
@@ -48,7 +48,7 @@ pub(crate) async fn git(cwd: &Path, args: &[&str]) -> Result<String, AppError> {
 }
 
 /// Trimmed output when git succeeds, `None` when it fails.
-async fn attempt(cwd: &Path, args: &[&str]) -> Result<Option<String>, AppError> {
+pub(crate) async fn attempt(cwd: &Path, args: &[&str]) -> Result<Option<String>, AppError> {
     let output = output(cwd, args).await?;
     Ok(output
         .status
@@ -56,7 +56,7 @@ async fn attempt(cwd: &Path, args: &[&str]) -> Result<Option<String>, AppError> 
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned()))
 }
 
-async fn has_ref(cwd: &Path, reference: &str) -> Result<bool, AppError> {
+pub(crate) async fn has_ref(cwd: &Path, reference: &str) -> Result<bool, AppError> {
     Ok(
         attempt(cwd, &["rev-parse", "--verify", "--quiet", reference])
             .await?
@@ -64,7 +64,7 @@ async fn has_ref(cwd: &Path, reference: &str) -> Result<bool, AppError> {
     )
 }
 
-async fn exists(path: PathBuf) -> Result<bool, AppError> {
+pub(crate) async fn exists(path: PathBuf) -> Result<bool, AppError> {
     tokio::task::spawn_blocking(move || path.exists())
         .await
         .map_err(AppError::internal)
@@ -127,7 +127,7 @@ async fn ensure_target(root: &Path, name: &str) -> Result<Option<String>, AppErr
 }
 
 /// Sets `core.longpaths` on Windows unless it is on; true when it was set just now.
-async fn ensure_long_paths(cwd: &Path, windows: bool) -> Result<bool, AppError> {
+pub(crate) async fn ensure_long_paths(cwd: &Path, windows: bool) -> Result<bool, AppError> {
     if !windows {
         return Ok(false);
     }

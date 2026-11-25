@@ -13,7 +13,9 @@ use crate::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
     TranscriptSource, TranscriptSummary,
 };
-use crate::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
+use crate::worktrees::{
+    CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval,
+};
 use crate::{AppError, Change, ChangeSignal, Clock, ErrorKind, IdGenerator};
 
 /// Name of the runner on the daemon's own machine.
@@ -203,6 +205,14 @@ impl RunnerService {
         request: &NewWorktree,
     ) -> Result<CreatedWorktree, AppError> {
         self.port(runner).await?.create_worktree(request).await
+    }
+
+    pub(crate) async fn ensure_worktree(
+        &self,
+        runner: Id<Runner>,
+        request: &EnsureWorktree,
+    ) -> Result<EnsuredWorktree, AppError> {
+        self.port(runner).await?.ensure_worktree(request).await
     }
 
     pub(crate) async fn remove_worktree(

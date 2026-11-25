@@ -3,6 +3,7 @@
 mod accounts;
 mod claude_login;
 mod cleanup;
+mod ensure;
 mod git;
 mod local;
 mod login_process;

@@ -1,6 +1,10 @@
 //! Starting a ticket in its own worktree or in one it joins, as legacy `board start` did.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 use nullradix_domain::Id;
 use nullradix_domain::{
@@ -89,6 +93,8 @@ pub struct WorktreeService {
     pub(super) clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     pub(super) signal: ChangeSignal,
+    /// Resume, ensure and cleanup of one worktree never run side by side.
+    locks: Mutex<HashMap<Id<Worktree>, Arc<AsyncMutex<()>>>>,
 }
 
 impl std::fmt::Debug for WorktreeService {
@@ -148,7 +154,18 @@ impl WorktreeService {
             clock,
             ids,
             signal,
+            locks: Mutex::default(),
         }
+    }
+
+    /// Waits for the worktree's turn; the lock is held across the runner call on purpose.
+    pub(super) async fn lock_worktree(&self, worktree: Id<Worktree>) -> OwnedMutexGuard<()> {
+        let slot = {
+            let mut locks = self.locks.lock();
+            locks.retain(|_, slot| Arc::strong_count(slot) > 1);
+            Arc::clone(locks.entry(worktree).or_default())
+        };
+        slot.lock_owned().await
     }
 
     /// Starts the ticket from `cwd` on `runner`, checking in the legacy order.

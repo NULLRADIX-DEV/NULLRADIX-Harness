@@ -1,0 +1,625 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "name": "first commit",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "init"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git commit",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git commit",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "committed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "name": "long paths on already, so every platform prints the same",
+    "request": {
+      "body": {
+        "args": [
+          "config",
+          "core.longpaths",
+          "true"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git config",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-6>",
+        "label": "git config",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-6>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "configured",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-6>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Fix the login"
+    ],
+    "exitCode": 0,
+    "name": "a ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Fix the login\n"
+  },
+  {
+    "name": "a ticket that never started cannot resume",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-0001/resume"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-not-started",
+        "detail": "ARC-0001 runs in no worktree",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:ticket-not-started"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "start",
+      "ARC-1"
+    ],
+    "exitCode": 0,
+    "name": "start in a new worktree",
+    "stderr": "",
+    "stdout": "ARC-0001 started on ticket/ARC-0001-fix-the-login in <WORK>/arches-worktrees/ARC-0001\n"
+  },
+  {
+    "name": "a worktree that is there stays as it is",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-0001/resume"
+    },
+    "response": {
+      "json": {
+        "outcome": "ready",
+        "restored": false,
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-fix-the-login",
+          "column": "in-progress",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-7>",
+          "key": "ARC-0001",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "in-progress",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Fix the login",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        },
+        "worktree": "<WORK>/arches-worktrees/ARC-0001"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the worktree vanishes",
+    "request": {
+      "body": {
+        "args": [
+          "worktree",
+          "remove",
+          "--force",
+          "<WORK>/arches-worktrees/ARC-0001"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git worktree remove",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-8>",
+        "label": "git worktree remove",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-8>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "removed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-8>"
+  },
+  {
+    "name": "the resume adds it again",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-0001/resume"
+    },
+    "response": {
+      "json": {
+        "outcome": "ready",
+        "restored": true,
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-fix-the-login",
+          "column": "in-progress",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-7>",
+          "key": "ARC-0001",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "in-progress",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Fix the login",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        },
+        "worktree": "<WORK>/arches-worktrees/ARC-0001"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "ask the worktree for its branch",
+    "request": {
+      "body": {
+        "args": [
+          "branch",
+          "--show-current"
+        ],
+        "cwd": "<WORK>/arches-worktrees/ARC-0001",
+        "label": "git branch --show-current",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-9>",
+        "label": "git branch --show-current",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-9>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "asked",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-9>"
+  },
+  {
+    "cli": [
+      "run",
+      "logs",
+      "<ID-9>"
+    ],
+    "exitCode": 0,
+    "name": "the same branch",
+    "stderr": "",
+    "stdout": "ticket/ARC-0001-fix-the-login\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "done",
+      "ARC-1",
+      "--acceptance",
+      "The login works"
+    ],
+    "exitCode": 0,
+    "name": "done removes the ready worktree",
+    "stderr": "",
+    "stdout": "ARC-0001 is done.\nBranch ticket/ARC-0001-fix-the-login is ready to merge (nothing was merged).\nWorktree <WORK>/arches-worktrees/ARC-0001 removed (the branch stays).\n"
+  },
+  {
+    "name": "a cleaned-up worktree is not restored, the ticket starts afresh",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-0001/resume"
+    },
+    "response": {
+      "json": {
+        "message": "the worktree <WORK>/arches-worktrees/ARC-0001 (branch ticket/ARC-0001-fix-the-login) was cleaned up and is not restored; the ticket starts on its own new branch, the old branch stays in the repository",
+        "outcome": "reset",
+        "restored": false,
+        "ticket": {
+          "acceptance": "The login works",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "done",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-7>",
+          "key": "ARC-0001",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "done",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Fix the login",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 4,
+          "waiting": false,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the ticket shows no branch any more",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-0001"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-fix-the-login"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "acceptance",
+            "from": "",
+            "note": "moved",
+            "to": "The login works"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": "ticket/ARC-0001-fix-the-login",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": "<WORK>/arches-worktrees/ARC-0001",
+            "note": null,
+            "to": null
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The login works",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "done",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-7>",
+          "key": "ARC-0001",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "done",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Fix the login",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 4,
+          "waiting": false,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
+  }
+]

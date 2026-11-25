@@ -1,6 +1,7 @@
 //! Worktree records: legacy `worktrees.json` with the tickets each worktree served.
 
 mod finish;
+mod resume;
 mod start;
 
 use async_trait::async_trait;
@@ -10,6 +11,7 @@ use nullradix_domain::{
 };
 
 pub use finish::{Cleaned, DoneRequest, Finished};
+pub use resume::{Resumed, ResumedWorktree};
 pub use start::{StartMode, Started, TargetCreated, WorktreeService};
 
 use crate::{AppError, Change};
@@ -52,6 +54,26 @@ pub enum WorktreeRemoval {
     Kept(String),
     /// The folder is gone already; nothing is reported or recorded, as in legacy.
     Missing,
+}
+
+/// What the runner needs to bring a ticket's worktree back on its branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnsureWorktree {
+    /// Main checkout, where git runs.
+    pub root: String,
+    pub branch: String,
+    pub path: String,
+}
+
+/// The runner's answer to an ensure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnsuredWorktree {
+    /// The folder was a worktree of the branch already.
+    Present,
+    /// The folder was added again; a leftover folder moved aside is named.
+    Restored { moved_aside: Option<String> },
+    /// The branch does not exist in this repository, so nothing was changed.
+    BranchMissing,
 }
 
 /// A worktree with every ticket it ever served, in join order.
@@ -119,6 +141,18 @@ pub trait WorktreeWrite: Send {
     ) -> Result<Option<Change>, AppError>;
     /// The runner removed the claimed folder: actual removed, no error.
     async fn mark_removed(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
+    /// The folder is back on its branch; `None` when the row is claimed or removed, never undone.
+    async fn mark_restored(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
+    /// The folder is back on its branch for `ensure`, which restores a removed row too.
+    async fn mark_ensured(
         &mut self,
         worktree: Id<Worktree>,
         at: Timestamp,
@@ -211,6 +245,21 @@ pub fn worktree_exists(path: &str) -> AppError {
     )
 }
 
+/// The ticket has no branch and worktree to resume.
+#[must_use]
+pub fn ticket_not_started(key: &TicketKey) -> AppError {
+    AppError::invalid("ticket-not-started", format!("{key} runs in no worktree"))
+}
+
+/// The folder belongs to something else or its leftovers cannot be moved aside.
+#[must_use]
+pub fn worktree_mismatch(path: &str, branch: &str, reason: &str) -> AppError {
+    AppError::invalid(
+        "worktree-mismatch",
+        format!("the folder {path} is not a worktree of branch {branch}: {reason}"),
+    )
+}
+
 /// A git command failed; `detail` is its error output or exit code.
 #[must_use]
 pub fn git_failed(args: &[&str], detail: &str) -> AppError {
@@ -261,6 +310,11 @@ mod tests {
             (no_commit(), "no-commit"),
             (branch_taken("b"), "branch-exists"),
             (worktree_exists("/w"), "worktree-exists"),
+            (worktree_mismatch("/w", "b", "other"), "worktree-mismatch"),
+            (
+                ticket_not_started(&TicketKey::parse("ARC-1").unwrap()),
+                "ticket-not-started",
+            ),
             (git_failed(&["status"], "boom"), "git-failed"),
         ] {
             assert_eq!((error.kind(), error.code()), (ErrorKind::Invalid, code));

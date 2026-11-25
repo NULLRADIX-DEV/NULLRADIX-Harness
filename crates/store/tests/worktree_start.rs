@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, reason = "integration tests fail loudly")]
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -14,27 +15,43 @@ use nullradix_app::session_detail::{
 };
 use nullradix_app::tickets::{NewTicket, TicketPatch, TicketService, WriteOptions};
 use nullradix_app::worktrees::{
-    Cleaned, CreatedWorktree, DoneRequest, Finished, NewWorktree, RemoveWorktree, StartMode,
-    Started, TargetCreated, WorktreeRemoval, WorktreeRepository, WorktreeService,
+    Cleaned, CreatedWorktree, DoneRequest, EnsureWorktree, EnsuredWorktree, Finished, NewWorktree,
+    RemoveWorktree, StartMode, Started, TargetCreated, WorktreeRemoval, WorktreeRepository,
+    WorktreeService,
 };
-use nullradix_app::{AppError, ChangeSignal, SystemClock, UuidV7Generator};
+use nullradix_app::{AppError, ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_domain::{
     Actor, ActualState, Board, DesiredState, Id, Run, Runner, TicketStatus, Version, Worktree,
     WorktreeBranch, WorktreeDraft, WorktreePath, WorktreePurpose,
 };
 use nullradix_store::Store;
+use tokio::sync::Notify;
+
+/// Lets a test stop the runner ensure half way.
+#[derive(Default)]
+struct Gate {
+    entered: Notify,
+    release: Notify,
+}
 
 /// Git double: folders below `/work/<name>` are checkouts, created worktrees exist.
 #[derive(Default)]
 struct FakeGit {
     requests: Mutex<Vec<NewWorktree>>,
     folders: Mutex<HashSet<String>>,
-    /// Code of the error the next create fails with.
+    /// Code of the error the next create or ensure fails with.
     failure: Mutex<Option<&'static str>>,
     long_paths: Mutex<bool>,
     removals: Mutex<Vec<RemoveWorktree>>,
     /// Reason the runner keeps worktrees for; `None` removes them.
     keep: Mutex<Option<&'static str>>,
+    ensures: Mutex<Vec<EnsureWorktree>>,
+    branch_missing: AtomicBool,
+    /// Where a leftover folder goes at the next ensure.
+    rest: Mutex<Option<String>>,
+    gate: Mutex<Option<Arc<Gate>>>,
+    /// Stops the runner remove half way, to see whether a cleanup got that far.
+    removal_gate: Mutex<Option<Arc<Gate>>>,
 }
 
 #[async_trait]
@@ -89,7 +106,32 @@ impl RunnerPort for FakeGit {
         Ok(paths.iter().map(|path| folders.contains(path)).collect())
     }
 
+    async fn ensure_worktree(&self, request: &EnsureWorktree) -> Result<EnsuredWorktree, AppError> {
+        if let Some(code) = self.failure.lock().unwrap().take() {
+            return Err(AppError::invalid(code, "refused"));
+        }
+        self.ensures.lock().unwrap().push(request.clone());
+        let gate = self.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.entered.notify_one();
+            gate.release.notified().await;
+        }
+        if self.branch_missing.load(Ordering::SeqCst) {
+            return Ok(EnsuredWorktree::BranchMissing);
+        }
+        if !self.folders.lock().unwrap().insert(request.path.clone()) {
+            return Ok(EnsuredWorktree::Present);
+        }
+        let moved_aside = self.rest.lock().unwrap().take();
+        Ok(EnsuredWorktree::Restored { moved_aside })
+    }
+
     async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError> {
+        let gate = self.removal_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.entered.notify_one();
+            gate.release.notified().await;
+        }
         self.removals.lock().unwrap().push(request.clone());
         if !self.folders.lock().unwrap().contains(&request.path) {
             return Ok(WorktreeRemoval::Missing);
@@ -955,4 +997,284 @@ async fn a_hand_deleted_ready_worktree_is_skipped_silently() {
         (record.desired, record.actual, record.last_error),
         (DesiredState::Present, ActualState::Present, None)
     );
+}
+
+use nullradix_app::worktrees::Resumed;
+
+impl Fixture {
+    async fn started(&self, title: &str) -> (String, Started) {
+        let key = self.ticket(title).await;
+        let started = self
+            .start(&key, "/work/arches", StartMode::New)
+            .await
+            .unwrap();
+        (key, started)
+    }
+
+    async fn row_of(&self, key: &str) -> nullradix_domain::WorktreeRecord {
+        self.worktree_of(key).await.record().clone()
+    }
+
+    /// The folder vanished behind the daemon's back.
+    fn lose_folder(&self, path: &str) {
+        self.git.folders.lock().unwrap().remove(path);
+    }
+}
+
+#[tokio::test]
+async fn only_a_started_ticket_can_be_resumed() {
+    let fixture = fixture().await;
+    let key = fixture.ticket("Idle").await;
+    let ensure = fixture.worktrees.ensure(&key).await.unwrap_err();
+    assert_eq!(ensure.code(), "ticket-not-started");
+    let resume = fixture.worktrees.resume(&key, &fixture.person).await;
+    assert_eq!(resume.unwrap_err().code(), "ticket-not-started");
+    assert!(fixture.git.ensures.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_worktree_that_is_there_stays_as_it_is() {
+    let fixture = fixture().await;
+    let (key, started) = fixture.started("Fix the login").await;
+    let before = fixture.row_of(&key).await;
+    let Resumed::Ready(ready) = fixture
+        .worktrees
+        .resume(&key, &fixture.person)
+        .await
+        .unwrap()
+    else {
+        panic!("not ready");
+    };
+    assert_eq!(ready.path, started.worktree);
+    assert_eq!(ready.branch, started.branch);
+    assert!(!ready.restored);
+    let request = fixture.git.ensures.lock().unwrap()[0].clone();
+    assert_eq!(request.root, "/work/arches");
+    assert_eq!(request.branch, started.branch);
+    assert_eq!(request.path, started.worktree);
+    assert_eq!(fixture.row_of(&key).await, before);
+}
+
+#[tokio::test]
+async fn a_missing_folder_is_added_again_on_the_same_branch() {
+    let fixture = fixture().await;
+    let (key, started) = fixture.started("Fix the login").await;
+    fixture.lose_folder(&started.worktree);
+    let resumed = fixture
+        .worktrees
+        .resume(&key, &fixture.person)
+        .await
+        .unwrap();
+    let Resumed::Ready(ready) = resumed else {
+        panic!("not ready");
+    };
+    assert!(ready.restored);
+    assert_eq!(ready.moved_aside, None);
+    assert!(
+        fixture
+            .git
+            .folders
+            .lock()
+            .unwrap()
+            .contains(&started.worktree)
+    );
+    let ticket = fixture.tickets.get(&key).await.unwrap().view.ticket;
+    let record = ticket.record();
+    assert_eq!(record.branch.as_deref(), Some(started.branch.as_str()));
+    assert_eq!(record.worktree.as_deref(), Some(started.worktree.as_str()));
+    assert_eq!(fixture.created(), 1);
+}
+
+#[tokio::test]
+async fn a_leftover_folder_moved_aside_is_reported() {
+    let fixture = fixture().await;
+    let (key, started) = fixture.started("Fix the login").await;
+    fixture.lose_folder(&started.worktree);
+    let aside = format!("{}.rest", started.worktree);
+    *fixture.git.rest.lock().unwrap() = Some(aside.clone());
+    let ensured = fixture.worktrees.ensure(&key).await.unwrap();
+    assert!(ensured.restored);
+    assert_eq!(ensured.moved_aside, Some(aside));
+}
+
+#[tokio::test]
+async fn ensuring_a_cleaned_up_worktree_adds_it_again_and_marks_it_present() {
+    let fixture = fixture().await;
+    let (key, started) = fixture.started("Fix the login").await;
+    fixture.done(&key, "/work/arches").await.unwrap();
+    let removed = fixture.row_of(&key).await;
+    assert_eq!(
+        (removed.desired, removed.actual),
+        (DesiredState::Absent, ActualState::Removed)
+    );
+    let ensured = fixture.worktrees.ensure(&key).await.unwrap();
+    assert!(ensured.restored);
+    assert_eq!(ensured.path, started.worktree);
+    let row = fixture.row_of(&key).await;
+    assert_eq!(
+        (row.desired, row.actual, row.last_error.as_deref()),
+        (DesiredState::Present, ActualState::Present, None)
+    );
+    assert!(row.version > removed.version);
+    assert!(
+        fixture
+            .git
+            .folders
+            .lock()
+            .unwrap()
+            .contains(&started.worktree)
+    );
+}
+
+#[tokio::test]
+async fn a_cleaned_up_worktree_is_not_restored_by_a_resume_but_reset() {
+    let fixture = fixture().await;
+    let (key, started) = fixture.started("Fix the login").await;
+    fixture.done(&key, "/work/arches").await.unwrap();
+    let Resumed::Reset(text) = fixture
+        .worktrees
+        .resume(&key, &fixture.person)
+        .await
+        .unwrap()
+    else {
+        panic!("not reset");
+    };
+    assert!(text.contains("was cleaned up"), "{text}");
+    assert!(text.contains(&started.branch), "{text}");
+    assert!(fixture.git.ensures.lock().unwrap().is_empty());
+    let ticket = fixture.tickets.get(&key).await.unwrap().view.ticket;
+    assert_eq!(ticket.record().branch, None);
+    assert_eq!(ticket.record().worktree, None);
+    let row = fixture.row_of(&key).await;
+    assert_eq!(row.branch.as_str(), started.branch);
+    assert_eq!(row.actual, ActualState::Removed);
+    assert_eq!(fixture.store.of_ticket(ticket.id()).await.unwrap(), None);
+    let history = fixture.tickets.get(&key).await.unwrap().history;
+    assert!(history.iter().any(|line| line.field == "branch"));
+}
+
+#[tokio::test]
+async fn a_branch_missing_on_the_runner_skips_the_resume_and_fails_the_ensure() {
+    let fixture = fixture().await;
+    let (key, started) = fixture.started("Fix the login").await;
+    fixture.lose_folder(&started.worktree);
+    fixture.git.branch_missing.store(true, Ordering::SeqCst);
+    let resumed = fixture
+        .worktrees
+        .resume(&key, &fixture.person)
+        .await
+        .unwrap();
+    let Resumed::Skipped(text) = resumed else {
+        panic!("not skipped");
+    };
+    assert!(text.contains(&started.branch), "{text}");
+    let ensure = fixture.worktrees.ensure(&key).await.unwrap_err();
+    assert_eq!(ensure.code(), "git-failed");
+    assert!(
+        !fixture
+            .git
+            .folders
+            .lock()
+            .unwrap()
+            .contains(&started.worktree)
+    );
+}
+
+#[tokio::test]
+async fn a_refusal_of_the_runner_reaches_the_caller_and_changes_nothing() {
+    let fixture = fixture().await;
+    let (key, started) = fixture.started("Fix the login").await;
+    fixture.lose_folder(&started.worktree);
+    let before = fixture.row_of(&key).await;
+    *fixture.git.failure.lock().unwrap() = Some("worktree-mismatch");
+    let error = fixture
+        .worktrees
+        .resume(&key, &fixture.person)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "worktree-mismatch");
+    assert_eq!(fixture.row_of(&key).await, before);
+    let ticket = fixture.tickets.get(&key).await.unwrap().view.ticket;
+    assert_eq!(
+        ticket.record().worktree.as_deref(),
+        Some(started.worktree.as_str())
+    );
+}
+
+/// Holds the runner ensure of the next resume until the test lets it go.
+fn hold_ensure(fixture: &Fixture) -> Arc<Gate> {
+    let gate = Arc::new(Gate::default());
+    *fixture.git.gate.lock().unwrap() = Some(gate.clone());
+    gate
+}
+
+#[tokio::test]
+async fn a_cleanup_waits_for_a_running_resume_and_the_folder_stays_removed() {
+    let fixture = fixture().await;
+    let (key, started) = fixture.started("Fix the login").await;
+    fixture.lose_folder(&started.worktree);
+    let gate = hold_ensure(&fixture);
+    let removal = Arc::new(Gate::default());
+    *fixture.git.removal_gate.lock().unwrap() = Some(removal.clone());
+    let resume = fixture.worktrees.resume(&key, &fixture.person);
+    let done = async {
+        gate.entered.notified().await;
+        let finishing = fixture.done(&key, "/work/arches");
+        let release = async {
+            // without the lock the cleanup reaches the runner while the resume still holds it
+            let reached = tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                removal.entered.notified(),
+            )
+            .await;
+            assert!(reached.is_err(), "the cleanup ran during the resume");
+            gate.release.notify_one();
+            // the cleanup gets its turn after the resume and is let through
+            removal.entered.notified().await;
+            removal.release.notify_one();
+        };
+        tokio::join!(finishing, release).0
+    };
+    let (resumed, finished) = tokio::join!(resume, done);
+    assert!(matches!(resumed.unwrap(), Resumed::Ready(_)));
+    finished.unwrap();
+    let row = fixture.row_of(&key).await;
+    assert_eq!(
+        (row.desired, row.actual),
+        (DesiredState::Absent, ActualState::Removed)
+    );
+    assert!(
+        !fixture
+            .git
+            .folders
+            .lock()
+            .unwrap()
+            .contains(&started.worktree)
+    );
+}
+
+#[tokio::test]
+async fn a_claim_made_during_the_runner_ensure_is_never_undone() {
+    let fixture = fixture().await;
+    let (key, started) = fixture.started("Fix the login").await;
+    fixture.lose_folder(&started.worktree);
+    let gate = hold_ensure(&fixture);
+    let id = fixture.worktree_of(&key).await.id();
+    let resume = fixture.worktrees.resume(&key, &fixture.person);
+    let claim = async {
+        gate.entered.notified().await;
+        let mut write = nullradix_app::tickets::TicketRepository::begin(fixture.store.as_ref())
+            .await
+            .unwrap();
+        let claimed = write.claim_removal(id, SystemClock.now()).await.unwrap();
+        write.commit().await.unwrap();
+        assert!(claimed.is_some());
+        gate.release.notify_one();
+    };
+    let (resumed, ()) = tokio::join!(resume, claim);
+    assert!(matches!(resumed.unwrap(), Resumed::Reset(_)));
+    let row = fixture.row_of(&key).await;
+    assert_eq!(row.desired, DesiredState::Absent);
+    let ticket = fixture.tickets.get(&key).await.unwrap().view.ticket;
+    assert_eq!(ticket.record().branch, None);
 }

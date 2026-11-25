@@ -3,7 +3,7 @@ use axum::{Extension, Json};
 use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
 use nullradix_app::worktrees::{
-    Cleaned, DoneRequest, Finished, StartMode, Started, TargetCreated, WorktreeRemoval,
+    Cleaned, DoneRequest, Finished, Resumed, StartMode, Started, TargetCreated, WorktreeRemoval,
 };
 use nullradix_domain::Id;
 use serde::{Deserialize, Serialize};
@@ -145,6 +145,36 @@ impl From<Finished> for FinishedTicket {
     }
 }
 
+/// What a resume did with the ticket's worktree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ResumeOutcome {
+    /// The worktree is on its branch, added again when its folder was gone.
+    Ready,
+    /// The worktree was cleaned up; the ticket's branch and worktree are cleared.
+    Reset,
+    /// The branch is not in the repository on the runner.
+    Skipped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumedTicket {
+    pub ticket: TicketDto,
+    pub outcome: ResumeOutcome,
+    /// Folder of the worktree on the runner, with forward slashes; only when ready.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
+    /// The folder was added again.
+    pub restored: bool,
+    /// Where a leftover folder in the way was moved to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_aside: Option<String>,
+    /// Why the worktree is not used, when the outcome is not ready.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 #[utoipa::path(
     post,
     path = "/tickets/{ticketKey}/start",
@@ -219,6 +249,44 @@ pub(crate) async fn finish_ticket(
     Ok(Json(finished.into()))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/resume",
+    tag = "tickets",
+    params(TicketPath),
+    responses(
+        (status = 200, body = ResumedTicket),
+        (status = 401, body = Problem),
+        (status = 404, description = "Unknown ticket or runner", body = Problem),
+        (status = 409, description = "The ticket changed meanwhile", body = Problem),
+        (status = 422, description = "Not started, or the folder belongs to something else", body = Problem),
+        (status = 503, description = "The runner is not connected", body = Problem),
+    )
+)]
+pub(crate) async fn resume_ticket(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+) -> Result<Json<ResumedTicket>, ApiError> {
+    let resumed = state
+        .worktrees
+        .resume(&path.ticket_key, &state.person)
+        .await?;
+    let ticket = state.tickets.get(&path.ticket_key).await?.view.into();
+    let (outcome, ready, message) = match resumed {
+        Resumed::Ready(ready) => (ResumeOutcome::Ready, Some(ready), None),
+        Resumed::Reset(text) => (ResumeOutcome::Reset, None, Some(text)),
+        Resumed::Skipped(text) => (ResumeOutcome::Skipped, None, Some(text)),
+    };
+    Ok(Json(ResumedTicket {
+        ticket,
+        outcome,
+        restored: ready.as_ref().is_some_and(|ready| ready.restored),
+        moved_aside: ready.as_ref().and_then(|ready| ready.moved_aside.clone()),
+        worktree: ready.map(|ready| ready.path),
+        message,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -251,9 +319,8 @@ mod tests {
         (status, json)
     }
 
-    #[tokio::test]
-    async fn starts_a_ticket_in_a_new_worktree_and_refuses_both_join_options() {
-        let api = test_api().await;
+    /// A repository with a bound board and the ticket ARC-1; returns its folder and runner.
+    async fn bound_repository(api: &TestApi) -> (tempfile::TempDir, String, uuid::Uuid) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("arches");
         std::fs::create_dir_all(&root).unwrap();
@@ -267,15 +334,9 @@ mod tests {
             .await
             .unwrap()
             .board;
-        let runner = api.runners.local().id().as_uuid();
+        let runner = api.runners.local().id();
         api.boards
-            .set_repository(
-                project.id(),
-                board.id(),
-                api.runners.local().id(),
-                &cwd,
-                board.version(),
-            )
+            .set_repository(project.id(), board.id(), runner, &cwd, board.version())
             .await
             .unwrap();
         let tickets = format!(
@@ -283,8 +344,15 @@ mod tests {
             project.id().as_uuid(),
             board.id().as_uuid()
         );
-        let (status, _) = post(&api, &tickets, &json!({ "title": "Fix it" })).await;
+        let (status, _) = post(api, &tickets, &json!({ "title": "Fix it" })).await;
         assert_eq!(status, StatusCode::CREATED);
+        (dir, cwd, runner.as_uuid())
+    }
+
+    #[tokio::test]
+    async fn starts_a_ticket_in_a_new_worktree_and_refuses_both_join_options() {
+        let api = test_api().await;
+        let (_dir, cwd, runner) = bound_repository(&api).await;
         let start = "/api/v1/tickets/arc-1/start";
         let both = json!({ "runnerId": runner, "cwd": cwd, "joinTicket": "ARC-2", "join": true });
         let (status, problem) = post(&api, start, &both).await;
@@ -325,5 +393,47 @@ mod tests {
         assert_eq!(finished["cleanup"][0]["path"], worktree);
         assert_eq!(finished["cleanup"][0]["removed"], true, "{finished}");
         assert!(!Path::new(worktree).exists());
+    }
+
+    #[tokio::test]
+    async fn resumes_a_started_ticket_whose_folder_is_gone() {
+        let api = test_api().await;
+        let (_dir, cwd, runner) = bound_repository(&api).await;
+        let resume = "/api/v1/tickets/arc-1/resume";
+        let none = json!({});
+        let (status, problem) = post(&api, resume, &none).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (StatusCode::UNPROCESSABLE_ENTITY, Some("ticket-not-started"))
+        );
+        let (status, problem) = post(&api, "/api/v1/tickets/arc-9/resume", &none).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (StatusCode::NOT_FOUND, Some("ticket-not-found"))
+        );
+        let body = json!({ "runnerId": runner, "cwd": cwd });
+        let (_, started) = post(&api, "/api/v1/tickets/arc-1/start", &body).await;
+        let worktree = started["worktree"].as_str().unwrap().to_owned();
+        let (status, same) = post(&api, resume, &none).await;
+        assert_eq!(status, StatusCode::OK, "{same}");
+        assert_eq!(same["outcome"], "ready");
+        assert_eq!(same["restored"], false);
+        assert_eq!(same["worktree"], worktree.as_str());
+        std::fs::remove_dir_all(&worktree).unwrap();
+        let (status, back) = post(&api, resume, &none).await;
+        assert_eq!(status, StatusCode::OK, "{back}");
+        assert_eq!(back["outcome"], "ready");
+        assert_eq!(back["restored"], true);
+        assert_eq!(back["ticket"]["branch"], started["branch"]);
+        assert!(Path::new(&worktree).join(".git").exists());
+        let finish = json!({ "runnerId": runner, "cwd": cwd, "acceptance": "It works" });
+        let (status, _) = post(&api, "/api/v1/tickets/arc-1/done", &finish).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, reset) = post(&api, resume, &none).await;
+        assert_eq!(status, StatusCode::OK, "{reset}");
+        assert_eq!(reset["outcome"], "reset");
+        assert!(reset["message"].as_str().unwrap().contains("cleaned up"));
+        assert!(reset.get("worktree").is_none());
+        assert!(reset["ticket"].get("branch").is_none_or(Value::is_null));
     }
 }
