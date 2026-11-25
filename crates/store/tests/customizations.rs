@@ -257,7 +257,8 @@ async fn the_service_copies_edits_rebases_and_drops_against_the_database() {
         )
         .await
         .unwrap();
-    assert_eq!(rebased.overlay.record().version, Version::from_stored(3));
+    // the shipped file did not move, so rebasing is a no-op
+    assert_eq!(rebased.overlay.record().version, Version::from_stored(2));
     service
         .delete(
             ExtensionPoint::Skill,
@@ -271,7 +272,6 @@ async fn the_service_copies_edits_rebases_and_drops_against_the_database() {
         changes(&store).await,
         [
             (Entity::Customization, ChangeOp::Insert),
-            (Entity::Customization, ChangeOp::Update),
             (Entity::Customization, ChangeOp::Update),
             (Entity::Customization, ChangeOp::Delete),
         ]

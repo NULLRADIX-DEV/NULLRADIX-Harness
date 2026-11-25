@@ -122,21 +122,8 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (runner, runners) = start_runners(config, &store, &signal, roots).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let runs = start_runs(&store, runner, &signal).await?;
-    let favorites = Arc::new(FavoriteService::new(
-        Arc::new(store.clone()),
-        runners.clone(),
-        Arc::new(SystemClock),
-        Arc::new(UuidV7Generator),
-        signal.clone(),
-    ));
     let (themes, customizations) = start_extensions(config, &store, &signal);
-    let sessions = Arc::new(SessionService::new(
-        Arc::new(store.clone()),
-        runners.clone(),
-        Arc::new(SystemClock),
-        Arc::new(UuidV7Generator),
-        signal.clone(),
-    ));
+    let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let state = ApiState {
         auth,
@@ -265,6 +252,29 @@ fn claude_logins(config: &Config) -> LocalClaudeLogins {
     } else {
         LocalClaudeLogins::from_environment()
     }
+}
+
+/// Favorites and session details, both read from what the runners found.
+fn start_sessions(
+    store: &Store,
+    runners: &Arc<RunnerService>,
+    signal: &ChangeSignal,
+) -> (Arc<FavoriteService>, Arc<SessionService>) {
+    let favorites = Arc::new(FavoriteService::new(
+        Arc::new(store.clone()),
+        runners.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    let sessions = Arc::new(SessionService::new(
+        Arc::new(store.clone()),
+        runners.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    (favorites, sessions)
 }
 
 /// Themes from the data folder and the customizations in the database.
