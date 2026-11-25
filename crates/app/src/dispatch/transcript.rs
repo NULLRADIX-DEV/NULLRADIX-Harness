@@ -51,7 +51,7 @@ pub struct TranscriptLine {
 }
 
 impl TranscriptLine {
-    fn plain(kind: LineKind, text: impl Into<String>) -> Self {
+    pub(super) fn plain(kind: LineKind, text: impl Into<String>) -> Self {
         Self {
             kind,
             text: text.into(),
@@ -172,7 +172,7 @@ impl TranscriptFormatter {
             .filter(|event| event.get("type").is_some_and(Value::is_string));
         match event {
             Some(event) => self.event(&event),
-            None => vec![TranscriptLine::plain(LineKind::Raw, trimmed)],
+            None => vec![TranscriptLine::plain(LineKind::Raw, clip(trimmed))],
         }
     }
 
@@ -480,6 +480,15 @@ mod tests {
             Vec::new()
         );
         assert_eq!(formatter.format(Pipe::Stdout, "  "), Vec::new());
+    }
+
+    #[test]
+    fn a_huge_raw_line_is_clipped() {
+        let mut formatter = TranscriptFormatter::new(None);
+        let out = formatter.format(Pipe::Stderr, &"x".repeat(100_000));
+        assert_eq!(out.len(), 1);
+        assert!(out[0].text.chars().count() < 2 * DETAIL_MAX);
+        assert!(out[0].text.ends_with("... cut"));
     }
 
     #[test]

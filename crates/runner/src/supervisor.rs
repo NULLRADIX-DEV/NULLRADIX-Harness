@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use nullradix_app::dispatch::stream::{ClaudeStream, Pipe, images};
+use nullradix_app::dispatch::stream::{ClaudeStream, Joined, LineJoiner, Pipe, images};
 use nullradix_domain::{RunOutcome, Screenshot};
 use nullradix_os::{ProcessTree, write_atomic};
 
@@ -25,6 +25,8 @@ const TICK: Duration = Duration::from_millis(100);
 const MAX_LINE: u64 = 64 * 1024;
 /// Grandchildren may hold the pipes open after the child exits; stop waiting after this.
 const DRAIN: Duration = Duration::from_secs(10);
+/// Stands for a line over the join cap in the error text.
+const DROPPED_LINE: &str = "[an output line was too long and was dropped]";
 /// Screenshots kept per run, and the size of one.
 const MAX_SCREENSHOTS: usize = 100;
 const MAX_SCREENSHOT_BYTES: usize = 20 * 1024 * 1024;
@@ -89,7 +91,8 @@ fn command(spec: &SpecFile) -> Result<Command, launch::LaunchError> {
             .iter()
             .find_map(|name| std::env::var(name).ok())
             .unwrap_or_default();
-        let (resolved, how) = launch::plan(&spec.program, &spec.args, &path, &launch::file_exists)?;
+        let program = program(spec).to_string_lossy().into_owned();
+        let (resolved, how) = launch::plan(&program, &spec.args, &path, &launch::file_exists)?;
         return Ok(match how {
             Launch::Direct => {
                 let mut command = Command::new(resolved);
@@ -216,7 +219,7 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
 
     let ending = loop {
         match lines.recv_timeout(TICK) {
-            Ok((stream, text)) => output.write(stream, &text)?,
+            Ok(piece) => output.write(&piece)?,
             Err(RecvTimeoutError::Timeout) => {}
             // both pipes closed while the child still runs
             Err(RecvTimeoutError::Disconnected) => thread::sleep(TICK),
@@ -267,29 +270,35 @@ impl Ending {
     }
 }
 
-/// Sends the lines of `pipe` until it closes.
-fn forward(
-    pipe: impl Read + Send + 'static,
+/// One piece of a line of output, as long as `MAX_LINE` at most.
+struct Piece {
     stream: &'static str,
-    sender: Sender<(&'static str, String)>,
-) {
+    text: String,
+    continues: bool,
+}
+
+/// Sends the lines of `pipe` until it closes.
+fn forward(pipe: impl Read + Send + 'static, stream: &'static str, sender: Sender<Piece>) {
     thread::spawn(move || {
         let mut lines = Lines::new(pipe);
-        while let Ok(Some(text)) = lines.next_line() {
-            if sender.send((stream, text)).is_err() {
+        while let Ok(Some((text, continues))) = lines.next_line() {
+            let piece = Piece {
+                stream,
+                text,
+                continues,
+            };
+            if sender.send(piece).is_err() {
                 break;
             }
         }
     });
 }
 
-/// Cuts a byte stream into lines of at most `MAX_LINE` bytes without breaking characters.
+/// Cuts a byte stream into pieces of at most `MAX_LINE` bytes without breaking characters.
 struct Lines<R> {
     reader: BufReader<R>,
-    // the start of a character cut off at the end of the previous part
+    // the start of a character cut off at the end of the previous piece
     carry: Vec<u8>,
-    // whether the previous part ended without its line ending
-    split: bool,
 }
 
 impl<R: Read> Lines<R> {
@@ -297,43 +306,44 @@ impl<R: Read> Lines<R> {
         Self {
             reader: BufReader::new(pipe),
             carry: Vec::new(),
-            split: false,
         }
     }
 
-    /// The next line without its line ending, or `None` once the stream ended.
-    fn next_line(&mut self) -> io::Result<Option<String>> {
-        loop {
-            let mut buffer = std::mem::take(&mut self.carry);
-            let read = (&mut self.reader)
-                .take(MAX_LINE)
-                .read_until(b'\n', &mut buffer)?;
-            if read == 0 {
-                return Ok(
-                    (!buffer.is_empty()).then(|| String::from_utf8_lossy(&buffer).into_owned())
-                );
-            }
-            if buffer.last() == Some(&b'\n') {
-                // only the line ending of a line already sent in parts
-                if self.split && buffer == b"\n" {
-                    self.split = false;
-                    continue;
-                }
-                self.split = false;
-                buffer.pop();
-            } else {
-                if let Err(error) = std::str::from_utf8(&buffer)
-                    && error.error_len().is_none()
-                {
-                    self.carry = buffer.split_off(error.valid_up_to());
-                }
-                self.split = true;
-            }
-            if buffer.last() == Some(&b'\r') {
-                buffer.pop();
-            }
-            return Ok(Some(String::from_utf8_lossy(&buffer).into_owned()));
+    /// The next piece without its line ending and whether its line goes on, or `None` at the end.
+    fn next_line(&mut self) -> io::Result<Option<(String, bool)>> {
+        let mut buffer = std::mem::take(&mut self.carry);
+        let read = (&mut self.reader)
+            .take(MAX_LINE)
+            .read_until(b'\n', &mut buffer)?;
+        if read == 0 && buffer.is_empty() {
+            return Ok(None);
         }
+        let mut continues = false;
+        if buffer.last() == Some(&b'\n') {
+            buffer.pop();
+        } else {
+            match self.reader.fill_buf()?.first() {
+                // the end of the stream
+                None => {}
+                // a line that fills a piece exactly ends here
+                Some(b'\n') => self.reader.consume(1),
+                Some(_) => {
+                    continues = true;
+                    if let Err(error) = std::str::from_utf8(&buffer)
+                        && error.error_len().is_none()
+                    {
+                        self.carry = buffer.split_off(error.valid_up_to());
+                    }
+                }
+            }
+        }
+        if !continues && buffer.last() == Some(&b'\r') {
+            buffer.pop();
+        }
+        Ok(Some((
+            String::from_utf8_lossy(&buffer).into_owned(),
+            continues,
+        )))
     }
 }
 
@@ -342,6 +352,8 @@ struct ClaudeWatch {
     stream: ClaudeStream,
     folder: PathBuf,
     screenshots: Vec<Screenshot>,
+    // one per pipe, as the pieces of both interleave
+    joiners: [LineJoiner; 2],
 }
 
 impl ClaudeWatch {
@@ -350,20 +362,41 @@ impl ClaudeWatch {
             stream: ClaudeStream::new(),
             folder: files.artifacts(),
             screenshots: Vec::new(),
+            joiners: [LineJoiner::default(), LineJoiner::default()],
         }
     }
 
-    fn observe(&mut self, stream: &str, text: &str) {
-        let pipe = if stream == "stdout" {
-            Pipe::Stdout
+    fn observe(&mut self, piece: &Piece) {
+        let (index, pipe) = if piece.stream == "stdout" {
+            (0, Pipe::Stdout)
         } else {
-            Pipe::Stderr
+            (1, Pipe::Stderr)
         };
+        match self.joiners[index].push(&piece.text, piece.continues) {
+            Some(Joined::Line(line)) => self.line(pipe, &line),
+            // never parsed in part, which could read as something else
+            Some(Joined::Dropped) => self.stream.feed(pipe, DROPPED_LINE),
+            None => {}
+        }
+    }
+
+    fn line(&mut self, pipe: Pipe, text: &str) {
         self.stream.feed(pipe, text);
         if pipe == Pipe::Stdout {
             for image in images(text) {
                 // a screenshot that cannot be kept must not fail the run
                 let _ = self.keep(&image.media_type, &image.data, image.tool_use_id);
+            }
+        }
+    }
+
+    /// Lines cut off by the end of the output are read as they are.
+    fn finish_lines(&mut self) {
+        for (index, pipe) in [(0, Pipe::Stdout), (1, Pipe::Stderr)] {
+            match self.joiners[index].finish() {
+                Some(Joined::Line(line)) => self.line(pipe, &line),
+                Some(Joined::Dropped) => self.stream.feed(pipe, DROPPED_LINE),
+                None => {}
             }
         }
     }
@@ -384,10 +417,12 @@ impl ClaudeWatch {
             return Ok(());
         }
         let extension = match media_type {
+            "image/png" => "png",
             "image/jpeg" => "jpg",
             "image/gif" => "gif",
             "image/webp" => "webp",
-            _ => "png",
+            // the type is the model's word and is served back as it is
+            _ => return Ok(()),
         };
         let file = format!("shot-{}.{extension}", self.screenshots.len() + 1);
         fs::create_dir_all(&self.folder)?;
@@ -401,7 +436,8 @@ impl ClaudeWatch {
         Ok(())
     }
 
-    fn into_file(self) -> ClaudeFile {
+    fn into_file(mut self) -> ClaudeFile {
+        self.finish_lines();
         ClaudeFile::new(self.stream.finish(), &self.screenshots)
     }
 }
@@ -426,12 +462,13 @@ impl OutputWriter {
         })
     }
 
-    fn write(&mut self, stream: &str, text: &str) -> io::Result<()> {
+    fn write(&mut self, piece: &Piece) -> io::Result<()> {
         self.seq += 1;
         let record = OutputRecord {
             seq: self.seq,
-            stream: stream.to_owned(),
-            text: text.to_owned(),
+            stream: piece.stream.to_owned(),
+            text: piece.text.clone(),
+            continues: piece.continues,
         };
         let mut line = serde_json::to_vec(&record).map_err(io::Error::other)?;
         line.push(b'\n');
@@ -439,24 +476,24 @@ impl OutputWriter {
         self.index.write_all(&self.offset.to_le_bytes())?;
         self.offset += u64::try_from(line.len()).map_err(io::Error::other)?;
         if let Some(claude) = &mut self.claude {
-            claude.observe(stream, text);
+            claude.observe(piece);
         }
         Ok(())
     }
 
-    fn drain(&mut self, lines: &Receiver<(&'static str, String)>) -> io::Result<()> {
-        while let Ok((stream, text)) = lines.try_recv() {
-            self.write(stream, &text)?;
+    fn drain(&mut self, lines: &Receiver<Piece>) -> io::Result<()> {
+        while let Ok(piece) = lines.try_recv() {
+            self.write(&piece)?;
         }
         Ok(())
     }
 
-    fn finish(&mut self, lines: &Receiver<(&'static str, String)>) -> io::Result<()> {
+    fn finish(&mut self, lines: &Receiver<Piece>) -> io::Result<()> {
         let deadline = Instant::now() + DRAIN;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match lines.recv_timeout(left) {
-                Ok((stream, text)) => self.write(stream, &text)?,
+                Ok(piece) => self.write(&piece)?,
                 Err(_) => return Ok(()),
             }
         }
@@ -586,13 +623,50 @@ mod tests {
         assert!(result(&files).error.unwrap().contains("spec.json"));
     }
 
-    fn all_lines(bytes: &[u8]) -> Vec<String> {
+    fn all_pieces(bytes: &[u8]) -> Vec<(String, bool)> {
         let mut lines = Lines::new(bytes);
         let mut all = Vec::new();
-        while let Some(line) = lines.next_line().unwrap() {
-            all.push(line);
+        while let Some(piece) = lines.next_line().unwrap() {
+            all.push(piece);
         }
         all
+    }
+
+    fn all_lines(bytes: &[u8]) -> Vec<String> {
+        all_pieces(bytes).into_iter().map(|piece| piece.0).collect()
+    }
+
+    #[test]
+    fn marks_the_pieces_of_a_long_line_as_continuing() {
+        let limit = usize::try_from(MAX_LINE).unwrap();
+        let mut long = vec![b'x'; 2 * limit + 10];
+        long.extend_from_slice(
+            b"
+short",
+        );
+        let marks: Vec<(usize, bool)> = all_pieces(&long)
+            .iter()
+            .map(|(text, continues)| (text.len(), *continues))
+            .collect();
+        assert_eq!(
+            marks,
+            vec![(limit, true), (limit, true), (10, false), (5, false)]
+        );
+        // a line of exactly one piece is no continuing line and leaves no empty line behind
+        let mut exact = vec![b'y'; limit];
+        exact.extend_from_slice(
+            b"
+next",
+        );
+        let marks: Vec<(usize, bool)> = all_pieces(&exact)
+            .iter()
+            .map(|(text, continues)| (text.len(), *continues))
+            .collect();
+        assert_eq!(marks, vec![(limit, false), (4, false)]);
+        assert_eq!(
+            all_pieces(&vec![b'z'; limit]),
+            vec![("z".repeat(limit), false)]
+        );
     }
 
     #[test]
@@ -700,6 +774,18 @@ mod tests {
         assert_eq!(result(&files).outcome, "succeeded");
         let lines = read_output(&files, 0, 10).unwrap();
         assert_eq!(lines[0].text.trim(), "hello from the script");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_relative_claude_program_is_found_in_the_run_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("fake.cmd"), "@echo from the batch\r\n").unwrap();
+        let files = claude_spec(dir.path(), ".\\fake.cmd", &[]);
+        supervise(files.dir()).unwrap();
+        assert_eq!(result(&files).outcome, "succeeded");
+        let lines = read_output(&files, 0, 10).unwrap();
+        assert_eq!(lines[0].text.trim(), "from the batch");
     }
 
     #[test]
@@ -817,6 +903,74 @@ mod tests {
         let kept = fs::read(files.artifacts().join("shot-1.png")).unwrap();
         assert_eq!(kept.len() as u64, shot.bytes);
         assert_eq!(&kept[1..4], b"PNG");
+    }
+
+    fn image_line(media_type: &str, data: &str) -> String {
+        format!(
+            r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"t1","content":[{{"type":"image","source":{{"type":"base64","media_type":"{media_type}","data":"{data}"}}}}]}}]}}}}"#
+        )
+    }
+
+    #[test]
+    fn a_screenshot_line_over_the_piece_size_is_still_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        // about 150 KB of bytes, which is over 200 KB of base64
+        let data = "A".repeat(200_000);
+        let image = image_line("image/png", &data);
+        assert!(image.len() > 2 * usize::try_from(MAX_LINE).unwrap());
+        let files = replay(dir.path(), &[&image]);
+        supervise(files.dir()).unwrap();
+        let claude = result(&files).claude.unwrap();
+        assert_eq!(claude.screenshots.len(), 1);
+        assert_eq!(claude.screenshots[0].bytes, 150_000);
+        assert_eq!(
+            fs::read(files.artifacts().join("shot-1.png"))
+                .unwrap()
+                .len(),
+            150_000
+        );
+        assert!(!claude.error_text.contains("AAAA"));
+        let lines = read_output(&files, 0, 10).unwrap();
+        assert!(lines.len() > 1 && lines[0].continues && !lines[lines.len() - 1].continues);
+    }
+
+    #[test]
+    fn a_result_line_over_the_piece_size_still_yields_usage_and_denials() {
+        let dir = tempfile::tempdir().unwrap();
+        let padding = "x".repeat(150_000);
+        let line = format!(
+            r#"{{"type":"result","subtype":"success","is_error":false,"num_turns":4,"total_cost_usd":1.5,"usage":{{"input_tokens":11,"output_tokens":22}},"result":"{padding}","permission_denials":[{{"tool_name":"Bash"}}]}}"#
+        );
+        let files = replay(dir.path(), &[&line]);
+        supervise(files.dir()).unwrap();
+        let claude = result(&files).claude.unwrap();
+        assert!(claude.has_result);
+        let usage = claude.usage.unwrap();
+        assert_eq!(
+            (usage.cost_usd, usage.input_tokens, usage.num_turns),
+            (Some(1.5), Some(11), Some(4))
+        );
+        assert_eq!(claude.denied, vec![(String::from("Bash"), 1)]);
+        assert!(!claude.error_text.contains("xxxx"));
+    }
+
+    #[test]
+    fn only_known_image_types_are_kept_as_screenshots() {
+        let dir = tempfile::tempdir().unwrap();
+        let lines = [
+            image_line("text/html", "AAAA"),
+            image_line("image/svg+xml", "AAAA"),
+            image_line("image/webp", "AAAA"),
+        ];
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let files = replay(dir.path(), &refs);
+        supervise(files.dir()).unwrap();
+        let shots = result(&files).claude.unwrap().screenshots;
+        assert_eq!(shots.len(), 1);
+        assert_eq!(
+            (shots[0].media_type.as_str(), shots[0].file.as_str()),
+            ("image/webp", "shot-1.webp")
+        );
     }
 
     #[test]

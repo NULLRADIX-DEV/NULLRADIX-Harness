@@ -502,11 +502,31 @@ pub(crate) async fn screenshot(
         .dispatch_runs
         .screenshot(Id::from_uuid(path.id), path.screenshot)
         .await?;
-    let content_type = HeaderValue::from_str(&artifact.screenshot.media_type)
-        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
-    Ok((
+    Ok(screenshot_response(&artifact.screenshot.media_type, bytes))
+}
+
+/// The stored type is the model's word, so only image types a browser shows safely pass.
+fn served_type(media_type: &str) -> &'static str {
+    match media_type {
+        "image/png" => "image/png",
+        "image/jpeg" => "image/jpeg",
+        "image/gif" => "image/gif",
+        "image/webp" => "image/webp",
+        _ => "application/octet-stream",
+    }
+}
+
+fn screenshot_response(media_type: &str, bytes: Vec<u8>) -> Response {
+    (
         [
-            (header::CONTENT_TYPE, content_type),
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static(served_type(media_type)),
+            ),
+            (
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ),
             (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
             // an image must not run script on the app origin
             (
@@ -516,7 +536,7 @@ pub(crate) async fn screenshot(
         ],
         bytes,
     )
-        .into_response())
+        .into_response()
 }
 
 /// A Claude run to start from the dispatcher configuration; the scheduler uses the same use case.
@@ -582,6 +602,7 @@ mod tests {
     use axum::http::Request;
     use serde_json::{Value, json};
 
+    use super::screenshot_response;
     use crate::tests::{TestApi, bearer, local, send, test_api};
 
     async fn get(api: &TestApi, path: &str) -> (u16, Value) {
@@ -647,6 +668,26 @@ mod tests {
         }
         let (status, _) = get(&api, "/api/v1/runs?kind=nonsense").await;
         assert_eq!(status, 422);
+    }
+
+    #[test]
+    fn screenshots_are_served_with_an_allowed_type_and_no_sniffing() {
+        for (stored, served) in [
+            ("image/png", "image/png"),
+            ("image/webp", "image/webp"),
+            ("text/html", "application/octet-stream"),
+            ("image/svg+xml", "application/octet-stream"),
+            ("image/png\r\nX-Evil: 1", "application/octet-stream"),
+        ] {
+            let response = screenshot_response(stored, vec![1]);
+            let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok());
+            assert_eq!(header("content-type"), Some(served), "{stored:?}");
+            assert_eq!(header("x-content-type-options"), Some("nosniff"));
+            assert_eq!(
+                header("content-security-policy"),
+                Some("sandbox; default-src 'none'")
+            );
+        }
     }
 
     #[tokio::test]

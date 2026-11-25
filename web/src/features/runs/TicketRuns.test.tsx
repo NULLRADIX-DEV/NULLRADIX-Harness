@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { boardServer } from '../../test/boardServer';
 import { json, type Handler } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
@@ -148,6 +148,24 @@ describe('ticket Runs tab', () => {
     const usage = await runs.findByRole('region', { name: 'Usage' });
     expect(within(usage).getByText('haiku-5')).toBeInTheDocument();
     expect(within(usage).getByText(/50 in, \$0\.13/)).toBeInTheDocument();
+  });
+
+  it('renders several entries of one output line without duplicate keys', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    serve([dispatchRun()], {
+      [WORK_ID]: pages({
+        lines: [line(4, 'say', 'First of line four'), line(4, 'run', 'Second of line four')],
+        lastSeq: 4,
+        finished: true,
+      }),
+    });
+    renderApp('/board');
+    const runs = await openRunsTab(/^Runs/);
+    const transcript = await runs.findByRole('region', { name: 'Transcript' });
+    expect(await within(transcript).findByText('First of line four')).toBeInTheDocument();
+    expect(within(transcript).getByText('Second of line four')).toBeInTheDocument();
+    expect(errors.mock.calls.flat().join(' ')).not.toContain('same key');
+    errors.mockRestore();
   });
 
   it('polls the transcript of an active run until it finished', async () => {

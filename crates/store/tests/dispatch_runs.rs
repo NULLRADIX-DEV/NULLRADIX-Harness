@@ -319,6 +319,7 @@ fn line(seq: i64, stream: OutputStream, text: &str) -> OutputLine {
         seq,
         stream,
         text: text.to_owned(),
+        continues: false,
     }
 }
 

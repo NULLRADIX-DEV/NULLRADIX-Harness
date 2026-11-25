@@ -11,13 +11,13 @@ use nullradix_domain::{
 use uuid::Uuid;
 
 use super::invocation::{InvocationInput, build, effective_effort, effective_model};
-use super::stream::Pipe;
-use super::transcript::{TranscriptFormatter, TranscriptLine};
+use super::stream::{Joined, LineJoiner, Pipe};
+use super::transcript::{LineKind, TranscriptFormatter, TranscriptLine};
 use crate::AppError;
 use crate::accounts::AccountService;
 use crate::dispatcher_config::DispatcherConfigService;
 use crate::questions::{self, QuestionRepository};
-use crate::runs::{RunArtifact, RunFilter, RunLink, RunService, RunSpec};
+use crate::runs::{OutputLine, OutputStream, RunArtifact, RunFilter, RunLink, RunService, RunSpec};
 use crate::tickets::{self, TicketRepository};
 
 /// Output lines read per transcript page at most.
@@ -265,30 +265,22 @@ impl DispatchRuns {
     ) -> Result<TranscriptPage, AppError> {
         let limit = limit.clamp(1, MAX_TRANSCRIPT_LINES);
         let (run, progress) = self.runs.output(id, after, limit).await?;
-        let root = run.dispatch().map(|dispatch| dispatch.cwd.as_str());
-        let mut formatter = TranscriptFormatter::new(root);
-        let mut entries = Vec::new();
-        let mut last_seq = after;
-        for line in &progress.lines {
-            last_seq = line.seq;
-            let pipe = match line.stream {
-                crate::runs::OutputStream::Stdout => Pipe::Stdout,
-                crate::runs::OutputStream::Stderr => Pipe::Stderr,
-            };
-            for entry in formatter.format(pipe, &line.text) {
-                entries.push(TranscriptEntry {
-                    seq: line.seq,
-                    line: entry,
-                });
-            }
-        }
+        let root = run.dispatch().map(|dispatch| dispatch.cwd.clone());
         // a lost run has no report but will not write more either
         let ended = progress.report.is_some() || !run.status().is_active();
         let drained = u32::try_from(progress.lines.len()).is_ok_and(|read| read < limit);
+        let finished = ended && drained;
+        let lines = progress.lines;
+        // the lines can be huge, and parsing them must not hold the async runtime
+        let (entries, last_seq) = tokio::task::spawn_blocking(move || {
+            format_page(root.as_deref(), lines, after, finished)
+        })
+        .await
+        .map_err(AppError::internal)?;
         Ok(TranscriptPage {
             entries,
             last_seq,
-            finished: ended && drained,
+            finished,
         })
     }
 
@@ -313,6 +305,64 @@ impl DispatchRuns {
             .ok_or_else(|| artifact_not_found(id))?;
         Ok((found, bytes))
     }
+}
+
+const DROPPED_LINE: &str = "[an output line was too long and was dropped]";
+
+fn emit(
+    formatter: &mut TranscriptFormatter,
+    entries: &mut Vec<TranscriptEntry>,
+    seq: i64,
+    pipe: Pipe,
+    joined: Joined,
+) {
+    let found = match joined {
+        Joined::Line(text) => formatter.format(pipe, &text),
+        Joined::Dropped => vec![TranscriptLine::plain(LineKind::Raw, DROPPED_LINE)],
+    };
+    entries.extend(found.into_iter().map(|line| TranscriptEntry { seq, line }));
+}
+
+/// Joins the pieces of a page into lines and formats them; `last_seq` stops before a line cut off.
+fn format_page(
+    root: Option<&str>,
+    lines: Vec<OutputLine>,
+    after: i64,
+    finished: bool,
+) -> (Vec<TranscriptEntry>, i64) {
+    let mut formatter = TranscriptFormatter::new(root);
+    let mut joiners = [LineJoiner::default(), LineJoiner::default()];
+    let mut entries = Vec::new();
+    let mut last_seq = after;
+    // the last point where no line was half read
+    let mut safe = (after, 0);
+    for line in lines {
+        last_seq = line.seq;
+        let (index, pipe) = match line.stream {
+            OutputStream::Stdout => (0, Pipe::Stdout),
+            OutputStream::Stderr => (1, Pipe::Stderr),
+        };
+        if let Some(joined) = joiners[index].push(&line.text, line.continues) {
+            emit(&mut formatter, &mut entries, line.seq, pipe, joined);
+        }
+        if joiners.iter().all(LineJoiner::is_idle) {
+            safe = (line.seq, entries.len());
+        }
+    }
+    if joiners.iter().all(LineJoiner::is_idle) {
+        return (entries, last_seq);
+    }
+    // more of a line may come on the next page, unless the output is over or no line ever ends
+    if !finished && safe.0 != after {
+        entries.truncate(safe.1);
+        return (entries, safe.0);
+    }
+    for (index, pipe) in [(0, Pipe::Stdout), (1, Pipe::Stderr)] {
+        if let Some(joined) = joiners[index].finish() {
+            emit(&mut formatter, &mut entries, last_seq, pipe, joined);
+        }
+    }
+    (entries, last_seq)
 }
 
 /// The canonical key of a ticket or question, given in any case.
@@ -359,6 +409,57 @@ mod tests {
                 .code(),
             "question-id-invalid"
         );
+    }
+
+    fn piece(seq: i64, stream: OutputStream, text: &str, continues: bool) -> OutputLine {
+        OutputLine {
+            seq,
+            stream,
+            text: text.to_owned(),
+            continues,
+        }
+    }
+
+    #[test]
+    fn a_line_in_pieces_is_one_transcript_entry() {
+        let json =
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Hello there"}]}}"#;
+        let (head, tail) = json.split_at(30);
+        let lines = vec![
+            piece(1, OutputStream::Stdout, head, true),
+            piece(2, OutputStream::Stderr, "boom", false),
+            piece(3, OutputStream::Stdout, tail, false),
+        ];
+        let (entries, last) = format_page(None, lines, 0, true);
+        let found: Vec<(i64, &str, &str)> = entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry.seq,
+                    entry.line.kind.as_str(),
+                    entry.line.text.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(found, vec![(2, "raw", "boom"), (3, "say", "Hello there")]);
+        assert_eq!(last, 3);
+    }
+
+    #[test]
+    fn a_page_stops_before_a_line_that_goes_on_and_a_finished_one_flushes_it() {
+        let lines = || {
+            vec![
+                piece(5, OutputStream::Stderr, "first", false),
+                piece(6, OutputStream::Stdout, "{\"type\":", true),
+            ]
+        };
+        let (entries, last) = format_page(None, lines(), 4, false);
+        assert_eq!((entries.len(), last), (1, 5));
+        let (entries, last) = format_page(None, lines(), 4, true);
+        assert_eq!((entries.len(), last), (2, 6));
+        // a page that holds no complete line cannot be asked for again
+        let (entries, last) = format_page(None, lines()[1..].to_vec(), 5, false);
+        assert_eq!((entries.len(), last), (1, 6));
     }
 
     #[test]

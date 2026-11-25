@@ -27,9 +27,9 @@ export function RunTranscript({ runId, active }: { runId: string; active: boolea
       </div>
       {items.length > 0 && (
         <ol className="run-steps">
-          {items.map(({ line, outcome, failure }) => (
+          {items.map(({ line, outcome, failure }, index) => (
             <li
-              key={line.seq}
+              key={`${String(line.seq)}-${String(index)}`}
               className={`run-step run-step-${line.kind}${outcome ? ` run-step-${outcome}` : ''}`}
             >
               <span className="run-step-kind muted">{line.kind}</span>

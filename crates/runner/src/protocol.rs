@@ -298,6 +298,8 @@ pub(crate) struct OutputRecord {
     pub(crate) seq: i64,
     pub(crate) stream: String,
     pub(crate) text: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) continues: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -416,6 +418,7 @@ pub(crate) fn read_output(files: &RunFiles, after: i64, limit: u32) -> io::Resul
             seq: record.seq,
             stream,
             text: record.text,
+            continues: record.continues,
         });
     }
     Ok(lines)
@@ -437,6 +440,7 @@ mod tests {
                 seq,
                 stream: String::from("stdout"),
                 text: format!("line {seq}"),
+                continues: false,
             })
             .unwrap();
             line.push(b'\n');

@@ -49,7 +49,7 @@ fn search(name: &str, path: &str, exists: &dyn Fn(&str) -> bool) -> Option<Strin
 
 /// Quotes one argument for a `cmd` line; characters cmd still interprets inside quotes are refused.
 pub(crate) fn quote(argument: &str) -> Result<String, LaunchError> {
-    if argument.contains(['"', '%', '!', '^']) {
+    if argument.contains(['"', '%', '!', '^']) || argument.chars().any(char::is_control) {
         return Err(LaunchError::UnsafeArgument);
     }
     let plain = !argument.is_empty()
@@ -59,7 +59,9 @@ pub(crate) fn quote(argument: &str) -> Result<String, LaunchError> {
     Ok(if plain {
         argument.to_owned()
     } else {
-        format!("\"{argument}\"")
+        // backslashes before the closing quote would escape it
+        let trailing = argument.len() - argument.trim_end_matches('\\').len();
+        format!("\"{argument}{}\"", "\\".repeat(trailing))
     })
 }
 
@@ -218,6 +220,11 @@ mod tests {
                 "{bad}"
             );
         }
+        for bad in ["a\rb", "a\nb", "a\tb", "a\u{0}b"] {
+            assert_eq!(quote(bad), Err(LaunchError::UnsafeArgument), "{bad:?}");
+        }
+        assert_eq!(quote("C:\\my dir\\").unwrap(), "\"C:\\my dir\\\\\"");
+        assert_eq!(quote("a b\\\\").unwrap(), "\"a b\\\\\\\\\"");
         assert_eq!(quote("").unwrap(), "\"\"");
         assert_eq!(quote("--model=opus").unwrap(), "--model=opus");
     }

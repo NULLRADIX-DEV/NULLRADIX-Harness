@@ -85,6 +85,8 @@ pub struct OutputLine {
     pub seq: i64,
     pub stream: OutputStream,
     pub text: String,
+    /// The line goes on in the next piece, as it was too long for one.
+    pub continues: bool,
 }
 
 /// What the runner read from the output of a Claude run.

@@ -40,6 +40,81 @@ pub fn looks_like_context_overflow(text: &str) -> bool {
     matches(&CONTEXT_OVERFLOW, text)
 }
 
+/// Largest line joined from pieces; a screenshot of 20 MB is about 27 MB in base64.
+pub const MAX_JOINED_BYTES: usize = 32 * 1024 * 1024;
+
+/// A line put together from the pieces the runner cut it into.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Joined {
+    Line(String),
+    /// The line exceeded the cap; none of it is kept.
+    Dropped,
+}
+
+/// Joins the pieces of one pipe back into lines, up to a cap.
+#[derive(Debug)]
+pub struct LineJoiner {
+    text: String,
+    cap: usize,
+    open: bool,
+    overflow: bool,
+}
+
+impl Default for LineJoiner {
+    fn default() -> Self {
+        Self::with_cap(MAX_JOINED_BYTES)
+    }
+}
+
+impl LineJoiner {
+    #[must_use]
+    pub fn with_cap(cap: usize) -> Self {
+        Self {
+            text: String::new(),
+            cap,
+            open: false,
+            overflow: false,
+        }
+    }
+
+    /// Whether no line is half read.
+    #[must_use]
+    pub fn is_idle(&self) -> bool {
+        !self.open
+    }
+
+    /// Takes one piece; `continues` says the line goes on in the next piece.
+    pub fn push(&mut self, piece: &str, continues: bool) -> Option<Joined> {
+        if !self.open && !continues {
+            return Some(Joined::Line(piece.to_owned()));
+        }
+        self.open = true;
+        if !self.overflow {
+            if self.text.len() + piece.len() > self.cap {
+                self.overflow = true;
+                self.text = String::new();
+            } else {
+                self.text.push_str(piece);
+            }
+        }
+        if continues { None } else { self.finish() }
+    }
+
+    /// Ends a half read line, as when the output stops for good.
+    pub fn finish(&mut self) -> Option<Joined> {
+        if !self.open {
+            return None;
+        }
+        self.open = false;
+        let text = std::mem::take(&mut self.text);
+        Some(if std::mem::take(&mut self.overflow) {
+            Joined::Dropped
+        } else {
+            Joined::Line(text)
+        })
+    }
+}
+
 /// Which pipe of the process a line came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pipe {
@@ -127,6 +202,8 @@ impl ClaudeStream {
         if line.is_empty() {
             return;
         }
+        // one line may be huge, only its end can matter
+        let line = &tail(line);
         self.stray_chars += line.chars().count() + 1;
         self.stray.push(line.to_owned());
         while self.stray_chars > ERROR_TAIL_CHARS && self.stray.len() > 1 {
@@ -656,6 +733,41 @@ mod tests {
         assert!(reason.ends_with(
             "denied tool calls: Bash: make (check the allowed tools in the dispatcher settings)"
         ));
+    }
+
+    #[test]
+    fn joins_pieces_and_drops_a_line_over_the_cap() {
+        let mut joiner = LineJoiner::with_cap(6);
+        assert_eq!(
+            joiner.push("ab", false),
+            Some(Joined::Line(String::from("ab")))
+        );
+        assert_eq!(joiner.push("abc", true), None);
+        assert!(!joiner.is_idle());
+        assert_eq!(
+            joiner.push("def", false),
+            Some(Joined::Line(String::from("abcdef")))
+        );
+        assert!(joiner.is_idle());
+        assert_eq!(joiner.push("abcd", true), None);
+        assert_eq!(joiner.push("efg", true), None);
+        assert_eq!(joiner.push("h", false), Some(Joined::Dropped));
+        // the next line starts clean
+        assert_eq!(
+            joiner.push("ok", false),
+            Some(Joined::Line(String::from("ok")))
+        );
+        assert_eq!(joiner.push("x", true), None);
+        assert_eq!(joiner.finish(), Some(Joined::Line(String::from("x"))));
+        assert_eq!(joiner.finish(), None);
+    }
+
+    #[test]
+    fn a_huge_stray_line_keeps_only_its_end() {
+        let mut stream = ClaudeStream::new();
+        stream.feed(Pipe::Stderr, &format!("{}END", "x".repeat(100_000)));
+        let text = stream.finish().error_text;
+        assert!(text.chars().count() <= ERROR_TAIL_CHARS && text.ends_with("END"));
     }
 
     #[test]
