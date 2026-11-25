@@ -14,6 +14,7 @@ mod projects;
 mod questions;
 mod repositories;
 mod runs;
+mod sessions;
 mod tickets;
 mod web;
 mod worktrees;
@@ -37,6 +38,7 @@ use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
+use nullradix_app::sessions::SessionService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
@@ -75,6 +77,10 @@ pub use repositories::{
 };
 pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
+};
+pub use sessions::{
+    DisplayStateDto, SessionClientDto, SessionDto, SessionList, SessionStateDto, SessionTicketDto,
+    SubagentDto, SubagentStateDto,
 };
 pub use tickets::{
     AcceptTicket, AddStep, ChangeStep, ClaimPlanning, ClaimTicket, ColumnDto, CreateTicket,
@@ -139,6 +145,7 @@ pub struct ApiState {
     pub person: Arc<nullradix_domain::Actor>,
     pub runs: Arc<RunService>,
     pub hooks: Arc<HookService>,
+    pub sessions: Arc<SessionService>,
     pub changes: Arc<dyn ChangeFeed>,
     pub signal: ChangeSignal,
     /// Cancelled when the daemon stops; long-lived responses end with it.
@@ -219,6 +226,9 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(runs::get_run))
         .routes(routes!(runs::cancel_run))
         .routes(routes!(runs::run_output))
+        .routes(routes!(sessions::list_sessions))
+        .routes(routes!(sessions::get_session))
+        .routes(routes!(sessions::list_ticket_sessions))
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events));
     let mut doc = ApiDoc::openapi();
@@ -462,7 +472,16 @@ pub(crate) mod tests {
             signal.clone(),
             std::time::Duration::from_millis(50),
         );
-        let hooks = Arc::new(HookService::new(store.clone(), Arc::new(SystemClock)));
+        let sessions = Arc::new(SessionService::new(
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let hooks = Arc::new(
+            HookService::new(store.clone(), Arc::new(SystemClock)).with_sessions(sessions.clone()),
+        );
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
@@ -476,6 +495,7 @@ pub(crate) mod tests {
             person: person.clone(),
             runs,
             hooks,
+            sessions,
             changes: changes.clone(),
             signal,
             shutdown: shutdown.clone(),

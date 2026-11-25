@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT w.path, wt.ticket_id AS \"ticket_id: Uuid\"\n               FROM worktrees w\n               JOIN worktree_tickets wt ON wt.worktree_id = w.id\n               JOIN tickets t ON t.id = wt.ticket_id\n               WHERE w.runner_id = ? AND w.desired_state = 'present'\n                 AND wt.released_at IS NULL AND t.status = 'in-progress'\n               ORDER BY w.created_at, wt.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "path",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "name": "ticket_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "ticket_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1a6fe4adc17bfc1aaaeb16444fb6c864ab57f02802e51f430311aefbe94f13dd"
+}

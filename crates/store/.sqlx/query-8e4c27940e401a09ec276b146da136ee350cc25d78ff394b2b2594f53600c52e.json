@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT feed_id AS \"feed_id: Uuid\" FROM claude_sessions WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "feed_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "feed_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8e4c27940e401a09ec276b146da136ee350cc25d78ff394b2b2594f53600c52e"
+}

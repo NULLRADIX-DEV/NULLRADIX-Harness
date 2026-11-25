@@ -35,6 +35,7 @@ pub enum EntityDto {
     Comment,
     Note,
     Question,
+    Session,
 }
 
 impl From<Entity> for EntityDto {
@@ -50,6 +51,7 @@ impl From<Entity> for EntityDto {
             Entity::Comment => Self::Comment,
             Entity::Note => Self::Note,
             Entity::Question => Self::Question,
+            Entity::Session => Self::Session,
         }
     }
 }

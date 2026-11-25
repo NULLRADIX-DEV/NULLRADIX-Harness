@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO claude_sessions (id, feed_id, repository_id, runner_id, number, cwd, state,\n                                   client, title, model, transcript_path, run_name, started_at,\n                                   last_event_at, ended_at, touched, version)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,\n                     (SELECT coalesce(max(touched), 0) + 1 FROM claude_sessions), ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 16
+    },
+    "nullable": []
+  },
+  "hash": "818e78ae690a3c8339c8feeac8c2650a235788dc214d6ac4b0b7cef7b7344bd7"
+}

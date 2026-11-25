@@ -7,6 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nullradix_domain::{HookError, HookEvent, Timestamp};
 
+use crate::sessions::SessionService;
 use crate::{AppError, Clock};
 
 #[async_trait]
@@ -40,6 +41,7 @@ pub fn invalid(error: &HookError) -> AppError {
 pub struct HookService {
     repository: Arc<dyn HookRepository>,
     clock: Arc<dyn Clock>,
+    sessions: Option<Arc<SessionService>>,
 }
 
 impl std::fmt::Debug for HookService {
@@ -51,12 +53,26 @@ impl std::fmt::Debug for HookService {
 impl HookService {
     #[must_use]
     pub fn new(repository: Arc<dyn HookRepository>, clock: Arc<dyn Clock>) -> Self {
-        Self { repository, clock }
+        Self {
+            repository,
+            clock,
+            sessions: None,
+        }
+    }
+
+    /// Also keeps the session of each event, in the write that records it.
+    #[must_use]
+    pub fn with_sessions(mut self, sessions: Arc<SessionService>) -> Self {
+        self.sessions = Some(sessions);
+        self
     }
 
     /// Records the event; a resend of the same event changes nothing.
     pub async fn receive(&self, event: &HookEvent) -> Result<HookReply, AppError> {
-        let new = self.repository.record(event, self.clock.now()).await?;
+        let new = match &self.sessions {
+            Some(sessions) => sessions.receive(event).await?,
+            None => self.repository.record(event, self.clock.now()).await?,
+        };
         if new {
             tracing::debug!(
                 kind = event.kind().as_str(),
@@ -71,11 +87,16 @@ impl HookService {
         self.repository.recent(limit).await
     }
 
-    /// Forgets events older than `keep`.
+    /// Forgets events older than `keep` and sessions a week after their end.
     pub async fn prune(&self, keep: Duration) -> Result<u64, AppError> {
         let keep = i64::try_from(keep.as_millis()).unwrap_or(i64::MAX);
         let before = Timestamp::from_millis(self.clock.now().as_millis().saturating_sub(keep));
-        self.repository.prune_before(before).await
+        let pruned = self.repository.prune_before(before).await?;
+        if let Some(sessions) = &self.sessions {
+            let sessions = sessions.prune().await?;
+            tracing::debug!(sessions, "old sessions removed");
+        }
+        Ok(pruned)
     }
 }
 

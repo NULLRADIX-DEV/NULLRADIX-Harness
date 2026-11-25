@@ -10,6 +10,7 @@ mod project;
 mod question;
 mod repository;
 mod run;
+mod session;
 pub mod step;
 mod text;
 mod ticket;
@@ -45,6 +46,11 @@ pub use repository::{
     RunnerName, RunnerOs, RunnerRecord,
 };
 pub use run::{Run, RunEnd, RunError, RunLabel, RunOutcome, RunRecord, RunStatus};
+pub use session::{
+    DisplayState, SESSION_RETENTION, SESSION_STALE, Session, SessionClient, SessionRecord,
+    SessionState, SessionView, Subagent, SubagentState, path_within, session_label,
+    session_prune_before, ticket_names, title_from_prompt,
+};
 pub use step::{STEP_MAX, Step, StepEdit, StepError};
 pub use text::{TextError, optional_text, required_text, utf16_len, utf16_prefix};
 pub use ticket::{

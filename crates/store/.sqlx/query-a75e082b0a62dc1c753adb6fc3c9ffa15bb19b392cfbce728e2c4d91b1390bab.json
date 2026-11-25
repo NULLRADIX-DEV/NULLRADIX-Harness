@@ -1,0 +1,194 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.id AS \"id!\", s.repository_id AS \"repository_id?: Uuid\",\n                  s.runner_id AS \"runner_id?: Uuid\", s.number, s.cwd, s.state, s.client, s.title,\n                  s.model, s.transcript_path, s.run_name, s.started_at, s.last_event_at,\n                  s.ended_at, s.version\n           FROM claude_sessions s\n           WHERE (?1 IS NULL OR s.repository_id = ?1)\n             AND (?2 IS NULL OR s.id IN (SELECT session_id FROM ticket_sessions\n                                         WHERE ticket_id = ?2))\n             AND (?3 IS NULL OR s.id = ?3)\n           ORDER BY s.last_event_at DESC, s.touched DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "repository_id?: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "repository_id"
+          }
+        }
+      },
+      {
+        "name": "runner_id?: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "runner_id"
+          }
+        }
+      },
+      {
+        "name": "number",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "cwd",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "cwd"
+          }
+        }
+      },
+      {
+        "name": "state",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "name": "client",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "client"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "model",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "name": "transcript_path",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "transcript_path"
+          }
+        }
+      },
+      {
+        "name": "run_name",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "run_name"
+          }
+        }
+      },
+      {
+        "name": "started_at",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "name": "last_event_at",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "last_event_at"
+          }
+        }
+      },
+      {
+        "name": "ended_at",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "ended_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 14,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "a75e082b0a62dc1c753adb6fc3c9ffa15bb19b392cfbce728e2c4d91b1390bab"
+}

@@ -15,6 +15,7 @@ mod project;
 mod question;
 mod run;
 mod selection;
+mod session;
 mod status;
 mod step;
 mod ticket;
@@ -78,6 +79,9 @@ enum Command {
     /// Keep findings for later tickets: add, count, list, promote and drop notes
     #[command(subcommand)]
     Note(note::NoteCommand),
+    /// List and show Claude Code sessions
+    #[command(subcommand)]
+    Session(session::SessionCommand),
     /// Run commands on the daemon's machine
     #[command(subcommand)]
     Run(run::RunCommand),
@@ -165,6 +169,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Plan(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             plan::run(command, &client, &choice(profile, cli.home.as_deref())?)
+        }
+        Command::Session(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            session::run(command, &client)
         }
         Command::Run(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

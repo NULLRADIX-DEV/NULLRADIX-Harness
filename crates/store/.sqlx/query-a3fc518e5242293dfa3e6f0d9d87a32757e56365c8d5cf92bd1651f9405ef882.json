@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS (SELECT 1 FROM ticket_sessions WHERE session_id = ?) AS \"linked!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "linked!: bool",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a3fc518e5242293dfa3e6f0d9d87a32757e56365c8d5cf92bd1651f9405ef882"
+}

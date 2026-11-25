@@ -1,0 +1,172 @@
+{
+  "title": "Hooks build a session in the repository of its folder, linked to its ticket",
+  "env": {
+    "NULLRADIX_TICKET": "ARC-0001",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "NULLRADIX_HOOK_DEADLINE_MS": "4500"
+  },
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "main": "json.id" }
+    },
+    {
+      "name": "init a repository",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git init",
+          "program": "git",
+          "args": ["init", "-q", "-b", "main", "arches"],
+          "cwd": "{{WORK}}",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": { "init": "json.id" }
+    },
+    {
+      "name": "initialized",
+      "wait": { "path": "/api/v1/runs/{{init}}", "field": "status", "equals": "succeeded" }
+    },
+    {
+      "name": "bind the board",
+      "cli": { "args": ["board", "repo", "{{main}}", "{{WORK}}/arches"] }
+    },
+    {
+      "name": "a ticket",
+      "cli": { "args": ["ticket", "create", "Fix the login"], "cwd": "{{WORK}}/arches" }
+    },
+    {
+      "name": "session start",
+      "cli": {
+        "args": ["hook", "session-start"],
+        "stdin": {
+          "session_id": "s-1",
+          "cwd": "{{WORK}}/arches",
+          "source": "startup",
+          "model": "fake-opus",
+          "transcript_path": "{{WORK}}/s-1.jsonl"
+        }
+      }
+    },
+    {
+      "name": "prompt",
+      "cli": {
+        "args": ["hook", "user-prompt"],
+        "stdin": {
+          "session_id": "s-1",
+          "cwd": "{{WORK}}/arches",
+          "prompt": "<system-reminder>context</system-reminder>Fix the login form please now and test it"
+        }
+      }
+    },
+    {
+      "name": "the repository is found",
+      "wait": { "path": "/api/v1/sessions/s-1", "field": "number", "equals": 1 }
+    },
+    {
+      "name": "running",
+      "http": { "method": "GET", "path": "/api/v1/sessions/s-1" }
+    },
+    {
+      "name": "asks for permission",
+      "cli": {
+        "args": ["hook", "notification"],
+        "stdin": {
+          "session_id": "s-1",
+          "cwd": "{{WORK}}/arches",
+          "notification_type": "permission_prompt",
+          "message": "Claude needs your permission"
+        }
+      }
+    },
+    {
+      "name": "waiting",
+      "cli": { "args": ["session", "list", "--state", "waiting"] }
+    },
+    {
+      "name": "a subagent starts",
+      "cli": {
+        "args": ["hook", "subagent-start"],
+        "stdin": {
+          "session_id": "s-1",
+          "cwd": "{{WORK}}/arches",
+          "agent_id": "agent-1",
+          "agent_type": "Explore"
+        }
+      }
+    },
+    {
+      "name": "with a running subagent",
+      "cli": { "args": ["session", "list"] }
+    },
+    {
+      "name": "the subagent stops",
+      "cli": {
+        "args": ["hook", "subagent-stop"],
+        "stdin": {
+          "session_id": "s-1",
+          "cwd": "{{WORK}}/arches",
+          "agent_id": "agent-1",
+          "agent_type": "Explore"
+        }
+      }
+    },
+    {
+      "name": "stop",
+      "cli": {
+        "args": ["hook", "stop"],
+        "stdin": { "session_id": "s-1", "cwd": "{{WORK}}/arches" }
+      }
+    },
+    {
+      "name": "end",
+      "cli": {
+        "args": ["hook", "session-end"],
+        "stdin": { "session_id": "s-1", "cwd": "{{WORK}}/arches", "reason": "exit" }
+      }
+    },
+    {
+      "name": "a session outside every checkout",
+      "cli": {
+        "args": ["hook", "session-start"],
+        "stdin": { "session_id": "s-2", "cwd": "{{WORK}}" }
+      }
+    },
+    {
+      "name": "all sessions",
+      "http": { "method": "GET", "path": "/api/v1/sessions" }
+    },
+    {
+      "name": "sessions of the ticket",
+      "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1/sessions" }
+    },
+    {
+      "name": "the ended session",
+      "cli": { "args": ["session", "show", "s-1"] }
+    },
+    {
+      "name": "an unknown session",
+      "cli": { "args": ["session", "show", "nope"] }
+    },
+    {
+      "name": "an unknown state",
+      "http": { "method": "GET", "path": "/api/v1/sessions?state=busy" }
+    }
+  ]
+}

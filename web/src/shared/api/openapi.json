@@ -3006,6 +3006,141 @@
         }
       }
     },
+    "/api/v1/sessions": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "list_sessions",
+        "parameters": [
+          {
+            "name": "repositoryId",
+            "in": "query",
+            "description": "Only sessions in this repository.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "`idle`, `running`, `waiting`, `ended` or `stale`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ticket",
+            "in": "query",
+            "description": "Only sessions linked to this ticket key.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The ticket does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid state or ticket key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{sessionId}": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "get_session",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets": {
       "get": {
         "tags": [
@@ -3996,6 +4131,63 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TicketDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/sessions": {
+      "get": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "list_ticket_sessions",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionList"
                 }
               }
             }
@@ -5295,6 +5487,17 @@
           }
         }
       },
+      "DisplayStateDto": {
+        "type": "string",
+        "description": "The state, or `stale` after 30 minutes without a hook.",
+        "enum": [
+          "idle",
+          "running",
+          "waiting",
+          "ended",
+          "stale"
+        ]
+      },
       "DropNote": {
         "type": "object",
         "properties": {
@@ -5317,7 +5520,8 @@
           "worktree",
           "comment",
           "note",
-          "question"
+          "question",
+          "session"
         ]
       },
       "FinishTicket": {
@@ -6782,6 +6986,188 @@
         },
         "additionalProperties": false
       },
+      "SessionClientDto": {
+        "type": "string",
+        "enum": [
+          "nullradix",
+          "claude-code",
+          "claude-desktop",
+          "unknown"
+        ]
+      },
+      "SessionDto": {
+        "type": "object",
+        "description": "A Claude Code session as its hooks reported it.",
+        "required": [
+          "id",
+          "label",
+          "cwd",
+          "state",
+          "displayState",
+          "listening",
+          "startedAt",
+          "lastEventAt",
+          "runtimeMs",
+          "client",
+          "subagents",
+          "tickets",
+          "version"
+        ],
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/SessionClientDto"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "displayState": {
+            "$ref": "#/components/schemas/DisplayStateDto"
+          },
+          "endedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "description": "Claude Code's session id."
+          },
+          "label": {
+            "type": "string",
+            "description": "Name to show, such as `SE-001: Fix the login`; may be empty."
+          },
+          "lastEventAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "listening": {
+            "type": "boolean",
+            "description": "Idle, running or waiting and not stale."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Per repository, once the repository is known.",
+            "minimum": 0
+          },
+          "repositoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Repository whose checkout holds the cwd; null outside every known checkout."
+          },
+          "runName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Run that started the session, for NULLRADIX sessions."
+          },
+          "runnerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "runtimeMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SessionStateDto"
+          },
+          "subagents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubagentDto"
+            }
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionTicketDto"
+            },
+            "description": "Linked tickets ordered by key."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transcriptPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SessionList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionDto"
+            },
+            "description": "Latest activity first."
+          }
+        }
+      },
+      "SessionStateDto": {
+        "type": "string",
+        "enum": [
+          "idle",
+          "running",
+          "waiting",
+          "ended"
+        ]
+      },
+      "SessionTicketDto": {
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "status"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatusDto"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "SetBoardRepository": {
         "type": "object",
         "description": "Points a board to the repository checked out at a folder on a runner.",
@@ -7001,6 +7387,45 @@
             "format": "int64"
           }
         }
+      },
+      "SubagentDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "state",
+          "startedAt"
+        ],
+        "properties": {
+          "endedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SubagentStateDto"
+          },
+          "type": {
+            "type": "string",
+            "description": "Agent type such as `Explore`."
+          }
+        }
+      },
+      "SubagentStateDto": {
+        "type": "string",
+        "enum": [
+          "running",
+          "ended"
+        ]
       },
       "SystemMarkerDto": {
         "type": "string",

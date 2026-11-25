@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT a.session_id, a.agent_id, a.agent_type, a.state, a.started_at, a.ended_at\n           FROM session_subagents a JOIN claude_sessions s ON s.id = a.session_id\n           WHERE (?1 IS NULL OR s.repository_id = ?1)\n             AND (?2 IS NULL OR s.id IN (SELECT session_id FROM ticket_sessions\n                                         WHERE ticket_id = ?2))\n             AND (?3 IS NULL OR s.id = ?3)\n           ORDER BY a.session_id, a.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "session_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "session_subagents",
+            "name": "session_id"
+          }
+        }
+      },
+      {
+        "name": "agent_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "session_subagents",
+            "name": "agent_id"
+          }
+        }
+      },
+      {
+        "name": "agent_type",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "session_subagents",
+            "name": "agent_type"
+          }
+        }
+      },
+      {
+        "name": "state",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "session_subagents",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "name": "started_at",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "session_subagents",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "name": "ended_at",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "session_subagents",
+            "name": "ended_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "7cdd2065355d027bbcb1e27bdaadb6659e0920a1636257d0a4e9ea563ed1e4c9"
+}
