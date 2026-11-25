@@ -9,7 +9,7 @@ use nullradix_domain::{
 };
 
 use crate::runs::RunnerPort;
-use crate::worktrees::{CreatedWorktree, NewWorktree};
+use crate::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
 use crate::{AppError, Change, ChangeSignal, Clock, ErrorKind, IdGenerator};
 
 /// Name of the runner on the daemon's own machine.
@@ -199,6 +199,29 @@ impl RunnerService {
         request: &NewWorktree,
     ) -> Result<CreatedWorktree, AppError> {
         self.port(runner).await?.create_worktree(request).await
+    }
+
+    pub(crate) async fn remove_worktree(
+        &self,
+        runner: Id<Runner>,
+        request: &RemoveWorktree,
+    ) -> Result<WorktreeRemoval, AppError> {
+        self.port(runner).await?.remove_worktree(request).await
+    }
+
+    /// Root of the repository's checkout on the runner, if it has one.
+    pub(crate) async fn root(
+        &self,
+        runner: Id<Runner>,
+        repository: Id<Repository>,
+    ) -> Result<Option<String>, AppError> {
+        let summaries = self.checkouts.list().await?;
+        Ok(summaries
+            .into_iter()
+            .filter(|summary| summary.repository.id() == repository)
+            .flat_map(|summary| summary.checkouts)
+            .find(|checkout| checkout.runner() == runner)
+            .map(|checkout| checkout.path().as_str().to_owned()))
     }
 
     pub(crate) async fn folders_exist(

@@ -158,7 +158,7 @@ fn root_of(common_dir: &str) -> String {
 }
 
 /// Comparable folder spelling: resolved, forward slashes, no trailing slash, lowercase on Windows.
-fn path_key(path: &Path, windows: bool) -> String {
+pub(crate) fn path_key(path: &Path, windows: bool) -> String {
     let full = real_path(path).unwrap_or_else(|| path.to_path_buf());
     let text = slashed(&full.to_string_lossy());
     let trimmed = text.trim_end_matches('/');

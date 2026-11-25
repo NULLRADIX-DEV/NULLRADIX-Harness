@@ -1,5 +1,6 @@
 //! Worktree records: legacy `worktrees.json` with the tickets each worktree served.
 
+mod finish;
 mod start;
 
 use async_trait::async_trait;
@@ -8,6 +9,7 @@ use nullradix_domain::{
     WorktreeTicket,
 };
 
+pub use finish::{Cleaned, DoneRequest, Finished};
 pub use start::{StartMode, Started, TargetCreated, WorktreeService};
 
 use crate::{AppError, Change};
@@ -30,6 +32,26 @@ pub struct CreatedWorktree {
     pub target_created_from: Option<String>,
     /// Whether `core.longpaths` was just switched on in the repository.
     pub long_paths_enabled: bool,
+}
+
+/// What the runner needs to remove a ready worktree; the branch always stays.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoveWorktree {
+    /// Main checkout, where git runs.
+    pub root: String,
+    pub path: String,
+    /// Folder of the caller; a worktree containing it stays.
+    pub cwd: String,
+}
+
+/// The runner's answer to a removal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorktreeRemoval {
+    Removed,
+    /// The folder stays; the reason says why.
+    Kept(String),
+    /// The folder is gone already; nothing is reported or recorded, as in legacy.
+    Missing,
 }
 
 /// A worktree with every ticket it ever served, in join order.
@@ -82,6 +104,32 @@ pub trait WorktreeWrite: Send {
         &mut self,
         ticket: Id<Ticket>,
     ) -> Result<Option<WorktreeEntry>, AppError>;
+    /// Writes the merge readiness; `None` when it was already so.
+    async fn set_ready(
+        &mut self,
+        worktree: Id<Worktree>,
+        ready: bool,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
+    /// Claims a present worktree for removal (desired absent); `None` when another cleanup has it.
+    async fn claim_removal(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
+    /// The runner removed the claimed folder: actual removed, no error.
+    async fn mark_removed(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
+    /// Releases the claim (desired present); a reason becomes the last error, a removed row stays.
+    async fn mark_kept(
+        &mut self,
+        worktree: Id<Worktree>,
+        reason: Option<&str>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
 }
 
 /// Reads of the registry; links change only with a ticket, through [`WorktreeWrite`].

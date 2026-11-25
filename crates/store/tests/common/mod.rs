@@ -7,7 +7,7 @@ use nullradix_app::repositories::{
     Located, RunnerService, not_a_git_project, path_missing, path_relative,
 };
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
-use nullradix_app::worktrees::{CreatedWorktree, NewWorktree};
+use nullradix_app::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
 use nullradix_app::{AppError, ChangeSignal, SystemClock, UuidV7Generator};
 use nullradix_domain::{Id, Run};
 use nullradix_store::Store;
@@ -63,6 +63,13 @@ impl RunnerPort for FolderRunner {
 
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError> {
         Ok(vec![false; paths.len()])
+    }
+
+    async fn remove_worktree(
+        &self,
+        _request: &RemoveWorktree,
+    ) -> Result<WorktreeRemoval, AppError> {
+        Err(AppError::unavailable("runner-failed", "runs nothing"))
     }
 }
 

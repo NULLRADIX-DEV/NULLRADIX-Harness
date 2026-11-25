@@ -44,7 +44,8 @@ pub use ticket_values::{
 pub use timestamp::Timestamp;
 pub use version::{InvalidVersion, Version};
 pub use worktree::{
-    ActualState, DesiredState, JoinCandidate, SetupState, WORKTREE_BRANCH_MAX, WORKTREE_PATH_MAX,
-    Worktree, WorktreeBranch, WorktreeDraft, WorktreeError, WorktreePath, WorktreePurpose,
-    WorktreeRecord, WorktreeTicket, pick_join, slug, ticket_branch, ticket_worktree_path,
+    ActualState, DesiredState, JoinCandidate, MERGE_REASON, SetupState, WORKTREE_BRANCH_MAX,
+    WORKTREE_PATH_MAX, Worktree, WorktreeBranch, WorktreeDraft, WorktreeError, WorktreePath,
+    WorktreePurpose, WorktreeRecord, WorktreeTicket, finished_for_merge, pick_join, ready_to_merge,
+    slug, ticket_branch, ticket_worktree_path,
 };

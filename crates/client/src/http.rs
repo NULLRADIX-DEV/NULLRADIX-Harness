@@ -3,11 +3,12 @@ use std::time::Duration;
 
 use nullradix_api::{
     API_PREFIX, API_VERSION, AcceptTicket, AddStep, BoardDeleted, BoardDto, BoardList, ChangeStep,
-    ClaimPlanning, ClaimTicket, CreateBoard, CreateProject, CreateTicket, Handoff, Health,
-    HookEventDto, HookEventList, HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning,
-    NextPlanningClaim, Problem, ProjectDto, ProjectList, ReleaseTicket, RenameBoard, RenameProject,
-    RepositoryList, RunDto, RunList, RunOutput, RunnerList, SetBoardRepository, StartRun,
-    StartTicket, StartedTicket, TicketDetailDto, TicketDto, TicketList, UpdateTicket, WritePlan,
+    ClaimPlanning, ClaimTicket, CreateBoard, CreateProject, CreateTicket, FinishTicket,
+    FinishedTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto,
+    MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, Problem, ProjectDto, ProjectList,
+    ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto, RunList, RunOutput,
+    RunnerList, SetBoardRepository, StartRun, StartTicket, StartedTicket, TicketDetailDto,
+    TicketDto, TicketList, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -449,6 +450,21 @@ impl Client {
         let mut response = self
             .agent
             .post(&self.url(&format!("/tickets/{key}/start")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    /// Moves the ticket to done, then marks its worktree ready and cleans up; never merges.
+    pub fn finish_ticket(
+        &self,
+        key: &str,
+        input: &FinishTicket,
+    ) -> Result<FinishedTicket, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/tickets/{key}/done")))
             .header("Authorization", &self.authorization()?)
             .send_json(input)
             .map_err(|source| self.unreachable(source))?;

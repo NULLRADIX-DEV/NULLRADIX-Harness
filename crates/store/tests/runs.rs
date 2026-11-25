@@ -11,7 +11,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nullradix_app::repositories::{Located, not_a_git_project};
 use nullradix_app::runs::{RunProgress, RunReport, RunRepository, RunService, RunSpec, RunnerPort};
-use nullradix_app::worktrees::{CreatedWorktree, NewWorktree};
+use nullradix_app::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
 use nullradix_app::{AppError, ChangeSignal, SystemClock, UuidV7Generator};
 use nullradix_domain::{Id, Run, RunEnd, RunLabel, RunOutcome, RunStatus, Timestamp};
 use nullradix_store::Store;
@@ -101,6 +101,13 @@ impl RunnerPort for ScriptedRunner {
 
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError> {
         Ok(vec![false; paths.len()])
+    }
+
+    async fn remove_worktree(
+        &self,
+        _request: &RemoveWorktree,
+    ) -> Result<WorktreeRemoval, AppError> {
+        Err(AppError::unavailable("runner-failed", "runs nothing"))
     }
 }
 

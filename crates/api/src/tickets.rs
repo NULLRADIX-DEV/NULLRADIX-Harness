@@ -761,7 +761,7 @@ pub(crate) async fn get_ticket(
     Ok(Json(state.tickets.get(&path.ticket_key).await?.into()))
 }
 
-fn writer(principal: &Principal, force: bool) -> WriteOptions {
+pub(crate) fn writer(principal: &Principal, force: bool) -> WriteOptions {
     WriteOptions {
         by_person: matches!(principal, Principal::Session { .. }),
         force,
@@ -1097,7 +1097,7 @@ pub(crate) async fn accept_ticket(
     ApiJson(input): ApiJson<AcceptTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
     let view = state
-        .tickets
+        .worktrees
         .accept(
             &path.ticket_key,
             &state.person,

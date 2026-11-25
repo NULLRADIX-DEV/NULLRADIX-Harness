@@ -31,7 +31,7 @@ async fn output(cwd: &Path, args: &[&str]) -> Result<Output, AppError> {
 }
 
 /// Trimmed standard output, or `git-failed` with the error output or exit code.
-async fn git(cwd: &Path, args: &[&str]) -> Result<String, AppError> {
+pub(crate) async fn git(cwd: &Path, args: &[&str]) -> Result<String, AppError> {
     let output = output(cwd, args).await?;
     if output.status.success() {
         return Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned());

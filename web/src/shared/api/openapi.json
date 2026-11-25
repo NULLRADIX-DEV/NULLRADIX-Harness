@@ -2422,6 +2422,95 @@
         }
       }
     },
+    "/api/v1/tickets/{ticketKey}/done": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "finish_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinishedTicket"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown ticket or runner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused by a lock or the board's repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticketKey}/move": {
       "post": {
         "tags": [
@@ -3510,6 +3599,34 @@
         },
         "additionalProperties": false
       },
+      "CleanedWorktree": {
+        "type": "object",
+        "description": "A ready worktree the cleanup removed or kept; its branch stays either way.",
+        "required": [
+          "path",
+          "branch",
+          "removed"
+        ],
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "keptBecause": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the folder stays."
+          },
+          "path": {
+            "type": "string",
+            "description": "Folder on the runner, with forward slashes."
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        }
+      },
       "ColumnDto": {
         "type": "string",
         "description": "A board column: the statuses plus waiting, which open dependencies derive.",
@@ -3651,6 +3768,74 @@
           "repository",
           "worktree"
         ]
+      },
+      "FinishTicket": {
+        "type": "object",
+        "description": "Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged.",
+        "required": [
+          "runnerId",
+          "cwd"
+        ],
+        "properties": {
+          "acceptance": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Acceptance criteria set in the same step; done needs them here or on the ticket."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Absolute folder in the board's repository; a worktree containing it stays."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Lifts the dependency, question and not-needed locks, never the acceptance lock."
+          },
+          "runnerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Version the change is based on; without one it checks none."
+          }
+        },
+        "additionalProperties": false
+      },
+      "FinishedTicket": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "readyToMerge",
+          "cleanup"
+        ],
+        "properties": {
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The ticket's branch, when it runs in a worktree."
+          },
+          "cleanup": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CleanedWorktree"
+            }
+          },
+          "readyToMerge": {
+            "type": "boolean",
+            "description": "Every ticket still on the branch is finished; nothing was merged."
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/TicketDto"
+          }
+        }
       },
       "Handoff": {
         "type": "object",
@@ -4522,11 +4707,19 @@
           "branch",
           "worktree",
           "joined",
-          "warnings"
+          "warnings",
+          "cleanup"
         ],
         "properties": {
           "branch": {
             "type": "string"
+          },
+          "cleanup": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CleanedWorktree"
+            },
+            "description": "Ready worktrees removed or kept before the start."
           },
           "joined": {
             "type": "boolean",
