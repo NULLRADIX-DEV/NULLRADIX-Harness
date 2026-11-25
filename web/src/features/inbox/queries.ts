@@ -79,18 +79,22 @@ export function useSaveOrder(boardId: string | null) {
   const queryClient = useQueryClient();
   const key = inboxKeys.list(boardId);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
+  // versions only grow, so the newest one this hook saw beats an older cached one
+  const latest = useRef(0);
   return useMutation({
     mutationKey: ORDER_MUTATION,
     mutationFn: (items: readonly InboxItem[]) => {
       const run = queue.current
         .catch(() => undefined)
         .then(async () => {
-          const version = queryClient.getQueryData<InboxList>(key)?.orderVersion ?? 1;
+          const cached = queryClient.getQueryData<InboxList>(key)?.orderVersion ?? 1;
+          const version = Math.max(cached, latest.current);
           const saved = unwrap(
             await api.PUT('/api/v1/me/inbox/order', {
               body: { items: items.map((item) => ({ type: item.type, key: item.key })), version },
             }),
           );
+          latest.current = Math.max(latest.current, saved.version);
           queryClient.setQueryData<InboxList>(key, (current) =>
             current ? { ...current, orderVersion: saved.version } : current,
           );
@@ -106,6 +110,8 @@ export function useSaveOrder(boardId: string | null) {
       return { before };
     },
     onError: (_error, _items, context) => {
+      // later queued saves still show their own moves; the final reload settles it
+      if (queryClient.isMutating({ mutationKey: ORDER_MUTATION }) > 1) return;
       if (context?.before) queryClient.setQueryData(key, context.before);
     },
     onSettled: () => {

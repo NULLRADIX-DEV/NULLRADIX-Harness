@@ -279,6 +279,31 @@ describe('InboxPage', () => {
     expect(api.requests(`GET ${INBOX}`).length).toBeGreaterThan(1);
   });
 
+  it('keeps the newest order version when a slow reload brings an older one', async () => {
+    const { api, model } = server();
+    renderApp('/inbox');
+    await screen.findByText('Which store?');
+    await streamOpen();
+    fireEvent.dragStart(rowAt(3), NO_DATA);
+    fireEvent.drop(rowAt(0));
+    await waitFor(() => {
+      expect(model.version).toBe(2);
+    });
+    // a reload that read the database before the save answers with the old version
+    api.set(`GET ${INBOX}`, () => json(200, list(model.items, 1)));
+    announce('ticket', 8);
+    await waitFor(() => {
+      expect(api.requests(`GET ${INBOX}`).length).toBeGreaterThan(2);
+    });
+    fireEvent.dragStart(rowAt(2), NO_DATA);
+    fireEvent.drop(rowAt(0));
+    await waitFor(() => {
+      expect(api.requests(`PUT ${ORDER}`)).toHaveLength(2);
+    });
+    expect((await sent(api.requests(`PUT ${ORDER}`)[1])).version).toBe(2);
+    expect(screen.queryByText(/The order was changed elsewhere/)).not.toBeInTheDocument();
+  });
+
   it('refetches when the change stream reports the saved order', async () => {
     const { api, model } = server();
     renderApp('/inbox');
