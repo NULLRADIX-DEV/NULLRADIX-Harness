@@ -104,7 +104,7 @@ fn free_rest(path: &Path) -> PathBuf {
     if !first.exists() {
         return first;
     }
-    (2..)
+    (2..=u32::MAX)
         .map(|number| named(format!(".rest-{number}")))
         .find(|candidate| !candidate.exists())
         .unwrap_or(first)
