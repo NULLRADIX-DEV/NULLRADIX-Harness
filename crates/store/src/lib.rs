@@ -8,6 +8,7 @@ mod error;
 mod hooks;
 mod notes;
 mod projects;
+mod questions;
 mod repositories;
 mod runs;
 mod tickets;

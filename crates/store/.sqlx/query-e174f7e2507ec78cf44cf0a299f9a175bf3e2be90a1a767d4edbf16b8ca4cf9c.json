@@ -1,0 +1,278 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT q.id AS \"id: Uuid\", p.key AS project_key, q.project_id AS \"project_id: Uuid\",\n                  q.number, q.title, q.description, q.state, q.occasion,\n                  q.origin_actor_id AS \"origin_actor_id: Uuid\", o.name AS origin_name,\n                  o.kind AS origin_kind, q.origin_session, q.decision_option, q.decision_text,\n                  q.decision_reason, q.decided_by AS \"decided_by: Uuid\",\n                  d.name AS \"decided_by_name?\", q.decided_at,\n                  q.created_by AS \"created_by: Uuid\", q.created_at, q.updated_at, q.version\n           FROM questions q\n           JOIN projects p ON p.id = q.project_id\n           JOIN actors o ON o.id = q.origin_actor_id\n           LEFT JOIN actors d ON d.id = q.decided_by\n           WHERE (?1 IS NULL OR q.project_id = ?1) AND (?2 IS NULL OR q.id = ?2)\n           ORDER BY q.number",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "project_key",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "project_id: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "project_id"
+          }
+        }
+      },
+      {
+        "name": "number",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "description",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "name": "state",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "name": "occasion",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "occasion"
+          }
+        }
+      },
+      {
+        "name": "origin_actor_id: Uuid",
+        "ordinal": 8,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "origin_actor_id"
+          }
+        }
+      },
+      {
+        "name": "origin_name",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "origin_kind",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "origin_session",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "origin_session"
+          }
+        }
+      },
+      {
+        "name": "decision_option",
+        "ordinal": 12,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "decision_option"
+          }
+        }
+      },
+      {
+        "name": "decision_text",
+        "ordinal": 13,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "decision_text"
+          }
+        }
+      },
+      {
+        "name": "decision_reason",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "decision_reason"
+          }
+        }
+      },
+      {
+        "name": "decided_by: Uuid",
+        "ordinal": 15,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "decided_by"
+          }
+        }
+      },
+      {
+        "name": "decided_by_name?",
+        "ordinal": 16,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "decided_at",
+        "ordinal": 17,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "decided_at"
+          }
+        }
+      },
+      {
+        "name": "created_by: Uuid",
+        "ordinal": 18,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 19,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 20,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 21,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e174f7e2507ec78cf44cf0a299f9a175bf3e2be90a1a767d4edbf16b8ca4cf9c"
+}

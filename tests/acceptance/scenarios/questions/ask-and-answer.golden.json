@@ -1,0 +1,709 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "board",
+      "use",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "the board to work on",
+    "stderr": "",
+    "stdout": "active board: <ID-2> Main\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Login page",
+      "--acceptance",
+      "Users can log in"
+    ],
+    "exitCode": 0,
+    "name": "ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Login page\n"
+  },
+  {
+    "cli": [
+      "question",
+      "add",
+      "Which store?",
+      "--ticket",
+      "arc-1",
+      "--option",
+      "File: one JSON file",
+      "--option",
+      "Db: SQLite next to the daemon",
+      "--recommend",
+      "O2",
+      "--tag",
+      "storage",
+      "--occasion",
+      "planning ARC-0001",
+      "--author",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "ask with options on the board's project",
+    "stderr": "",
+    "stdout": "Question ARC-Q0001 created: Which store?\n"
+  },
+  {
+    "name": "two recommended options are refused",
+    "request": {
+      "body": {
+        "options": [
+          {
+            "recommended": true,
+            "text": "warm",
+            "title": "Red"
+          },
+          {
+            "recommended": true,
+            "text": "cold",
+            "title": "Blue"
+          }
+        ],
+        "title": "Which colour?"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/questions"
+    },
+    "response": {
+      "json": {
+        "code": "research-recommended-multiple",
+        "detail": "at most one option of a round may be recommended",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:research-recommended-multiple"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "an agent asks over http inside its session",
+    "request": {
+      "body": {
+        "author": "claude",
+        "session": "s-1",
+        "title": "Keep the old login?"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/questions"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "question": {
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "decision": null,
+          "dependsOn": [],
+          "description": "",
+          "id": "<ID-4>",
+          "key": "ARC-Q0002",
+          "number": 2,
+          "occasion": null,
+          "optionCount": 0,
+          "originKind": "session",
+          "originName": "claude",
+          "originSession": "s-1",
+          "projectId": "<ID-1>",
+          "ready": true,
+          "researched": false,
+          "state": "open",
+          "tags": [],
+          "tickets": [],
+          "title": "Keep the old login?",
+          "updatedAt": "<TIME>",
+          "version": 1,
+          "waitingOn": []
+        },
+        "research": []
+      },
+      "location": "/api/v1/questions/ARC-Q0002",
+      "status": 201
+    }
+  },
+  {
+    "name": "the ticket shows the open question",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "Users can log in",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "backlog",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-5>",
+          "key": "ARC-0001",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 1,
+          "openQuestions": [
+            {
+              "key": "ARC-Q0001",
+              "title": "Which store?"
+            }
+          ],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Login page",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 1,
+          "waiting": false,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "move",
+      "ARC-1",
+      "in-progress"
+    ],
+    "exitCode": 1,
+    "name": "the open question holds the ticket back",
+    "stderr": "error: the daemon refused the request: questions about the ticket are still open: ARC-Q0001 (question-open)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "list the open questions",
+    "stderr": "",
+    "stdout": "  ARC-Q0001  Which store?  [ready] [2 options] -> ARC-0001\n  ARC-Q0002  Keep the old login?  [ready]\n"
+  },
+  {
+    "name": "an agent may not answer",
+    "request": {
+      "body": {
+        "author": "claude",
+        "option": "O2",
+        "session": "s-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q1/answer"
+    },
+    "response": {
+      "json": {
+        "code": "human-only",
+        "detail": "a person makes this decision; run it in the web UI or in an own terminal",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:human-only"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a session without a name is a session and may not answer",
+    "request": {
+      "body": {
+        "option": "O2",
+        "session": "s-2"
+      },
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q1/answer"
+    },
+    "response": {
+      "json": {
+        "code": "human-only",
+        "detail": "a person makes this decision; run it in the web UI or in an own terminal",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:human-only"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "question",
+      "answer",
+      "ARC-Q1",
+      "--option",
+      "O3"
+    ],
+    "exitCode": 1,
+    "name": "an unknown option is refused",
+    "stderr": "error: the daemon refused the request: option O3 is not one of the newest round (decision-option-unknown)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "answer",
+      "arc-q1",
+      "--option",
+      "O2",
+      "--reason",
+      "Fits the daemon"
+    ],
+    "exitCode": 0,
+    "name": "the person answers by option",
+    "stderr": "",
+    "stdout": "ARC-Q0001 answered: option O2 \"Db\" chosen. Reason: Fits the daemon\n"
+  },
+  {
+    "cli": [
+      "question",
+      "answer",
+      "ARC-Q1",
+      "--text",
+      "Files after all"
+    ],
+    "exitCode": 1,
+    "name": "answering twice is refused",
+    "stderr": "error: the daemon refused the request: question ARC-Q0001 is not open; reopen it first (question-state-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "move",
+      "ARC-1",
+      "in-progress"
+    ],
+    "exitCode": 0,
+    "name": "the ticket moves now",
+    "stderr": "",
+    "stdout": "ARC-0001 -> in-progress\n"
+  },
+  {
+    "cli": [
+      "question",
+      "comment",
+      "ARC-Q1",
+      "Done with SQLite",
+      "--author",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "comment",
+    "stderr": "",
+    "stdout": "Comment on ARC-Q0001 saved.\n"
+  },
+  {
+    "cli": [
+      "question",
+      "comment",
+      "ARC-Q1",
+      " "
+    ],
+    "exitCode": 1,
+    "name": "an empty comment is refused",
+    "stderr": "error: the daemon refused the request: the comment is empty (comment-empty)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "no open question is left",
+    "stderr": "",
+    "stdout": "  ARC-Q0002  Keep the old login?  [ready]\n"
+  },
+  {
+    "cli": [
+      "question",
+      "list",
+      "--state",
+      "answered",
+      "--ticket",
+      "ARC-1"
+    ],
+    "exitCode": 0,
+    "name": "list the answered ones",
+    "stderr": "",
+    "stdout": "  ARC-Q0001  Which store?  [answered] [2 options] -> ARC-0001\n"
+  },
+  {
+    "cli": [
+      "question",
+      "list",
+      "--state",
+      "offen"
+    ],
+    "exitCode": 1,
+    "name": "an unknown state is refused",
+    "stderr": "error: the daemon refused the request: state offen is unknown, allowed are open, answered and discarded (question-state-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "show",
+      "ARC-Q1"
+    ],
+    "exitCode": 0,
+    "name": "show",
+    "stderr": "",
+    "stdout": "ARC-Q0001  Which store?\nState: answered | version 3\nTags: storage\nAsked by: claude (person)\nOccasion: planning ARC-0001\nAbout: ARC-0001 Login page\nDepends on: -\nWaits on: -\n\n(no description)\n\nOptions:\n  O1: File - one JSON file\n  O2 (recommended): Db - SQLite next to the daemon\n\nDecision: option O2 \"Db\" chosen. Reason: Fits the daemon\n  by tester, <TIME>\n\nComments:\n  <TIME>  claude (person): Done with SQLite\n"
+  },
+  {
+    "name": "the detail over http",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/questions/ARC-Q1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-6>",
+            "authorKind": "human",
+            "authorName": "claude",
+            "body": "Done with SQLite",
+            "createdAt": "<TIME>",
+            "id": "<ID-7>",
+            "questionKey": "ARC-Q0001"
+          }
+        ],
+        "question": {
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "decision": {
+            "at": "<TIME>",
+            "autopilot": false,
+            "byName": "tester",
+            "option": "O2",
+            "reason": "Fits the daemon",
+            "text": null
+          },
+          "dependsOn": [],
+          "description": "",
+          "id": "<ID-8>",
+          "key": "ARC-Q0001",
+          "number": 1,
+          "occasion": "planning ARC-0001",
+          "optionCount": 2,
+          "originKind": "human",
+          "originName": "claude",
+          "originSession": null,
+          "projectId": "<ID-1>",
+          "ready": false,
+          "researched": true,
+          "state": "answered",
+          "tags": [
+            "storage"
+          ],
+          "tickets": [
+            {
+              "key": "ARC-0001",
+              "status": "in-progress",
+              "title": "Login page"
+            }
+          ],
+          "title": "Which store?",
+          "updatedAt": "<TIME>",
+          "version": 3,
+          "waitingOn": []
+        },
+        "research": [
+          {
+            "context": "",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "options": [
+              {
+                "cons": [],
+                "key": "O1",
+                "pros": [],
+                "recommended": false,
+                "text": "one JSON file",
+                "title": "File"
+              },
+              {
+                "cons": [],
+                "key": "O2",
+                "pros": [],
+                "recommended": true,
+                "text": "SQLite next to the daemon",
+                "title": "Db"
+              }
+            ]
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the list with counts over http",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/projects/<ID-1>/questions?state=all"
+    },
+    "response": {
+      "json": {
+        "counts": {
+          "answered": 1,
+          "discarded": 0,
+          "open": 1
+        },
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "createdById": "<ID-3>",
+            "decision": null,
+            "dependsOn": [],
+            "description": "",
+            "id": "<ID-4>",
+            "key": "ARC-Q0002",
+            "number": 2,
+            "occasion": null,
+            "optionCount": 0,
+            "originKind": "session",
+            "originName": "claude",
+            "originSession": "s-1",
+            "projectId": "<ID-1>",
+            "ready": true,
+            "researched": false,
+            "state": "open",
+            "tags": [],
+            "tickets": [],
+            "title": "Keep the old login?",
+            "updatedAt": "<TIME>",
+            "version": 1,
+            "waitingOn": []
+          },
+          {
+            "createdAt": "<TIME>",
+            "createdById": "<ID-3>",
+            "decision": {
+              "at": "<TIME>",
+              "autopilot": false,
+              "byName": "tester",
+              "option": "O2",
+              "reason": "Fits the daemon",
+              "text": null
+            },
+            "dependsOn": [],
+            "description": "",
+            "id": "<ID-8>",
+            "key": "ARC-Q0001",
+            "number": 1,
+            "occasion": "planning ARC-0001",
+            "optionCount": 2,
+            "originKind": "human",
+            "originName": "claude",
+            "originSession": null,
+            "projectId": "<ID-1>",
+            "ready": false,
+            "researched": true,
+            "state": "answered",
+            "tags": [
+              "storage"
+            ],
+            "tickets": [
+              {
+                "key": "ARC-0001",
+                "status": "in-progress",
+                "title": "Login page"
+              }
+            ],
+            "title": "Which store?",
+            "updatedAt": "<TIME>",
+            "version": 3,
+            "waitingOn": []
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "show",
+      "ARC-1",
+      "--history"
+    ],
+    "exitCode": 0,
+    "name": "the ticket history notes the answer",
+    "stderr": "",
+    "stdout": "ARC-0001  Login page\nStatus in-progress | Priority normal | version 2 | unassigned | needs planning\nAcceptance: Users can log in\n\n## History\n<TIME>  tester  status: backlog (created)\n<TIME>  tester  question: open -> answered (question answered: ARC-Q0001 \"Which store?\"; reason: Fits the daemon)\n<TIME>  tester  status: backlog -> in-progress (moved)\n"
+  },
+  {
+    "cli": [
+      "question",
+      "reopen",
+      "ARC-Q1",
+      "--reason",
+      "New facts"
+    ],
+    "exitCode": 0,
+    "name": "reopen with a reason",
+    "stderr": "",
+    "stdout": "ARC-Q0001 reopened.\n"
+  },
+  {
+    "cli": [
+      "question",
+      "reopen",
+      "ARC-Q1"
+    ],
+    "exitCode": 1,
+    "name": "reopening an open question is refused",
+    "stderr": "error: the daemon refused the request: question ARC-Q0001 is open already (question-state-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "discard",
+      "ARC-Q1"
+    ],
+    "exitCode": 1,
+    "name": "discarding needs a reason",
+    "stderr": "error: the daemon refused the request: give a reason (decision-reason-missing)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "discard",
+      "ARC-Q1",
+      "--reason",
+      "Solved elsewhere"
+    ],
+    "exitCode": 0,
+    "name": "discard with a reason",
+    "stderr": "",
+    "stdout": "ARC-Q0001 discarded.\n"
+  },
+  {
+    "cli": [
+      "question",
+      "discard",
+      "ARC-Q1",
+      "--reason",
+      "Again"
+    ],
+    "exitCode": 1,
+    "name": "discarding twice is refused",
+    "stderr": "error: the daemon refused the request: question ARC-Q0001 is not open; reopen it first (question-state-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "show",
+      "ARC-Q1"
+    ],
+    "exitCode": 0,
+    "name": "show keeps the earlier decision in a comment",
+    "stderr": "",
+    "stdout": "ARC-Q0001  Which store?\nState: discarded | version 5\nTags: storage\nAsked by: claude (person)\nOccasion: planning ARC-0001\nAbout: ARC-0001 Login page\nDepends on: -\nWaits on: -\n\n(no description)\n\nOptions:\n  O1: File - one JSON file\n  O2 (recommended): Db - SQLite next to the daemon\n\nDecision: discarded. Reason: Solved elsewhere\n  by tester, <TIME>\n\nComments:\n  <TIME>  claude (person): Done with SQLite\n  <TIME>  tester (person): Reopened. Reason: New facts. Earlier decision: option O2 \"Db\" chosen. Reason: Fits the daemon (tester)\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "show",
+      "ARC-1",
+      "--history"
+    ],
+    "exitCode": 0,
+    "name": "the ticket history names the reasons",
+    "stderr": "",
+    "stdout": "ARC-0001  Login page\nStatus in-progress | Priority normal | version 2 | unassigned | needs planning\nAcceptance: Users can log in\n\n## History\n<TIME>  tester  status: backlog (created)\n<TIME>  tester  question: open -> answered (question answered: ARC-Q0001 \"Which store?\"; reason: Fits the daemon)\n<TIME>  tester  status: backlog -> in-progress (moved)\n<TIME>  tester  question: answered -> open (question reopened: ARC-Q0001 \"Which store?\"; reason: New facts)\n<TIME>  tester  question: open -> discarded (question discarded: ARC-Q0001 \"Which store?\"; reason: Solved elsewhere)\n"
+  }
+]

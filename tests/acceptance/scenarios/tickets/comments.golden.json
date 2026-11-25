@@ -427,6 +427,7 @@
           "labels": [],
           "needsPlanning": true,
           "number": 1,
+          "openQuestions": [],
           "plan": "",
           "plannedAt": null,
           "plannedBy": null,

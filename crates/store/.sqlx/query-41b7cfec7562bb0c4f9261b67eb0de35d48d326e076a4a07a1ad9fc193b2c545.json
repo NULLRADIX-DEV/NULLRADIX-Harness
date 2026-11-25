@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT q.id AS \"id: Uuid\" FROM questions q\n               WHERE q.id IN (SELECT question_id FROM question_tickets WHERE ticket_id = ?1)\n                  OR q.id IN (SELECT question_id FROM question_dependencies\n                              WHERE depends_on_ticket_id = ?1)\n               ORDER BY q.project_id, q.number",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "41b7cfec7562bb0c4f9261b67eb0de35d48d326e076a4a07a1ad9fc193b2c545"
+}

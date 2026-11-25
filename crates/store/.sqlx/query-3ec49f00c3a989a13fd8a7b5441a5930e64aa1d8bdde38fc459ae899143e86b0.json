@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.ticket_id AS \"ticket_id: Uuid\", p.key AS project_key, q.number, q.title\n           FROM question_tickets l\n           JOIN questions q ON q.id = l.question_id\n           JOIN projects p ON p.id = q.project_id\n           JOIN tickets t ON t.id = l.ticket_id\n           WHERE q.state = 'open'\n             AND (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)\n             AND (?3 IS NULL OR t.id = ?3)\n           ORDER BY l.ticket_id, p.key, q.number",
+  "describe": {
+    "columns": [
+      {
+        "name": "ticket_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_tickets",
+            "name": "ticket_id"
+          }
+        }
+      },
+      {
+        "name": "project_key",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "number",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "title"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3ec49f00c3a989a13fd8a7b5441a5930e64aa1d8bdde38fc459ae899143e86b0"
+}

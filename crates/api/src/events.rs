@@ -34,6 +34,7 @@ pub enum EntityDto {
     Worktree,
     Comment,
     Note,
+    Question,
 }
 
 impl From<Entity> for EntityDto {
@@ -48,6 +49,7 @@ impl From<Entity> for EntityDto {
             Entity::Worktree => Self::Worktree,
             Entity::Comment => Self::Comment,
             Entity::Note => Self::Note,
+            Entity::Question => Self::Question,
         }
     }
 }

@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.id AS \"id: Uuid\", r.question_id AS \"question_id: Uuid\",\n                  r.actor_id AS \"actor_id: Uuid\", r.context, r.created_at\n           FROM question_research r\n           JOIN questions q ON q.id = r.question_id\n           WHERE (?1 IS NULL OR q.project_id = ?1) AND (?2 IS NULL OR q.id = ?2)\n           ORDER BY r.question_id, r.created_at, r.rowid",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_research",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "question_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_research",
+            "name": "question_id"
+          }
+        }
+      },
+      {
+        "name": "actor_id: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_research",
+            "name": "actor_id"
+          }
+        }
+      },
+      {
+        "name": "context",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "question_research",
+            "name": "context"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "question_research",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a90356460d6491038d15cef1126bb09e53cf74b0d1f908b7ac858ab5d3d34719"
+}

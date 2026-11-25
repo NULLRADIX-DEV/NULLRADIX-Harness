@@ -11,6 +11,7 @@ pub mod hooks;
 mod ids;
 pub mod notes;
 pub mod projects;
+pub mod questions;
 pub mod repositories;
 pub mod runs;
 pub mod tickets;

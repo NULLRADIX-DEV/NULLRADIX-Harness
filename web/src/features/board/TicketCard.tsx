@@ -55,6 +55,14 @@ export function TicketCard({ ticket, onOpen }: { ticket: Ticket; onOpen: (key: s
         <span className="chips">
           {ticket.assignee && <span className="badge">@{ticket.assignee}</span>}
           {ticket.needsPlanning && <span className="badge waiting">Planning</span>}
+          {ticket.openQuestions.length > 0 && (
+            <span
+              className="badge waiting"
+              title={ticket.openQuestions.map((question) => question.key).join(', ')}
+            >
+              Question
+            </span>
+          )}
           {ticket.plan.trim() !== '' && <span className="badge">Plan</span>}
           {ticket.handbook.trim() !== '' && <span className="badge">Handbook</span>}
           {ticket.diagram.trim() !== '' && <span className="badge">Diagram</span>}

@@ -12,6 +12,7 @@ use nullradix_app::comments::CommentService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
+use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::tickets::TicketService;
@@ -106,6 +107,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         boards: board.boards,
         tickets: board.tickets,
         comments: board.comments,
+        questions: board.questions,
         worktrees: board.worktrees,
         notes: board.notes,
         runners,
@@ -154,6 +156,7 @@ struct BoardServices {
     boards: Arc<BoardService>,
     tickets: Arc<TicketService>,
     comments: Arc<CommentService>,
+    questions: Arc<QuestionService>,
     worktrees: Arc<WorktreeService>,
     notes: Arc<NoteService>,
     /// The person every token and browser session acts for.
@@ -193,6 +196,15 @@ async fn start_board(
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
+    let questions = Arc::new(QuestionService::new(
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
     let worktrees = Arc::new(WorktreeService::new(
         Arc::clone(&tickets),
         Arc::new(store.clone()),
@@ -215,6 +227,7 @@ async fn start_board(
         boards,
         tickets,
         comments,
+        questions,
         worktrees,
         notes,
         person: Arc::new(person),

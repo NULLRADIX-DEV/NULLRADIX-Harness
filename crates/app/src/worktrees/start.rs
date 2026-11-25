@@ -98,11 +98,16 @@ impl std::fmt::Debug for WorktreeService {
 }
 
 /// The in-progress locks; a ticket already in progress passes.
-fn check_start(ticket: &Ticket, open: Vec<TicketKey>, force: bool) -> Result<(), AppError> {
+fn check_start(
+    ticket: &Ticket,
+    open: Vec<TicketKey>,
+    questions: Vec<String>,
+    force: bool,
+) -> Result<(), AppError> {
     let facts = StatusFacts {
         acceptance_blank: false,
         open_dependencies: open,
-        open_questions: Vec::new(),
+        open_questions: questions,
     };
     let request = StatusRequest {
         by_person: false,
@@ -160,7 +165,12 @@ impl WorktreeService {
         let ticket = view.ticket;
         let place = self.place(&ticket, runner, cwd).await?;
         refuse_started(&ticket)?;
-        check_start(&ticket, view.depends_open, force)?;
+        let questions = view
+            .open_questions
+            .iter()
+            .map(|question| question.key.to_string())
+            .collect();
+        check_start(&ticket, view.depends_open, questions, force)?;
         let cleanup = self.cleanup(&place).await?;
         let link = match mode {
             StartMode::New => Link::New { warning: None },
@@ -416,9 +426,11 @@ async fn fresh(
     let ticket = tickets::load(write, key, None).await?;
     refuse_started(&ticket)?;
     let index = write.dependency_index().await?;
+    let questions = tickets::open_question_keys(write, ticket.id()).await?;
     check_start(
         &ticket,
         index.open_dependencies(&ticket.record().depends_on),
+        questions,
         force,
     )?;
     Ok(ticket)

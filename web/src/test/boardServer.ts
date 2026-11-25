@@ -71,6 +71,7 @@ export function ticket(overrides: Partial<Ticket> = {}): Ticket {
     unlocks: [],
     stepsDone: 0,
     stepsTotal: 0,
+    openQuestions: [],
     ...overrides,
   };
 }

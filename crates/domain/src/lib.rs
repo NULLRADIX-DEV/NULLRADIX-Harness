@@ -7,6 +7,7 @@ mod hook;
 mod id;
 mod note;
 mod project;
+mod question;
 mod repository;
 mod run;
 pub mod step;
@@ -22,7 +23,7 @@ pub use board_rules::{
     DependencyIndex, LABEL_MAX, RuleError, display_order, normalize_dependencies, normalize_labels,
     validate_dependencies,
 };
-pub use comment::{Comment, CommentBody, CommentError, CommentRecord, SystemMarker};
+pub use comment::{Comment, CommentBody, CommentError, CommentOn, CommentRecord, SystemMarker};
 pub use hook::{HookDetails, HookError, HookEvent, HookKind, SessionRef};
 pub use id::{Id, ParseIdError};
 pub use note::{
@@ -31,6 +32,13 @@ pub use note::{
     similar_notes,
 };
 pub use project::{Project, ProjectError, ProjectKey, ProjectName};
+pub use question::{
+    AUTOPILOT_PREFIX, AnswerInput, Choice, Decision, DecisionError, OCCASION_MAX, OPTION_TITLE_MAX,
+    OPTIONS_MAX, OptionDraft, QUESTION_TITLE_MAX, Question, QuestionDraft, QuestionError,
+    QuestionKey, QuestionOption, QuestionRecord, QuestionRef, QuestionState, QuestionTitle,
+    Research, ResearchError, SESSION_MAX, describe, number_options, occasion, reopen_note, session,
+    ticket_note,
+};
 pub use repository::{
     CHECKOUT_PATH_MAX, Checkout, CheckoutPath, CheckoutRecord, REPOSITORY_NAME_MAX,
     RUNNER_NAME_MAX, Repository, RepositoryError, RepositoryName, RepositoryRecord, Runner,

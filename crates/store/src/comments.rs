@@ -1,9 +1,10 @@
 use async_trait::async_trait;
 use nullradix_app::comments::{CommentLine, CommentRepository, CommentWrite};
+use nullradix_app::questions::QuestionComment;
 use nullradix_app::{AppError, Change, ChangeOp, Entity};
 use nullradix_domain::{
-    ActorKind, Comment, CommentBody, CommentRecord, Id, ProjectKey, SystemMarker, Ticket,
-    TicketKey, Timestamp, Version,
+    ActorKind, Comment, CommentBody, CommentOn, CommentRecord, Id, ProjectKey, SystemMarker,
+    Ticket, TicketKey, Timestamp, Version,
 };
 use sqlx::SqliteConnection;
 use uuid::Uuid;
@@ -37,6 +38,29 @@ impl Row {
     fn into_line(self) -> Result<CommentLine, StoreError> {
         let project = ProjectKey::parse(&self.project_key).map_err(|_| corrupt("project key"))?;
         let number = u32::try_from(self.number).map_err(|_| corrupt("ticket number"))?;
+        let subject = CommentOn::Ticket(Id::from_uuid(self.ticket_id));
+        let (comment, author_name, author_kind) = self.into_comment(subject)?;
+        Ok(CommentLine {
+            comment,
+            ticket_key: TicketKey::new(project, number),
+            author_name,
+            author_kind,
+        })
+    }
+
+    fn into_question_comment(self) -> Result<QuestionComment, StoreError> {
+        let key = crate::questions::question_key(&self.project_key, self.number)?;
+        let subject = CommentOn::Question(Id::from_uuid(self.ticket_id));
+        let (comment, author_name, author_kind) = self.into_comment(subject)?;
+        Ok(QuestionComment {
+            comment,
+            question_key: key,
+            author_name,
+            author_kind,
+        })
+    }
+
+    fn into_comment(self, subject: CommentOn) -> Result<(Comment, String, ActorKind), StoreError> {
         let system_marker = self
             .system_marker
             .map(|marker| marker.parse::<SystemMarker>())
@@ -44,7 +68,7 @@ impl Row {
             .map_err(|_| corrupt("system marker"))?;
         let record = CommentRecord {
             id: Id::from_uuid(self.id),
-            ticket: Id::from_uuid(self.ticket_id),
+            subject,
             author: Id::from_uuid(self.author_id),
             body: CommentBody::parse(&self.body).map_err(|_| corrupt("comment body"))?,
             system_marker,
@@ -54,15 +78,11 @@ impl Row {
             updated_at: Timestamp::from_millis(self.updated_at),
             version: Version::from_stored(self.version),
         };
-        Ok(CommentLine {
-            comment: Comment::restore(record),
-            ticket_key: TicketKey::new(project, number),
-            author_name: self.author_name,
-            author_kind: self
-                .author_kind
-                .parse::<ActorKind>()
-                .map_err(|_| corrupt("actor kind"))?,
-        })
+        let kind = self
+            .author_kind
+            .parse::<ActorKind>()
+            .map_err(|_| corrupt("actor kind"))?;
+        Ok((Comment::restore(record), self.author_name, kind))
     }
 }
 
@@ -74,7 +94,7 @@ pub(crate) async fn ticket_comments(
 ) -> Result<Vec<CommentLine>, StoreError> {
     let rows = sqlx::query_as!(
         Row,
-        r#"SELECT c.id AS "id: Uuid", c.ticket_id AS "ticket_id: Uuid", p.key AS project_key,
+        r#"SELECT c.id AS "id: Uuid", c.ticket_id AS "ticket_id!: Uuid", p.key AS project_key,
                   t.number, c.author_id AS "author_id: Uuid", a.name AS author_name,
                   a.kind AS author_kind, c.body, c.system_marker, c.run_id AS "run_id: Uuid",
                   c.delivered_to_agent_at, c.created_at, c.updated_at, c.version
@@ -92,12 +112,40 @@ pub(crate) async fn ticket_comments(
     rows.into_iter().map(Row::into_line).collect()
 }
 
+/// Comments of the question oldest first; `ticket_id` of the row carries the question id.
+pub(crate) async fn question_comments(
+    connection: &mut SqliteConnection,
+    question: Uuid,
+) -> Result<Vec<QuestionComment>, StoreError> {
+    let rows = sqlx::query_as!(
+        Row,
+        r#"SELECT c.id AS "id: Uuid", c.question_id AS "ticket_id!: Uuid",
+                  p.key AS project_key, q.number, c.author_id AS "author_id: Uuid",
+                  a.name AS author_name, a.kind AS author_kind, c.body, c.system_marker,
+                  c.run_id AS "run_id: Uuid", c.delivered_to_agent_at, c.created_at,
+                  c.updated_at, c.version
+           FROM comments c
+           JOIN questions q ON q.id = c.question_id
+           JOIN projects p ON p.id = q.project_id
+           JOIN actors a ON a.id = c.author_id
+           WHERE c.question_id = ?1
+           ORDER BY c.created_at, c.rid"#,
+        question,
+    )
+    .fetch_all(connection)
+    .await?;
+    rows.into_iter().map(Row::into_question_comment).collect()
+}
+
 #[async_trait]
 impl CommentWrite for Write {
     async fn insert_comment(&mut self, comment: &Comment) -> Result<Change, AppError> {
         let record = comment.record();
         let id = record.id.as_uuid();
-        let ticket = record.ticket.as_uuid();
+        let (ticket, question) = match record.subject {
+            CommentOn::Ticket(id) => (Some(id.as_uuid()), None),
+            CommentOn::Question(id) => (None, Some(id.as_uuid())),
+        };
         let author = record.author.as_uuid();
         let marker = record.system_marker.map(SystemMarker::as_str);
         let run = record.run.map(|run| run.as_uuid());
@@ -106,11 +154,12 @@ impl CommentWrite for Write {
         let updated_at = record.updated_at.as_millis();
         let version = record.version.value();
         sqlx::query!(
-            "INSERT INTO comments (id, ticket_id, author_id, body, system_marker, run_id,
-                                   delivered_to_agent_at, created_at, updated_at, version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO comments (id, ticket_id, question_id, author_id, body, system_marker,
+                                   run_id, delivered_to_agent_at, created_at, updated_at, version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             id,
             ticket,
+            question,
             author,
             record.body.as_str(),
             marker,

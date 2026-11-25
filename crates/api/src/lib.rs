@@ -11,6 +11,7 @@ mod host;
 mod notes;
 mod problem;
 mod projects;
+mod questions;
 mod repositories;
 mod runs;
 mod tickets;
@@ -33,6 +34,7 @@ use nullradix_app::comments::CommentService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
+use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::tickets::TicketService;
@@ -62,6 +64,12 @@ pub use notes::{
 };
 pub use problem::{ApiError, Problem, SimilarNoteDto};
 pub use projects::{CreateProject, ProjectDto, ProjectList, RenameProject};
+pub use questions::{
+    AddQuestionComment, AnswerQuestion, CreateQuestion, DecideQuestion, DecisionDto, NewOption,
+    OpenQuestionDto, OptionDto, QuestionCommentDto, QuestionCommentList, QuestionCounts,
+    QuestionDetailDto, QuestionDto, QuestionList, QuestionStateDto, QuestionTicketDto, ResearchDto,
+    WaitingDto,
+};
 pub use repositories::{
     CheckoutDto, RepositoryDto, RepositoryList, RunnerDto, RunnerList, RunnerOsDto,
 };
@@ -123,6 +131,7 @@ pub struct ApiState {
     pub boards: Arc<BoardService>,
     pub tickets: Arc<TicketService>,
     pub comments: Arc<CommentService>,
+    pub questions: Arc<QuestionService>,
     pub worktrees: Arc<WorktreeService>,
     pub notes: Arc<NoteService>,
     pub runners: Arc<RunnerService>,
@@ -180,6 +189,18 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(comments::list_comments, comments::add_comment))
         .routes(routes!(tickets::change_step, tickets::remove_step))
         .routes(routes!(tickets::move_step))
+        .routes(routes!(
+            questions::list_questions,
+            questions::create_question
+        ))
+        .routes(routes!(questions::get_question))
+        .routes(routes!(questions::answer_question))
+        .routes(routes!(questions::discard_question))
+        .routes(routes!(questions::reopen_question))
+        .routes(routes!(
+            questions::list_question_comments,
+            questions::add_question_comment
+        ))
         .routes(routes!(tickets::claim_ticket))
         .routes(routes!(worktrees::start_ticket))
         .routes(routes!(worktrees::finish_ticket))
@@ -318,16 +339,19 @@ pub(crate) mod tests {
         test_api_with_web(None).await
     }
 
+    type TicketServices = (
+        Arc<TicketService>,
+        Arc<CommentService>,
+        Arc<QuestionService>,
+        Arc<WorktreeService>,
+        Arc<NoteService>,
+    );
+
     fn ticket_services(
         store: &Arc<Store>,
         runners: &Arc<RunnerService>,
         signal: &ChangeSignal,
-    ) -> (
-        Arc<TicketService>,
-        Arc<CommentService>,
-        Arc<WorktreeService>,
-        Arc<NoteService>,
-    ) {
+    ) -> TicketServices {
         let tickets = Arc::new(TicketService::new(
             store.clone(),
             store.clone(),
@@ -336,6 +360,15 @@ pub(crate) mod tests {
             signal.clone(),
         ));
         let comments = Arc::new(CommentService::new(
+            store.clone(),
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let questions = Arc::new(QuestionService::new(
+            store.clone(),
             store.clone(),
             store.clone(),
             store.clone(),
@@ -361,7 +394,7 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        (tickets, comments, worktrees, notes)
+        (tickets, comments, questions, worktrees, notes)
     }
 
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
@@ -409,7 +442,8 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        let (tickets, comments, worktrees, notes) = ticket_services(&store, &runners, &signal);
+        let (tickets, comments, questions, worktrees, notes) =
+            ticket_services(&store, &runners, &signal);
         let person = Arc::new(
             nullradix_app::boards::local_person(
                 store.as_ref(),
@@ -435,6 +469,7 @@ pub(crate) mod tests {
             boards: boards.clone(),
             tickets,
             comments,
+            questions,
             worktrees,
             notes,
             runners: runners.clone(),

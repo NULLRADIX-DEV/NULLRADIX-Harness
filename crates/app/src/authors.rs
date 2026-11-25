@@ -43,6 +43,8 @@ pub(crate) async fn resolve(
     person: &Actor,
 ) -> Result<Actor, AppError> {
     let named = author.name.filter(|name| !name.trim().is_empty());
+    // legacy context.actor: a session without a name writes under the person's name
+    let named = named.or_else(|| author.in_session().then(|| person.name().as_str()));
     let (Some(name), false) = (named, author.by_person) else {
         return Ok(person.clone());
     };
