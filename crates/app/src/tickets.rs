@@ -345,7 +345,7 @@ fn broken_rule(error: &RuleError) -> AppError {
     AppError::invalid(code, error.to_string())
 }
 
-fn locked(error: &StatusLock) -> AppError {
+pub(crate) fn locked(error: &StatusLock) -> AppError {
     let code = match error {
         StatusLock::NotNeededByPeople => "not-needed-human-only",
         StatusLock::AcceptanceMissing => "acceptance-missing",
@@ -483,6 +483,11 @@ impl TicketService {
             ids,
             signal,
         }
+    }
+
+    /// Where writes begin, for use cases that change tickets together with other records.
+    pub(crate) fn repository(&self) -> &dyn TicketRepository {
+        self.repository.as_ref()
     }
 
     /// Creates a ticket at the end of its column, checking in the order legacy checked.
@@ -1200,7 +1205,7 @@ impl TicketService {
         self.get(&key.to_string()).await
     }
 
-    fn history(
+    pub(crate) fn history(
         &self,
         before: &Ticket,
         after: &Ticket,
@@ -1224,7 +1229,7 @@ fn optional_status(text: Option<&str>) -> Result<Option<TicketStatus>, AppError>
 }
 
 /// The ticket with this key, which must still have `expected` when one is given.
-async fn load(
+pub(crate) async fn load(
     write: &mut dyn TicketWrite,
     key: &TicketKey,
     expected: Option<Version>,

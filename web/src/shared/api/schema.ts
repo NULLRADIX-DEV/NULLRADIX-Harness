@@ -516,6 +516,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticketKey}/steps": {
         parameters: {
             query?: never;
@@ -951,6 +967,29 @@ export interface components {
             /** Format: int64 */
             timeoutSeconds?: number | null;
         };
+        /** @description Starts a ticket from a folder on a runner; `joinTicket` and `join` exclude each other. */
+        StartTicket: {
+            /** @description Absolute folder in the board's repository; without a target the branch starts at its HEAD. */
+            cwd: string;
+            /** @description Lifts the dependency and question locks. */
+            force?: boolean;
+            /** @description Joins the first open worktree with the same target, else creates one. */
+            join?: boolean;
+            /** @description Joins this ticket's worktree; a different target gives a warning and an own worktree. */
+            joinTicket?: string | null;
+            /** Format: uuid */
+            runnerId: string;
+        };
+        StartedTicket: {
+            branch: string;
+            /** @description The ticket joined an existing worktree. */
+            joined: boolean;
+            targetCreated?: components["schemas"]["TargetCreatedDto"] | null;
+            ticket: components["schemas"]["TicketDto"];
+            warnings: string[];
+            /** @description Folder of the worktree on the runner, with forward slashes. */
+            worktree: string;
+        };
         /** @description A work step; numbers count from 1. */
         StepDto: {
             detail?: string | null;
@@ -965,6 +1004,11 @@ export interface components {
         StreamPosition: {
             /** Format: int64 */
             seq: number;
+        };
+        TargetCreatedDto: {
+            branch: string;
+            /** @description Such as `origin/release`, or the branch or commit of the main checkout. */
+            from: string;
         };
         TicketDetailDto: {
             /** @description Oldest first. */
@@ -3152,6 +3196,76 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    start_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartTicket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartedTicket"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket, host ticket or runner */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The ticket changed meanwhile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Refused by a start rule, a lock or git */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner is not connected */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

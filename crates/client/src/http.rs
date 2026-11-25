@@ -7,7 +7,7 @@ use nullradix_api::{
     HookEventDto, HookEventList, HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning,
     NextPlanningClaim, Problem, ProjectDto, ProjectList, ReleaseTicket, RenameBoard, RenameProject,
     RepositoryList, RunDto, RunList, RunOutput, RunnerList, SetBoardRepository, StartRun,
-    TicketDetailDto, TicketDto, TicketList, UpdateTicket, WritePlan,
+    StartTicket, StartedTicket, TicketDetailDto, TicketDto, TicketList, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -440,6 +440,21 @@ impl Client {
         decode(&mut response, 200)
     }
 
+    /// Starts the ticket in a worktree; `key` must be a ticket key as for [`Client::get_ticket`].
+    pub fn start_ticket(
+        &self,
+        key: &str,
+        input: &StartTicket,
+    ) -> Result<StartedTicket, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/tickets/{key}/start")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
     pub fn claim_ticket(&self, key: &str, input: &ClaimTicket) -> Result<TicketDto, ClientError> {
         self.ticket_action(key, "claim", input)
     }
@@ -682,6 +697,15 @@ mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let worktrees = Arc::new(nullradix_app::worktrees::WorktreeService::new(
+            tickets.clone(),
+            store.clone(),
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
         let person = nullradix_app::boards::local_person(
             store.as_ref(),
             "tester",
@@ -695,6 +719,7 @@ mod tests {
             projects,
             boards,
             tickets,
+            worktrees,
             runners,
             person: Arc::new(person),
             runs,

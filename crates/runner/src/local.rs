@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::repositories::Located;
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
+use nullradix_app::worktrees::{CreatedWorktree, NewWorktree};
 use nullradix_domain::{Id, Run};
 use nullradix_os::{spawn_detached, write_atomic};
 
@@ -128,6 +129,14 @@ impl RunnerPort for LocalRunner {
 
     async fn locate(&self, path: &str) -> Result<Located, AppError> {
         crate::git::locate(path).await
+    }
+
+    async fn create_worktree(&self, request: &NewWorktree) -> Result<CreatedWorktree, AppError> {
+        crate::worktree::create(request).await
+    }
+
+    async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError> {
+        crate::worktree::folders_exist(paths).await
     }
 }
 

@@ -13,6 +13,7 @@ mod repositories;
 mod runs;
 mod tickets;
 mod web;
+mod worktrees;
 
 use std::future::Future;
 use std::io;
@@ -31,6 +32,7 @@ use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::tickets::TicketService;
+use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -64,6 +66,7 @@ pub use tickets::{
     NextPlanningClaim, PriorityDto, ReleaseTicket, StepDto, TicketDetailDto, TicketDto, TicketList,
     TicketStatusDto, UpdateTicket, WritePlan,
 };
+pub use worktrees::{StartTicket, StartedTicket, TargetCreatedDto};
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
 pub const API_VERSION: u32 = 1;
@@ -109,6 +112,7 @@ pub struct ApiState {
     pub projects: Arc<ProjectService>,
     pub boards: Arc<BoardService>,
     pub tickets: Arc<TicketService>,
+    pub worktrees: Arc<WorktreeService>,
     pub runners: Arc<RunnerService>,
     /// The person every token and browser session acts for.
     pub person: Arc<nullradix_domain::Actor>,
@@ -164,6 +168,7 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(tickets::change_step, tickets::remove_step))
         .routes(routes!(tickets::move_step))
         .routes(routes!(tickets::claim_ticket))
+        .routes(routes!(worktrees::start_ticket))
         .routes(routes!(tickets::release_ticket))
         .routes(routes!(tickets::accept_ticket))
         .routes(routes!(tickets::write_plan))
@@ -284,6 +289,7 @@ pub(crate) mod tests {
         pub(crate) auth: Arc<AuthService>,
         pub(crate) projects: Arc<ProjectService>,
         pub(crate) boards: Arc<BoardService>,
+        pub(crate) runners: Arc<RunnerService>,
         pub(crate) person: Arc<nullradix_domain::Actor>,
         pub(crate) changes: Arc<dyn ChangeFeed>,
         pub(crate) shutdown: CancellationToken,
@@ -291,6 +297,30 @@ pub(crate) mod tests {
 
     pub(crate) async fn test_api() -> TestApi {
         test_api_with_web(None).await
+    }
+
+    fn ticket_services(
+        store: &Arc<Store>,
+        runners: &Arc<RunnerService>,
+        signal: &ChangeSignal,
+    ) -> (Arc<TicketService>, Arc<WorktreeService>) {
+        let tickets = Arc::new(TicketService::new(
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let worktrees = Arc::new(WorktreeService::new(
+            tickets.clone(),
+            store.clone(),
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        (tickets, worktrees)
     }
 
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
@@ -338,13 +368,7 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        let tickets = Arc::new(TicketService::new(
-            store.clone(),
-            store.clone(),
-            Arc::new(SystemClock),
-            Arc::new(UuidV7Generator),
-            signal.clone(),
-        ));
+        let (tickets, worktrees) = ticket_services(&store, &runners, &signal);
         let person = Arc::new(
             nullradix_app::boards::local_person(
                 store.as_ref(),
@@ -369,7 +393,8 @@ pub(crate) mod tests {
             projects: projects.clone(),
             boards: boards.clone(),
             tickets,
-            runners,
+            worktrees,
+            runners: runners.clone(),
             person: person.clone(),
             runs,
             hooks,
@@ -386,6 +411,7 @@ pub(crate) mod tests {
             auth,
             projects,
             boards,
+            runners,
             person,
             changes,
             shutdown,

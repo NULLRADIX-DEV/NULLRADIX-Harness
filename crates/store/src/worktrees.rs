@@ -217,6 +217,48 @@ async fn release(
     }
 }
 
+async fn retire(
+    connection: &mut SqliteConnection,
+    repository: Id<Repository>,
+    runner: Id<Runner>,
+    branch: &WorktreeBranch,
+    at: Timestamp,
+) -> Result<Option<Change>, AppError> {
+    let repository = repository.as_uuid();
+    let runner = runner.as_uuid();
+    let branch = branch.as_str();
+    let millis = at.as_millis();
+    let retired = sqlx::query_scalar!(
+        r#"UPDATE worktrees
+           SET desired_state = 'absent', actual_state = 'removed', observed_at = ?1,
+               updated_at = ?1, version = version + 1
+           WHERE repository_id = ?2 AND runner_id = ?3 AND branch = ?4
+             AND (actual_state <> 'removed' OR desired_state = 'present')
+           RETURNING id AS "id: Uuid""#,
+        millis,
+        repository,
+        runner,
+        branch,
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(database)?;
+    let Some(id) = retired else {
+        return Ok(None);
+    };
+    sqlx::query!(
+        "UPDATE worktree_tickets SET released_at = ? WHERE worktree_id = ? AND released_at IS NULL",
+        millis,
+        id,
+    )
+    .execute(&mut *connection)
+    .await
+    .map_err(database)?;
+    Ok(Some(
+        change_feed::record(connection, Entity::Worktree, id, ChangeOp::Update, at).await?,
+    ))
+}
+
 async fn entry(
     connection: &mut SqliteConnection,
     id: Uuid,
@@ -321,6 +363,16 @@ impl WorktreeWrite for Write {
         at: Timestamp,
     ) -> Result<Option<Change>, AppError> {
         release(&mut self.0, ticket, at).await
+    }
+
+    async fn retire_branch(
+        &mut self,
+        repository: Id<Repository>,
+        runner: Id<Runner>,
+        branch: &WorktreeBranch,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        retire(&mut self.0, repository, runner, branch, at).await
     }
 
     async fn live_worktree(

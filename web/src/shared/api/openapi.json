@@ -2768,6 +2768,95 @@
         }
       }
     },
+    "/api/v1/tickets/{ticketKey}/start": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "start_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartTicket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartedTicket"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown ticket, host ticket or runner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The ticket changed meanwhile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused by a start rule, a lock or git",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticketKey}/steps": {
       "post": {
         "tags": [
@@ -4392,6 +4481,83 @@
         },
         "additionalProperties": false
       },
+      "StartTicket": {
+        "type": "object",
+        "description": "Starts a ticket from a folder on a runner; `joinTicket` and `join` exclude each other.",
+        "required": [
+          "runnerId",
+          "cwd"
+        ],
+        "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Absolute folder in the board's repository; without a target the branch starts at its HEAD."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Lifts the dependency and question locks."
+          },
+          "join": {
+            "type": "boolean",
+            "description": "Joins the first open worktree with the same target, else creates one."
+          },
+          "joinTicket": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Joins this ticket's worktree; a different target gives a warning and an own worktree."
+          },
+          "runnerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StartedTicket": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "branch",
+          "worktree",
+          "joined",
+          "warnings"
+        ],
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "joined": {
+            "type": "boolean",
+            "description": "The ticket joined an existing worktree."
+          },
+          "targetCreated": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TargetCreatedDto",
+                "description": "A missing target branch the start created."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/TicketDto"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "worktree": {
+            "type": "string",
+            "description": "Folder of the worktree on the runner, with forward slashes."
+          }
+        }
+      },
       "StepDto": {
         "type": "object",
         "description": "A work step; numbers count from 1.",
@@ -4435,6 +4601,22 @@
           "seq": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "TargetCreatedDto": {
+        "type": "object",
+        "required": [
+          "branch",
+          "from"
+        ],
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "description": "Such as `origin/release`, or the branch or commit of the main checkout."
           }
         }
       },
