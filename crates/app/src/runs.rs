@@ -1,12 +1,19 @@
 //! Processes the daemon runs on a runner and watches until they finish.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use nullradix_domain::{Id, Run, RunEnd, RunError, RunLabel, RunOutcome, Version};
+use nullradix_domain::{
+    DeniedTool, DispatchRun, Id, Run, RunEnd, RunError, RunKind, RunLabel, RunOutcome, RunResult,
+    Screenshot, Timestamp, Version,
+};
 use strum::{EnumString, IntoStaticStr};
+use uuid::Uuid;
+
+use crate::dispatch::stream::{ClaudeOutput, Ending, classify};
 
 use crate::repositories::Located;
 use crate::session_detail::{
@@ -18,6 +25,15 @@ use crate::worktrees::{
 };
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
+/// Changes to the environment a run inherits from the runner.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunEnv {
+    pub set: BTreeMap<String, String>,
+    pub remove: Vec<String>,
+    /// Set only when the runner's environment has no value of its own.
+    pub defaults: BTreeMap<String, String>,
+}
+
 /// What to execute; the runner owns how.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunSpec {
@@ -25,6 +41,11 @@ pub struct RunSpec {
     pub args: Vec<String>,
     pub cwd: PathBuf,
     pub timeout: Option<Duration>,
+    pub env: RunEnv,
+    /// Written to the program's input, which is closed afterwards.
+    pub stdin: Option<String>,
+    /// The program speaks Claude's stream-json; the runner reads usage and screenshots from it.
+    pub claude: bool,
 }
 
 impl RunSpec {
@@ -66,14 +87,23 @@ pub struct OutputLine {
     pub text: String,
 }
 
+/// What the runner read from the output of a Claude run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClaudeReport {
+    pub output: ClaudeOutput,
+    pub screenshots: Vec<Screenshot>,
+}
+
 /// The final word of the runner about a run.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RunReport {
     pub outcome: RunOutcome,
     pub end: RunEnd,
+    /// Present when the spec said the program speaks Claude's stream-json.
+    pub claude: Option<ClaudeReport>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RunProgress {
     /// Output after the requested sequence number, oldest first.
     pub lines: Vec<OutputLine>,
@@ -118,14 +148,59 @@ pub trait RunnerPort: Send + Sync {
     async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError>;
 }
 
+/// A file a run left on its runner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunArtifact {
+    pub id: Uuid,
+    pub screenshot: Screenshot,
+    pub created_at: Timestamp,
+}
+
+/// Rows that belong to a finished run and are written with it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunDetails {
+    pub denied: Vec<DeniedTool>,
+    pub artifacts: Vec<RunArtifact>,
+}
+
+/// What a run list is narrowed to; every set field must match.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunFilter {
+    /// Ticket or question key, upper case.
+    pub subject_key: Option<String>,
+    pub kind: Option<RunKind>,
+    /// Runs of this Claude session or with this run id.
+    pub link: Option<RunLink>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunLink {
+    pub claude_session: String,
+    pub run: Option<Id<Run>>,
+}
+
 #[async_trait]
 pub trait RunRepository: Send + Sync {
     async fn insert(&self, run: &Run) -> Result<Change, AppError>;
-    async fn update(&self, run: &Run, expected: Version) -> Result<Change, AppError>;
+    async fn update(&self, run: &Run, expected: Version) -> Result<Change, AppError> {
+        self.update_with(run, expected, &RunDetails::default())
+            .await
+    }
+    /// Like `update`, also writing the denied tools and artifacts of the run in one step.
+    async fn update_with(
+        &self,
+        run: &Run,
+        expected: Version,
+        details: &RunDetails,
+    ) -> Result<Change, AppError>;
     async fn get(&self, id: Id<Run>) -> Result<Option<Run>, AppError>;
     /// Newest first.
     async fn list(&self, limit: u32) -> Result<Vec<Run>, AppError>;
+    /// Newest first, narrowed by the filter.
+    async fn find(&self, filter: &RunFilter, limit: u32) -> Result<Vec<Run>, AppError>;
     async fn active(&self) -> Result<Vec<Run>, AppError>;
+    async fn denied_tools(&self, id: Id<Run>) -> Result<Vec<DeniedTool>, AppError>;
+    async fn artifacts(&self, id: Id<Run>) -> Result<Vec<RunArtifact>, AppError>;
 }
 
 #[must_use]
@@ -178,12 +253,31 @@ impl RunService {
         })
     }
 
-    /// Records the run first, so a crash during the start leaves a trace instead of an orphan.
+    /// The id a run will get, for settings that name it before it starts.
+    #[must_use]
+    pub fn next_id(&self) -> Id<Run> {
+        self.ids.as_ref().next()
+    }
+
     pub async fn start(self: &Arc<Self>, label: &str, spec: &RunSpec) -> Result<Run, AppError> {
+        self.start_planned(self.next_id(), label, spec, None).await
+    }
+
+    /// Records the run first, so a crash during the start leaves a trace instead of an orphan.
+    pub async fn start_planned(
+        self: &Arc<Self>,
+        id: Id<Run>,
+        label: &str,
+        spec: &RunSpec,
+        dispatch: Option<DispatchRun>,
+    ) -> Result<Run, AppError> {
         let label = RunLabel::parse(label).map_err(|error| transition(&error))?;
         spec.validate()?;
         self.runner.check(spec).await?;
-        let run = Run::new(self.ids.as_ref().next(), label, self.clock.now());
+        let mut run = Run::new(id, label, self.clock.now());
+        if let Some(dispatch) = dispatch {
+            run = run.with_dispatch(dispatch);
+        }
         self.save_new(&run).await?;
         match self.runner.start(run.id(), spec).await {
             Ok(pid) => {
@@ -217,6 +311,18 @@ impl RunService {
 
     pub async fn list(&self, limit: u32) -> Result<Vec<Run>, AppError> {
         self.repository.list(limit).await
+    }
+
+    pub async fn find(&self, filter: &RunFilter, limit: u32) -> Result<Vec<Run>, AppError> {
+        self.repository.find(filter, limit).await
+    }
+
+    pub async fn denied_tools(&self, id: Id<Run>) -> Result<Vec<DeniedTool>, AppError> {
+        self.repository.denied_tools(id).await
+    }
+
+    pub async fn artifacts(&self, id: Id<Run>) -> Result<Vec<RunArtifact>, AppError> {
+        self.repository.artifacts(id).await
     }
 
     pub async fn cancel(&self, id: Id<Run>) -> Result<Run, AppError> {
@@ -284,13 +390,69 @@ impl RunService {
             // the supervisor writes the report just before it exits, so look once more
             (None, false) => self.runner.progress(id, i64::MAX, 0).await?.report,
         };
-        let next = match report {
-            Some(report) => run.finished(report.outcome, report.end, self.clock.now()),
-            None => run.lost(self.clock.now()),
-        }
-        .map_err(|error| transition(&error))?;
-        self.save(&next, run.version()).await?;
+        let (next, details) = match report {
+            Some(report) => self.finish(&run, report),
+            None => (run.lost(self.clock.now()), RunDetails::default()),
+        };
+        let next = next.map_err(|error| transition(&error))?;
+        let change = self
+            .repository
+            .update_with(&next, run.version(), &details)
+            .await?;
+        self.signal.notify(&change);
         Ok(true)
+    }
+
+    /// The finished run with what the dispatcher learned from Claude's output.
+    fn finish(&self, run: &Run, report: RunReport) -> (Result<Run, RunError>, RunDetails) {
+        let now = self.clock.now();
+        let (Some(dispatch), Some(claude)) = (run.dispatch(), report.claude) else {
+            return (
+                run.finished(report.outcome, report.end, now),
+                RunDetails::default(),
+            );
+        };
+        let mut output = claude.output;
+        if output.error_text.is_empty()
+            && let Some(error) = report.end.error.as_deref()
+        {
+            error.clone_into(&mut output.error_text);
+        }
+        let abort = (report.outcome != RunOutcome::Cancelled)
+            .then(|| {
+                classify(
+                    &Ending {
+                        timed_out: report.outcome == RunOutcome::TimedOut,
+                        exit_code: report.end.exit_code,
+                        max_turns: dispatch.profile.max_turns,
+                        timeout_minutes: dispatch.profile.timeout_minutes,
+                    },
+                    &output,
+                )
+            })
+            .flatten();
+        let result = RunResult {
+            session_id: output.session_id.clone(),
+            denied_count: output.denied_count(),
+            usage: output.usage.clone(),
+            abort,
+        };
+        let details = RunDetails {
+            denied: output.denied,
+            artifacts: claude
+                .screenshots
+                .into_iter()
+                .map(|screenshot| RunArtifact {
+                    id: self.ids.next_uuid(),
+                    screenshot,
+                    created_at: now,
+                })
+                .collect(),
+        };
+        (
+            run.finished_with(report.outcome, report.end, Some(result), now),
+            details,
+        )
     }
 
     async fn save_new(&self, run: &Run) -> Result<(), AppError> {
@@ -330,6 +492,9 @@ mod tests {
             args: Vec::new(),
             cwd: std::env::temp_dir(),
             timeout: Some(Duration::from_secs(1)),
+            env: RunEnv::default(),
+            stdin: None,
+            claude: false,
         };
         assert!(valid.validate().is_ok());
         let cases = [

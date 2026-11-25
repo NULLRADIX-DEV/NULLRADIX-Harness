@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO run_artifacts\n                (id, run_id, kind, file, media_type, bytes, tool_use_id, created_at)\n             VALUES (?, ?, 'screenshot', ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "8815fe29194fa94d39e6b758ca2f5373222ae28e87aa7ac5d9f57755bb76fd81"
+}

@@ -18,8 +18,26 @@ fn main() -> ExitCode {
     }
     let mut prompt = String::new();
     let _ = io::stdin().read_to_string(&mut prompt);
-    let mode = env::var("FAKE_CLAUDE_MODE").unwrap_or_else(|_| String::from("ok"));
+    let mode = marker(&prompt)
+        .or_else(|| env::var("FAKE_CLAUDE_MODE").ok())
+        .unwrap_or_else(|| String::from("ok"));
     match mode.as_str() {
+        "usage" => {
+            usage_run(&ticket());
+            ExitCode::SUCCESS
+        }
+        "usage-limit" => usage_limit(),
+        "max-turns" => max_turns(),
+        "denied" => {
+            denied();
+            ExitCode::SUCCESS
+        }
+        "edit" => edit(),
+        // a stream that starts and never ends, for timeouts
+        "hang" => {
+            write(lines(&[init_event()]).as_bytes());
+            sleep_forever()
+        }
         // runs until stopped, for timeouts and cancels
         "sleep" => sleep_forever(),
         "fail" => {
@@ -53,6 +71,107 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
     }
+}
+
+/// `[fake-claude:mode]` in the prompt picks the behaviour of one run over the environment.
+fn marker(prompt: &str) -> Option<String> {
+    let (_, rest) = prompt.split_once("[fake-claude:")?;
+    let (mode, _) = rest.split_once(']')?;
+    (!mode.is_empty()).then(|| mode.to_owned())
+}
+
+fn init_event() -> Value {
+    json!({ "type": "system", "subtype": "init", "model": "fake-opus", "session_id": "fake-session-1" })
+}
+
+/// The result event of a run that cost money; tokens and costs are fixed so tests can name them.
+fn usage_result(subtype: &str, is_error: bool, denials: &Value) -> Value {
+    json!({
+        "type": "result", "subtype": subtype, "is_error": is_error, "num_turns": 7,
+        "duration_ms": 61000, "total_cost_usd": 0.4321, "session_id": "fake-session-1",
+        "result": "done",
+        "usage": {
+            "input_tokens": 1200, "output_tokens": 340,
+            "cache_read_input_tokens": 9000, "cache_creation_input_tokens": 150
+        },
+        "modelUsage": {
+            "fake-haiku": { "inputTokens": 10, "outputTokens": 2, "costUSD": 0.01 },
+            "fake-opus": {
+                "inputTokens": 1190, "outputTokens": 338, "cacheReadInputTokens": 9000,
+                "cacheCreationInputTokens": 150, "costUSD": 0.4221
+            }
+        },
+        "permission_denials": denials
+    })
+}
+
+fn working_events(ticket: &str) -> Vec<Value> {
+    vec![
+        init_event(),
+        json!({
+            "type": "assistant", "session_id": "fake-session-1",
+            "message": { "content": [
+                { "type": "text", "text": format!("Working on {ticket}.") },
+                {
+                    "type": "tool_use", "id": "toolu_1", "name": "Bash",
+                    "input": { "command": format!("nullradix ticket show {ticket}") },
+                },
+            ] }
+        }),
+        json!({
+            "type": "user", "session_id": "fake-session-1",
+            "message": { "content": [{ "type": "tool_result", "tool_use_id": "toolu_1", "content": "ok" }] }
+        }),
+    ]
+}
+
+/// A clean run: a short stream and a result with cost, tokens and models.
+fn usage_run(ticket: &str) {
+    let mut events = working_events(ticket);
+    events.push(usage_result("success", false, &json!([])));
+    write(lines(&events).as_bytes());
+}
+
+/// Claude Code stops at the usage limit: an error result that says so and exit 1.
+fn usage_limit() -> ExitCode {
+    let mut events = vec![init_event()];
+    events.push(json!({
+        "type": "result", "subtype": "success", "is_error": true, "num_turns": 1,
+        "result": "Claude AI usage limit reached|1760000000", "session_id": "fake-session-1"
+    }));
+    write(lines(&events).as_bytes());
+    ExitCode::FAILURE
+}
+
+fn max_turns() -> ExitCode {
+    let mut events = working_events(&ticket());
+    events.push(usage_result("error_max_turns", true, &json!([])));
+    write(lines(&events).as_bytes());
+    ExitCode::FAILURE
+}
+
+/// A clean run that Claude Code refused two tool calls in.
+fn denied() {
+    let denials = json!([
+        { "tool_name": "Bash", "tool_input": { "command": "git push origin main" } },
+        { "tool_name": "Bash", "tool_input": { "command": "git push origin main" } },
+        { "tool_name": "Write", "tool_input": { "file_path": "/etc/hosts" } },
+    ]);
+    let mut events = working_events(&ticket());
+    events.push(usage_result("success", false, &denials));
+    write(lines(&events).as_bytes());
+}
+
+/// Changes a file in the working folder like Claude resolving a conflict, then ends cleanly.
+fn edit() -> ExitCode {
+    let file = std::path::Path::new("edited.txt");
+    if std::fs::write(file, format!("edited for {}\n", ticket())).is_err() {
+        return ExitCode::FAILURE;
+    }
+    let mut events = working_events(&ticket());
+    events.push(usage_result("success", false, &json!([])));
+    write(lines(&events).as_bytes());
+    ExitCode::SUCCESS
 }
 
 fn ticket() -> String {

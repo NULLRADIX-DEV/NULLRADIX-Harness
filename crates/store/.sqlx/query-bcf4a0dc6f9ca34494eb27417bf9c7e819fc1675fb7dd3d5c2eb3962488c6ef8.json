@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT tool, count FROM run_denied_tools WHERE run_id = ? ORDER BY count DESC, tool",
+  "describe": {
+    "columns": [
+      {
+        "name": "tool",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "run_denied_tools",
+            "name": "tool"
+          }
+        }
+      },
+      {
+        "name": "count",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "run_denied_tools",
+            "name": "count"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "bcf4a0dc6f9ca34494eb27417bf9c7e819fc1675fb7dd3d5c2eb3962488c6ef8"
+}

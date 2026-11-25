@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_app::AppError;
+use nullradix_app::dispatch::runs::RunFilesPort;
 use nullradix_app::repositories::Located;
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
 use nullradix_app::session_detail::{
@@ -18,7 +19,7 @@ use nullradix_app::worktrees::{
 use nullradix_domain::{Id, Run};
 use nullradix_os::{spawn_detached, write_atomic};
 
-use crate::protocol::{RunFiles, SpecFile, read_output, read_report, supervisor_alive};
+use crate::protocol::{EnvFile, RunFiles, SpecFile, read_output, read_report, supervisor_alive};
 use crate::transcript::{TranscriptRoots, Transcripts};
 
 /// How the runner starts the supervisor: a program plus leading arguments, the run dir follows.
@@ -105,6 +106,13 @@ impl RunnerPort for LocalRunner {
             timeout_ms: spec
                 .timeout
                 .map(|timeout| u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX)),
+            env: EnvFile {
+                set: spec.env.set.clone(),
+                remove: spec.env.remove.clone(),
+                defaults: spec.env.defaults.clone(),
+            },
+            stdin: spec.stdin.clone(),
+            claude: spec.claude,
         };
         let supervisor = self.supervisor.clone();
         blocking(move || {
@@ -197,11 +205,37 @@ impl RunnerPort for LocalRunner {
     }
 }
 
+/// A screenshot file name is one plain segment, so it cannot leave the run folder.
+fn plain_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        && !name.starts_with('.')
+}
+
+#[async_trait]
+impl RunFilesPort for LocalRunner {
+    async fn read_screenshot(&self, run: Id<Run>, file: &str) -> Result<Option<Vec<u8>>, AppError> {
+        if !plain_file_name(file) {
+            return Ok(None);
+        }
+        let path = self.files(run).artifacts().join(file);
+        blocking(move || match fs::read(path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        })
+        .await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use nullradix_app::ErrorKind;
+    use nullradix_app::runs::RunEnv;
 
     use super::*;
 
@@ -221,6 +255,9 @@ mod tests {
             args: Vec::new(),
             cwd,
             timeout: Some(Duration::from_secs(1)),
+            env: RunEnv::default(),
+            stdin: None,
+            claude: false,
         }
     }
 

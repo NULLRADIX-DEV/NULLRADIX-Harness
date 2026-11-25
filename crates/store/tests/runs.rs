@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nullradix_app::repositories::{Located, not_a_git_project};
-use nullradix_app::runs::{RunProgress, RunReport, RunRepository, RunService, RunSpec, RunnerPort};
+use nullradix_app::runs::{
+    RunEnv, RunProgress, RunReport, RunRepository, RunService, RunSpec, RunnerPort,
+};
 use nullradix_app::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
     TranscriptSource, TranscriptSummary, change_not_found,
@@ -42,6 +44,7 @@ impl ScriptedRunner {
                 exit_code: Some(exit_code),
                 error: None,
             },
+            claude: None,
         };
         self.runs.lock().unwrap().insert(id, (Some(report), false));
     }
@@ -175,6 +178,9 @@ fn spec() -> RunSpec {
         args: vec![String::from("hi")],
         cwd: std::env::temp_dir(),
         timeout: None,
+        env: RunEnv::default(),
+        stdin: None,
+        claude: false,
     }
 }
 

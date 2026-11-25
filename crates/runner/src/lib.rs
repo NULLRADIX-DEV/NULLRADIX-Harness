@@ -5,6 +5,7 @@ mod claude_login;
 mod cleanup;
 mod ensure;
 mod git;
+mod launch;
 mod local;
 mod login_process;
 mod protocol;

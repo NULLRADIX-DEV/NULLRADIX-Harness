@@ -5,6 +5,7 @@ mod board;
 mod board_rules;
 mod comment;
 mod customization;
+mod dispatch_run;
 mod dispatcher_config;
 mod favorite;
 mod hook;
@@ -39,6 +40,10 @@ pub use customization::{
     Base, BaseState, ExtensionPoint, Finding, FrontMatter, OVERLAY_CONTENT_MAX, OVERLAY_NAME_MAX,
     Overlay, OverlayError, OverlayKind, OverlayName, OverlayRecord, OverlayState, base_state,
     check_front_matter, overlay_content, overlay_state,
+};
+pub use dispatch_run::{
+    Abort, AbortCategory, DeniedTool, DispatchRun, ModelUsage, RunKind, RunProfile, RunResult,
+    RunTrigger, RunUsage, Screenshot,
 };
 pub use dispatcher_config::{
     AccountStrategy, AnsweredQuestion, AutopilotSettings, ClaudeSettings, ConfigError,
