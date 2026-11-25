@@ -30,7 +30,7 @@ fn create(path: &Path, private: bool) -> io::Result<File> {
     let file = options.open(path)?;
     #[cfg(windows)]
     if private {
-        crate::windows::restrict_to_owner(path)?;
+        crate::windows::restrict_to_current_user(path)?;
     }
     Ok(file)
 }
@@ -49,7 +49,7 @@ pub fn create_private_dir(dir: &Path) -> io::Result<()> {
     #[cfg(windows)]
     {
         fs::create_dir_all(dir)?;
-        crate::windows::restrict_to_owner(dir)
+        crate::windows::restrict_to_current_user(dir)
     }
 }
 

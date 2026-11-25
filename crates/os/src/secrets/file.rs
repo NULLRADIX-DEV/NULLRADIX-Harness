@@ -185,20 +185,25 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn the_file_and_its_folder_allow_only_the_owner() {
+    fn the_file_and_its_folder_belong_to_the_current_user_alone() {
         let (dir, secrets) = store();
         secrets.put("a", "one").unwrap();
         secrets.put("a", "two").unwrap();
+        let user = crate::windows::UserSid::current().unwrap();
+        let sid = user.text();
+        assert!(sid.starts_with("S-1-5-"), "{sid}");
         let folder = dir.path().join("data").join("secrets");
         for path in [folder.clone(), folder.join("secrets.json")] {
             let acl = crate::windows::dacl_sddl(&path).unwrap();
-            // protected, so nothing is inherited, with one entry that gives the owner full access
-            assert!(acl.starts_with("D:P"), "{acl}");
+            // owned by the user, protected, and one entry: full access for that SID, not for OW
+            assert!(acl.starts_with(&format!("O:{sid}D:P")), "{acl}");
             assert_eq!(acl.matches('(').count(), 1, "{acl}");
-            assert!(acl.contains(";FA;;;OW)"), "{acl}");
+            assert!(acl.contains(&format!(";FA;;;{sid})")), "{acl}");
+            assert!(!acl.contains(";OW)") && !acl.contains(";BA)"), "{acl}");
         }
         assert_eq!(secrets.get("a").unwrap().as_deref(), Some("two"));
     }
+
     #[cfg(unix)]
     #[test]
     fn the_file_is_private_to_its_owner() {

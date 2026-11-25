@@ -595,15 +595,18 @@ pub(crate) mod tests {
             let (output_sender, output) = tokio::sync::mpsc::channel(1);
             let (exit_sender, exit) = tokio::sync::oneshot::channel();
             let (input, mut typed) = tokio::sync::mpsc::channel::<String>(4);
-            tokio::spawn(async move {
-                let _keep = (output_sender, exit_sender);
-                while typed.recv().await.is_some() {}
-            });
+            tokio::spawn(async move { while typed.recv().await.is_some() {} });
+            // killing ends the output and reports an exit, as a real process does
+            let alive = std::sync::Mutex::new(Some((output_sender, exit_sender)));
             Ok(nullradix_app::login::LoginProcess {
                 output,
                 exit,
                 input,
-                kill: Box::new(|| {}),
+                kill: Box::new(move || {
+                    if let Some((_, exit)) = alive.lock().unwrap().take() {
+                        let _ = exit.send(None);
+                    }
+                }),
             })
         }
     }

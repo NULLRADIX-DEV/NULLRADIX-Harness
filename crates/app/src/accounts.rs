@@ -50,6 +50,22 @@ pub trait AccountFolders: Send + Sync {
     async fn remove(&self, dir: &ConfigDir) -> Result<(), AppError>;
 }
 
+/// Something that must end before an account is removed, such as its running login.
+#[async_trait]
+pub trait RemovalHook: Send + Sync {
+    /// Called once every check passed, with the account's lock held.
+    async fn removing(&self, account: &Account);
+}
+
+/// A removal with nothing to end first.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoHook;
+
+#[async_trait]
+impl RemovalHook for NoHook {
+    async fn removing(&self, _account: &Account) {}
+}
+
 fn invalid(error: &AccountError) -> AppError {
     match error {
         AccountError::Slug | AccountError::Limit(_) => {
@@ -320,6 +336,17 @@ impl AccountService {
         expected: Version,
         delete_dir: bool,
     ) -> Result<(), AppError> {
+        self.remove_with(id, expected, delete_dir, &NoHook).await
+    }
+
+    /// Like [`remove`](Self::remove); `hook` runs after all refusals, before anything is deleted.
+    pub async fn remove_with(
+        &self,
+        id: Id<Account>,
+        expected: Version,
+        delete_dir: bool,
+        hook: &dyn RemovalHook,
+    ) -> Result<(), AppError> {
         let _guard = self.lock(id).await;
         let current = self.current(id, expected).await?;
         if current.is_default() {
@@ -331,6 +358,7 @@ impl AccountService {
         {
             return Err(dir_not_owned(dir, &self.folders.root()));
         }
+        hook.removing(&current).await;
         // the folder goes first: if it cannot go, the account stays whole
         if let Some(dir) = folder {
             self.folders.remove(dir).await?;
@@ -340,10 +368,10 @@ impl AccountService {
             .delete(id, expected, self.clock.now())
             .await?;
         self.signal.notify(&change);
-        if let Some(reference) = current.token_ref()
-            && let Err(error) = self.secrets.delete(reference).await
-        {
-            tracing::warn!(account = %current.slug(), code = error.code(), "token left in the secret store");
+        for reference in Self::token_refs(id, &current) {
+            if let Err(error) = self.secrets.delete(&reference).await {
+                tracing::warn!(account = %current.slug(), code = error.code(), "token left in the secret store");
+            }
         }
         self.locks.lock().remove(&id);
         Ok(())
@@ -387,16 +415,25 @@ impl AccountService {
     ) -> Result<Account, AppError> {
         let _guard = self.lock(id).await;
         let current = self.current(id, expected).await?;
-        let Some(reference) = current.token_ref().map(str::to_owned) else {
-            return Ok(current);
-        };
+        let key = token_key(id);
+        let previous = self.secrets.get(&key).await?;
+        // the secret goes first, so a failing store leaves the account as it was
+        for reference in Self::token_refs(id, &current) {
+            self.secrets.delete(&reference).await?;
+        }
         let Some(next) = current.with_token_ref(None, self.clock.now()) else {
             return Ok(current);
         };
-        let change = self.repository.update(&next, expected).await?;
-        self.signal.notify(&change);
-        self.secrets.delete(&reference).await?;
-        Ok(next)
+        match self.repository.update(&next, expected).await {
+            Ok(change) => {
+                self.signal.notify(&change);
+                Ok(next)
+            }
+            Err(error) => {
+                self.restore(&key, previous).await;
+                Err(error)
+            }
+        }
     }
 
     /// The token runs of this account start with; none when the account has no token.
@@ -414,6 +451,15 @@ impl AccountService {
                 account.slug(),
                 "its token is missing from the secret store",
             )),
+        }
+    }
+
+    /// Every key an account's token may sit under: the one by id, and the row's own reference.
+    fn token_refs(id: Id<Account>, account: &Account) -> Vec<String> {
+        let key = token_key(id);
+        match account.token_ref() {
+            Some(reference) if reference != key => vec![key, reference.to_owned()],
+            _ => vec![key],
         }
     }
 
@@ -449,7 +495,15 @@ impl AccountService {
     }
 
     async fn current(&self, id: Id<Account>, expected: Version) -> Result<Account, AppError> {
-        let current = self.get(id).await?;
+        let current = match self.get(id).await {
+            Ok(current) => current,
+            Err(error) => {
+                if error.kind() == crate::ErrorKind::NotFound {
+                    self.locks.lock().remove(&id);
+                }
+                return Err(error);
+            }
+        };
         if current.version() == expected {
             Ok(current)
         } else {

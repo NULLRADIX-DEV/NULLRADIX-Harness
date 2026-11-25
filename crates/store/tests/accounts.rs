@@ -736,3 +736,96 @@ async fn a_folder_that_cannot_be_deleted_keeps_the_account() {
         .unwrap();
     assert_eq!(*f.folders.removed.lock().unwrap(), ["/accounts/max"]);
 }
+
+/// A secret store whose deletes can be made to fail.
+#[derive(Default)]
+struct StubbornSecrets {
+    inner: MemorySecretStore,
+    fail_deletes: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl SecretStore for StubbornSecrets {
+    async fn get(
+        &self,
+        key: &str,
+    ) -> Result<Option<nullradix_app::secrets::SecretValue>, AppError> {
+        self.inner.get(key).await
+    }
+
+    async fn put(
+        &self,
+        key: &str,
+        value: &nullradix_app::secrets::SecretValue,
+    ) -> Result<(), AppError> {
+        self.inner.put(key, value).await
+    }
+
+    async fn delete(&self, key: &str) -> Result<(), AppError> {
+        if self.fail_deletes.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(nullradix_app::secrets::secret_store_failed(
+                std::io::Error::other("locked"),
+            ));
+        }
+        self.inner.delete(key).await
+    }
+}
+
+#[tokio::test]
+async fn a_secret_store_that_cannot_delete_leaves_the_account_and_its_token_as_they_were() {
+    let store = Arc::new(Store::in_memory().await.unwrap());
+    let secrets = Arc::new(StubbornSecrets::default());
+    let accounts = AccountService::new(
+        store,
+        secrets.clone(),
+        Arc::new(Folders::default()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        ChangeSignal::new(),
+    );
+    let max = accounts.create("Max", None).await.unwrap();
+    let set = accounts
+        .set_token(max.id(), TOKEN, max.version())
+        .await
+        .unwrap();
+    secrets
+        .fail_deletes
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let refused = accounts
+        .clear_token(max.id(), set.version())
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code(), "secret-store-failed");
+    assert_eq!(accounts.get(max.id()).await.unwrap(), set);
+    assert_eq!(secrets.inner.keys().len(), 1);
+
+    secrets
+        .fail_deletes
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let cleared = accounts.clear_token(max.id(), set.version()).await.unwrap();
+    assert_eq!(cleared.token_ref(), None);
+    assert_eq!(secrets.inner.keys(), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn a_token_stored_without_a_row_reference_is_cleared_and_removed_too() {
+    let f = fixture().await;
+    let max = f.add("Max").await;
+    let key = format!("account-token/{}", max.id());
+    let stray = nullradix_app::secrets::SecretValue::new("sk-ant-oat01-stray");
+    f.secrets.put(&key, &stray).await.unwrap();
+    let cleared = f
+        .accounts
+        .clear_token(max.id(), max.version())
+        .await
+        .unwrap();
+    assert_eq!(cleared, max);
+    assert_eq!(f.secrets.keys(), Vec::<String>::new());
+
+    f.secrets.put(&key, &stray).await.unwrap();
+    f.accounts
+        .remove(max.id(), max.version(), false)
+        .await
+        .unwrap();
+    assert_eq!(f.secrets.keys(), Vec::<String>::new());
+}

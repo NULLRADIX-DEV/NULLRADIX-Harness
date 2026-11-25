@@ -11,7 +11,7 @@ use std::process::{Child, Command};
 use std::ptr;
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, ERROR_NOT_FOUND, GetLastError, INVALID_HANDLE_VALUE,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_NOT_FOUND, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
     LocalFree,
 };
 #[cfg(test)]
@@ -19,16 +19,17 @@ use windows_sys::Win32::Security::Authorization::{
     ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW,
 };
 use windows_sys::Win32::Security::Authorization::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1, SE_FILE_OBJECT,
-    SetNamedSecurityInfoW,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    SE_FILE_OBJECT, SetNamedSecurityInfoW,
 };
 use windows_sys::Win32::Security::Credentials::{
     CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree, CredReadW,
     CredWriteW,
 };
 use windows_sys::Win32::Security::{
-    ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, PROTECTED_DACL_SECURITY_INFORMATION,
-    PSECURITY_DESCRIPTOR,
+    ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, GetTokenInformation,
+    OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
@@ -40,9 +41,9 @@ use windows_sys::Win32::System::JobObjects::{
 };
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED,
-    CreateProcessW, DETACHED_PROCESS, GetExitCodeProcess, OpenProcess, OpenThread,
-    PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
-    STARTUPINFOW, THREAD_SUSPEND_RESUME,
+    CreateProcessW, DETACHED_PROCESS, GetCurrentProcess, GetExitCodeProcess, OpenProcess,
+    OpenProcessToken, OpenThread, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+    ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOW, THREAD_SUSPEND_RESUME,
 };
 
 const STILL_ACTIVE: u32 = 259;
@@ -342,9 +343,6 @@ pub(crate) fn credential_delete(target: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// Only the owner may use the object; no inherited access stays.
-const OWNER_ONLY: &str = "D:P(A;OICI;FA;;;OW)";
-
 fn path_wide(path: &Path) -> Vec<u16> {
     path.as_os_str()
         .encode_wide()
@@ -352,9 +350,88 @@ fn path_wide(path: &Path) -> Vec<u16> {
         .collect()
 }
 
-/// Gives the file or folder an owner-only, protected access list.
-pub(crate) fn restrict_to_owner(path: &Path) -> io::Result<()> {
-    let sddl = wide(OWNER_ONLY);
+/// The user of this process: the SID in the token, which stays the same when run elevated.
+pub(crate) struct UserSid {
+    // u64 units keep the TOKEN_USER structure aligned
+    buffer: Vec<u64>,
+    text: String,
+}
+
+impl UserSid {
+    pub(crate) fn current() -> io::Result<Self> {
+        let mut token: HANDLE = ptr::null_mut();
+        // SAFETY: the pseudo handle of this process is always valid and token is an out pointer.
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: token was just opened and is closed exactly once, whatever the outcome.
+        let token = unsafe { OwnedHandle::from_raw_handle(token) };
+        let mut needed = 0_u32;
+        // SAFETY: a null buffer of size 0 only asks for the size.
+        unsafe {
+            GetTokenInformation(
+                token.as_raw_handle(),
+                TokenUser,
+                ptr::null_mut(),
+                0,
+                &raw mut needed,
+            );
+        }
+        let units = usize::try_from(needed)
+            .map_err(|_| io::Error::other("token information too large"))?
+            .div_ceil(8)
+            .max(1);
+        let mut buffer = vec![0_u64; units];
+        // SAFETY: buffer holds at least `needed` bytes and token is open with query rights.
+        let read = unsafe {
+            GetTokenInformation(
+                token.as_raw_handle(),
+                TokenUser,
+                buffer.as_mut_ptr().cast::<c_void>(),
+                needed,
+                &raw mut needed,
+            )
+        };
+        if read == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut sid = Self {
+            buffer,
+            text: String::new(),
+        };
+        let mut raw: *mut u16 = ptr::null_mut();
+        // SAFETY: the buffer holds a TOKEN_USER whose SID points into the same buffer.
+        let converted = unsafe { ConvertSidToStringSidW(sid.pointer(), &raw mut raw) };
+        if converted == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut length = 0;
+        // SAFETY: raw is NUL-terminated, so the scan stops inside the allocation.
+        while unsafe { *raw.add(length) } != 0 {
+            length += 1;
+        }
+        // SAFETY: the first `length` units were just read.
+        sid.text = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(raw, length) });
+        // SAFETY: raw was allocated by the conversion and is freed once.
+        unsafe { LocalFree(raw.cast::<c_void>()) };
+        Ok(sid)
+    }
+
+    fn pointer(&self) -> PSID {
+        // SAFETY: the buffer was filled by GetTokenInformation(TokenUser) and is aligned for it.
+        unsafe { (*self.buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid }
+    }
+
+    /// The SID as text, such as `S-1-5-21-...`.
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
+}
+
+/// Makes the current user the owner and the only one with access to the file or folder.
+pub(crate) fn restrict_to_current_user(path: &Path) -> io::Result<()> {
+    let user = UserSid::current()?;
+    let sddl = wide(&format!("D:P(A;OICI;FA;;;{})", user.text()));
     let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
     // SAFETY: sddl is NUL-terminated and descriptor is a valid out pointer.
     let converted = unsafe {
@@ -384,13 +461,15 @@ pub(crate) fn restrict_to_owner(path: &Path) -> io::Result<()> {
         Err(io::Error::last_os_error())
     } else {
         let target = path_wide(path);
-        // SAFETY: target is NUL-terminated; the ACL lives in descriptor until it is freed below.
+        // SAFETY: target is NUL-terminated; descriptor and user outlive the call.
         let status = unsafe {
             SetNamedSecurityInfoW(
                 target.as_ptr().cast_mut(),
                 SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                ptr::null_mut(),
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                user.pointer(),
                 ptr::null_mut(),
                 dacl,
                 ptr::null_mut(),
@@ -409,7 +488,7 @@ pub(crate) fn restrict_to_owner(path: &Path) -> io::Result<()> {
     result
 }
 
-/// The access list of a file or folder in SDDL text, such as `D:P(A;OICI;FA;;;OW)`.
+/// Owner and access list of a file or folder in SDDL text, as `O:<sid>D:P(A;OICI;FA;;;<sid>)`.
 #[cfg(test)]
 pub(crate) fn dacl_sddl(path: &Path) -> io::Result<String> {
     let target = path_wide(path);
@@ -419,7 +498,7 @@ pub(crate) fn dacl_sddl(path: &Path) -> io::Result<String> {
         GetNamedSecurityInfoW(
             target.as_ptr(),
             SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
             ptr::null_mut(),
             ptr::null_mut(),
             ptr::null_mut(),
@@ -438,7 +517,7 @@ pub(crate) fn dacl_sddl(path: &Path) -> io::Result<String> {
         ConvertSecurityDescriptorToStringSecurityDescriptorW(
             descriptor,
             SDDL_REVISION_1,
-            DACL_SECURITY_INFORMATION,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
             &raw mut text,
             ptr::null_mut(),
         )

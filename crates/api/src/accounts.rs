@@ -255,13 +255,10 @@ pub(crate) async fn delete_account(
 ) -> Result<StatusCode, ApiError> {
     let id = Id::from_uuid(path.account_id);
     let expected = AppError::client_version(query.version)?;
-    // a running login holds files of the folder, so it ends first, if the removal can go on
-    if state.accounts.get(id).await?.version() == expected {
-        state.logins.cancel(id, false);
-    }
+    // a running login holds files of the folder, so it ends once every refusal is behind us
     state
         .accounts
-        .remove(id, expected, query.delete_dir)
+        .remove_with(id, expected, query.delete_dir, state.logins.as_ref())
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -467,6 +464,54 @@ mod tests {
         .await;
         assert_eq!(status, 204);
         assert!(api.logins.status(account).is_none());
+    }
+
+    #[tokio::test]
+    async fn refused_removals_leave_the_running_login_alone() {
+        let api = test_api().await;
+        let foreign = tempfile::tempdir().unwrap();
+        let (_, list) = call(&api, Request::get("/api/v1/accounts"), None).await;
+        let default = list["items"][0]["id"].as_str().unwrap().to_owned();
+        let (status, work) = call(
+            &api,
+            Request::post("/api/v1/accounts"),
+            Some(json!({ "name": "Work", "configDir": foreign.path().to_string_lossy() })),
+        )
+        .await;
+        assert_eq!(status, 201);
+        let work = work["id"].as_str().unwrap().to_owned();
+        for id in [&default, &work] {
+            let (status, _) = call(
+                &api,
+                Request::post(format!("/api/v1/accounts/{id}/login")),
+                Some(json!({})),
+            )
+            .await;
+            assert_eq!(status, 202);
+        }
+
+        let (status, refused) = call(
+            &api,
+            Request::delete(format!("/api/v1/accounts/{default}?version=1")),
+            None,
+        )
+        .await;
+        assert_eq!(problem(status, &refused), (422, "account-invalid"));
+        let (status, refused) = call(
+            &api,
+            Request::delete(format!("/api/v1/accounts/{work}?version=1&deleteDir=true")),
+            None,
+        )
+        .await;
+        assert_eq!(problem(status, &refused), (422, "account-invalid"));
+        for id in [&default, &work] {
+            let account = nullradix_domain::Id::from_uuid(id.parse().unwrap());
+            assert_eq!(
+                api.logins.status(account).map(|login| login.state),
+                Some(nullradix_app::login::LoginState::Running)
+            );
+        }
+        assert!(foreign.path().is_dir());
     }
     #[tokio::test]
     async fn validates_input_with_problem_details() {

@@ -8,9 +8,9 @@ use async_trait::async_trait;
 use nullradix_domain::{Account, ConfigDir, Id, Timestamp};
 use parking_lot::Mutex;
 use strum::IntoStaticStr;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::accounts::{AccountPatch, AccountService};
+use crate::accounts::{AccountPatch, AccountService, RemovalHook};
 use crate::usage::ClaudeLogins;
 use crate::{AppError, Clock};
 
@@ -20,6 +20,8 @@ pub const LOGIN_TIMEOUT: Duration = Duration::from_mins(10);
 pub const OUTPUT_MAX_CHARS: usize = 4_000;
 /// How long the last lines may still arrive once the process has ended.
 const OUTPUT_GRACE: Duration = Duration::from_millis(500);
+/// How long a stopped login may take to exit before its files are used anyway.
+const STOP_GRACE: Duration = Duration::from_secs(3);
 pub const EMAIL_MAX: usize = 254;
 
 /// What to start: the folder Claude Code keeps the login in, none for the server's own login.
@@ -150,6 +152,8 @@ struct Login {
     input: Option<mpsc::Sender<String>>,
     kill: Option<Arc<dyn Fn() + Send + Sync>>,
     task: Option<tokio::task::JoinHandle<()>>,
+    /// Turns true once the process is over and its output is read.
+    ended: Option<watch::Receiver<bool>>,
 }
 
 impl Login {
@@ -266,6 +270,7 @@ impl LoginService {
                         input: None,
                         kill: None,
                         task: None,
+                        ended: None,
                     },
                 );
                 return Ok(shown);
@@ -273,7 +278,9 @@ impl LoginService {
         };
         let kill: Arc<dyn Fn() + Send + Sync> = Arc::from(process.kill);
         let input = process.input.clone();
+        let (finish, ended) = watch::channel(false);
         let watcher = Watch {
+            finish,
             service: Arc::clone(self),
             status: Arc::clone(&status),
             account: account.clone(),
@@ -289,6 +296,7 @@ impl LoginService {
                 input: Some(input),
                 kill: Some(kill),
                 task: Some(task),
+                ended: Some(ended),
             },
         );
         Ok(shown)
@@ -326,21 +334,36 @@ impl LoginService {
 
     /// Ends a running login; `keep` false also forgets how it went.
     pub fn cancel(&self, account: Id<Account>, keep: bool) {
+        self.end(account, keep, true);
+    }
+
+    /// Ends a running login and gives its process a moment to exit, so it lets go of its files.
+    pub async fn stop(&self, account: Id<Account>) {
+        if let Some(mut ended) = self.end(account, false, false) {
+            let _ = tokio::time::timeout(STOP_GRACE, ended.wait_for(|done| *done)).await;
+        }
+    }
+
+    /// Kills a running login; with `abort` it is no longer followed. The receiver tells the end.
+    fn end(&self, account: Id<Account>, keep: bool, abort: bool) -> Option<watch::Receiver<bool>> {
         let mut running = self.running.lock();
+        let mut ended = None;
         if let Some(login) = running.get_mut(&account) {
             if login.running() {
                 login.status.lock().state = LoginState::Cancelled;
                 if let Some(kill) = &login.kill {
                     kill();
                 }
+                ended.clone_from(&login.ended);
             }
-            if let Some(task) = login.task.take() {
+            if abort && let Some(task) = login.task.take() {
                 task.abort();
             }
         }
         if !keep {
             running.remove(&account);
         }
+        ended
     }
 
     /// Ends every login, as the daemon stops.
@@ -373,6 +396,13 @@ impl LoginService {
     }
 }
 
+#[async_trait]
+impl RemovalHook for LoginService {
+    async fn removing(&self, account: &Account) {
+        self.stop(account.id()).await;
+    }
+}
+
 /// Follows one running login: collects its output, watches the clock and settles the outcome.
 struct Watch {
     service: Arc<LoginService>,
@@ -380,6 +410,7 @@ struct Watch {
     account: Account,
     rename_to_email: bool,
     kill: Arc<dyn Fn() + Send + Sync>,
+    finish: watch::Sender<bool>,
 }
 
 impl Watch {
@@ -392,7 +423,13 @@ impl Watch {
         }
     }
 
-    async fn run(
+    async fn run(self, output: mpsc::Receiver<String>, exit: oneshot::Receiver<Option<i32>>) {
+        let finish = self.finish.clone();
+        self.follow(output, exit).await;
+        let _ = finish.send(true);
+    }
+
+    async fn follow(
         self,
         mut output: mpsc::Receiver<String>,
         mut exit: oneshot::Receiver<Option<i32>>,

@@ -431,3 +431,41 @@ async fn without_a_name_or_email_the_account_is_called_new_account() {
     let (account, _) = f.logins.create_and_login(" ", None).await.unwrap();
     assert_eq!(account.name().as_str(), "New account");
 }
+
+#[tokio::test]
+async fn stopping_waits_for_the_process_to_exit() {
+    let f = fixture().await;
+    let max = f.account("Max").await;
+    f.logins.login(&max, None).await.unwrap();
+    let mut control = f.control(0);
+    let logins = f.logins.clone();
+    let id = max.id();
+    let stopping = tokio::spawn(async move { logins.stop(id).await });
+    for _ in 0..200 {
+        if control.killed.load(Ordering::SeqCst) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(control.killed.load(Ordering::SeqCst));
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(!stopping.is_finished(), "stopped before the process exited");
+    control.exit.take().unwrap().send(None).unwrap();
+    tokio::time::timeout(Duration::from_secs(2), stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(f.logins.status(max.id()), None);
+}
+
+#[tokio::test]
+async fn stopping_a_login_that_is_not_running_returns_at_once() {
+    let f = fixture().await;
+    let max = f.account("Max").await;
+    f.logins.stop(max.id()).await;
+    f.logins.login(&max, None).await.unwrap();
+    f.logins.cancel(max.id(), true);
+    tokio::time::timeout(Duration::from_millis(500), f.logins.stop(max.id()))
+        .await
+        .unwrap();
+}
