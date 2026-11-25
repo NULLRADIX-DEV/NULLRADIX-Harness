@@ -6,6 +6,7 @@ mod boards;
 mod comments;
 mod customizations;
 mod dispatcher_config;
+mod dispatcher_prompts;
 mod events;
 mod extract;
 mod favorites;
@@ -44,6 +45,7 @@ use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::CustomizationService;
 use nullradix_app::dispatcher_config::DispatcherConfigService;
+use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
@@ -84,6 +86,10 @@ pub use dispatcher_config::{
     DispatcherConfigView, JoinWorktreesDto, MergeStrategyDto, PlanningSettingsDto, ProfileDto,
     PromptTemplatesDto, ResearchSettingsDto, RuleConditionDto, RuleDto, TimeWindowDto,
     UpdateDispatcherConfig, WorktreeSetupStepDto,
+};
+pub use dispatcher_prompts::{
+    PlaceholderDto, PreviewPrompt, PromptDetail, PromptDto, PromptKindDto, PromptListDto,
+    PromptPreviewDto, SetPrompt,
 };
 pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
@@ -183,6 +189,7 @@ pub struct ApiState {
     pub projects: Arc<ProjectService>,
     pub accounts: Arc<AccountService>,
     pub dispatcher_config: Arc<DispatcherConfigService>,
+    pub dispatcher_prompts: Arc<DispatcherPromptService>,
     pub usage: Arc<UsageService>,
     pub logins: Arc<LoginService>,
     pub boards: Arc<BoardService>,
@@ -246,10 +253,18 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
 }
 
 fn dispatcher_routes() -> OpenApiRouter<ApiState> {
-    OpenApiRouter::new().routes(routes!(
-        dispatcher_config::get_dispatcher_config,
-        dispatcher_config::update_dispatcher_config
-    ))
+    OpenApiRouter::new()
+        .routes(routes!(
+            dispatcher_config::get_dispatcher_config,
+            dispatcher_config::update_dispatcher_config
+        ))
+        .routes(routes!(dispatcher_prompts::list_prompts))
+        .routes(routes!(
+            dispatcher_prompts::get_prompt,
+            dispatcher_prompts::set_prompt,
+            dispatcher_prompts::reset_prompt
+        ))
+        .routes(routes!(dispatcher_prompts::preview_prompt))
 }
 
 fn routes() -> OpenApiRouter<ApiState> {
@@ -770,16 +785,22 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let dispatcher_config = Arc::new(DispatcherConfigService::new(
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
             accounts: accounts.clone(),
-            dispatcher_config: Arc::new(DispatcherConfigService::new(
-                store.clone(),
-                store.clone(),
-                Arc::new(SystemClock),
-                Arc::new(UuidV7Generator),
-                signal.clone(),
+            dispatcher_config: dispatcher_config.clone(),
+            dispatcher_prompts: Arc::new(DispatcherPromptService::new(
+                dispatcher_config,
+                tickets.clone(),
+                questions.clone(),
             )),
             usage: test_usage(),
             logins: logins.clone(),

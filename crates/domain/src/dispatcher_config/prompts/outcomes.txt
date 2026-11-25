@@ -1,0 +1,7 @@
+- End with exactly one of four outcomes:
+  done - everything committed, evidence as a comment, then: nullradix ticket done {{ticketId}} --acceptance "<how to tell it is done>";
+  Human Interaction - finished, a person still has to look at it: nullradix ticket set {{ticketId}} --status blocked --blocked-reason "Human Interaction: <what>";
+  question - you need a decision before it makes sense to go on:
+    nullradix question add "<question>" --description "<description>" --ticket {{ticketId}} --author {{agent}}
+    Write title and description by the writing rules below. Then end the run, do not wait - the dispatcher continues once it is decided;
+  blocked with reason - something is missing that is not a decision (access, environment): nullradix ticket set {{ticketId}} --status blocked --blocked-reason "<reason>".

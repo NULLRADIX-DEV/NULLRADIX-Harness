@@ -41,11 +41,15 @@ pub use customization::{
     check_front_matter, overlay_content, overlay_state,
 };
 pub use dispatcher_config::{
-    AccountStrategy, AutopilotSettings, ClaudeSettings, ConfigError, ConfigFieldError,
-    DEFAULT_ALLOWED_TOOLS, DispatcherConfig, EFFORT_LEVELS, FALLBACK_PROFILE, FINGERPRINT_HASH_LEN,
-    Fingerprint, JoinWorktrees, MAX_PARALLEL_AUTO_RUNS, MODEL_ALIASES, MergeStrategy,
-    PROFILE_NAME_MAX, PlanningSettings, Profile, PromptKind, PromptTemplates, ResearchSettings,
-    Rule, RuleCondition, TimeWindow, WorktreeSetupStep, effort_problem, model_problem,
+    AccountStrategy, AnsweredQuestion, AutopilotSettings, ClaudeSettings, ConfigError,
+    ConfigFieldError, DEFAULT_ALLOWED_TOOLS, DispatcherConfig, EFFORT_LEVELS, FALLBACK_PROFILE,
+    FINGERPRINT_HASH_LEN, Fingerprint, JoinWorktrees, MAX_PARALLEL_AUTO_RUNS, MODEL_ALIASES,
+    MergeRun, MergeStrategy, PLAN_AGENT_PREFIX, PROFILE_NAME_MAX, PlaceholderInfo, PlanRun,
+    PlanningSettings, Profile, PromptKind, PromptRun, PromptTemplates, PromptValues,
+    RESEARCH_AGENT_PREFIX, RequiredPart, ResearchRun, ResearchSettings, Rule, RuleCondition,
+    TimeWindow, UnknownPlaceholders, WorkRun, WorktreeSetupStep, default_template, effort_problem,
+    missing_parts, model_problem, placeholder_names, placeholders, render_prompt, render_template,
+    required_parts, unknown_placeholders,
 };
 pub use favorite::{
     FAVORITE_NOTE_MAX, Favorite, FavoriteRecord, Resumption, favorite_note, resume_command,

@@ -10,13 +10,15 @@ use nullradix_api::{
     DecideQuestion, DispatcherConfigView, DropNote, EffectiveDto, ExtensionPointDto, FavoriteDto,
     FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto,
     HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite,
-    MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto,
-    ProjectList, PromoteNote, PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList,
+    MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList, PreviewPrompt,
+    Problem, ProjectDto, ProjectList, PromoteNote, PromotedNote, PromptDetail, PromptKindDto,
+    PromptListDto, PromptPreviewDto, QuestionCommentDto, QuestionDetailDto, QuestionList,
     RebaseCustomization, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto,
     RunList, RunOutput, RunnerList, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto,
-    SessionList, SetBoardRepository, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
-    ThemeDto, ThemeListDto, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto,
-    UpdateAccount, UpdateCustomization, UpdateDispatcherConfig, UpdateTicket, WritePlan,
+    SessionList, SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket,
+    StartedTicket, ThemeDto, ThemeListDto, TicketDetailDto, TicketDto, TicketList,
+    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcherConfig, UpdateTicket,
+    WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -163,6 +165,56 @@ impl Client {
 
     pub fn dispatcher_config(&self) -> Result<DispatcherConfigView, ClientError> {
         self.get_json("/dispatcher/config")
+    }
+
+    pub fn dispatcher_prompts(&self) -> Result<PromptListDto, ClientError> {
+        self.get_json("/dispatcher/prompts")
+    }
+
+    pub fn dispatcher_prompt(&self, kind: PromptKindDto) -> Result<PromptDetail, ClientError> {
+        self.get_json(&format!("/dispatcher/prompts/{}", kind.as_str()))
+    }
+
+    pub fn set_dispatcher_prompt(
+        &self,
+        kind: PromptKindDto,
+        input: &SetPrompt,
+    ) -> Result<PromptDetail, ClientError> {
+        let mut response = self
+            .agent
+            .put(&self.url(&format!("/dispatcher/prompts/{}", kind.as_str())))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn reset_dispatcher_prompt(
+        &self,
+        kind: PromptKindDto,
+        version: i64,
+    ) -> Result<PromptDetail, ClientError> {
+        let route = format!("/dispatcher/prompts/{}?version={version}", kind.as_str());
+        let mut response = self
+            .agent
+            .delete(&self.url(&route))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn preview_dispatcher_prompt(
+        &self,
+        input: &PreviewPrompt,
+    ) -> Result<PromptPreviewDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/dispatcher/prompt-previews"))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
     }
 
     pub fn update_dispatcher_config(
@@ -1417,11 +1469,19 @@ mod tests {
         .await
         .unwrap();
         let notes = note_service(&store, &tickets, &signal);
+        let dispatcher_config = dispatcher_service(&store, &signal);
         ApiState {
             auth,
             projects,
             accounts: accounts.clone(),
-            dispatcher_config: dispatcher_service(&store, &signal),
+            dispatcher_prompts: Arc::new(
+                nullradix_app::dispatcher_prompts::DispatcherPromptService::new(
+                    dispatcher_config.clone(),
+                    tickets.clone(),
+                    questions.clone(),
+                ),
+            ),
+            dispatcher_config,
             usage: usage_service(),
             logins: login_service(&accounts),
             boards,

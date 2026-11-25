@@ -1,0 +1,2 @@
+- Do not create links, junctions or symlinks to the main folder or other worktrees (not even for node_modules).
+  If dependencies are missing, install them in the worktree itself (for example npm ci); if that is not possible, use the outcome "blocked with reason".

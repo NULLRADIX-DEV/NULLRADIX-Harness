@@ -200,3 +200,56 @@ impl DispatcherConfig {
         self.profiles.iter().find(|found| found.name == name)
     }
 }
+
+/// Prefix of the agent that plans a ticket.
+pub const PLAN_AGENT_PREFIX: &str = "planner-";
+/// Prefix of the agent that researches a question.
+pub const RESEARCH_AGENT_PREFIX: &str = "research-";
+
+impl DispatcherConfig {
+    /// Name of the agent of a work or merge run on a ticket.
+    #[must_use]
+    pub fn work_agent(&self, ticket_key: &str) -> String {
+        format!("{}{ticket_key}", self.agent_prefix)
+    }
+
+    /// Whether autopilot applies to a ticket with these labels.
+    #[must_use]
+    pub fn autopilot_applies(&self, labels: &[String]) -> bool {
+        if !self.autopilot.enabled {
+            return false;
+        }
+        match self.autopilot.except_label.as_deref().map(str::trim) {
+            Some(except) if !except.is_empty() => !labels
+                .iter()
+                .any(|label| label.trim().to_lowercase() == except.to_lowercase()),
+            _ => true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn labels(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn autopilot_follows_the_switch_and_the_except_label() {
+        let mut config = DispatcherConfig::default();
+        assert!(!config.autopilot_applies(&[]));
+        config.autopilot.enabled = true;
+        assert!(config.autopilot_applies(&labels(&["docs"])));
+        assert!(!config.autopilot_applies(&labels(&["docs", " Interactive "])));
+        config.autopilot.except_label = None;
+        assert!(config.autopilot_applies(&labels(&["interactive"])));
+    }
+
+    #[test]
+    fn agents_are_named_after_their_run() {
+        let config = DispatcherConfig::default();
+        assert_eq!(config.work_agent("ARC-9"), "worker-ARC-9");
+    }
+}

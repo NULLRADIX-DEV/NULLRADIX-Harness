@@ -276,6 +276,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dispatcher/prompt-previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["preview_prompt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatcher/prompts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_prompts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatcher/prompts/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_prompt"];
+        put: operations["set_prompt"];
+        post?: never;
+        delete: operations["reset_prompt"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -2147,6 +2195,13 @@ export interface components {
          * @enum {string}
          */
         OverlayStateDto: "active" | "fallback" | "disabled";
+        /** @description A placeholder a template may use. */
+        PlaceholderDto: {
+            /** @description What goes there. */
+            description: string;
+            /** @description Used as `{{name}}`. */
+            name: string;
+        };
         /** @description Planning runs on tickets. */
         PlanningSettingsDto: {
             /** @description The plan also fills the acceptance of the ticket. */
@@ -2159,6 +2214,13 @@ export interface components {
              * @description Parallel planning runs from 1 to 5.
              */
             wip: number;
+        };
+        PreviewPrompt: {
+            /** @description Ticket key for work, plan and merge, question key for research; none uses sample values. */
+            key?: string | null;
+            kind: components["schemas"]["PromptKindDto"];
+            /** @description Rendered instead of the stored template, without saving it. */
+            template?: string | null;
         };
         /** @enum {string} */
         PrincipalKind: "token" | "session";
@@ -2228,6 +2290,49 @@ export interface components {
         PromotedNote: {
             note: components["schemas"]["NoteDto"];
             ticket: components["schemas"]["TicketDto"];
+        };
+        PromptDetail: {
+            prompt: components["schemas"]["PromptDto"];
+            /**
+             * Format: int64
+             * @description Version of the dispatcher configuration the template lives in.
+             */
+            version: number;
+        };
+        /** @description A prompt kind with its default, its own template and what an editor needs. */
+        PromptDto: {
+            /** @description The template that applies without an own one. */
+            default: string;
+            kind: components["schemas"]["PromptKindDto"];
+            label: string;
+            placeholders: components["schemas"]["PlaceholderDto"][];
+            /** @description The parts every template of this kind must keep. */
+            required: string[];
+            /** @description The own template; none means the default applies. */
+            template?: string | null;
+        };
+        /**
+         * @description Kind of run a prompt template is for.
+         * @enum {string}
+         */
+        PromptKindDto: "work" | "plan" | "research" | "merge";
+        PromptListDto: {
+            items: components["schemas"]["PromptDto"][];
+            /**
+             * Format: int64
+             * @description Version of the dispatcher configuration the templates live in.
+             */
+            version: number;
+        };
+        /** @description An instruction as the agent would get it. */
+        PromptPreviewDto: {
+            key?: string | null;
+            kind: components["schemas"]["PromptKindDto"];
+            prompt: string;
+            /** @description Sample values were used because no key was given. */
+            sample: boolean;
+            /** @description Placeholders that show a stand-in text because their data does not exist yet. */
+            standIns: string[];
         };
         /** @description Own prompt templates per kind of run; none means the built-in template. */
         PromptTemplatesDto: {
@@ -2569,6 +2674,15 @@ export interface components {
             /**
              * Format: int64
              * @description Version the change is based on.
+             */
+            version: number;
+        };
+        SetPrompt: {
+            /** @description The own template; blank goes back to the default. */
+            template: string;
+            /**
+             * Format: int64
+             * @description Version of the dispatcher configuration the change is based on.
              */
             version: number;
         };
@@ -4233,6 +4347,228 @@ export interface operations {
                 };
             };
             /** @description Invalid fields, listed in `errors` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    preview_prompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewPrompt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptPreviewDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such ticket or question */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Bad key, unknown placeholders or missing parts */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_prompts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptListDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_prompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: components["schemas"]["PromptKindDto"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptDetail"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_prompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: components["schemas"]["PromptKindDto"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPrompt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptDetail"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown placeholders or missing parts: `dispatcher-prompt-invalid` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reset_prompt: {
+        parameters: {
+            query: {
+                /** @description Version of the dispatcher configuration the change is based on. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                kind: components["schemas"]["PromptKindDto"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dropped; the default is in charge again */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptDetail"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;

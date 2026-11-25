@@ -1,0 +1,220 @@
+{
+  "title": "Prompt templates are listed, previewed for a ticket, overridden, refused field by field and reset",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    { "name": "the board to work on", "cli": { "args": ["board", "use", "{{board}}"] } },
+    {
+      "name": "a ticket with a target branch",
+      "cli": {
+        "args": [
+          "ticket",
+          "create",
+          "Login page",
+          "--acceptance",
+          "Users can log in",
+          "--target-branch",
+          "develop"
+        ]
+      }
+    },
+    {
+      "name": "a question about it",
+      "cli": {
+        "args": [
+          "question",
+          "add",
+          "Which store?",
+          "--ticket",
+          "ARC-1",
+          "--option",
+          "File: one JSON file",
+          "--option",
+          "Db: SQLite next to the daemon",
+          "--author",
+          "claude"
+        ]
+      }
+    },
+    {
+      "name": "a person decides",
+      "cli": { "args": ["question", "answer", "ARC-Q1", "--option", "O2", "--reason", "fits"] }
+    },
+    {
+      "name": "an extra instruction and a setup step",
+      "file": {
+        "path": "{{WORK}}/setup.json",
+        "lines": [
+          {
+            "promptExtra": "House rule: no any.",
+            "worktreeSetup": [{ "cwd": "web", "run": "npm ci" }]
+          }
+        ]
+      }
+    },
+    {
+      "name": "store them",
+      "cli": { "args": ["dispatcher", "config", "set", "--file", "{{WORK}}/setup.json"] }
+    },
+
+    { "name": "list the templates", "cli": { "args": ["dispatcher", "prompt", "list"] } },
+    {
+      "name": "read one over HTTP",
+      "http": { "method": "GET", "path": "/api/v1/dispatcher/prompts/merge" }
+    },
+    {
+      "name": "show the merge default",
+      "cli": { "args": ["dispatcher", "prompt", "show", "merge"] }
+    },
+
+    {
+      "name": "preview the work instruction of the ticket",
+      "cli": { "args": ["dispatcher", "prompt", "preview", "work", "arc-1"] }
+    },
+    {
+      "name": "preview the plan instruction over HTTP",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/prompt-previews",
+        "body": { "kind": "plan", "key": "ARC-1" }
+      }
+    },
+    {
+      "name": "preview the merge instruction",
+      "cli": { "args": ["dispatcher", "prompt", "preview", "merge", "ARC-1"] }
+    },
+    {
+      "name": "preview the research instruction of the question",
+      "cli": { "args": ["dispatcher", "prompt", "preview", "research", "ARC-Q1"] }
+    },
+    {
+      "name": "preview with sample values",
+      "cli": { "args": ["dispatcher", "prompt", "preview", "plan"] }
+    },
+    {
+      "name": "an unknown ticket is not found",
+      "cli": { "args": ["dispatcher", "prompt", "preview", "work", "ARC-9"] }
+    },
+    {
+      "name": "a research preview needs a known question",
+      "cli": { "args": ["dispatcher", "prompt", "preview", "research", "ARC-Q9"] }
+    },
+
+    {
+      "name": "write an own plan template",
+      "file": {
+        "path": "{{WORK}}/plan.txt",
+        "text": "Plan {{ticketId}} as {{agent}}: {{title}}\nWrite plan.json, then run nullradix plan import {{ticketId}} --file plan.json{{promptExtra}}\n"
+      }
+    },
+    {
+      "name": "preview the draft without saving it",
+      "cli": {
+        "args": ["dispatcher", "prompt", "preview", "plan", "ARC-1", "--file", "{{WORK}}/plan.txt"]
+      }
+    },
+    {
+      "name": "set the own template",
+      "cli": { "args": ["dispatcher", "prompt", "set", "plan", "--file", "{{WORK}}/plan.txt"] }
+    },
+    { "name": "show it", "cli": { "args": ["dispatcher", "prompt", "show", "plan"] } },
+    { "name": "the list marks it", "cli": { "args": ["dispatcher", "prompt", "list"] } },
+    {
+      "name": "the preview uses it",
+      "cli": { "args": ["dispatcher", "prompt", "preview", "plan", "ARC-1"] }
+    },
+    {
+      "name": "the configuration carries it",
+      "http": { "method": "GET", "path": "/api/v1/dispatcher/config" }
+    },
+
+    {
+      "name": "write a template with unknown placeholders and no required parts",
+      "file": { "path": "{{WORK}}/broken.txt", "text": "Merge {{branch}} into {{where}}\n" }
+    },
+    {
+      "name": "refuse it in the CLI",
+      "cli": { "args": ["dispatcher", "prompt", "set", "merge", "--file", "{{WORK}}/broken.txt"] }
+    },
+    {
+      "name": "refuse it over HTTP with every problem",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/dispatcher/prompts/merge",
+        "body": { "template": "Merge {{branch}} into {{where}}", "version": 3 }
+      }
+    },
+    {
+      "name": "refuse it in a preview",
+      "cli": {
+        "args": [
+          "dispatcher",
+          "prompt",
+          "preview",
+          "merge",
+          "ARC-1",
+          "--file",
+          "{{WORK}}/broken.txt"
+        ]
+      }
+    },
+    {
+      "name": "refuse it inside the whole configuration",
+      "file": {
+        "path": "{{WORK}}/config-prompts.json",
+        "lines": [
+          { "prompts": { "work": "Do {{nope}}", "plan": null, "research": null, "merge": null } }
+        ]
+      }
+    },
+    {
+      "name": "the whole configuration names the field",
+      "cli": { "args": ["dispatcher", "config", "set", "--file", "{{WORK}}/config-prompts.json"] }
+    },
+    {
+      "name": "a stale version is a conflict",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/dispatcher/prompts/plan",
+        "body": {
+          "template": "Plan {{ticketId}} as {{agent}}, save plan.json with nullradix plan import {{ticketId}}",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "an unknown kind is refused",
+      "cli": { "args": ["dispatcher", "prompt", "show", "deploy"] }
+    },
+
+    {
+      "name": "reset the plan template",
+      "cli": { "args": ["dispatcher", "prompt", "reset", "plan"] }
+    },
+    { "name": "reset it again", "cli": { "args": ["dispatcher", "prompt", "reset", "plan"] } },
+    {
+      "name": "the preview is the default again",
+      "cli": { "args": ["dispatcher", "prompt", "preview", "plan", "ARC-1"] }
+    },
+    {
+      "name": "the setup step and the extra stayed",
+      "cli": { "args": ["dispatcher", "config", "show", "--json"] }
+    }
+  ]
+}

@@ -12,6 +12,7 @@ use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::{CustomizationService, NoStandards};
 use nullradix_app::dispatcher_config::DispatcherConfigService;
+use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
@@ -131,11 +132,18 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (themes, customizations) = start_extensions(config, &store, &signal);
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
+    let dispatcher_config = dispatcher_config_service(&store, &signal);
+    let dispatcher_prompts = Arc::new(DispatcherPromptService::new(
+        dispatcher_config.clone(),
+        board.tickets.clone(),
+        board.questions.clone(),
+    ));
     let state = ApiState {
         auth,
         projects,
         accounts: account_services.accounts,
         dispatcher_config,
+        dispatcher_prompts,
         usage: account_services.usage,
         logins: account_services.logins.clone(),
         boards: board.boards,
