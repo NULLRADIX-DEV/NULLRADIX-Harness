@@ -589,3 +589,62 @@ async fn the_store_names_a_stale_version_and_a_vanished_account_without_error_co
     assert_eq!(f.current().await.wip, 1);
     assert_eq!(f.ops().await, vec![]);
 }
+
+#[tokio::test]
+async fn a_new_profile_may_take_the_name_a_renamed_one_left() {
+    let f = fixture().await;
+    let before = f.current().await;
+    let old_name = before.profiles[0].name.clone();
+    let mut draft = before.clone();
+    draft.profiles[0].name = String::from("tiny");
+    draft.ladder[0] = String::from("tiny");
+    draft.rules.clear();
+    let mut fresh = draft.profiles[0].clone();
+    fresh.id = None;
+    fresh.name = old_name.clone();
+    draft.profiles.push(fresh);
+    f.config.update(draft, Version::INITIAL).await.unwrap();
+    let after = f.current().await;
+    let renamed = after.profiles.iter().find(|p| p.name == "tiny").unwrap();
+    assert_eq!(renamed.id, before.profiles[0].id);
+    let added = after.profiles.iter().find(|p| p.name == old_name).unwrap();
+    assert!(added.id.is_some());
+    assert!(before.profiles.iter().all(|p| p.id != added.id));
+}
+
+#[tokio::test]
+async fn a_deleted_rule_and_a_new_one_do_not_share_an_id() {
+    let f = fixture().await;
+    let before = f.current().await;
+    let mut draft = before.clone();
+    let mut fresh = draft.rules.pop().unwrap();
+    fresh.id = None;
+    fresh.when.labels = Some(vec![String::from("new")]);
+    draft.rules.push(fresh);
+    f.config.update(draft, Version::INITIAL).await.unwrap();
+    let after = f.current().await;
+    let ids: Vec<_> = after.rules.iter().map(|rule| rule.id).collect();
+    let old: Vec<_> = before.rules.iter().map(|rule| rule.id).collect();
+    assert_eq!(ids[..ids.len() - 1], old[..old.len() - 1]);
+    assert!(ids.last().unwrap().is_some());
+    assert_ne!(ids.last(), old.last());
+}
+
+#[tokio::test]
+async fn a_profile_named_like_a_renamed_rows_hex_id_is_kept() {
+    let f = fixture().await;
+    let before = f.current().await;
+    let hex = before.profiles[0].id.unwrap().simple().to_string();
+    let mut draft = before.clone();
+    draft.profiles[0].name = String::from("tiny");
+    draft.ladder[0] = String::from("tiny");
+    draft.rules.clear();
+    let mut fresh = draft.profiles[1].clone();
+    fresh.id = None;
+    fresh.name = hex.clone();
+    draft.profiles.push(fresh);
+    f.config.update(draft, Version::INITIAL).await.unwrap();
+    let after = f.current().await;
+    assert!(after.profiles.iter().any(|p| p.name == hex));
+    assert!(after.profiles.iter().any(|p| p.name == "tiny"));
+}

@@ -450,7 +450,7 @@ async fn write_profiles(
 ) -> Result<HashMap<String, Uuid>, AppError> {
     let (existing, _) = profiles(connection).await?;
     let matched = match_profiles(&existing, &config.profiles);
-    // names are unique: park rows that change their name so renames and swaps cannot collide
+    // names are unique: park renamed rows under a leading-space name that validation never accepts
     for (at, row) in existing.iter().enumerate() {
         let target = matched.iter().position(|slot| *slot == Some(at));
         if target.is_some_and(|draft| config.profiles[draft].name == row.name) {
@@ -458,7 +458,7 @@ async fn write_profiles(
         }
         let id = row.id.ok_or_else(|| corrupt("profile id"))?;
         sqlx::query!(
-            "UPDATE dispatch_profiles SET name = lower(hex(id)) WHERE id = ?",
+            "UPDATE dispatch_profiles SET name = ' ' || lower(hex(id)) WHERE id = ?",
             id
         )
         .execute(&mut *connection)
@@ -575,7 +575,7 @@ fn rule_changed(old: &Rule, new: &Rule) -> bool {
     old.when != new.when || old.profile != new.profile || old.accounts != new.accounts
 }
 
-/// The stored rule each draft rule stands for: by id, else the one at its position.
+/// The stored rule each draft rule stands for: by id, else by position if no draft rule has one.
 fn match_rules(existing: &[Rule], draft: &[Rule]) -> Vec<Option<usize>> {
     let mut matched: Vec<Option<usize>> = draft
         .iter()
@@ -584,6 +584,9 @@ fn match_rules(existing: &[Rule], draft: &[Rule]) -> Vec<Option<usize>> {
                 .and_then(|id| existing.iter().position(|found| found.id == Some(id)))
         })
         .collect();
+    if draft.iter().any(|rule| rule.id.is_some()) {
+        return matched;
+    }
     let mut claimed: Vec<usize> = matched.iter().flatten().copied().collect();
     for (at, slot) in matched.iter_mut().enumerate() {
         if slot.is_none() && at < existing.len() && !claimed.contains(&at) {
@@ -1119,6 +1122,35 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(rules_after, rules_before[..3]);
+    }
+
+    #[tokio::test]
+    async fn a_stale_hash_record_changes_nothing() {
+        let store = Store::in_memory().await.unwrap();
+        let ids = nullradix_app::UuidV7Generator;
+        let old = store.load().await.unwrap();
+        let old_fingerprint = old.config.fingerprint();
+        let mut config = old.config.clone();
+        config.profiles[0].max_turns += 1;
+        let fingerprint = config.fingerprint();
+        let save = ConfigSave {
+            config: &config,
+            fingerprint: &fingerprint,
+            expected: old.version,
+            at: Timestamp::from_millis(5),
+            ids: &ids,
+        };
+        store.save(&save).await.unwrap();
+        let before = store.load().await.unwrap();
+        let versions_before = store.versions().await.unwrap();
+        assert_ne!(old_fingerprint.hash, before.hash);
+        store
+            .record_hash(&old_fingerprint, old.version, Timestamp::from_millis(9))
+            .await
+            .unwrap();
+        let after = store.load().await.unwrap();
+        assert_eq!((&after.hash, after.version), (&before.hash, before.version));
+        assert_eq!(store.versions().await.unwrap(), versions_before);
     }
 
     #[tokio::test]
