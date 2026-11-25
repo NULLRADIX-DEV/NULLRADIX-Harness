@@ -11,8 +11,7 @@ pub use config::{DispatcherConfig, FALLBACK_PROFILE, PLAN_AGENT_PREFIX, RESEARCH
 pub use fingerprint::{FINGERPRINT_HASH_LEN, Fingerprint};
 pub use normalize::{ConfigError, ConfigFieldError, effort_problem, model_problem};
 pub use prompt_check::{
-    MAX_TEMPLATE_BYTES, RequiredPart, missing_parts, required_parts, size_problem,
-    unknown_placeholders,
+    RequiredPart, missing_parts, required_parts, size_problem, unknown_placeholders,
 };
 pub use prompt_defaults::{PlaceholderInfo, default_template, placeholders};
 pub use prompt_run::{

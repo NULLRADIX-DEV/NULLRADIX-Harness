@@ -132,12 +132,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (themes, customizations) = start_extensions(config, &store, &signal);
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
-    let dispatcher_config = dispatcher_config_service(&store, &signal);
-    let dispatcher_prompts = Arc::new(DispatcherPromptService::new(
-        dispatcher_config.clone(),
-        board.tickets.clone(),
-        board.questions.clone(),
-    ));
+    let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
     let state = ApiState {
         auth,
         projects,
@@ -207,6 +202,17 @@ fn dispatcher_config_service(store: &Store, signal: &ChangeSignal) -> Arc<Dispat
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),
+    ))
+}
+
+fn dispatcher_prompt_service(
+    config: &Arc<DispatcherConfigService>,
+    board: &BoardServices,
+) -> Arc<DispatcherPromptService> {
+    Arc::new(DispatcherPromptService::new(
+        config.clone(),
+        board.tickets.clone(),
+        board.questions.clone(),
     ))
 }
 

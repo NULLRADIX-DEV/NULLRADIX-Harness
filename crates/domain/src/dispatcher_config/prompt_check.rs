@@ -20,7 +20,7 @@ fn is_flag(word: &str) -> bool {
 }
 
 /// The longest template an own prompt may be, in bytes.
-pub const MAX_TEMPLATE_BYTES: usize = 64 * 1024;
+const MAX_TEMPLATE_BYTES: usize = 64 * 1024;
 
 /// What is wrong with the size of a template; none when it may be checked further.
 #[must_use]
