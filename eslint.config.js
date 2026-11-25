@@ -9,7 +9,7 @@ export default defineConfig([
     '**/node_modules/',
     '**/dist/',
     '**/coverage/',
-    'target/',
+    '**/target/',
     '.claude/',
     '.remember/',
     'web/src/shared/api/schema.ts',
@@ -39,6 +39,10 @@ export default defineConfig([
     files: ['**/*.js'],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: { globals: globals.node },
+  },
+  {
+    files: ['apps/desktop/ui/**/*.js'],
+    languageOptions: { globals: globals.browser },
   },
   {
     files: ['web/src/**/*.{ts,tsx}'],
