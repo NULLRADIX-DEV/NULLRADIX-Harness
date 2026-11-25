@@ -50,6 +50,8 @@ struct FakeGit {
     /// Where a leftover folder goes at the next ensure.
     rest: Mutex<Option<String>>,
     gate: Mutex<Option<Arc<Gate>>>,
+    /// Stops the runner remove half way, to see whether a cleanup got that far.
+    removal_gate: Mutex<Option<Arc<Gate>>>,
 }
 
 #[async_trait]
@@ -125,6 +127,11 @@ impl RunnerPort for FakeGit {
     }
 
     async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError> {
+        let gate = self.removal_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.entered.notify_one();
+            gate.release.notified().await;
+        }
         self.removals.lock().unwrap().push(request.clone());
         if !self.folders.lock().unwrap().contains(&request.path) {
             return Ok(WorktreeRemoval::Missing);
@@ -1045,11 +1052,7 @@ async fn a_worktree_that_is_there_stays_as_it_is() {
     assert_eq!(request.root, "/work/arches");
     assert_eq!(request.branch, started.branch);
     assert_eq!(request.path, started.worktree);
-    let after = fixture.row_of(&key).await;
-    assert_eq!(
-        (after.desired, after.actual, after.branch, after.path),
-        (before.desired, before.actual, before.branch, before.path)
-    );
+    assert_eq!(fixture.row_of(&key).await, before);
 }
 
 #[tokio::test]
@@ -1095,15 +1098,32 @@ async fn a_leftover_folder_moved_aside_is_reported() {
 }
 
 #[tokio::test]
-async fn ensuring_a_cleaned_up_worktree_is_a_conflict_and_changes_nothing() {
+async fn ensuring_a_cleaned_up_worktree_adds_it_again_and_marks_it_present() {
     let fixture = fixture().await;
-    let (key, _) = fixture.started("Fix the login").await;
+    let (key, started) = fixture.started("Fix the login").await;
     fixture.done(&key, "/work/arches").await.unwrap();
     let removed = fixture.row_of(&key).await;
-    let error = fixture.worktrees.ensure(&key).await.unwrap_err();
-    assert_eq!(error.code(), "worktree-removed");
-    assert!(fixture.git.ensures.lock().unwrap().is_empty());
-    assert_eq!(fixture.row_of(&key).await, removed);
+    assert_eq!(
+        (removed.desired, removed.actual),
+        (DesiredState::Absent, ActualState::Removed)
+    );
+    let ensured = fixture.worktrees.ensure(&key).await.unwrap();
+    assert!(ensured.restored);
+    assert_eq!(ensured.path, started.worktree);
+    let row = fixture.row_of(&key).await;
+    assert_eq!(
+        (row.desired, row.actual, row.last_error.as_deref()),
+        (DesiredState::Present, ActualState::Present, None)
+    );
+    assert!(row.version > removed.version);
+    assert!(
+        fixture
+            .git
+            .folders
+            .lock()
+            .unwrap()
+            .contains(&started.worktree)
+    );
 }
 
 #[tokio::test]
@@ -1194,15 +1214,24 @@ async fn a_cleanup_waits_for_a_running_resume_and_the_folder_stays_removed() {
     let (key, started) = fixture.started("Fix the login").await;
     fixture.lose_folder(&started.worktree);
     let gate = hold_ensure(&fixture);
+    let removal = Arc::new(Gate::default());
+    *fixture.git.removal_gate.lock().unwrap() = Some(removal.clone());
     let resume = fixture.worktrees.resume(&key, &fixture.person);
     let done = async {
         gate.entered.notified().await;
         let finishing = fixture.done(&key, "/work/arches");
         let release = async {
-            // the cleanup cannot touch the worktree while the resume holds it
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            assert!(fixture.git.removals.lock().unwrap().is_empty());
+            // without the lock the cleanup reaches the runner while the resume still holds it
+            let reached = tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                removal.entered.notified(),
+            )
+            .await;
+            assert!(reached.is_err(), "the cleanup ran during the resume");
             gate.release.notify_one();
+            // the cleanup gets its turn after the resume and is let through
+            removal.entered.notified().await;
+            removal.release.notify_one();
         };
         tokio::join!(finishing, release).0
     };

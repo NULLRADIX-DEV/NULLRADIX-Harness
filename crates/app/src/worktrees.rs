@@ -151,6 +151,12 @@ pub trait WorktreeWrite: Send {
         worktree: Id<Worktree>,
         at: Timestamp,
     ) -> Result<Option<Change>, AppError>;
+    /// The folder is back on its branch for `ensure`, which restores a removed row too.
+    async fn mark_ensured(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
     /// Releases the claim (desired present); a reason becomes the last error, a removed row stays.
     async fn mark_kept(
         &mut self,
@@ -243,20 +249,6 @@ pub fn worktree_exists(path: &str) -> AppError {
 #[must_use]
 pub fn ticket_not_started(key: &TicketKey) -> AppError {
     AppError::invalid("ticket-not-started", format!("{key} runs in no worktree"))
-}
-
-/// The worktree was claimed or cleaned up, so it is not brought back.
-#[must_use]
-pub fn worktree_removed(entry: &WorktreeEntry) -> AppError {
-    let record = entry.worktree.record();
-    AppError::conflict(
-        "worktree-removed",
-        format!(
-            "the worktree {} (branch {}) was cleaned up and is not restored",
-            record.path.as_str(),
-            record.branch.as_str()
-        ),
-    )
 }
 
 /// The folder belongs to something else or its leftovers cannot be moved aside.

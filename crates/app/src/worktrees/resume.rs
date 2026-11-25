@@ -1,11 +1,11 @@
 //! Bringing a started ticket's worktree back before work resumes, as legacy `resume` did.
 
-use nullradix_domain::{Actor, Ticket};
+use nullradix_domain::{Actor, ActualState, DesiredState, Ticket};
 use tokio::sync::OwnedMutexGuard;
 
 use super::{
-    EnsureWorktree, EnsuredWorktree, WorktreeEntry, WorktreeService, git_failed,
-    ticket_not_started, worktree_removed,
+    EnsureWorktree, EnsuredWorktree, WorktreeEntry, WorktreeService, git_failed, not_found,
+    ticket_not_started,
 };
 use crate::AppError;
 use crate::repositories::not_a_git_project;
@@ -40,17 +40,22 @@ enum Restore {
     Lost,
 }
 
+/// How a restore records the folder: resume never undoes a claim, ensure restores a removed row.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    Resume,
+    Ensure,
+}
+
 impl WorktreeService {
-    /// Legacy `ensure_worktree`: the ticket's folder on its branch, added again when it is gone.
+    /// Legacy `ensure_worktree`: the folder on its branch, added again when gone or cleaned up.
     pub async fn ensure(&self, key: &str) -> Result<ResumedWorktree, AppError> {
         let (_guard, entry) = self.locked(key).await?;
-        if entry.worktree.removed() {
-            return Err(worktree_removed(&entry));
-        }
-        match self.restore(&entry).await? {
+        match self.restore(&entry, Mark::Ensure).await? {
             Restore::Done(worktree) => Ok(worktree),
             Restore::BranchMissing => Err(missing(&entry)),
-            Restore::Lost => Err(worktree_removed(&entry)),
+            // under the lock a removed row is final, so ensure always records the folder
+            Restore::Lost => Err(not_found(entry.worktree.id())),
         }
     }
 
@@ -60,7 +65,7 @@ impl WorktreeService {
         if entry.worktree.removed() {
             return self.reset(key, &entry, actor).await;
         }
-        match self.restore(&entry).await? {
+        match self.restore(&entry, Mark::Resume).await? {
             Restore::Done(worktree) => Ok(Resumed::Ready(worktree)),
             Restore::Lost => self.reset(key, &entry, actor).await,
             Restore::BranchMissing => Ok(Resumed::Skipped(format!(
@@ -121,7 +126,7 @@ impl WorktreeService {
     }
 
     /// Asks the runner for the folder and records it as present; call it under the lock.
-    async fn restore(&self, entry: &WorktreeEntry) -> Result<Restore, AppError> {
+    async fn restore(&self, entry: &WorktreeEntry, mark: Mark) -> Result<Restore, AppError> {
         let worktree = &entry.worktree;
         let record = worktree.record();
         let root = self
@@ -138,18 +143,28 @@ impl WorktreeService {
             .runners
             .ensure_worktree(record.runner, &request)
             .await?;
-        let (restored, moved_aside) = match ensured {
+        let (restored, moved_aside) = match &ensured {
             EnsuredWorktree::BranchMissing => return Ok(Restore::BranchMissing),
             EnsuredWorktree::Present => (false, None),
-            EnsuredWorktree::Restored { moved_aside } => (true, moved_aside),
+            EnsuredWorktree::Restored { moved_aside } => (true, moved_aside.clone()),
         };
-        let mut write = self.tickets.repository().begin().await?;
-        let change = write.mark_restored(worktree.id(), self.clock.now()).await?;
-        write.commit().await?;
-        let Some(change) = change else {
-            return Ok(Restore::Lost);
-        };
-        self.signal.notify(&change);
+        let intact = ensured == EnsuredWorktree::Present
+            && record.desired == DesiredState::Present
+            && record.actual == ActualState::Present
+            && record.last_error.is_none();
+        if !intact {
+            let mut write = self.tickets.repository().begin().await?;
+            let now = self.clock.now();
+            let change = match mark {
+                Mark::Resume => write.mark_restored(worktree.id(), now).await?,
+                Mark::Ensure => write.mark_ensured(worktree.id(), now).await?,
+            };
+            write.commit().await?;
+            let Some(change) = change else {
+                return Ok(Restore::Lost);
+            };
+            self.signal.notify(&change);
+        }
         Ok(Restore::Done(ResumedWorktree {
             branch: request.branch,
             path: request.path,
