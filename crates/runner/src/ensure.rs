@@ -10,7 +10,7 @@ use crate::cleanup::{blocking, listed};
 use crate::git::local_key;
 use crate::worktree::{LONG_PATHS, ensure_long_paths, exists, git, has_ref};
 
-/// Brings the folder back as a worktree of the branch; leftovers are moved aside, never deleted.
+/// Brings the folder back as a worktree; leftovers move aside, only an empty folder is deleted.
 pub(crate) async fn ensure(request: &EnsureWorktree) -> Result<EnsuredWorktree, AppError> {
     let root = Path::new(&request.root);
     if !has_ref(root, &format!("refs/heads/{}", request.branch)).await? {
@@ -27,7 +27,7 @@ pub(crate) async fn ensure(request: &EnsureWorktree) -> Result<EnsuredWorktree, 
     git(root, &["worktree", "prune"]).await?;
     ensure_long_paths(root, cfg!(windows)).await?;
     let mut args: Vec<&str> = LONG_PATHS.to_vec();
-    args.extend(["worktree", "add", &request.path, &request.branch]);
+    args.extend(["worktree", "add", "--", &request.path, &request.branch]);
     git(root, &args).await?;
     Ok(EnsuredWorktree::Restored { moved_aside })
 }
@@ -57,7 +57,7 @@ fn lists_branch(list: &str, path: &Path, branch: &str) -> bool {
     false
 }
 
-/// Frees the place of a half-removed worktree; the returned folder is where the leftovers went.
+/// Frees the place of a half-removed worktree; the app keeps cleanup away meanwhile.
 async fn clear_rest(root: &Path, request: &EnsureWorktree) -> Result<Option<String>, AppError> {
     let path = PathBuf::from(&request.path);
     let unlisted = listed(root, &request.path).await == Some(false);

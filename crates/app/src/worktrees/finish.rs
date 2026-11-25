@@ -132,6 +132,8 @@ impl WorktreeService {
             {
                 continue;
             }
+            // no resume brings the folder back while it is claimed and removed
+            let _turn = self.lock_worktree(worktree.id()).await;
             // a concurrent cleanup that claimed it first does the work alone
             if !self.claim(worktree.id()).await? {
                 continue;

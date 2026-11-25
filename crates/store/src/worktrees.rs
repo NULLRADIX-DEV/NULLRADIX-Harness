@@ -335,7 +335,7 @@ async fn mark_restored(
         r#"UPDATE worktrees
            SET desired_state = 'present', actual_state = 'present', last_error = NULL,
                observed_at = ?1, updated_at = ?1, version = version + 1
-           WHERE id = ?2 AND (desired_state <> 'present' OR actual_state <> 'present')
+           WHERE id = ?2 AND desired_state = 'present' AND actual_state <> 'removed'
            RETURNING id AS "id: Uuid""#,
         millis,
         id,

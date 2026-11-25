@@ -1,9 +1,11 @@
 //! Bringing a started ticket's worktree back before work resumes, as legacy `resume` did.
 
-use nullradix_domain::{Actor, ActualState, DesiredState, Ticket};
+use nullradix_domain::{Actor, Ticket};
+use tokio::sync::OwnedMutexGuard;
 
 use super::{
-    EnsureWorktree, EnsuredWorktree, WorktreeEntry, WorktreeService, git_failed, ticket_not_started,
+    EnsureWorktree, EnsuredWorktree, WorktreeEntry, WorktreeService, git_failed,
+    ticket_not_started, worktree_removed,
 };
 use crate::AppError;
 use crate::repositories::not_a_git_project;
@@ -30,44 +32,82 @@ pub enum Resumed {
     Skipped(String),
 }
 
+/// What asking the runner for a worktree came to.
+enum Restore {
+    Done(ResumedWorktree),
+    BranchMissing,
+    /// The row was claimed or removed meanwhile; nothing was recorded.
+    Lost,
+}
+
 impl WorktreeService {
     /// Legacy `ensure_worktree`: the ticket's folder on its branch, added again when it is gone.
     pub async fn ensure(&self, key: &str) -> Result<ResumedWorktree, AppError> {
-        let (_, entry) = self.linked(key).await?;
-        self.restore(&entry).await?.ok_or_else(|| missing(&entry))
+        let (_guard, entry) = self.locked(key).await?;
+        if entry.worktree.removed() {
+            return Err(worktree_removed(&entry));
+        }
+        match self.restore(&entry).await? {
+            Restore::Done(worktree) => Ok(worktree),
+            Restore::BranchMissing => Err(missing(&entry)),
+            Restore::Lost => Err(worktree_removed(&entry)),
+        }
     }
 
     /// Legacy `resume`: a cleaned-up worktree is not restored, the ticket starts afresh.
     pub async fn resume(&self, key: &str, actor: &Actor) -> Result<Resumed, AppError> {
-        let (ticket, entry) = self.linked(key).await?;
-        let record = entry.worktree.record();
+        let (_guard, entry) = self.locked(key).await?;
         if entry.worktree.removed() {
-            let patch = TicketPatch {
-                clear_link: true,
-                ..TicketPatch::default()
-            };
-            let options = WriteOptions {
-                force: true,
-                ..WriteOptions::default()
-            };
-            let version = ticket.record().version;
-            self.tickets
-                .update(key, &patch, actor, version, options)
-                .await?;
-            return Ok(Resumed::Reset(format!(
-                "the worktree {} (branch {}) was cleaned up and is not restored; the ticket \
-                 starts on its own new branch, the old branch stays in the repository",
-                record.path.as_str(),
-                record.branch.as_str()
-            )));
+            return self.reset(key, &entry, actor).await;
         }
-        Ok(match self.restore(&entry).await? {
-            Some(worktree) => Resumed::Ready(worktree),
-            None => Resumed::Skipped(format!(
+        match self.restore(&entry).await? {
+            Restore::Done(worktree) => Ok(Resumed::Ready(worktree)),
+            Restore::Lost => self.reset(key, &entry, actor).await,
+            Restore::BranchMissing => Ok(Resumed::Skipped(format!(
                 "branch {} does not exist on this machine",
-                record.branch.as_str()
-            )),
-        })
+                entry.worktree.record().branch.as_str()
+            ))),
+        }
+    }
+
+    /// Clears the ticket's link to a worktree that is cleaned up or on its way out.
+    async fn reset(
+        &self,
+        key: &str,
+        entry: &WorktreeEntry,
+        actor: &Actor,
+    ) -> Result<Resumed, AppError> {
+        let record = entry.worktree.record();
+        let patch = TicketPatch {
+            clear_link: true,
+            ..TicketPatch::default()
+        };
+        let options = WriteOptions {
+            force: true,
+            ..WriteOptions::default()
+        };
+        let version = self.tickets.get(key).await?.view.ticket.record().version;
+        self.tickets
+            .update(key, &patch, actor, version, options)
+            .await?;
+        Ok(Resumed::Reset(format!(
+            "the worktree {} (branch {}) was cleaned up and is not restored; the ticket \
+             starts on its own new branch, the old branch stays in the repository",
+            record.path.as_str(),
+            record.branch.as_str()
+        )))
+    }
+
+    /// The worktree of the ticket, read again under its lock so no cleanup runs alongside.
+    async fn locked(&self, key: &str) -> Result<(OwnedMutexGuard<()>, WorktreeEntry), AppError> {
+        loop {
+            let (_, seen) = self.linked(key).await?;
+            let guard = self.lock_worktree(seen.worktree.id()).await;
+            let (_, entry) = self.linked(key).await?;
+            if entry.worktree.id() == seen.worktree.id() {
+                return Ok((guard, entry));
+            }
+        }
     }
 
     /// The ticket and the worktree it is linked to; a ticket without both is not started.
@@ -80,8 +120,8 @@ impl WorktreeService {
         }
     }
 
-    /// Asks the runner for the folder and records it as present; `None` without the branch.
-    async fn restore(&self, entry: &WorktreeEntry) -> Result<Option<ResumedWorktree>, AppError> {
+    /// Asks the runner for the folder and records it as present; call it under the lock.
+    async fn restore(&self, entry: &WorktreeEntry) -> Result<Restore, AppError> {
         let worktree = &entry.worktree;
         let record = worktree.record();
         let root = self
@@ -99,19 +139,18 @@ impl WorktreeService {
             .ensure_worktree(record.runner, &request)
             .await?;
         let (restored, moved_aside) = match ensured {
-            EnsuredWorktree::BranchMissing => return Ok(None),
+            EnsuredWorktree::BranchMissing => return Ok(Restore::BranchMissing),
             EnsuredWorktree::Present => (false, None),
             EnsuredWorktree::Restored { moved_aside } => (true, moved_aside),
         };
-        if record.desired != DesiredState::Present || record.actual != ActualState::Present {
-            let mut write = self.tickets.repository().begin().await?;
-            let change = write.mark_restored(worktree.id(), self.clock.now()).await?;
-            write.commit().await?;
-            if let Some(change) = change {
-                self.signal.notify(&change);
-            }
-        }
-        Ok(Some(ResumedWorktree {
+        let mut write = self.tickets.repository().begin().await?;
+        let change = write.mark_restored(worktree.id(), self.clock.now()).await?;
+        write.commit().await?;
+        let Some(change) = change else {
+            return Ok(Restore::Lost);
+        };
+        self.signal.notify(&change);
+        Ok(Restore::Done(ResumedWorktree {
             branch: request.branch,
             path: request.path,
             restored,
