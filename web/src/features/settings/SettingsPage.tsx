@@ -1,5 +1,6 @@
 import { THEME_LABELS, THEME_MODES, isThemeMode } from '../../shared/lib/theme';
 import { useTheme } from '../../shared/ui/ThemeProvider';
+import { AccountsSection } from '../accounts/AccountsSection';
 import { ProjectsSection } from '../projects/ProjectsSection';
 
 export function SettingsPage() {
@@ -8,6 +9,7 @@ export function SettingsPage() {
     <div className="page narrow">
       <h1 className="page-title">Settings</h1>
       <ProjectsSection />
+      <AccountsSection />
       <section className="panel page-section">
         <h2>Appearance</h2>
         <label className="field">

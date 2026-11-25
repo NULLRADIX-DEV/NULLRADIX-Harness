@@ -345,7 +345,7 @@ pub(crate) struct BoardTicketsPath {
     clippy::option_option,
     reason = "missing keeps a field, null clears it"
 )]
-fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+pub(crate) fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,

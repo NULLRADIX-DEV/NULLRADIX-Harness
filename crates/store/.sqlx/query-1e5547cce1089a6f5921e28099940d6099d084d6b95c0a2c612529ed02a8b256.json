@@ -1,0 +1,170 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id: Uuid\", slug, name, config_dir, enabled, is_fallback, position,\n                      limit_five_hour_pct, limit_week_pct, token_secret_ref,\n                      created_at, updated_at, version\n               FROM claude_accounts ORDER BY position, created_at, slug",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "slug",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "config_dir",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "config_dir"
+          }
+        }
+      },
+      {
+        "name": "enabled",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "name": "is_fallback",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "is_fallback"
+          }
+        }
+      },
+      {
+        "name": "position",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "name": "limit_five_hour_pct",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "limit_five_hour_pct"
+          }
+        }
+      },
+      {
+        "name": "limit_week_pct",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "limit_week_pct"
+          }
+        }
+      },
+      {
+        "name": "token_secret_ref",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "token_secret_ref"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1e5547cce1089a6f5921e28099940d6099d084d6b95c0a2c612529ed02a8b256"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM claude_accounts WHERE id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "fba14a8621c9ec1c7d0e835a1cad1367244e50a8afd98dcd26fde3596cf23cb5"
+}

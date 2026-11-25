@@ -48,6 +48,7 @@ fn collect(root: &Path, dir: &Path, found: &mut Vec<(String, PathBuf)>) -> anyho
 pub fn check(path: &Path, binaries: &Binaries) -> anyhow::Result<()> {
     let scenario = Scenario::load(path)?;
     let recording = runner::play(&scenario, binaries).with_context(|| scenario.title.clone())?;
+    ensure_no_tokens(&recording)?;
     let golden = golden_path(path)?;
     if env::var_os(ACCEPT).is_some_and(|value| value == "1") {
         let text = serde_json::to_string_pretty(&recording)? + "\n";
@@ -58,6 +59,17 @@ pub fn check(path: &Path, binaries: &Binaries) -> anyhow::Result<()> {
         .with_context(|| format!("{} is missing; record it with {ACCEPT}=1", golden.display()))?;
     let expected: Vec<Value> = serde_json::from_str(&text)?;
     compare(&expected, &recording)
+}
+
+/// Refuses a recording that holds a Claude run token, so goldens never keep one.
+fn ensure_no_tokens(recording: &[Value]) -> anyhow::Result<()> {
+    let token = regex::Regex::new(r"sk-ant-oat[0-9]*-[A-Za-z0-9_-]{4,}")?;
+    for (index, entry) in recording.iter().enumerate() {
+        if token.is_match(&entry.to_string()) {
+            bail!("step {} of the recording holds a run token", index + 1);
+        }
+    }
+    Ok(())
 }
 
 fn golden_path(path: &Path) -> anyhow::Result<PathBuf> {
@@ -106,5 +118,15 @@ mod tests {
         let error = compare(&one, &other).unwrap_err().to_string();
         assert!(error.starts_with("step 2 differs"), "{error}");
         assert!(compare(&one, &one[..1]).is_err());
+    }
+
+    #[test]
+    fn recordings_with_a_run_token_are_refused() {
+        let clean =
+            vec![json!({ "stderr": "a run token starts with sk-ant-oat and has no spaces" })];
+        assert!(ensure_no_tokens(&clean).is_ok());
+        let leaking = vec![json!({ "request": { "body": { "token": "sk-ant-oat01-abcdef" } } })];
+        let error = ensure_no_tokens(&leaking).unwrap_err().to_string();
+        assert_eq!(error, "step 1 of the recording holds a run token");
     }
 }

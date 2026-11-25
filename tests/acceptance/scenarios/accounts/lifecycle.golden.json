@@ -1,0 +1,439 @@
+[
+  {
+    "cli": [
+      "account",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "list in the CLI",
+    "stderr": "",
+    "stdout": "default          Default              enabled  5h -     week -     token none the server's own login\n"
+  },
+  {
+    "name": "add over HTTP",
+    "request": {
+      "body": {
+        "name": "Max (private)"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "configDir": "<HOME>/data/accounts/max-private",
+        "createdAt": "<TIME>",
+        "enabled": true,
+        "fallback": false,
+        "hasRunToken": false,
+        "id": "<ID-1>",
+        "limitFiveHour": null,
+        "limitWeek": null,
+        "name": "Max (private)",
+        "slug": "max-private",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/accounts/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "account",
+      "add",
+      "Work"
+    ],
+    "exitCode": 0,
+    "name": "add in the CLI",
+    "stderr": "",
+    "stdout": "added work (Work)\n"
+  },
+  {
+    "name": "add with a relative folder",
+    "request": {
+      "body": {
+        "configDir": "relative/folder",
+        "name": "Odd"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "code": "account-invalid",
+        "detail": "the folder relative/folder must be an absolute path or start with ~",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:account-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "list over HTTP",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "accountsDir": "<HOME>/data/accounts",
+        "items": [
+          {
+            "configDir": null,
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-2>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "Default",
+            "slug": "default",
+            "updatedAt": "<TIME>",
+            "version": 1
+          },
+          {
+            "configDir": "<HOME>/data/accounts/max-private",
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-1>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "Max (private)",
+            "slug": "max-private",
+            "updatedAt": "<TIME>",
+            "version": 1
+          },
+          {
+            "configDir": "<HOME>/data/accounts/work",
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-3>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "Work",
+            "slug": "work",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "account",
+      "set",
+      "max-private",
+      "--limit-five-hour",
+      "50",
+      "--limit-week",
+      "80"
+    ],
+    "exitCode": 0,
+    "name": "set limits in the CLI",
+    "stderr": "",
+    "stdout": "updated max-private      Max (private)        enabled  5h 50%   week 80%   token none <HOME>/data/accounts/max-private\n"
+  },
+  {
+    "name": "update with a stale version",
+    "request": {
+      "body": {
+        "name": "Max stale",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/accounts/<ID-1>"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "account <ID-1> was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "update a limit out of range",
+    "request": {
+      "body": {
+        "limitWeek": 101,
+        "version": 2
+      },
+      "method": "PATCH",
+      "path": "/api/v1/accounts/<ID-1>"
+    },
+    "response": {
+      "json": {
+        "code": "account-invalid",
+        "detail": "the limit for the week must be a whole number from 1 to 100",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:account-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "account",
+      "set",
+      "max-private",
+      "--limit-week",
+      "none",
+      "--fallback",
+      "true"
+    ],
+    "exitCode": 0,
+    "name": "remove a limit and make it a fallback",
+    "stderr": "",
+    "stdout": "updated max-private      Max (private)        fallback 5h 50%   week -     token none <HOME>/data/accounts/max-private\n"
+  },
+  {
+    "cli": [
+      "account",
+      "disable",
+      "max-private"
+    ],
+    "exitCode": 0,
+    "name": "disable in the CLI",
+    "stderr": "",
+    "stdout": "updated max-private      Max (private)        disabled 5h 50%   week -     token none <HOME>/data/accounts/max-private\n"
+  },
+  {
+    "cli": [
+      "account",
+      "enable",
+      "max-private"
+    ],
+    "exitCode": 0,
+    "name": "enable in the CLI",
+    "stderr": "",
+    "stdout": "updated max-private      Max (private)        fallback 5h 50%   week -     token none <HOME>/data/accounts/max-private\n"
+  },
+  {
+    "cli": [
+      "account",
+      "disable",
+      "max-private"
+    ],
+    "exitCode": 0,
+    "name": "disable once more",
+    "stderr": "",
+    "stdout": "updated max-private      Max (private)        disabled 5h 50%   week -     token none <HOME>/data/accounts/max-private\n"
+  },
+  {
+    "cli": [
+      "account",
+      "token",
+      "set",
+      "max-private"
+    ],
+    "exitCode": 0,
+    "name": "set a token from standard input",
+    "stderr": "",
+    "stdout": "token stored for max-private\n"
+  },
+  {
+    "cli": [
+      "account",
+      "token",
+      "set",
+      "work"
+    ],
+    "exitCode": 1,
+    "name": "refuse a token of the wrong shape",
+    "stderr": "error: cannot store the token of work: the daemon refused the request: a run token starts with sk-ant-oat and has no spaces (run-token-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "name": "token body missing",
+    "request": {
+      "body": {},
+      "method": "PUT",
+      "path": "/api/v1/accounts/<ID-1>/run-token"
+    },
+    "response": {
+      "json": {
+        "code": "input-invalid",
+        "detail": "Failed to deserialize the JSON body into the target type: missing field `token` at line 1 column 2",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:input-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "list shows the token as set",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "accountsDir": "<HOME>/data/accounts",
+        "items": [
+          {
+            "configDir": null,
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-2>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "Default",
+            "slug": "default",
+            "updatedAt": "<TIME>",
+            "version": 1
+          },
+          {
+            "configDir": "<HOME>/data/accounts/max-private",
+            "createdAt": "<TIME>",
+            "enabled": false,
+            "fallback": true,
+            "hasRunToken": true,
+            "id": "<ID-1>",
+            "limitFiveHour": 50,
+            "limitWeek": null,
+            "name": "Max (private)",
+            "slug": "max-private",
+            "updatedAt": "<TIME>",
+            "version": 7
+          },
+          {
+            "configDir": "<HOME>/data/accounts/work",
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-3>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "Work",
+            "slug": "work",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "account",
+      "token",
+      "clear",
+      "max-private"
+    ],
+    "exitCode": 0,
+    "name": "clear the token",
+    "stderr": "",
+    "stdout": "token cleared for max-private\n"
+  },
+  {
+    "cli": [
+      "account",
+      "remove",
+      "default"
+    ],
+    "exitCode": 1,
+    "name": "remove the default account",
+    "stderr": "error: cannot remove default: the daemon refused the request: the default account can only be disabled, not removed (account-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "account",
+      "remove",
+      "nobody"
+    ],
+    "exitCode": 1,
+    "name": "remove an unknown account",
+    "stderr": "error: no account has the id nobody, `nullradix account list` shows them\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "account",
+      "remove",
+      "max-private",
+      "--delete-dir"
+    ],
+    "exitCode": 0,
+    "name": "remove with its folder",
+    "stderr": "",
+    "stdout": "removed max-private\n"
+  },
+  {
+    "name": "delete again over HTTP",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/accounts/<ID-1>?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "account-not-found",
+        "detail": "account <ID-1> does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:account-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "list at the end",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "accountsDir": "<HOME>/data/accounts",
+        "items": [
+          {
+            "configDir": null,
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-2>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "Default",
+            "slug": "default",
+            "updatedAt": "<TIME>",
+            "version": 1
+          },
+          {
+            "configDir": "<HOME>/data/accounts/work",
+            "createdAt": "<TIME>",
+            "enabled": true,
+            "fallback": false,
+            "hasRunToken": false,
+            "id": "<ID-3>",
+            "limitFiveHour": null,
+            "limitWeek": null,
+            "name": "Work",
+            "slug": "work",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  }
+]

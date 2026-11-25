@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
+use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
@@ -23,7 +24,7 @@ use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_domain::Actor;
-use nullradix_runner::{LocalRunner, SupervisorCommand};
+use nullradix_runner::{LocalAccountFolders, LocalRunner, SupervisorCommand};
 use nullradix_store::Store;
 use tokio::net::TcpListener;
 use tokio::task;
@@ -32,6 +33,7 @@ use tokio_util::sync::CancellationToken;
 use crate::config::Config;
 use crate::intake;
 use crate::logging;
+use crate::secrets::OsSecretStore;
 use crate::token;
 
 /// Time open connections get to finish once a shutdown is requested.
@@ -106,6 +108,14 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
+    let accounts = Arc::new(AccountService::new(
+        Arc::new(store.clone()),
+        Arc::new(OsSecretStore::open(config)),
+        Arc::new(LocalAccountFolders::new(config.paths.data.join("accounts"))),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
     let (runner, runners) = start_runners(config, &store, &signal).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let runs = start_runs(&store, runner, &signal).await?;
@@ -127,6 +137,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let state = ApiState {
         auth,
         projects,
+        accounts,
         boards: board.boards,
         tickets: board.tickets,
         comments: board.comments,

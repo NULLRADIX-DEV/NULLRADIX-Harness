@@ -1,5 +1,6 @@
 //! Use cases and the ports they need.
 
+pub mod accounts;
 pub mod auth;
 mod authors;
 pub mod boards;
@@ -16,6 +17,7 @@ pub mod projects;
 pub mod questions;
 pub mod repositories;
 pub mod runs;
+pub mod secrets;
 pub mod session_detail;
 pub mod sessions;
 pub mod tickets;

@@ -1,5 +1,6 @@
 //! HTTP API served by the daemon.
 
+mod accounts;
 mod auth;
 mod boards;
 mod comments;
@@ -32,6 +33,7 @@ use axum::extract::State;
 use axum::http::{HeaderValue, Request, StatusCode, header};
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
+use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
@@ -58,6 +60,7 @@ use utoipa::{Modify, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+pub use accounts::{AccountDto, AccountList, CreateAccount, SetRunToken, UpdateAccount};
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
 pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
 pub use comments::{ActorKindDto, AddComment, CommentDto, CommentList, SystemMarkerDto};
@@ -149,6 +152,7 @@ impl std::fmt::Debug for ApiState {
 pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub projects: Arc<ProjectService>,
+    pub accounts: Arc<AccountService>,
     pub boards: Arc<BoardService>,
     pub tickets: Arc<TicketService>,
     pub comments: Arc<CommentService>,
@@ -187,6 +191,9 @@ fn routes() -> OpenApiRouter<ApiState> {
             projects::rename_project,
             projects::delete_project
         ))
+        .routes(routes!(accounts::list_accounts, accounts::create_account))
+        .routes(routes!(accounts::update_account, accounts::delete_account))
+        .routes(routes!(accounts::set_run_token, accounts::clear_run_token))
         .routes(routes!(boards::list_all_boards))
         .routes(routes!(boards::list_boards, boards::create_board))
         .routes(routes!(
@@ -380,6 +387,7 @@ pub(crate) mod tests {
         pub(crate) person: Arc<nullradix_domain::Actor>,
         pub(crate) changes: Arc<dyn ChangeFeed>,
         pub(crate) shutdown: CancellationToken,
+        pub(crate) _accounts_dir: tempfile::TempDir,
     }
 
     pub(crate) async fn test_api() -> TestApi {
@@ -503,6 +511,24 @@ pub(crate) mod tests {
         (sessions, favorites, hooks)
     }
 
+    fn test_accounts(
+        store: &Arc<Store>,
+        signal: &ChangeSignal,
+    ) -> (Arc<AccountService>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let accounts = Arc::new(AccountService::new(
+            store.clone(),
+            Arc::new(nullradix_app::secrets::MemorySecretStore::new()),
+            Arc::new(nullradix_runner::LocalAccountFolders::new(
+                dir.path().join("accounts"),
+            )),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        (accounts, dir)
+    }
+
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
@@ -519,6 +545,7 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let (accounts, accounts_dir) = test_accounts(&store, &signal);
         let changes: Arc<dyn ChangeFeed> = store.clone();
         let (runner, runners) = test_runners(&store, &signal).await;
         let boards = Arc::new(BoardService::new(
@@ -554,6 +581,7 @@ pub(crate) mod tests {
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
+            accounts,
             boards: boards.clone(),
             tickets,
             comments,
@@ -588,6 +616,7 @@ pub(crate) mod tests {
             person,
             changes,
             shutdown,
+            _accounts_dir: accounts_dir,
         }
     }
 

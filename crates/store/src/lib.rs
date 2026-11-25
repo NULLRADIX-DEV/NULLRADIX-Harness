@@ -1,5 +1,6 @@
 //! SQLite persistence of the daemon.
 
+mod accounts;
 mod auth;
 mod boards;
 mod change_feed;

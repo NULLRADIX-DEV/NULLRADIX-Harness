@@ -4,6 +4,54 @@
  */
 
 export interface paths {
+    "/api/v1/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_accounts"];
+        put?: never;
+        post: operations["create_account"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounts/{accountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_account"];
+        options?: never;
+        head?: never;
+        patch: operations["update_account"];
+        trace?: never;
+    };
+    "/api/v1/accounts/{accountId}/run-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_run_token"];
+        post?: never;
+        delete: operations["clear_run_token"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/handoff": {
         parameters: {
             query?: never;
@@ -988,6 +1036,42 @@ export interface components {
             /** Format: int64 */
             version?: number | null;
         };
+        /** @description A Claude account as the API shows it; the run token itself never leaves the daemon. */
+        AccountDto: {
+            /** @description Claude folder as typed; none for the default account, which uses the server login. */
+            configDir?: string | null;
+            /** Format: int64 */
+            createdAt: number;
+            enabled: boolean;
+            /** @description Only used when no other allowed account is free. */
+            fallback: boolean;
+            /** @description Whether runs of this account start with a stored long-lived token. */
+            hasRunToken: boolean;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: int64
+             * @description Usage ceiling in percent for the five hour window; none uses the dispatcher's default.
+             */
+            limitFiveHour?: number | null;
+            /**
+             * Format: int64
+             * @description Usage ceiling in percent for the week; none uses the dispatcher's default.
+             */
+            limitWeek?: number | null;
+            name: string;
+            /** @description Short id used in labels such as `account:max` and on the command line. */
+            slug: string;
+            /** Format: int64 */
+            updatedAt: number;
+            /** Format: int64 */
+            version: number;
+        };
+        AccountList: {
+            /** @description Folder where new accounts get their own subfolders. */
+            accountsDir: string;
+            items: components["schemas"]["AccountDto"][];
+        };
         /** @enum {string} */
         ActorKindDto: "human" | "session" | "subagent" | "dispatcher" | "system";
         /** @description A new comment; leading and trailing whitespace is dropped. */
@@ -1173,6 +1257,11 @@ export interface components {
             /** Format: int64 */
             usedTokens: number;
         };
+        CreateAccount: {
+            /** @description An existing Claude folder to take over, such as `~/.mcacc/work`; else a new one is made. */
+            configDir?: string | null;
+            name: string;
+        };
         CreateBoard: {
             name: string;
         };
@@ -1275,7 +1364,7 @@ export interface components {
             reason?: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account";
         /** @description A marked session; its state is the live one while the session still exists. */
         FavoriteDto: {
             /** @description Shell command that resumes the session in its folder. */
@@ -1938,6 +2027,19 @@ export interface components {
              */
             version: number;
         };
+        /** @description The long-lived token of `claude setup-token`; it is only ever sent, never returned. */
+        SetRunToken: {
+            /**
+             * Format: password
+             * @example sk-ant-oat01-...
+             */
+            token: string;
+            /**
+             * Format: int64
+             * @description Version the change is based on.
+             */
+            version: number;
+        };
         /** @description A note the similarity check found. */
         SimilarNoteDto: {
             /** Format: int64 */
@@ -2177,6 +2279,21 @@ export interface components {
              */
             skipped: number;
         };
+        /** @description A change of fields; left out fields stay, `null` removes a limit. */
+        UpdateAccount: {
+            enabled?: boolean | null;
+            fallback?: boolean | null;
+            /** Format: int64 */
+            limitFiveHour?: number | null;
+            /** Format: int64 */
+            limitWeek?: number | null;
+            name?: string | null;
+            /**
+             * Format: int64
+             * @description Version the change is based on; a newer stored version fails with `version-conflict`.
+             */
+            version: number;
+        };
         /** @description A change of fields; left out fields stay, `null` clears those that may be empty. */
         UpdateTicket: {
             acceptance?: string | null;
@@ -2237,6 +2354,329 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_accounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAccount"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the new account */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The folder belongs to another account */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_account: {
+        parameters: {
+            query: {
+                /** @description Version the deletion is based on. */
+                version: number;
+                /** @description Also delete the account's own Claude folder, only allowed below the accounts folder. */
+                deleteDir?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Account id. */
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account is gone */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The default account stays, or the folder is not the account's own */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Account id. */
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAccount"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_run_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Account id. */
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRunToken"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The token does not look like one of `claude setup-token` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The secret store did not answer */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    clear_run_token: {
+        parameters: {
+            query: {
+                /** @description Version the change is based on. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                /** @description Account id. */
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     redeem_handoff: {
         parameters: {
             query: {

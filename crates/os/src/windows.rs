@@ -11,7 +11,11 @@ use std::process::{Child, Command};
 use std::ptr;
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, GetLastError, INVALID_HANDLE_VALUE,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_NOT_FOUND, GetLastError, INVALID_HANDLE_VALUE,
+};
+use windows_sys::Win32::Security::Credentials::{
+    CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree, CredReadW,
+    CredWriteW,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
@@ -246,6 +250,81 @@ fn resume(pid: u32) -> io::Result<()> {
     }
     if resumed == 0 {
         return Err(io::Error::other(format!("process {pid} has no thread")));
+    }
+    Ok(())
+}
+
+/// Largest secret Windows keeps in one credential.
+pub(crate) const CREDENTIAL_MAX: usize = 2560;
+
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(iter::once(0)).collect()
+}
+
+/// The generic credential stored under `target`, if any.
+pub(crate) fn credential_read(target: &str) -> io::Result<Option<Vec<u8>>> {
+    let target = wide(target);
+    let mut found: *mut CREDENTIALW = ptr::null_mut();
+    // SAFETY: target is NUL-terminated and found is a valid out pointer.
+    let read = unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &raw mut found) };
+    if read == 0 {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == i32::try_from(ERROR_NOT_FOUND).ok() {
+            Ok(None)
+        } else {
+            Err(error)
+        };
+    }
+    // SAFETY: CredReadW filled found with a credential whose blob holds the stated size.
+    let blob = unsafe {
+        let credential = &*found;
+        let size = usize::try_from(credential.CredentialBlobSize).unwrap_or(0);
+        if size == 0 || credential.CredentialBlob.is_null() {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(credential.CredentialBlob, size).to_vec()
+        }
+    };
+    // SAFETY: found came from CredReadW and is freed exactly once.
+    unsafe { CredFree(found.cast::<c_void>()) };
+    Ok(Some(blob))
+}
+
+/// Stores or replaces the generic credential under `target`, kept for this machine.
+pub(crate) fn credential_write(target: &str, user: &str, secret: &[u8]) -> io::Result<()> {
+    let size = u32::try_from(secret.len())
+        .ok()
+        .filter(|_| secret.len() <= CREDENTIAL_MAX)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "secret too large"))?;
+    let mut target = wide(target);
+    let mut user = wide(user);
+    let mut blob = secret.to_vec();
+    // SAFETY: an all-zero credential is valid; the fields set below are all that is used.
+    let mut credential: CREDENTIALW = unsafe { std::mem::zeroed() };
+    credential.Type = CRED_TYPE_GENERIC;
+    credential.TargetName = target.as_mut_ptr();
+    credential.UserName = user.as_mut_ptr();
+    credential.CredentialBlobSize = size;
+    credential.CredentialBlob = blob.as_mut_ptr();
+    credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
+    // SAFETY: the credential points at buffers that outlive the call; Windows copies them.
+    let written = unsafe { CredWriteW(&raw const credential, 0) };
+    if written == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Removes the generic credential under `target`; a missing one is no error.
+pub(crate) fn credential_delete(target: &str) -> io::Result<()> {
+    let target = wide(target);
+    // SAFETY: target is NUL-terminated.
+    let deleted = unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) };
+    if deleted == 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != i32::try_from(ERROR_NOT_FOUND).ok() {
+            return Err(error);
+        }
     }
     Ok(())
 }

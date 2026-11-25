@@ -1,5 +1,6 @@
 //! Entities and rules of NULLRADIX, free of IO.
 
+mod account;
 mod board;
 mod board_rules;
 mod comment;
@@ -21,6 +22,10 @@ mod timestamp;
 mod version;
 mod worktree;
 
+pub use account::{
+    ACCOUNT_NAME_MAX, ACCOUNT_SLUG_MAX, Account, AccountChanges, AccountError, AccountName,
+    AccountSlug, CONFIG_DIR_MAX, ConfigDir, DEFAULT_SLUG, Limit, RunToken, TOKEN_PREFIX,
+};
 pub use board::{Actor, ActorKind, ActorName, Board, BoardError, BoardName, BoardRecord};
 pub use board_rules::{
     DependencyIndex, LABEL_MAX, RuleError, display_order, normalize_dependencies, normalize_labels,
