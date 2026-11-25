@@ -192,13 +192,15 @@ mod tests {
         let user = crate::windows::UserSid::current().unwrap();
         let sid = user.text();
         assert!(sid.starts_with("S-1-5-"), "{sid}");
+        // SDDL names the built-in administrator LA instead of its SID
+        let name = if sid.ends_with("-500") { "LA" } else { sid };
         let folder = dir.path().join("data").join("secrets");
         for path in [folder.clone(), folder.join("secrets.json")] {
             let acl = crate::windows::dacl_sddl(&path).unwrap();
             // owned by the user, protected, and one entry: full access for that SID, not for OW
-            assert!(acl.starts_with(&format!("O:{sid}D:P")), "{acl}");
+            assert!(acl.starts_with(&format!("O:{name}D:P")), "{acl}");
             assert_eq!(acl.matches('(').count(), 1, "{acl}");
-            assert!(acl.contains(&format!(";FA;;;{sid})")), "{acl}");
+            assert!(acl.contains(&format!(";FA;;;{name})")), "{acl}");
             assert!(!acl.contains(";OW)") && !acl.contains(";BA)"), "{acl}");
         }
         assert_eq!(secrets.get("a").unwrap().as_deref(), Some("two"));

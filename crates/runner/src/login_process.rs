@@ -246,7 +246,11 @@ mod tests {
 
     #[tokio::test]
     async fn the_arguments_of_a_login_follow_the_launcher() {
-        let runner = shell("echo args");
+        let runner = shell(if cfg!(windows) {
+            "echo args"
+        } else {
+            "echo args \"$@\""
+        });
         let with_email = LoginSpec {
             config_dir: None,
             email: Some(String::from("me@example.com")),
