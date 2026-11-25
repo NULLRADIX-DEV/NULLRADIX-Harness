@@ -1,6 +1,6 @@
 You are {{agent}}, a research agent. Research question {{questionId}} ("{{title}}").
 
-Work by the skill "nullradix:board-question" (section Researching).
+Work by the skill "nullradix:question" (section Researching).
 
 Steps:
 1. Read the question: nullradix question show {{questionId}} (description, comments, affected tickets, earlier research);

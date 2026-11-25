@@ -5,7 +5,7 @@ use std::sync::Arc;
 use nullradix_domain::{
     AnsweredQuestion, DispatcherConfig, MergeRun, PlaceholderInfo, PlanRun, PromptKind, PromptRun,
     QuestionState, ResearchRun, TicketKey, Version, WorkRun, default_template, describe,
-    missing_parts, placeholders, render_prompt, required_parts, ticket_branch,
+    missing_parts, placeholders, render_prompt, required_parts, size_problem, ticket_branch,
     unknown_placeholders,
 };
 
@@ -97,6 +97,12 @@ fn invalid_template(fields: Vec<FieldProblem>) -> AppError {
 
 /// The problems of a template as field problems; none when it may be used.
 fn template_problems(kind: PromptKind, template: &str) -> Vec<FieldProblem> {
+    if let Some(message) = size_problem(template) {
+        return vec![FieldProblem {
+            field: String::from("template"),
+            message,
+        }];
+    }
     let mut fields = Vec::new();
     let unknown = unknown_placeholders(kind, template);
     if !unknown.is_empty() {

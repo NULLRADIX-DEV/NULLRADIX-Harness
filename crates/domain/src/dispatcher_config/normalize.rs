@@ -4,7 +4,7 @@ use std::fmt;
 use crate::{AccountSlug, TextError, required_text};
 
 use super::config::{DispatcherConfig, FALLBACK_PROFILE};
-use super::prompt_check::{missing_parts, unknown_placeholders};
+use super::prompt_check::{missing_parts, size_problem, unknown_placeholders};
 use super::values::{
     ClaudeSettings, EFFORT_LEVELS, MAX_PARALLEL_AUTO_RUNS, MODEL_ALIASES, PROFILE_NAME_MAX,
     Profile, PromptKind, Rule, TimeWindow, WorktreeSetupStep,
@@ -333,6 +333,10 @@ fn setup_steps(steps: &mut [WorktreeSetupStep], check: &mut Checker) {
 /// An own prompt template may only use known placeholders and must keep the required parts.
 fn template(kind: PromptKind, text: &str, check: &mut Checker) {
     let field = format!("prompts.{}", kind.as_str());
+    if let Some(problem) = size_problem(text) {
+        check.add(&field, problem);
+        return;
+    }
     let unknown = unknown_placeholders(kind, text);
     if !unknown.is_empty() {
         let names: Vec<String> = unknown
@@ -913,6 +917,20 @@ mod tests {
         assert_eq!(config.prompts.work.as_deref(), Some(own.as_str()));
         assert_eq!(config.prompts.plan, None);
         assert_eq!(config.prompts.entries().len(), 1);
+    }
+
+    #[test]
+    fn a_huge_prompt_template_is_refused_per_field_without_being_checked() {
+        let huge = "--author ".repeat(2 * 1024 * 1024 / 9);
+        let started = std::time::Instant::now();
+        let errors = changed(|config| config.prompts.work = Some(huge.clone()))
+            .normalized()
+            .unwrap_err()
+            .0;
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field, "prompts.work");
+        assert_eq!(errors[0].message, "is longer than 64 KiB");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[test]

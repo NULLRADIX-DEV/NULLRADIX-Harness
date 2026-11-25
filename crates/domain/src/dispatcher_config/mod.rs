@@ -10,7 +10,10 @@ mod values;
 pub use config::{DispatcherConfig, FALLBACK_PROFILE, PLAN_AGENT_PREFIX, RESEARCH_AGENT_PREFIX};
 pub use fingerprint::{FINGERPRINT_HASH_LEN, Fingerprint};
 pub use normalize::{ConfigError, ConfigFieldError, effort_problem, model_problem};
-pub use prompt_check::{RequiredPart, missing_parts, required_parts, unknown_placeholders};
+pub use prompt_check::{
+    MAX_TEMPLATE_BYTES, RequiredPart, missing_parts, required_parts, size_problem,
+    unknown_placeholders,
+};
 pub use prompt_defaults::{PlaceholderInfo, default_template, placeholders};
 pub use prompt_run::{
     AnsweredQuestion, MergeRun, PlanRun, PromptRun, ResearchRun, WorkRun, render_prompt,

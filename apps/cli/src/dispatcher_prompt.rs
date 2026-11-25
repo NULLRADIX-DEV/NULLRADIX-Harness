@@ -77,11 +77,8 @@ pub(crate) fn run(command: PromptCommand, client: &Client) -> anyhow::Result<Exi
         }
         PromptCommand::Show { kind, default } => {
             let detail = client.dispatcher_prompt(kind.into())?;
-            let text = match (&detail.prompt.template, default) {
-                (Some(own), false) => own,
-                _ => &detail.prompt.default,
-            };
-            println!("{text}");
+            // Exactly the stored text, so `show > file` then `set --file file` changes nothing.
+            print!("{}", shown(&detail.prompt, default));
         }
         PromptCommand::Set { kind, file } => {
             let template = read_text(&file)?;
@@ -152,6 +149,14 @@ fn read_text(path: &Path) -> anyhow::Result<String> {
         bail!("{} is not a text file", path.display());
     }
     Ok(text)
+}
+
+/// The text `show` prints: the own template, or the default when asked or none exists.
+fn shown(prompt: &PromptDto, default: bool) -> &str {
+    match (&prompt.template, default) {
+        (Some(own), false) => own,
+        _ => &prompt.default,
+    }
 }
 
 fn saved_line(prompt: &PromptDto, version: i64) -> String {
@@ -227,6 +232,26 @@ mod tests {
             saved_line(&item(None), 3),
             "the plan prompt uses the default, configuration version 3"
         );
+    }
+
+    #[test]
+    fn what_show_prints_is_what_set_file_reads_back() {
+        let dir = std::env::temp_dir().join(format!("nullradix-roundtrip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("template.txt");
+        for text in [
+            "one
+two
+", "one
+two",
+        ] {
+            let prompt = item(Some(text));
+            std::fs::write(&path, shown(&prompt, false)).unwrap();
+            assert_eq!(read_text(&path).unwrap(), text);
+        }
+        assert_eq!(shown(&item(Some("own")), true), "d");
+        assert_eq!(shown(&item(None), false), "d");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

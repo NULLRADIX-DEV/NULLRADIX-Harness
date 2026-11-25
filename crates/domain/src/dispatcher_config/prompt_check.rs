@@ -19,28 +19,50 @@ fn is_flag(word: &str) -> bool {
     word.len() > 1 && word.starts_with('-')
 }
 
-/// The words follow one another; flags may stand between them.
-fn follows(rest: &[&str], wanted: &[&str]) -> bool {
-    let Some((next, after)) = wanted.split_first() else {
-        return true;
-    };
-    let Some((word, behind)) = rest.split_first() else {
-        return false;
-    };
-    let matches = if after.is_empty() {
-        word.starts_with(next)
-    } else {
-        word == next
-    };
-    (matches && follows(behind, after)) || (is_flag(word) && follows(behind, wanted))
+/// The longest template an own prompt may be, in bytes.
+pub const MAX_TEMPLATE_BYTES: usize = 64 * 1024;
+
+/// What is wrong with the size of a template; none when it may be checked further.
+#[must_use]
+pub fn size_problem(template: &str) -> Option<String> {
+    (template.len() > MAX_TEMPLATE_BYTES)
+        .then(|| format!("is longer than {} KiB", MAX_TEMPLATE_BYTES / 1024))
 }
 
 /// A command such as `nullradix ticket done {{ticketId}}`, with flags allowed between words.
+///
+/// One pass over the words: `reached[k]` tells that some start has matched the first `k` words.
 fn has_command(template: &str, wanted: &[&str]) -> bool {
-    let all = words(template);
-    all.iter()
-        .enumerate()
-        .any(|(at, word)| word.ends_with(wanted[0]) && follows(&all[at + 1..], &wanted[1..]))
+    let last = wanted.len() - 1;
+    let mut reached = vec![false; wanted.len()];
+    for word in template.split_whitespace() {
+        let mut next = vec![false; wanted.len()];
+        for k in 1..=last {
+            if !reached[k] {
+                continue;
+            }
+            let matches = if k == last {
+                word.starts_with(wanted[k])
+            } else {
+                word == wanted[k]
+            };
+            if matches {
+                if k == last {
+                    return true;
+                }
+                next[k + 1] = true;
+            }
+            next[k] |= is_flag(word);
+        }
+        if word.ends_with(wanted[0]) {
+            if last == 0 {
+                return true;
+            }
+            next[1] = true;
+        }
+        reached = next;
+    }
+    false
 }
 
 fn has_text(template: &str, text: &str) -> bool {
@@ -53,13 +75,15 @@ fn has_outcomes(template: &str) -> bool {
 
 fn has_question_add(template: &str) -> bool {
     let all = words(template);
-    all.iter().enumerate().any(|(at, word)| {
-        word.ends_with("nullradix")
-            && all[at + 1..].starts_with(&["question", "add"])
-            && all[at + 3..]
-                .windows(2)
-                .any(|pair| pair[0] == "--ticket" && pair[1].starts_with("{{ticketId}}"))
-    })
+    // The earliest start leaves the most words to look at for the ticket.
+    let Some(at) = all.iter().enumerate().position(|(at, word)| {
+        word.ends_with("nullradix") && all[at + 1..].starts_with(&["question", "add"])
+    }) else {
+        return false;
+    };
+    all[at + 3..]
+        .windows(2)
+        .any(|pair| pair[0] == "--ticket" && pair[1].starts_with("{{ticketId}}"))
 }
 
 macro_rules! placeholder_part {
@@ -309,6 +333,43 @@ mod tests {
     fn the_outcomes_placeholder_stands_in_for_the_commands() {
         let template = "{{agent}} {{ticketId}}\n{{outcomes}}";
         assert_eq!(ids(PromptKind::Work, template), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn commands_are_found_with_flags_between_the_words_in_one_pass() {
+        let wanted = [
+            "nullradix",
+            "ticket",
+            "set",
+            "{{ticketId}}",
+            "--status",
+            "blocked",
+        ];
+        assert!(has_command(
+            "x /bin/nullradix -v ticket --a set --b {{ticketId}} --status --status blocked",
+            &wanted
+        ));
+        assert!(!has_command(
+            "nullradix ticket set {{ticketId}} --status",
+            &wanted
+        ));
+        assert!(!has_command(
+            "nullradix ticket x set {{ticketId}} --status blocked",
+            &wanted
+        ));
+        assert!(has_command(
+            "nullradix nullradix ticket set {{ticketId}} --status blocked",
+            &wanted
+        ));
+        let flags = "--author ".repeat(200_000);
+        assert!(!has_command(&flags, &["--author", "{{agent}}"]));
+        assert!(has_command(
+            &format!("{flags}{{{{agent}}}}"),
+            &["--author", "{{agent}}"]
+        ));
+        assert!(!has_question_add(
+            &"nullradix question add ".repeat(100_000)
+        ));
     }
 
     #[test]

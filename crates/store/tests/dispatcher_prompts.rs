@@ -277,6 +277,37 @@ async fn a_template_with_unknown_placeholders_or_missing_parts_is_refused() {
 }
 
 #[tokio::test]
+async fn a_huge_template_is_refused_fast_when_set_or_previewed() {
+    let f = fixture().await;
+    let version = f.config.get().await.unwrap().version;
+    let huge = "--author ".repeat(2 * 1024 * 1024 / 9);
+    let started = std::time::Instant::now();
+    let error = f
+        .prompts
+        .set(PromptKind::Work, &huge, version)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        code(&error),
+        (ErrorKind::Invalid, "dispatcher-prompt-invalid")
+    );
+    assert_eq!(error.fields()[0].field, "template");
+    assert_eq!(error.fields()[0].message, "is longer than 64 KiB");
+    let error = f
+        .prompts
+        .preview(&PreviewRequest {
+            kind: PromptKind::Work,
+            key: None,
+            template: Some(huge),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.fields()[0].message, "is longer than 64 KiB");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert_eq!(f.config.get().await.unwrap().version, version);
+}
+
+#[tokio::test]
 async fn a_stale_version_is_a_conflict() {
     let f = fixture().await;
     let version = f.config.get().await.unwrap().version;

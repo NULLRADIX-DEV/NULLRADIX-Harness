@@ -49,7 +49,7 @@ pub use dispatcher_config::{
     RESEARCH_AGENT_PREFIX, RequiredPart, ResearchRun, ResearchSettings, Rule, RuleCondition,
     TimeWindow, UnknownPlaceholders, WorkRun, WorktreeSetupStep, default_template, effort_problem,
     missing_parts, model_problem, placeholder_names, placeholders, render_prompt, render_template,
-    required_parts, unknown_placeholders,
+    required_parts, size_problem, unknown_placeholders,
 };
 pub use favorite::{
     FAVORITE_NOTE_MAX, Favorite, FavoriteRecord, Resumption, favorite_note, resume_command,

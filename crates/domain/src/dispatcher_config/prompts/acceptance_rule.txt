@@ -1,2 +1,2 @@
-  - acceptance: acceptance of the ticket - checkable criteria as bullet points that show it is done
-    (behavior, tests, UI); an existing acceptance is sharpened and extended, not discarded.
+   - acceptance: acceptance of the ticket - checkable criteria as bullet points that show it is done
+     (behavior, tests, UI); an existing acceptance is sharpened and extended, not discarded.
