@@ -17,7 +17,7 @@
     "exitCode": 0,
     "name": "prompt",
     "stderr": "",
-    "stdout": ""
+    "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"sessionTitle\":\"fix the login\"}}\n"
   },
   {
     "cli": [

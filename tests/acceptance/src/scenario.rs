@@ -34,6 +34,7 @@ pub(crate) enum Action {
     Http(Http),
     Cli(Cli),
     Wait(Wait),
+    File(File),
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -64,6 +65,14 @@ pub(crate) struct Cli {
     /// Folder to run in; the scenario's work folder when left out.
     #[serde(default)]
     pub(crate) cwd: Option<String>,
+}
+
+/// Writes a JSONL file with one value per line, such as a Claude Code transcript.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct File {
+    pub(crate) path: String,
+    pub(crate) lines: Vec<Value>,
 }
 
 /// Polls `path` until the JSON value at `field` equals `equals`.

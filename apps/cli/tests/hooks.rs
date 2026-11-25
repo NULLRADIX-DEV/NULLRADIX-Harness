@@ -122,7 +122,13 @@ fn hooks_reach_a_running_daemon_within_the_budget() {
             "user-prompt",
             &payload(home.path(), &format!("s-{n}")),
         );
-        assert_silent_success(&output);
+        // the first prompt names each new session, as legacy answered
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"sessionTitle\":\"fix the login\"}}\n"
+        );
+        assert!(output.stderr.is_empty(), "{output:?}");
         durations.push(took);
     }
     assert_in_time(&durations);

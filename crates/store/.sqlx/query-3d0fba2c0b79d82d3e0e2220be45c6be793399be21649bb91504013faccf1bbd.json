@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT session_id AS \"session_id!\", cwd FROM favorites",
+  "describe": {
+    "columns": [
+      {
+        "name": "session_id!",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "session_id"
+          }
+        }
+      },
+      {
+        "name": "cwd",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "cwd"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "3d0fba2c0b79d82d3e0e2220be45c6be793399be21649bb91504013faccf1bbd"
+}

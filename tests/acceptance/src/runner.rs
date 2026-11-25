@@ -10,7 +10,7 @@ use ureq::Agent;
 
 use crate::daemon::{Binaries, Daemon};
 use crate::normalize::Normalizer;
-use crate::scenario::{Action, Auth, Cli, Http, Scenario, Wait};
+use crate::scenario::{Action, Auth, Cli, File, Http, Scenario, Wait};
 
 const WAIT_POLL: Duration = Duration::from_millis(100);
 /// Run states that never change again.
@@ -53,6 +53,7 @@ pub(crate) fn play(scenario: &Scenario, binaries: &Binaries) -> anyhow::Result<V
             Action::Http(http) => http_step(&agent, &daemon, http, &saved).with_context(context)?,
             Action::Cli(cli) => cli_step(&daemon, cli, &saved).with_context(context)?,
             Action::Wait(wait) => wait_step(&agent, &daemon, wait, &saved).with_context(context)?,
+            Action::File(file) => file_step(file, &saved).with_context(context)?,
         };
         for (name, source) in &step.save {
             let value = pick(&result, source)
@@ -261,6 +262,22 @@ fn cli_step(
         "stderr": stderr,
     });
     Ok((entry, json!({ "stdout": stdout })))
+}
+
+/// Writes the lines with saved values filled in; the file holds them each on its own line.
+fn file_step(file: &File, saved: &BTreeMap<String, String>) -> anyhow::Result<(Value, Value)> {
+    let path = fill(&file.path, saved);
+    let mut text = String::new();
+    for line in &file.lines {
+        text.push_str(&fill_value(line, saved).to_string());
+        text.push('\n');
+    }
+    if let Some(folder) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(folder).with_context(|| format!("cannot create {path}"))?;
+    }
+    std::fs::write(&path, text).with_context(|| format!("cannot write {path}"))?;
+    let entry = json!({ "file": path, "lines": file.lines.len() });
+    Ok((entry, json!({})))
 }
 
 fn wait_step(

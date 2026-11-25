@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.favorite_session_id, r.resumed_session_id, r.resumed_at\n           FROM favorite_resumes r JOIN favorites f ON f.session_id = r.favorite_session_id\n           WHERE (?1 IS NULL OR f.repository_id = ?1) AND (?2 IS NULL OR f.session_id = ?2)\n           ORDER BY r.favorite_session_id, r.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "favorite_session_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorite_resumes",
+            "name": "favorite_session_id"
+          }
+        }
+      },
+      {
+        "name": "resumed_session_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "favorite_resumes",
+            "name": "resumed_session_id"
+          }
+        }
+      },
+      {
+        "name": "resumed_at",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "favorite_resumes",
+            "name": "resumed_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d4428ff71d04f01d4c3d1374f78373cd1a998a84ee65ad4133f40c7b14be5b17"
+}

@@ -5,6 +5,7 @@ mod git;
 mod local;
 mod protocol;
 mod supervisor;
+mod transcript;
 mod worktree;
 
 pub use local::{LocalRunner, SupervisorCommand};

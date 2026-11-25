@@ -8,6 +8,10 @@ use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::{Located, RunnerService, not_a_git_project};
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
+use nullradix_app::session_detail::{
+    ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
+    TranscriptSource, TranscriptSummary, change_not_found,
+};
 use nullradix_app::tickets::{NewTicket, TicketPatch, TicketService, WriteOptions};
 use nullradix_app::worktrees::{
     Cleaned, CreatedWorktree, DoneRequest, Finished, NewWorktree, RemoveWorktree, StartMode,
@@ -95,6 +99,27 @@ impl RunnerPort for FakeGit {
         }
         self.folders.lock().unwrap().remove(&request.path);
         Ok(WorktreeRemoval::Removed)
+    }
+    async fn read_transcript(
+        &self,
+        _request: &TranscriptRead,
+    ) -> Result<Option<TranscriptChunk>, AppError> {
+        Ok(None)
+    }
+
+    async fn transcript_facts(
+        &self,
+        _source: &TranscriptSource,
+    ) -> Result<Option<TranscriptSummary>, AppError> {
+        Ok(None)
+    }
+
+    async fn session_changes(&self, _request: &ChangeRequest) -> Result<SessionChanges, AppError> {
+        Ok(SessionChanges::none())
+    }
+
+    async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError> {
+        Err(change_not_found(&request.path))
     }
 }
 

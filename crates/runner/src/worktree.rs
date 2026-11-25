@@ -12,7 +12,7 @@ use nullradix_app::worktrees::{
 const LONG_PATHS: [&str; 2] = ["-c", "core.longpaths=true"];
 
 /// Runs git with argv and no shell, without a timeout as in legacy.
-async fn output(cwd: &Path, args: &[&str]) -> Result<Output, AppError> {
+pub(crate) async fn output(cwd: &Path, args: &[&str]) -> Result<Output, AppError> {
     let mut command = tokio::process::Command::new("git");
     command
         .args(args)

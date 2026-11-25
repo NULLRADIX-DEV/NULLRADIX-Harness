@@ -273,6 +273,46 @@
         }
       }
     },
+    "/api/v1/favorites": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "list_favorites",
+        "parameters": [
+          {
+            "name": "repositoryId",
+            "in": "query",
+            "description": "Only favorites in this repository.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -3318,6 +3358,490 @@
         }
       }
     },
+    "/api/v1/sessions/{sessionId}/changes": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "session_changes",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionChangesDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{sessionId}/changes/file": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "session_file_diff",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Path of a changed file relative to the checkout.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileDiffDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown session or a file that did not change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A path outside the checkout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{sessionId}/claim": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "claim_session",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimSession"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown session or ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{sessionId}/detail": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "session_detail",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The session's runner is not reachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{sessionId}/favorite": {
+      "put": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "mark_favorite",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkFavorite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FavoriteDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Neither a session nor a favorite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "unmark_favorite",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not marked any more, also when it never was"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{sessionId}/transcript": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "operationId": "session_transcript",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "Claude Code's session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Byte offset from the previous page's cursor; 0 starts at the beginning.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Entries per page, 500 by default and at most 2000.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A missing transcript is not available, no error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptPageDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets": {
       "get": {
         "tags": [
@@ -5148,6 +5672,14 @@
           "delete"
         ]
       },
+      "ChangeOriginDto": {
+        "type": "string",
+        "enum": [
+          "git",
+          "transcript",
+          "none"
+        ]
+      },
       "ChangeStep": {
         "type": "object",
         "description": "A change of one step; left out fields stay, a `null` detail removes the guidance.",
@@ -5187,6 +5719,32 @@
         },
         "additionalProperties": false
       },
+      "ChangedFileDto": {
+        "type": "object",
+        "required": [
+          "path",
+          "status",
+          "added",
+          "removed"
+        ],
+        "properties": {
+          "added": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative to the checkout or the session folder, with `/`."
+          },
+          "removed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FileStatusDto"
+          }
+        }
+      },
       "CheckoutDto": {
         "type": "object",
         "description": "Where a repository is checked out.",
@@ -5216,6 +5774,18 @@
           }
         },
         "additionalProperties": false
+      },
+      "ClaimSession": {
+        "type": "object",
+        "required": [
+          "ticketKey"
+        ],
+        "properties": {
+          "ticketKey": {
+            "type": "string",
+            "description": "The ticket the session now works on."
+          }
+        }
       },
       "ClaimTicket": {
         "type": "object",
@@ -5354,6 +5924,26 @@
               "$ref": "#/components/schemas/CommentDto"
             },
             "description": "Oldest first."
+          }
+        }
+      },
+      "ContextUsageDto": {
+        "type": "object",
+        "description": "Context use after the last answer, input and cache included.",
+        "required": [
+          "usedTokens"
+        ],
+        "properties": {
+          "limitTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "usedTokens": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -5664,6 +6254,49 @@
           }
         }
       },
+      "DiffHunkDto": {
+        "type": "object",
+        "required": [
+          "header",
+          "lines"
+        ],
+        "properties": {
+          "header": {
+            "type": "string",
+            "description": "Such as `@@ -1,3 +1,4 @@`."
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiffLineDto"
+            }
+          }
+        }
+      },
+      "DiffLineDto": {
+        "type": "object",
+        "required": [
+          "kind",
+          "text"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/DiffLineKindDto"
+          },
+          "text": {
+            "type": "string",
+            "description": "The line without its prefix."
+          }
+        }
+      },
+      "DiffLineKindDto": {
+        "type": "string",
+        "enum": [
+          "add",
+          "remove",
+          "context"
+        ]
+      },
       "DisplayStateDto": {
         "type": "string",
         "description": "The state, or `stale` after 30 minutes without a hook.",
@@ -5699,7 +6332,147 @@
           "note",
           "question",
           "session",
-          "inbox-order"
+          "inbox-order",
+          "favorite"
+        ]
+      },
+      "FavoriteDto": {
+        "type": "object",
+        "description": "A marked session; its state is the live one while the session still exists.",
+        "required": [
+          "sessionId",
+          "note",
+          "tickets",
+          "cwd",
+          "cwdExists",
+          "label",
+          "markedAt",
+          "state",
+          "displayState",
+          "live",
+          "lastEventAt",
+          "resumedAs",
+          "command",
+          "version"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command that resumes the session in its folder."
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "cwdExists": {
+            "type": "boolean",
+            "description": "Whether the folder still exists, so the command can work."
+          },
+          "displayState": {
+            "$ref": "#/components/schemas/DisplayStateDto"
+          },
+          "label": {
+            "type": "string",
+            "description": "Name to show, such as `SE-001: Fix the login`; may be empty."
+          },
+          "lastEventAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Whether the session is still in the session list."
+          },
+          "markedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "note": {
+            "type": "string"
+          },
+          "repositoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "resumedAs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResumptionDto"
+            },
+            "description": "Later sessions that resumed this one, oldest first."
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SessionStateDto"
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ticket keys of the session, or of the snapshot once it is gone."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "FavoriteList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FavoriteDto"
+            },
+            "description": "Latest marked first."
+          }
+        }
+      },
+      "FileDiffDto": {
+        "type": "object",
+        "description": "Diff of one file, cut to 5000 lines.",
+        "required": [
+          "path",
+          "hunks",
+          "truncated"
+        ],
+        "properties": {
+          "hunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiffHunkDto"
+            }
+          },
+          "path": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FileStatusDto": {
+        "type": "string",
+        "enum": [
+          "added",
+          "modified",
+          "deleted",
+          "renamed"
         ]
       },
       "FinishTicket": {
@@ -6001,6 +6774,13 @@
             "propertyNames": {
               "type": "string"
             }
+          },
+          "sessionTitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name Claude Code shows for the session, such as `SE-001: Fix the login`."
           }
         }
       },
@@ -6256,6 +7036,18 @@
           }
         },
         "additionalProperties": false
+      },
+      "MarkFavorite": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Replaces the note; left out keeps it. Cut to 2000 characters."
+          }
+        }
       },
       "Me": {
         "type": "object",
@@ -7222,6 +8014,22 @@
           }
         }
       },
+      "ResumptionDto": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        }
+      },
       "RunDto": {
         "type": "object",
         "description": "A run as the API shows it; timestamps are Unix milliseconds.",
@@ -7387,6 +8195,38 @@
         },
         "additionalProperties": false
       },
+      "SessionChangesDto": {
+        "type": "object",
+        "required": [
+          "origin",
+          "files"
+        ],
+        "properties": {
+          "base": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base branch for changes from git."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChangedFileDto"
+            }
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Such as that changes made through Bash are missing."
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ChangeOriginDto"
+          }
+        }
+      },
       "SessionClientDto": {
         "type": "string",
         "enum": [
@@ -7395,6 +8235,77 @@
           "claude-desktop",
           "unknown"
         ]
+      },
+      "SessionDetailDto": {
+        "type": "object",
+        "description": "A session with the figures of its transcript.",
+        "required": [
+          "session",
+          "client",
+          "transcript",
+          "tokens",
+          "todos"
+        ],
+        "properties": {
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Last branch the transcript names."
+          },
+          "claudeVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Claude Code version from the transcript."
+          },
+          "client": {
+            "$ref": "#/components/schemas/SessionClientDto",
+            "description": "The run, else the hooks, else the transcript."
+          },
+          "context": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ContextUsageDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "session": {
+            "$ref": "#/components/schemas/SessionDto",
+            "description": "The session as lists show it; model and title filled from the transcript when missing."
+          },
+          "todos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TodoItemDto"
+            }
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/TokenTotalsDto"
+          },
+          "transcript": {
+            "$ref": "#/components/schemas/TranscriptInfoDto"
+          }
+        }
       },
       "SessionDto": {
         "type": "object",
@@ -7828,6 +8739,14 @@
           "ended"
         ]
       },
+      "SystemLevelDto": {
+        "type": "string",
+        "enum": [
+          "info",
+          "warning",
+          "error"
+        ]
+      },
       "SystemMarkerDto": {
         "type": "string",
         "description": "What a dispatcher comment reports.",
@@ -8141,6 +9060,303 @@
           "done",
           "not-needed"
         ]
+      },
+      "TodoItemDto": {
+        "type": "object",
+        "required": [
+          "content",
+          "status"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TodoStatusDto"
+          }
+        }
+      },
+      "TodoStatusDto": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "in-progress",
+          "completed"
+        ]
+      },
+      "TokenTotalsDto": {
+        "type": "object",
+        "required": [
+          "input",
+          "output",
+          "cacheRead",
+          "cacheWrite"
+        ],
+        "properties": {
+          "cacheRead": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cacheWrite": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "input": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "output": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ToolResultDto": {
+        "type": "object",
+        "description": "Output of a tool call, cut to 20000 characters.",
+        "required": [
+          "text",
+          "isError",
+          "truncated"
+        ],
+        "properties": {
+          "isError": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TranscriptEntryDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "A prompt of the person.",
+            "required": [
+              "id",
+              "at",
+              "text",
+              "kind"
+            ],
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "prompt"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Answer text in Markdown.",
+            "required": [
+              "id",
+              "at",
+              "text",
+              "kind"
+            ],
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Thinking, often only its duration.",
+            "required": [
+              "id",
+              "at",
+              "text",
+              "kind"
+            ],
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "durationMs": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "thinking"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A tool call with its summary, input and result once there.",
+            "required": [
+              "id",
+              "at",
+              "name",
+              "summary",
+              "input",
+              "kind"
+            ],
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "input": {
+                "description": "The tool input as Claude Code sent it."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "tool"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "result": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ToolResultDto"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "summary": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A note of the system such as a hook error or compaction.",
+            "required": [
+              "id",
+              "at",
+              "text",
+              "level",
+              "kind"
+            ],
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "system"
+                ]
+              },
+              "level": {
+                "$ref": "#/components/schemas/SystemLevelDto"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "One transcript entry; a later page repeating an id replaces the entry."
+      },
+      "TranscriptInfoDto": {
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether the runner could read the transcript the hooks named."
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sizeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "TranscriptPageDto": {
+        "type": "object",
+        "required": [
+          "entries",
+          "cursor",
+          "skipped",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "cursor": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Byte offset for `after` of the next page.",
+            "minimum": 0
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptEntryDto"
+            }
+          },
+          "skipped": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Broken lines in this page.",
+            "minimum": 0
+          }
+        }
       },
       "UpdateTicket": {
         "type": "object",

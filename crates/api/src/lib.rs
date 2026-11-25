@@ -5,6 +5,7 @@ mod boards;
 mod comments;
 mod events;
 mod extract;
+mod favorites;
 mod health;
 mod hooks;
 mod host;
@@ -15,6 +16,7 @@ mod projects;
 mod questions;
 mod repositories;
 mod runs;
+mod session_detail;
 mod sessions;
 mod tickets;
 mod web;
@@ -33,6 +35,7 @@ use axum::response::{IntoResponse, Response};
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
+use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
 use nullradix_app::notes::NoteService;
@@ -60,6 +63,7 @@ pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, Se
 pub use comments::{ActorKindDto, AddComment, CommentDto, CommentList, SystemMarkerDto};
 pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
+pub use favorites::{FavoriteDto, FavoriteList, MarkFavorite, ResumptionDto};
 pub use health::Health;
 pub use hooks::{HookEventDto, HookEventList, HookKindDto, HookReplyDto, RecordedHookDto};
 pub use host::AllowedHosts;
@@ -82,6 +86,12 @@ pub use repositories::{
 };
 pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
+};
+pub use session_detail::{
+    ChangeOriginDto, ChangedFileDto, ClaimSession, ContextUsageDto, DiffHunkDto, DiffLineDto,
+    DiffLineKindDto, FileDiffDto, FileStatusDto, SessionChangesDto, SessionDetailDto,
+    SystemLevelDto, TodoItemDto, TodoStatusDto, TokenTotalsDto, ToolResultDto, TranscriptEntryDto,
+    TranscriptInfoDto, TranscriptPageDto,
 };
 pub use sessions::{
     DisplayStateDto, SessionClientDto, SessionDto, SessionList, SessionStateDto, SessionTicketDto,
@@ -152,6 +162,7 @@ pub struct ApiState {
     pub runs: Arc<RunService>,
     pub hooks: Arc<HookService>,
     pub sessions: Arc<SessionService>,
+    pub favorites: Arc<FavoriteService>,
     pub changes: Arc<dyn ChangeFeed>,
     pub signal: ChangeSignal,
     /// Cancelled when the daemon stops; long-lived responses end with it.
@@ -236,6 +247,16 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(runs::run_output))
         .routes(routes!(sessions::list_sessions))
         .routes(routes!(sessions::get_session))
+        .routes(routes!(session_detail::session_detail))
+        .routes(routes!(session_detail::session_transcript))
+        .routes(routes!(session_detail::session_changes))
+        .routes(routes!(session_detail::session_file_diff))
+        .routes(routes!(session_detail::claim_session))
+        .routes(routes!(favorites::list_favorites))
+        .routes(routes!(
+            favorites::mark_favorite,
+            favorites::unmark_favorite
+        ))
         .routes(routes!(sessions::list_ticket_sessions))
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events));
@@ -423,17 +444,27 @@ pub(crate) mod tests {
         (tickets, comments, questions, worktrees, notes)
     }
 
+    /// The Claude config folder the test runner reads transcripts below.
+    pub(crate) fn transcript_root() -> PathBuf {
+        std::env::temp_dir()
+            .join("nullradix-api-tests")
+            .join("claude")
+    }
+
     async fn test_runners(
         store: &Arc<Store>,
         signal: &ChangeSignal,
     ) -> (Arc<nullradix_runner::LocalRunner>, Arc<RunnerService>) {
-        let runner = Arc::new(nullradix_runner::LocalRunner::new(
-            std::env::temp_dir().join("nullradix-api-tests"),
-            nullradix_runner::SupervisorCommand {
-                program: PathBuf::from("nullradix-missing-supervisor"),
-                args: Vec::new(),
-            },
-        ));
+        let runner = Arc::new(
+            nullradix_runner::LocalRunner::new(
+                std::env::temp_dir().join("nullradix-api-tests"),
+                nullradix_runner::SupervisorCommand {
+                    program: PathBuf::from("nullradix-missing-supervisor"),
+                    args: Vec::new(),
+                },
+            )
+            .with_transcript_roots(vec![transcript_root()]),
+        );
         let runners = RunnerService::start(
             store.clone(),
             store.clone(),
@@ -445,6 +476,31 @@ pub(crate) mod tests {
         .await
         .unwrap();
         (runner, Arc::new(runners))
+    }
+
+    fn session_services(
+        store: &Arc<Store>,
+        runners: &Arc<RunnerService>,
+        signal: &ChangeSignal,
+    ) -> (Arc<SessionService>, Arc<FavoriteService>, Arc<HookService>) {
+        let favorites = Arc::new(FavoriteService::new(
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let sessions = Arc::new(SessionService::new(
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let hooks = Arc::new(
+            HookService::new(store.clone(), Arc::new(SystemClock)).with_sessions(sessions.clone()),
+        );
+        (sessions, favorites, hooks)
     }
 
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
@@ -494,16 +550,7 @@ pub(crate) mod tests {
             signal.clone(),
             std::time::Duration::from_millis(50),
         );
-        let sessions = Arc::new(SessionService::new(
-            store.clone(),
-            runners.clone(),
-            Arc::new(SystemClock),
-            Arc::new(UuidV7Generator),
-            signal.clone(),
-        ));
-        let hooks = Arc::new(
-            HookService::new(store.clone(), Arc::new(SystemClock)).with_sessions(sessions.clone()),
-        );
+        let (sessions, favorites, hooks) = session_services(&store, &runners, &signal);
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
@@ -523,6 +570,7 @@ pub(crate) mod tests {
             runs,
             hooks,
             sessions,
+            favorites,
             changes: changes.clone(),
             signal,
             shutdown: shutdown.clone(),

@@ -9,6 +9,10 @@ use nullradix_domain::{
 };
 
 use crate::runs::RunnerPort;
+use crate::session_detail::{
+    ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
+    TranscriptSource, TranscriptSummary,
+};
 use crate::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
 use crate::{AppError, Change, ChangeSignal, Clock, ErrorKind, IdGenerator};
 
@@ -207,6 +211,38 @@ impl RunnerService {
         request: &RemoveWorktree,
     ) -> Result<WorktreeRemoval, AppError> {
         self.port(runner).await?.remove_worktree(request).await
+    }
+
+    pub(crate) async fn read_transcript(
+        &self,
+        runner: Id<Runner>,
+        request: &TranscriptRead,
+    ) -> Result<Option<TranscriptChunk>, AppError> {
+        self.port(runner).await?.read_transcript(request).await
+    }
+
+    pub(crate) async fn transcript_facts(
+        &self,
+        runner: Id<Runner>,
+        source: &TranscriptSource,
+    ) -> Result<Option<TranscriptSummary>, AppError> {
+        self.port(runner).await?.transcript_facts(source).await
+    }
+
+    pub(crate) async fn session_changes(
+        &self,
+        runner: Id<Runner>,
+        request: &ChangeRequest,
+    ) -> Result<SessionChanges, AppError> {
+        self.port(runner).await?.session_changes(request).await
+    }
+
+    pub(crate) async fn session_diff(
+        &self,
+        runner: Id<Runner>,
+        request: &DiffRequest,
+    ) -> Result<FileDiff, AppError> {
+        self.port(runner).await?.session_diff(request).await
     }
 
     /// Root of the repository's checkout on the runner, if it has one.

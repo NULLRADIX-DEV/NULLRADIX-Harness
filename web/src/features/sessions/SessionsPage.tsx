@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router';
 import {
   DEFAULT_STATES,
   STATES,
@@ -14,6 +15,7 @@ import {
   type SessionGroup,
 } from './format';
 import { sessionsQuery, type DisplayState, type Session } from './queries';
+import { FavoritesSection, FavoriteStar } from './Favorites';
 import { SessionStateBadge } from './SessionStateBadge';
 
 const SHORT_ID = 8;
@@ -43,10 +45,13 @@ function SessionRow({ session, now }: { session: Session; now: number }) {
   return (
     <li className={dim ? 'session-row dim' : 'session-row'}>
       <div className="session-line">
+        <FavoriteStar sessionId={session.id} />
         <SessionStateBadge state={session.displayState} />
         <span className="mono session-runtime">{formatDuration(sessionRuntime(session, now))}</span>
         <span className="session-activity">
-          <span className="session-title">{sessionTitle(session)}</span>
+          <Link className="session-title" to={`/sessions/${encodeURIComponent(session.id)}`}>
+            {sessionTitle(session)}
+          </Link>
           <span className="session-meta muted">
             <span className="mono" title={session.id}>
               {short}
@@ -145,6 +150,7 @@ function Sessions({ reported }: { reported: Session[] }) {
   return (
     <>
       {summary !== '' && <p className="muted session-summary">{summary}</p>}
+      <FavoritesSection now={now} />
       <StateFilter value={filter} onChange={setFilter} />
       {sessions.length === 0 ? (
         <div className="state empty">

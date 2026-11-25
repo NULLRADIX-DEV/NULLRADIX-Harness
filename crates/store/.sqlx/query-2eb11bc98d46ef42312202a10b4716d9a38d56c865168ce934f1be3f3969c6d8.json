@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO favorites (session_id, feed_id, repository_id, note, cwd, title,\n                                    ticket_keys, last_state, last_event_at, marked_at, version)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "2eb11bc98d46ef42312202a10b4716d9a38d56c865168ce934f1be3f3969c6d8"
+}

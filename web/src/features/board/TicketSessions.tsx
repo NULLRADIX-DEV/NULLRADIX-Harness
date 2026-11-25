@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
 import { formatAgo, sessionTitle, useLiveSessions } from '../sessions/format';
 import { ticketSessionsQuery } from '../sessions/queries';
 import { SessionStateBadge } from '../sessions/SessionStateBadge';
@@ -15,9 +16,13 @@ export function TicketSessions({ ticketKey }: { ticketKey: string }) {
         {sessions.map((session) => (
           <li key={session.id}>
             <SessionStateBadge state={session.displayState} />
-            <span className="db-ticket-session-name" title={session.id}>
+            <Link
+              className="db-ticket-session-name"
+              title={session.id}
+              to={`/sessions/${encodeURIComponent(session.id)}`}
+            >
               {sessionTitle(session)}
-            </span>
+            </Link>
             <span className="muted">{formatAgo(session.lastEventAt, now)}</span>
           </li>
         ))}

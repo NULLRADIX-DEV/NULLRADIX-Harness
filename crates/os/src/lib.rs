@@ -9,5 +9,5 @@ mod windows;
 
 pub use browser::open_url;
 pub use files::write_atomic;
-pub use paths::{Paths, PathsError};
+pub use paths::{Paths, PathsError, claude_config_dirs};
 pub use process::{ProcessTree, process_alive, spawn_detached};

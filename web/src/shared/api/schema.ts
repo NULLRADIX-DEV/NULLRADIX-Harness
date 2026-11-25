@@ -100,6 +100,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_favorites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -628,6 +644,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{sessionId}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["session_changes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}/changes/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["session_file_diff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["claim_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}/detail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["session_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}/favorite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["mark_favorite"];
+        post?: never;
+        delete: operations["unmark_favorite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["session_transcript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets": {
         parameters: {
             query?: never;
@@ -979,6 +1091,8 @@ export interface components {
         };
         /** @enum {string} */
         ChangeOpDto: "insert" | "update" | "delete";
+        /** @enum {string} */
+        ChangeOriginDto: "git" | "transcript" | "none";
         /** @description A change of one step; left out fields stay, a `null` detail removes the guidance. */
         ChangeStep: {
             detail?: string | null;
@@ -989,6 +1103,15 @@ export interface components {
             /** Format: int64 */
             version?: number | null;
         };
+        ChangedFileDto: {
+            /** Format: int64 */
+            added: number;
+            /** @description Relative to the checkout or the session folder, with `/`. */
+            path: string;
+            /** Format: int64 */
+            removed: number;
+            status: components["schemas"]["FileStatusDto"];
+        };
         /** @description Where a repository is checked out. */
         CheckoutDto: {
             /** @description Root of the main checkout with forward slashes. */
@@ -998,6 +1121,10 @@ export interface components {
         };
         ClaimPlanning: {
             agent: string;
+        };
+        ClaimSession: {
+            /** @description The ticket the session now works on. */
+            ticketKey: string;
         };
         /** @description A claim of a ticket for an agent. */
         ClaimTicket: {
@@ -1038,6 +1165,13 @@ export interface components {
         CommentList: {
             /** @description Oldest first. */
             items: components["schemas"]["CommentDto"][];
+        };
+        /** @description Context use after the last answer, input and cache included. */
+        ContextUsageDto: {
+            /** Format: int64 */
+            limitTokens?: number | null;
+            /** Format: int64 */
+            usedTokens: number;
         };
         CreateBoard: {
             name: string;
@@ -1119,6 +1253,18 @@ export interface components {
             /** @description Own answer instead of an option. */
             text?: string | null;
         };
+        DiffHunkDto: {
+            /** @description Such as `@@ -1,3 +1,4 @@`. */
+            header: string;
+            lines: components["schemas"]["DiffLineDto"][];
+        };
+        DiffLineDto: {
+            kind: components["schemas"]["DiffLineKindDto"];
+            /** @description The line without its prefix. */
+            text: string;
+        };
+        /** @enum {string} */
+        DiffLineKindDto: "add" | "remove" | "context";
         /**
          * @description The state, or `stale` after 30 minutes without a hook.
          * @enum {string}
@@ -1129,7 +1275,48 @@ export interface components {
             reason?: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite";
+        /** @description A marked session; its state is the live one while the session still exists. */
+        FavoriteDto: {
+            /** @description Shell command that resumes the session in its folder. */
+            command: string;
+            cwd: string;
+            /** @description Whether the folder still exists, so the command can work. */
+            cwdExists: boolean;
+            displayState: components["schemas"]["DisplayStateDto"];
+            /** @description Name to show, such as `SE-001: Fix the login`; may be empty. */
+            label: string;
+            /** Format: int64 */
+            lastEventAt: number;
+            /** @description Whether the session is still in the session list. */
+            live: boolean;
+            /** Format: int64 */
+            markedAt: number;
+            note: string;
+            /** Format: uuid */
+            repositoryId?: string | null;
+            /** @description Later sessions that resumed this one, oldest first. */
+            resumedAs: components["schemas"]["ResumptionDto"][];
+            sessionId: string;
+            state: components["schemas"]["SessionStateDto"];
+            /** @description Ticket keys of the session, or of the snapshot once it is gone. */
+            tickets: string[];
+            title?: string | null;
+            /** Format: int64 */
+            version: number;
+        };
+        FavoriteList: {
+            /** @description Latest marked first. */
+            items: components["schemas"]["FavoriteDto"][];
+        };
+        /** @description Diff of one file, cut to 5000 lines. */
+        FileDiffDto: {
+            hunks: components["schemas"]["DiffHunkDto"][];
+            path: string;
+            truncated: boolean;
+        };
+        /** @enum {string} */
+        FileStatusDto: "added" | "modified" | "deleted" | "renamed";
         /** @description Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged. */
         FinishTicket: {
             /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
@@ -1221,6 +1408,8 @@ export interface components {
             env?: {
                 [key: string]: string;
             };
+            /** @description Name Claude Code shows for the session, such as `SE-001: Fix the login`. */
+            sessionTitle?: string | null;
         };
         /** @description Tickets of other boards of the same project to bring onto this board. */
         ImportTickets: {
@@ -1312,6 +1501,10 @@ export interface components {
         InboxRefDto: {
             key: string;
             type: components["schemas"]["InboxItemTypeDto"];
+        };
+        MarkFavorite: {
+            /** @description Replaces the note; left out keeps it. Cut to 2000 characters. */
+            note?: string | null;
         };
         /** @description The caller as the daemon sees it. */
         Me: {
@@ -1598,6 +1791,11 @@ export interface components {
             id: string;
             options: components["schemas"]["OptionDto"][];
         };
+        ResumptionDto: {
+            /** Format: int64 */
+            at: number;
+            sessionId: string;
+        };
         /** @description A run as the API shows it; timestamps are Unix milliseconds. */
         RunDto: {
             /** Format: int64 */
@@ -1645,8 +1843,35 @@ export interface components {
             /** @description Key of the ticket it stood out at. */
             source?: string | null;
         };
+        SessionChangesDto: {
+            /** @description Base branch for changes from git. */
+            base?: string | null;
+            files: components["schemas"]["ChangedFileDto"][];
+            /** @description Such as that changes made through Bash are missing. */
+            note?: string | null;
+            origin: components["schemas"]["ChangeOriginDto"];
+        };
         /** @enum {string} */
         SessionClientDto: "nullradix" | "claude-code" | "claude-desktop" | "unknown";
+        /** @description A session with the figures of its transcript. */
+        SessionDetailDto: {
+            /** @description Last branch the transcript names. */
+            branch?: string | null;
+            /** @description Claude Code version from the transcript. */
+            claudeVersion?: string | null;
+            /** @description The run, else the hooks, else the transcript. */
+            client: components["schemas"]["SessionClientDto"];
+            context?: components["schemas"]["ContextUsageDto"] | null;
+            /** Format: double */
+            costUsd?: number | null;
+            /** Format: int64 */
+            durationMs?: number | null;
+            /** @description The session as lists show it; model and title filled from the transcript when missing. */
+            session: components["schemas"]["SessionDto"];
+            todos: components["schemas"]["TodoItemDto"][];
+            tokens: components["schemas"]["TokenTotalsDto"];
+            transcript: components["schemas"]["TranscriptInfoDto"];
+        };
         /** @description A Claude Code session as its hooks reported it. */
         SessionDto: {
             client: components["schemas"]["SessionClientDto"];
@@ -1784,6 +2009,8 @@ export interface components {
         };
         /** @enum {string} */
         SubagentStateDto: "running" | "ended";
+        /** @enum {string} */
+        SystemLevelDto: "info" | "warning" | "error";
         /**
          * @description What a dispatcher comment reports.
          * @enum {string}
@@ -1868,6 +2095,88 @@ export interface components {
         };
         /** @enum {string} */
         TicketStatusDto: "backlog" | "in-planning" | "planned" | "in-progress" | "blocked" | "done" | "not-needed";
+        TodoItemDto: {
+            content: string;
+            status: components["schemas"]["TodoStatusDto"];
+        };
+        /** @enum {string} */
+        TodoStatusDto: "pending" | "in-progress" | "completed";
+        TokenTotalsDto: {
+            /** Format: int64 */
+            cacheRead: number;
+            /** Format: int64 */
+            cacheWrite: number;
+            /** Format: int64 */
+            input: number;
+            /** Format: int64 */
+            output: number;
+        };
+        /** @description Output of a tool call, cut to 20000 characters. */
+        ToolResultDto: {
+            isError: boolean;
+            text: string;
+            truncated: boolean;
+        };
+        /** @description One transcript entry; a later page repeating an id replaces the entry. */
+        TranscriptEntryDto: {
+            at: string;
+            id: string;
+            /** @enum {string} */
+            kind: "prompt";
+            text: string;
+        } | {
+            at: string;
+            id: string;
+            /** @enum {string} */
+            kind: "text";
+            text: string;
+        } | {
+            at: string;
+            /** Format: int64 */
+            durationMs?: number | null;
+            id: string;
+            /** @enum {string} */
+            kind: "thinking";
+            text: string;
+        } | {
+            at: string;
+            id: string;
+            /** @description The tool input as Claude Code sent it. */
+            input: unknown;
+            /** @enum {string} */
+            kind: "tool";
+            name: string;
+            result?: components["schemas"]["ToolResultDto"] | null;
+            summary: string;
+        } | {
+            at: string;
+            id: string;
+            /** @enum {string} */
+            kind: "system";
+            level: components["schemas"]["SystemLevelDto"];
+            text: string;
+        };
+        TranscriptInfoDto: {
+            /** @description Whether the runner could read the transcript the hooks named. */
+            available: boolean;
+            path?: string | null;
+            /** Format: int64 */
+            sizeBytes?: number | null;
+        };
+        TranscriptPageDto: {
+            available: boolean;
+            /**
+             * Format: int64
+             * @description Byte offset for `after` of the next page.
+             */
+            cursor: number;
+            entries: components["schemas"]["TranscriptEntryDto"][];
+            /**
+             * Format: int64
+             * @description Broken lines in this page.
+             */
+            skipped: number;
+        };
         /** @description A change of fields; left out fields stay, `null` clears those that may be empty. */
         UpdateTicket: {
             acceptance?: string | null;
@@ -2135,6 +2444,36 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_favorites: {
+        parameters: {
+            query?: {
+                /** @description Only favorites in this repository. */
+                repositoryId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoriteList"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4398,6 +4737,381 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    session_changes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionChangesDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    session_file_diff: {
+        parameters: {
+            query: {
+                /** @description Path of a changed file relative to the checkout. */
+                path: string;
+            };
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileDiffDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown session or a file that did not change */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A path outside the checkout */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    claim_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaimSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown session or ticket */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    session_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The session's runner is not reachable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    mark_favorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkFavorite"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoriteDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Neither a session nor a favorite */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unmark_favorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Not marked any more, also when it never was */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    session_transcript: {
+        parameters: {
+            query?: {
+                /** @description Byte offset from the previous page's cursor; 0 starts at the beginning. */
+                after?: number;
+                /** @description Entries per page, 500 by default and at most 2000. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A missing transcript is not available, no error */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptPageDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

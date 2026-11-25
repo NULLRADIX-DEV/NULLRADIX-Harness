@@ -9,6 +9,10 @@ use nullradix_domain::{Id, Run, RunEnd, RunError, RunLabel, RunOutcome, Version}
 use strum::{EnumString, IntoStaticStr};
 
 use crate::repositories::Located;
+use crate::session_detail::{
+    ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
+    TranscriptSource, TranscriptSummary,
+};
 use crate::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
@@ -94,6 +98,20 @@ pub trait RunnerPort: Send + Sync {
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError>;
     /// Removes a clean worktree folder after its links; refusals are answers, not errors.
     async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError>;
+    /// A page of a session transcript; `None` when the file is gone.
+    async fn read_transcript(
+        &self,
+        request: &TranscriptRead,
+    ) -> Result<Option<TranscriptChunk>, AppError>;
+    /// Figures of a session transcript; `None` when the file is gone.
+    async fn transcript_facts(
+        &self,
+        source: &TranscriptSource,
+    ) -> Result<Option<TranscriptSummary>, AppError>;
+    /// Changed files from git when the session has its own branch, else from the transcript.
+    async fn session_changes(&self, request: &ChangeRequest) -> Result<SessionChanges, AppError>;
+    /// Diff of one changed file from the same source as `session_changes`.
+    async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError>;
 }
 
 #[async_trait]

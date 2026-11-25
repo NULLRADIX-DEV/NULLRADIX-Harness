@@ -9,6 +9,7 @@ use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
+use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
 use nullradix_app::notes::NoteService;
@@ -108,6 +109,13 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (runner, runners) = start_runners(config, &store, &signal).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let runs = start_runs(&store, runner, &signal).await?;
+    let favorites = Arc::new(FavoriteService::new(
+        Arc::new(store.clone()),
+        runners.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
     let sessions = Arc::new(SessionService::new(
         Arc::new(store.clone()),
         runners.clone(),
@@ -131,6 +139,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         runs,
         hooks,
         sessions,
+        favorites,
         changes: Arc::new(store.clone()),
         signal,
         shutdown: shutdown.clone(),

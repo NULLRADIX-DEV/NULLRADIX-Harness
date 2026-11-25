@@ -24,6 +24,7 @@ pub enum Entity {
     Question,
     Session,
     InboxOrder,
+    Favorite,
 }
 
 impl Entity {

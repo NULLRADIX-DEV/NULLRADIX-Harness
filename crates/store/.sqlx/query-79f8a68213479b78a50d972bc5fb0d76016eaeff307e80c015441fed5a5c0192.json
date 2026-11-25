@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM favorite_resumes WHERE favorite_session_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "79f8a68213479b78a50d972bc5fb0d76016eaeff307e80c015441fed5a5c0192"
+}

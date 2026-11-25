@@ -63,6 +63,18 @@ impl Paths {
     }
 }
 
+/// Claude Code config folders on this machine: the one `CLAUDE_CONFIG_DIR` names, and `~/.claude`.
+#[must_use]
+pub fn claude_config_dirs() -> Vec<PathBuf> {
+    let named = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute());
+    let home = BaseDirs::new().map(|base| base.home_dir().join(".claude"));
+    let mut dirs: Vec<PathBuf> = named.into_iter().chain(home).collect();
+    dirs.dedup();
+    dirs
+}
+
 /// macOS keeps logs in `~/Library/Logs`; elsewhere they sit in the state or data directory.
 fn logs_dir(
     macos: bool,

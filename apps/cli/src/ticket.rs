@@ -352,6 +352,10 @@ pub(crate) fn run(
                 force,
             };
             let ticket = client.claim_ticket(&canonical(&key)?, &input)?;
+            // best effort as legacy: a session the hooks never reported has nothing to link
+            if let Some(session) = comment::agent_session() {
+                let _ = client.claim_session(&session, &ticket.key);
+            }
             let name = ticket.assignee.clone().unwrap_or(agent);
             report(&ticket, &format!("claimed by {name}"));
         }

@@ -6,7 +6,7 @@ use nullradix_app::sessions::{
 };
 use nullradix_app::{AppError, Change, ChangeOp, Entity};
 use nullradix_domain::{
-    HookEvent, Id, ProjectKey, Repository, Runner, Session, SessionClient, SessionRecord,
+    Favorite, HookEvent, Id, ProjectKey, Repository, Runner, Session, SessionClient, SessionRecord,
     SessionRef, SessionState, Subagent, SubagentState, Ticket, TicketKey, TicketStatus, Timestamp,
     Version,
 };
@@ -14,6 +14,7 @@ use sqlx::{Sqlite, SqliteConnection, Transaction};
 use uuid::Uuid;
 
 use crate::error::{database, missed_guard};
+use crate::favorites;
 use crate::hooks::insert_event;
 use crate::tickets::ticket_id;
 use crate::{Store, StoreError, change_feed};
@@ -207,7 +208,7 @@ async fn load(
         .collect()
 }
 
-async fn one(
+pub(crate) async fn one(
     connection: &mut SqliteConnection,
     id: &SessionRef,
 ) -> Result<Option<StoredSession>, StoreError> {
@@ -500,6 +501,58 @@ impl SessionWrite for Write {
             }
         }
         Ok(sessions)
+    }
+
+    async fn favorite(&mut self, id: &SessionRef) -> Result<Option<Favorite>, AppError> {
+        Ok(favorites::find(&mut self.0, id).await?)
+    }
+
+    async fn favorite_folders(&mut self) -> Result<Vec<(SessionRef, String)>, AppError> {
+        Ok(favorites::folders(&mut self.0).await?)
+    }
+
+    async fn update_favorite(
+        &mut self,
+        favorite: &Favorite,
+        previous: Version,
+    ) -> Result<Change, AppError> {
+        favorites::save(&mut self.0, favorite, previous).await
+    }
+
+    async fn ticket_keys(&mut self, id: &SessionRef) -> Result<Vec<TicketKey>, AppError> {
+        let stored = one(&mut self.0, id).await?;
+        Ok(stored.map_or_default(|stored| {
+            stored
+                .tickets
+                .into_iter()
+                .map(|ticket| ticket.key)
+                .collect()
+        }))
+    }
+
+    async fn savepoint(&mut self) -> Result<(), AppError> {
+        sqlx::query("SAVEPOINT favorites")
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        Ok(())
+    }
+
+    async fn release_savepoint(&mut self) -> Result<(), AppError> {
+        sqlx::query("RELEASE favorites")
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        Ok(())
+    }
+
+    async fn rollback_savepoint(&mut self) -> Result<(), AppError> {
+        // the savepoint stays open after ROLLBACK TO, so it is released as well
+        sqlx::query("ROLLBACK TO favorites")
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        self.release_savepoint().await
     }
 
     async fn commit(self: Box<Self>) -> Result<(), AppError> {

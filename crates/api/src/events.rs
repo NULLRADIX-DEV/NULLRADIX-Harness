@@ -37,6 +37,7 @@ pub enum EntityDto {
     Question,
     Session,
     InboxOrder,
+    Favorite,
 }
 
 impl From<Entity> for EntityDto {
@@ -54,6 +55,7 @@ impl From<Entity> for EntityDto {
             Entity::Question => Self::Question,
             Entity::Session => Self::Session,
             Entity::InboxOrder => Self::InboxOrder,
+            Entity::Favorite => Self::Favorite,
         }
     }
 }

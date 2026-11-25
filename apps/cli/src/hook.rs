@@ -255,20 +255,32 @@ fn answer(kind: HookKindDto, reply: &HookReplyDto) {
         HookKindDto::UserPrompt => "UserPromptSubmit",
         _ => return,
     };
-    let Some(context) = reply
-        .additional_context
-        .as_deref()
-        .filter(|text| !text.is_empty())
-    else {
+    let Some(output) = output(name, reply) else {
         return;
     };
-    let output = json!({
-        "hookSpecificOutput": { "hookEventName": name, "additionalContext": context }
-    });
     let mut stdout = io::stdout().lock();
     if let Err(error) = writeln!(stdout, "{output}").and_then(|()| stdout.flush()) {
         debug(&format!("cannot answer: {error}"));
     }
+}
+
+/// What Claude Code reads: context and the session title, as legacy; nothing without either.
+fn output(name: &str, reply: &HookReplyDto) -> Option<Value> {
+    let given = |text: &Option<String>| text.clone().filter(|text| !text.is_empty());
+    let context = given(&reply.additional_context);
+    let title = given(&reply.session_title);
+    if context.is_none() && title.is_none() {
+        return None;
+    }
+    let mut fields = Map::new();
+    fields.insert(String::from("hookEventName"), Value::from(name));
+    if let Some(context) = context {
+        fields.insert(String::from("additionalContext"), Value::from(context));
+    }
+    if let Some(title) = title {
+        fields.insert(String::from("sessionTitle"), Value::from(title));
+    }
+    Some(json!({ "hookSpecificOutput": fields }))
 }
 
 /// Appends `export` lines for variables the session does not have yet.
@@ -371,6 +383,24 @@ mod tests {
         });
         let event = event(input.to_string().as_bytes()).unwrap();
         assert_eq!(event.prompt.map(|prompt| prompt.len()), Some(10_000));
+    }
+
+    #[test]
+    fn the_answer_carries_context_and_session_title_as_legacy() {
+        let mut reply = HookReplyDto::default();
+        assert_eq!(output("UserPromptSubmit", &reply), None);
+        reply.session_title = Some(String::from("SE-001: Fix it"));
+        assert_eq!(
+            output("UserPromptSubmit", &reply),
+            Some(json!({ "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit", "sessionTitle": "SE-001: Fix it"
+            } }))
+        );
+        reply.additional_context = Some(String::from("ctx"));
+        assert_eq!(
+            output("SessionStart", &reply).unwrap()["hookSpecificOutput"]["additionalContext"],
+            "ctx"
+        );
     }
 
     #[test]

@@ -19,6 +19,10 @@ static PID: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\bpid \d+").
 static PATH_TAIL: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r#"(<[A-Z]+>)((?:[\\/][^\s"'<>]*)+)"#).ok());
 
+/// The resume command of a Windows folder, which Linux and macOS spell with `cd`.
+static POWERSHELL_RESUME: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"Set-Location -LiteralPath ('<[A-Z]+>[^']*'); claude").ok());
+
 /// Replaces what differs between runs with stable placeholders; ids keep their identity.
 #[derive(Debug, Default)]
 pub(crate) struct Normalizer {
@@ -73,6 +77,9 @@ impl Normalizer {
                     format!("{}{tail}", &found[1])
                 })
                 .into_owned();
+        }
+        if let Some(resume) = POWERSHELL_RESUME.as_ref() {
+            text = resume.replace_all(&text, "cd $1 && claude").into_owned();
         }
         if let Some(uuid) = UUID.as_ref() {
             let mut result = String::new();
@@ -203,6 +210,10 @@ mod tests {
             })
         );
         assert_eq!(normalizer.text("a\r\nb"), "a\nb");
+        assert_eq!(
+            normalizer.text("Set-Location -LiteralPath '<HOME>/x'; claude --resume s"),
+            "cd '<HOME>/x' && claude --resume s"
+        );
         assert_eq!(
             normalizer.text("running at 127.0.0.1:9 (pid 4242)"),
             "running at <ADDRESS> (pid <PID>)"

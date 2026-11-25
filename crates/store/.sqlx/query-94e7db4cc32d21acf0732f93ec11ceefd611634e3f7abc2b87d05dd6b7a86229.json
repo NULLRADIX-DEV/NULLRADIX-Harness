@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE favorites\n               SET repository_id = ?, note = ?, cwd = ?, title = ?, ticket_keys = ?,\n                   last_state = ?, last_event_at = ?, version = ?\n               WHERE session_id = ? AND version = ?\n               RETURNING feed_id AS \"feed_id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "feed_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "favorites",
+            "name": "feed_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "94e7db4cc32d21acf0732f93ec11ceefd611634e3f7abc2b87d05dd6b7a86229"
+}

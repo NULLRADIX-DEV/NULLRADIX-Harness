@@ -60,9 +60,13 @@
           "cwd": "{{WORK}}/arches",
           "source": "startup",
           "model": "fake-opus",
-          "transcript_path": "{{WORK}}/s-1.jsonl"
+          "transcript_path": "{{WORK}}/claude-config/projects/arches/s-1.jsonl"
         }
       }
+    },
+    {
+      "name": "the repository is found",
+      "wait": { "path": "/api/v1/sessions/s-1", "field": "number", "equals": 1 }
     },
     {
       "name": "prompt",
@@ -74,10 +78,6 @@
           "prompt": "<system-reminder>context</system-reminder>Fix the login form please now and test it"
         }
       }
-    },
-    {
-      "name": "the repository is found",
-      "wait": { "path": "/api/v1/sessions/s-1", "field": "number", "equals": 1 }
     },
     {
       "name": "running",
