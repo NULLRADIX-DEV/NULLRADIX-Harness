@@ -12,6 +12,8 @@ export function InlineField({
   placeholder,
   busy,
   wide = false,
+  readOnly = false,
+  hint,
   normalize = trimmed,
   onSave,
   onConflict,
@@ -21,6 +23,9 @@ export function InlineField({
   placeholder: string;
   busy: boolean;
   wide?: boolean;
+  readOnly?: boolean;
+  // Shown on hover, e.g. why the field is read only.
+  hint?: string | undefined;
   normalize?: (text: string) => string;
   onSave: (text: string) => void;
   onConflict: (label: string) => void;
@@ -28,7 +33,7 @@ export function InlineField({
   const { draft, setDraft, behind, acknowledge } = useDraft(value, normalize);
 
   function commit() {
-    if (busy || normalize(draft) === normalize(value)) return;
+    if (busy || readOnly || normalize(draft) === normalize(value)) return;
     if (behind) {
       acknowledge();
       onConflict(label);
@@ -49,6 +54,8 @@ export function InlineField({
       <input
         value={draft}
         placeholder={placeholder}
+        readOnly={readOnly}
+        title={hint}
         autoComplete="off"
         onChange={(event) => {
           setDraft(event.target.value);

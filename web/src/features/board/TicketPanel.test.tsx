@@ -138,6 +138,61 @@ describe('TicketPanel', () => {
     expect(labels).toHaveValue('web, ui');
   });
 
+  it('saves a target branch and shows where the work happens', async () => {
+    const { api } = server();
+    renderApp('/board');
+    const panel = await openTicket();
+    expect(panel.queryByRole('region', { name: 'Work' })).not.toBeInTheDocument();
+    await userEvent.type(panel.getByRole('textbox', { name: 'Target branch' }), ' release/2 ');
+    await userEvent.tab();
+
+    await panel.findByText(/Version 2/);
+    expect(await lastBody(api.requests(`PATCH ${BASE}`))).toEqual({
+      targetBranch: 'release/2',
+      version: 1,
+    });
+    const work = panel.getByRole('region', { name: 'Work' });
+    expect(within(work).getByText('release/2')).toBeInTheDocument();
+  });
+
+  it('lists the branch and worktree of a started ticket', async () => {
+    boardServer({
+      entries: [
+        entry(
+          ticket({
+            status: 'in-progress',
+            column: 'in-progress',
+            branch: 'ticket/ARC-0001-show-the-board',
+            worktree: 'C:/work/arches-worktrees/ARC-0001',
+          }),
+        ),
+      ],
+    });
+    renderApp('/board');
+    const column = await screen.findByRole('region', { name: 'In progress' });
+    await userEvent.click(await within(column).findByRole('button', { name: /ARC-0001/ }));
+    const panel = within(await screen.findByRole('dialog', { name: `Ticket ${KEY}` }));
+    const work = await panel.findByRole('region', { name: 'Work' });
+    expect(within(work).getByText('ticket/ARC-0001-show-the-board')).toBeInTheDocument();
+    expect(within(work).getByText('C:/work/arches-worktrees/ARC-0001')).toBeInTheDocument();
+    const target = panel.getByRole('textbox', { name: 'Target branch' });
+    expect(target).toHaveAttribute('readonly');
+    expect(target).toHaveAttribute('title', 'Fixed once the ticket has started');
+  });
+
+  it('explains a target branch locked by a start elsewhere', async () => {
+    const { api } = server();
+    renderApp('/board');
+    const panel = await openTicket();
+    api.set(`PATCH ${BASE}`, () => problem(422, 'target-branch-locked', 'locked'));
+    await userEvent.type(panel.getByRole('textbox', { name: 'Target branch' }), 'main');
+    await userEvent.tab();
+
+    expect(await panel.findByRole('alert')).toHaveTextContent(
+      'The target branch can only change before the ticket starts.',
+    );
+  });
+
   it('reports a version conflict, refetches and saves on retry', async () => {
     const fake = server();
     const { api } = fake;
