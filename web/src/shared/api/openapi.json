@@ -4,8 +4,8 @@
     "title": "NULLRADIX API",
     "description": "",
     "license": {
-      "name": "MIT",
-      "identifier": "MIT"
+      "name": "NULLRADIX License",
+      "url": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/blob/main/LICENSE.md"
     },
     "version": "1"
   },

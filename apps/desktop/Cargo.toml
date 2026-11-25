@@ -6,7 +6,7 @@ name = "nullradix-desktop"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.100"
-license = "MIT"
+license = "LicenseRef-NULLRADIX"
 repository = "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness"
 publish = false
 
