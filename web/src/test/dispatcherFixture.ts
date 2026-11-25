@@ -1,4 +1,5 @@
 import type { DispatcherConfig, DispatcherConfigView } from '../features/dispatcher/queries';
+import type { DispatcherStatus } from '../features/dispatcher/statusQueries';
 
 // The configuration a fresh daemon starts with.
 export function defaultConfig(): DispatcherConfig {
@@ -83,4 +84,25 @@ export function configView(
   version = 1,
 ): DispatcherConfigView {
   return { config, hash: '0123456789abcdef', updatedAt: 1, version };
+}
+
+export function statusDto(overrides: Partial<DispatcherStatus> = {}): DispatcherStatus {
+  return {
+    enabled: true,
+    state: 'idle',
+    message: 'Nothing is ready.',
+    pausedUntil: null,
+    wip: 2,
+    active: 0,
+    planning: 0,
+    runs: [],
+    tickets: [],
+    lastPassAt: null,
+    lastErrors: [],
+    nextPassAt: null,
+    agentPrefix: 'worker-',
+    boardId: null,
+    version: 1,
+    ...overrides,
+  };
 }

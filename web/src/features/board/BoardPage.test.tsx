@@ -3,6 +3,8 @@ import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { BOARD_ID, board, boardServer, entry, ticket } from '../../test/boardServer';
 import { FakeEventSource } from '../../test/eventSource';
+import { statusDto } from '../../test/dispatcherFixture';
+import { json } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
 import { boardKeys } from '../boards/queries';
 import { ticketKeys } from '../tickets/queries';
@@ -20,6 +22,24 @@ function dialog() {
 }
 
 describe('BoardPage', () => {
+  it('shows the dispatcher indicator and follows its live changes', async () => {
+    const server = boardServer();
+    let state: 'idle' | 'paused' = 'idle';
+    server.api.set('GET /api/v1/dispatcher', () => json(200, statusDto({ state })));
+    renderApp('/board');
+
+    expect(await screen.findByRole('button', { name: 'Dispatcher: Idle' })).toBeInTheDocument();
+    state = 'paused';
+    act(() => {
+      FakeEventSource.latest().emit(
+        'change',
+        { seq: 1, entity: 'dispatcher-state', entityId: 'x', op: 'update', at: 1 },
+        '1',
+      );
+    });
+    expect(await screen.findByRole('button', { name: 'Dispatcher: Paused' })).toBeInTheDocument();
+  });
+
   it('shows the eight columns with the cards of each', async () => {
     boardServer({
       entries: [
