@@ -452,6 +452,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["finish_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticketKey}/move": {
         parameters: {
             query?: never;
@@ -687,6 +703,15 @@ export interface components {
             /** Format: int64 */
             version?: number | null;
         };
+        /** @description A ready worktree the cleanup removed or kept; its branch stays either way. */
+        CleanedWorktree: {
+            branch: string;
+            /** @description Why the folder stays. */
+            keptBecause?: string | null;
+            /** @description Folder on the runner, with forward slashes. */
+            path: string;
+            removed: boolean;
+        };
         /**
          * @description A board column: the statuses plus waiting, which open dependencies derive.
          * @enum {string}
@@ -721,6 +746,30 @@ export interface components {
         };
         /** @enum {string} */
         EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree";
+        /** @description Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged. */
+        FinishTicket: {
+            /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
+            acceptance?: string | null;
+            /** @description Absolute folder in the board's repository; a worktree containing it stays. */
+            cwd: string;
+            /** @description Lifts the dependency, question and not-needed locks, never the acceptance lock. */
+            force?: boolean;
+            /** Format: uuid */
+            runnerId: string;
+            /**
+             * Format: int64
+             * @description Version the change is based on; without one it checks none.
+             */
+            version?: number | null;
+        };
+        FinishedTicket: {
+            /** @description The ticket's branch, when it runs in a worktree. */
+            branch?: string | null;
+            cleanup: components["schemas"]["CleanedWorktree"][];
+            /** @description Every ticket still on the branch is finished; nothing was merged. */
+            readyToMerge: boolean;
+            ticket: components["schemas"]["TicketDto"];
+        };
         /** @description One-time code that opens a browser session. */
         Handoff: {
             code: string;
@@ -982,6 +1031,8 @@ export interface components {
         };
         StartedTicket: {
             branch: string;
+            /** @description Ready worktrees removed or kept before the start. */
+            cleanup: components["schemas"]["CleanedWorktree"][];
             /** @description The ticket joined an existing worktree. */
             joined: boolean;
             targetCreated?: components["schemas"]["TargetCreatedDto"] | null;
@@ -2930,6 +2981,76 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    finish_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinishTicket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinishedTicket"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket or runner */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Refused by a lock or the board's repository */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner is not connected */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

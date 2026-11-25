@@ -10,7 +10,7 @@ use nullradix_domain::{
 };
 
 use super::{
-    NewWorktree, WorktreeEntry, WorktreeRepository, already_running, board_repo_mismatch,
+    Cleaned, NewWorktree, WorktreeEntry, WorktreeRepository, already_running, board_repo_mismatch,
     host_not_started, invalid,
 };
 use crate::boards::{self, BoardRepository};
@@ -64,14 +64,16 @@ pub struct Started {
     pub joined: bool,
     pub warnings: Vec<String>,
     pub target_created: Option<TargetCreated>,
+    /// Ready worktrees the start removed or kept before it began.
+    pub cleanup: Vec<Cleaned>,
 }
 
-/// The checkout a start happens in.
-struct Place {
-    runner: Id<Runner>,
-    repository: Id<Repository>,
-    root: String,
-    cwd: String,
+/// The checkout a start or done happens in.
+pub(super) struct Place {
+    pub(super) runner: Id<Runner>,
+    pub(super) repository: Id<Repository>,
+    pub(super) root: String,
+    pub(super) cwd: String,
 }
 
 enum Link {
@@ -80,13 +82,13 @@ enum Link {
 }
 
 pub struct WorktreeService {
-    tickets: Arc<TicketService>,
+    pub(super) tickets: Arc<TicketService>,
     boards: Arc<dyn BoardRepository>,
-    worktrees: Arc<dyn WorktreeRepository>,
-    runners: Arc<RunnerService>,
-    clock: Arc<dyn Clock>,
+    pub(super) worktrees: Arc<dyn WorktreeRepository>,
+    pub(super) runners: Arc<RunnerService>,
+    pub(super) clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
-    signal: ChangeSignal,
+    pub(super) signal: ChangeSignal,
 }
 
 impl std::fmt::Debug for WorktreeService {
@@ -159,6 +161,7 @@ impl WorktreeService {
         let place = self.place(&ticket, runner, cwd).await?;
         refuse_started(&ticket)?;
         check_start(&ticket, view.depends_open, force)?;
+        let cleanup = self.cleanup(&place).await?;
         let link = match mode {
             StartMode::New => Link::New { warning: None },
             StartMode::JoinTicket(host) => self.host(&ticket, &host, &place).await?,
@@ -167,14 +170,15 @@ impl WorktreeService {
                 None => Link::New { warning: None },
             },
         };
-        match link {
-            Link::Join(entry) => self.join(&ticket, entry, force, actor).await,
-            Link::New { warning } => self.create(&ticket, &place, warning, force, actor).await,
-        }
+        let started = match link {
+            Link::Join(entry) => self.join(&ticket, entry, force, actor).await?,
+            Link::New { warning } => self.create(&ticket, &place, warning, force, actor).await?,
+        };
+        Ok(Started { cleanup, ..started })
     }
 
     /// The checkout of `cwd`, which must be the repository of the ticket's board.
-    async fn place(
+    pub(super) async fn place(
         &self,
         ticket: &Ticket,
         runner: Id<Runner>,
@@ -398,6 +402,7 @@ impl WorktreeService {
             joined,
             warnings,
             target_created,
+            cleanup: Vec::new(),
         })
     }
 }

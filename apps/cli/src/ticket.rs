@@ -5,8 +5,9 @@ use std::process::ExitCode;
 use anyhow::Context;
 use clap::Subcommand;
 use nullradix_api::{
-    AcceptTicket, ClaimTicket, ColumnDto, CreateTicket, MoveTicket, PriorityDto, ReleaseTicket,
-    StartTicket, StartedTicket, TicketDetailDto, TicketDto, UpdateTicket,
+    AcceptTicket, ClaimTicket, CleanedWorktree, ColumnDto, CreateTicket, FinishTicket,
+    FinishedTicket, MoveTicket, PriorityDto, ReleaseTicket, StartTicket, StartedTicket,
+    TicketDetailDto, TicketDto, UpdateTicket,
 };
 use nullradix_client::Client;
 use nullradix_domain::{Priority, TicketKey, TicketStatus, Timestamp};
@@ -76,6 +77,20 @@ pub(crate) enum TicketCommand {
         #[arg(long)]
         join: bool,
         /// Lift the dependency and question locks
+        #[arg(long)]
+        force: bool,
+    },
+    /// Finish a ticket: done, its worktree ready to merge and cleaned up; nothing is merged
+    Done {
+        /// Ticket key such as ARC-7
+        key: String,
+        /// How to tell the ticket is done, set in the same step
+        #[arg(long, conflicts_with = "acceptance_file")]
+        acceptance: Option<String>,
+        /// Read the acceptance criteria from this file
+        #[arg(long)]
+        acceptance_file: Option<PathBuf>,
+        /// Lift the dependency, question and not-needed locks
         #[arg(long)]
         force: bool,
     },
@@ -334,6 +349,15 @@ pub(crate) fn run(
             join,
             force,
         } => start(client, &key, join_ticket.as_deref(), join, force)?,
+        TicketCommand::Done {
+            key,
+            acceptance,
+            acceptance_file,
+            force,
+        } => {
+            let acceptance = text(acceptance, acceptance_file.as_deref())?;
+            done(client, &key, acceptance, force)?;
+        }
         TicketCommand::Release { key, status } => {
             let ticket = client.release_ticket(&canonical(&key)?, &ReleaseTicket { status })?;
             report(&ticket, "released");
@@ -379,6 +403,46 @@ fn start(
     Ok(())
 }
 
+fn done(client: &Client, key: &str, acceptance: Option<String>, force: bool) -> anyhow::Result<()> {
+    let folder = std::env::current_dir().context("cannot read the current folder")?;
+    let input = FinishTicket {
+        runner_id: local_runner(client)?.id,
+        cwd: folder.to_string_lossy().into_owned(),
+        acceptance,
+        version: None,
+        force,
+    };
+    let finished = client.finish_ticket(&canonical(key)?, &input)?;
+    for line in done_lines(&finished) {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+fn done_lines(finished: &FinishedTicket) -> Vec<String> {
+    let mut lines = vec![format!("{} is done.", finished.ticket.key)];
+    if finished.ready_to_merge
+        && let Some(branch) = &finished.branch
+    {
+        lines.push(format!(
+            "Branch {branch} is ready to merge (nothing was merged)."
+        ));
+    }
+    lines.extend(cleanup_lines(&finished.cleanup));
+    lines
+}
+
+/// One line per ready worktree the cleanup looked at.
+fn cleanup_lines(cleanup: &[CleanedWorktree]) -> Vec<String> {
+    cleanup
+        .iter()
+        .map(|cleaned| match &cleaned.kept_because {
+            None => format!("Worktree {} removed (the branch stays).", cleaned.path),
+            Some(reason) => format!("Worktree {} kept: {reason}.", cleaned.path),
+        })
+        .collect()
+}
+
 fn start_lines(started: &StartedTicket) -> Vec<String> {
     let how = if started.joined {
         "joined"
@@ -395,6 +459,7 @@ fn start_lines(started: &StartedTicket) -> Vec<String> {
             created.branch, created.from
         ));
     }
+    lines.extend(cleanup_lines(&started.cleanup));
     lines
 }
 

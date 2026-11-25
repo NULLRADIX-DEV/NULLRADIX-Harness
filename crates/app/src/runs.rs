@@ -9,7 +9,7 @@ use nullradix_domain::{Id, Run, RunEnd, RunError, RunLabel, RunOutcome, Version}
 use strum::{EnumString, IntoStaticStr};
 
 use crate::repositories::Located;
-use crate::worktrees::{CreatedWorktree, NewWorktree};
+use crate::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
 /// What to execute; the runner owns how.
@@ -92,6 +92,8 @@ pub trait RunnerPort: Send + Sync {
     async fn create_worktree(&self, request: &NewWorktree) -> Result<CreatedWorktree, AppError>;
     /// Whether each absolute folder exists, in the order given.
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError>;
+    /// Removes a clean worktree folder after its links; refusals are answers, not errors.
+    async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError>;
 }
 
 #[async_trait]

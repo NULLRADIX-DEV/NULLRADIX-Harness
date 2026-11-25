@@ -1,8 +1,8 @@
 use strum::{EnumIter, EnumString, IntoStaticStr};
 
 use crate::{
-    Id, Repository, Runner, TargetBranch, TextError, Ticket, TicketKey, Timestamp, Version,
-    required_text,
+    Id, Repository, Runner, TargetBranch, TextError, Ticket, TicketKey, TicketStatus, Timestamp,
+    Version, required_text,
 };
 
 pub const WORKTREE_BRANCH_MAX: usize = 400;
@@ -319,6 +319,33 @@ impl WorktreeTicket {
     }
 }
 
+/// Prefix of a block reason the merge wrote; such a ticket counts as finished.
+pub const MERGE_REASON: &str = "Merge:";
+
+/// Whether the ticket no longer holds its worktree open for the merge.
+#[must_use]
+pub fn finished_for_merge(status: TicketStatus, blocked_reason: Option<&str>) -> bool {
+    match status {
+        TicketStatus::Done | TicketStatus::NotNeeded => true,
+        TicketStatus::Blocked => blocked_reason.unwrap_or_default().starts_with(MERGE_REASON),
+        _ => false,
+    }
+}
+
+/// Ready when at least one ticket still carries the branch and all of them are finished.
+#[must_use]
+pub fn ready_to_merge<'a>(live: impl IntoIterator<Item = &'a Ticket>) -> bool {
+    let mut any = false;
+    for ticket in live {
+        let record = ticket.record();
+        if !finished_for_merge(record.status, record.blocked_reason.as_deref()) {
+            return false;
+        }
+        any = true;
+    }
+    any
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,5 +516,81 @@ mod tests {
             ..candidate(&open, None)
         };
         assert_eq!(pick_join(&[empty], release.as_ref()), Some(0));
+    }
+
+    fn ticket(status: TicketStatus, reason: Option<&str>) -> Ticket {
+        use crate::{Board, BoardName, Priority, TicketDraft, TicketTitle};
+        let board = Board::new(
+            id(1),
+            id(2),
+            BoardName::parse("Main").unwrap(),
+            id(3),
+            Timestamp::from_millis(5),
+        );
+        let draft = TicketDraft {
+            title: TicketTitle::parse("Fix it").unwrap(),
+            description: String::new(),
+            acceptance: String::new(),
+            status,
+            priority: Priority::Normal,
+            labels: Vec::new(),
+            depends_on: Vec::new(),
+            needs_planning: false,
+            target_branch: None,
+        };
+        let key = TicketKey::parse("ARC-1").unwrap();
+        let created = Ticket::new(
+            id(4),
+            key,
+            &board,
+            draft,
+            0,
+            id(3),
+            Timestamp::from_millis(9),
+        );
+        let mut record = created.record().clone();
+        record.blocked_reason = reason.map(str::to_owned);
+        Ticket::restore(record)
+    }
+
+    #[test]
+    fn finished_tickets_follow_the_legacy_table() {
+        let table = [
+            (TicketStatus::Done, None, true),
+            (TicketStatus::NotNeeded, None, true),
+            (TicketStatus::Blocked, Some("Merge: conflict in a.rs"), true),
+            (TicketStatus::Blocked, Some("Merge:"), true),
+            (TicketStatus::Blocked, Some(" Merge: padded"), false),
+            (TicketStatus::Blocked, Some("merge: lower case"), false),
+            (
+                TicketStatus::Blocked,
+                Some("Human Interaction: review"),
+                false,
+            ),
+            (TicketStatus::Blocked, None, false),
+            (TicketStatus::InProgress, None, false),
+            (TicketStatus::Planned, Some("Merge: stale"), false),
+            (TicketStatus::Backlog, None, false),
+            (TicketStatus::InPlanning, None, false),
+        ];
+        for (status, reason, finished) in table {
+            assert_eq!(
+                finished_for_merge(status, reason),
+                finished,
+                "{status:?} {reason:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_worktree_is_ready_once_all_its_live_tickets_are_finished() {
+        let done = ticket(TicketStatus::Done, None);
+        let merge = ticket(TicketStatus::Blocked, Some("Merge: conflict"));
+        let open = ticket(TicketStatus::InProgress, None);
+        assert!(!ready_to_merge([]));
+        assert!(ready_to_merge([&done]));
+        assert!(ready_to_merge([&done, &merge]));
+        assert!(!ready_to_merge([&done, &open]));
+        assert!(!ready_to_merge([&open, &done]));
     }
 }

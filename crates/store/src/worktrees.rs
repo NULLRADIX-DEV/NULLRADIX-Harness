@@ -259,6 +259,89 @@ async fn retire(
     ))
 }
 
+async fn set_ready(
+    connection: &mut SqliteConnection,
+    worktree: Id<Worktree>,
+    ready: bool,
+    at: Timestamp,
+) -> Result<Option<Change>, AppError> {
+    let id = worktree.as_uuid();
+    let ready = i64::from(ready);
+    let millis = at.as_millis();
+    let changed = sqlx::query_scalar!(
+        r#"UPDATE worktrees SET ready_to_merge = ?1, updated_at = ?2, version = version + 1
+           WHERE id = ?3 AND ready_to_merge <> ?1
+           RETURNING id AS "id: Uuid""#,
+        ready,
+        millis,
+        id,
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(database)?;
+    updated(connection, changed, at).await
+}
+
+async fn mark_removed(
+    connection: &mut SqliteConnection,
+    worktree: Id<Worktree>,
+    at: Timestamp,
+) -> Result<Option<Change>, AppError> {
+    let id = worktree.as_uuid();
+    let millis = at.as_millis();
+    let changed = sqlx::query_scalar!(
+        r#"UPDATE worktrees
+           SET desired_state = 'absent', actual_state = 'removed', last_error = NULL,
+               observed_at = ?1, updated_at = ?1, version = version + 1
+           WHERE id = ?2
+             AND NOT (desired_state = 'absent' AND actual_state = 'removed'
+                      AND last_error IS NULL)
+           RETURNING id AS "id: Uuid""#,
+        millis,
+        id,
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(database)?;
+    updated(connection, changed, at).await
+}
+
+async fn mark_kept(
+    connection: &mut SqliteConnection,
+    worktree: Id<Worktree>,
+    reason: &str,
+    at: Timestamp,
+) -> Result<Option<Change>, AppError> {
+    let id = worktree.as_uuid();
+    let millis = at.as_millis();
+    let changed = sqlx::query_scalar!(
+        r#"UPDATE worktrees SET last_error = ?1, updated_at = ?2, version = version + 1
+           WHERE id = ?3 AND last_error IS NOT ?1
+           RETURNING id AS "id: Uuid""#,
+        reason,
+        millis,
+        id,
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(database)?;
+    updated(connection, changed, at).await
+}
+
+/// The change of an updated worktree; `None` when the update matched no row.
+async fn updated(
+    connection: &mut SqliteConnection,
+    changed: Option<Uuid>,
+    at: Timestamp,
+) -> Result<Option<Change>, AppError> {
+    match changed {
+        Some(id) => Ok(Some(
+            change_feed::record(connection, Entity::Worktree, id, ChangeOp::Update, at).await?,
+        )),
+        None => Ok(None),
+    }
+}
+
 async fn entry(
     connection: &mut SqliteConnection,
     id: Uuid,
@@ -380,6 +463,32 @@ impl WorktreeWrite for Write {
         ticket: Id<Ticket>,
     ) -> Result<Option<WorktreeEntry>, AppError> {
         Ok(live(&mut self.0, ticket).await?)
+    }
+
+    async fn set_ready(
+        &mut self,
+        worktree: Id<Worktree>,
+        ready: bool,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        set_ready(&mut self.0, worktree, ready, at).await
+    }
+
+    async fn mark_removed(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        mark_removed(&mut self.0, worktree, at).await
+    }
+
+    async fn mark_kept(
+        &mut self,
+        worktree: Id<Worktree>,
+        reason: &str,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        mark_kept(&mut self.0, worktree, reason, at).await
     }
 }
 

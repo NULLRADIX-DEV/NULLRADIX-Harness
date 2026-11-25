@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::repositories::Located;
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
-use nullradix_app::worktrees::{CreatedWorktree, NewWorktree};
+use nullradix_app::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
 use nullradix_domain::{Id, Run};
 use nullradix_os::{spawn_detached, write_atomic};
 
@@ -137,6 +137,10 @@ impl RunnerPort for LocalRunner {
 
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError> {
         crate::worktree::folders_exist(paths).await
+    }
+
+    async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError> {
+        crate::cleanup::remove(request).await
     }
 }
 

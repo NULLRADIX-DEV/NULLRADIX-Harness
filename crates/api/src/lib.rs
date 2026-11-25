@@ -66,7 +66,9 @@ pub use tickets::{
     NextPlanningClaim, PriorityDto, ReleaseTicket, StepDto, TicketDetailDto, TicketDto, TicketList,
     TicketStatusDto, UpdateTicket, WritePlan,
 };
-pub use worktrees::{StartTicket, StartedTicket, TargetCreatedDto};
+pub use worktrees::{
+    CleanedWorktree, FinishTicket, FinishedTicket, StartTicket, StartedTicket, TargetCreatedDto,
+};
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
 pub const API_VERSION: u32 = 1;
@@ -169,6 +171,7 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(tickets::move_step))
         .routes(routes!(tickets::claim_ticket))
         .routes(routes!(worktrees::start_ticket))
+        .routes(routes!(worktrees::finish_ticket))
         .routes(routes!(tickets::release_ticket))
         .routes(routes!(tickets::accept_ticket))
         .routes(routes!(tickets::write_plan))
