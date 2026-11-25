@@ -12,10 +12,23 @@ use std::ptr;
 
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_NOT_FOUND, GetLastError, INVALID_HANDLE_VALUE,
+    LocalFree,
+};
+#[cfg(test)]
+use windows_sys::Win32::Security::Authorization::{
+    ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW,
+};
+use windows_sys::Win32::Security::Authorization::{
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1, SE_FILE_OBJECT,
+    SetNamedSecurityInfoW,
 };
 use windows_sys::Win32::Security::Credentials::{
     CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree, CredReadW,
     CredWriteW,
+};
+use windows_sys::Win32::Security::{
+    ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, PROTECTED_DACL_SECURITY_INFORMATION,
+    PSECURITY_DESCRIPTOR,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
@@ -327,6 +340,129 @@ pub(crate) fn credential_delete(target: &str) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Only the owner may use the object; no inherited access stays.
+const OWNER_ONLY: &str = "D:P(A;OICI;FA;;;OW)";
+
+fn path_wide(path: &Path) -> Vec<u16> {
+    path.as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect()
+}
+
+/// Gives the file or folder an owner-only, protected access list.
+pub(crate) fn restrict_to_owner(path: &Path) -> io::Result<()> {
+    let sddl = wide(OWNER_ONLY);
+    let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
+    // SAFETY: sddl is NUL-terminated and descriptor is a valid out pointer.
+    let converted = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &raw mut descriptor,
+            ptr::null_mut(),
+        )
+    };
+    if converted == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut present = 0;
+    let mut defaulted = 0;
+    let mut dacl: *mut ACL = ptr::null_mut();
+    // SAFETY: descriptor came from the conversion above and the out pointers are valid.
+    let found = unsafe {
+        GetSecurityDescriptorDacl(
+            descriptor,
+            &raw mut present,
+            &raw mut dacl,
+            &raw mut defaulted,
+        )
+    };
+    let result = if found == 0 || present == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        let target = path_wide(path);
+        // SAFETY: target is NUL-terminated; the ACL lives in descriptor until it is freed below.
+        let status = unsafe {
+            SetNamedSecurityInfoW(
+                target.as_ptr().cast_mut(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                dacl,
+                ptr::null_mut(),
+            )
+        };
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(
+                i32::try_from(status).unwrap_or(i32::MAX),
+            ))
+        }
+    };
+    // SAFETY: descriptor was allocated by the conversion and is freed exactly once.
+    unsafe { LocalFree(descriptor) };
+    result
+}
+
+/// The access list of a file or folder in SDDL text, such as `D:P(A;OICI;FA;;;OW)`.
+#[cfg(test)]
+pub(crate) fn dacl_sddl(path: &Path) -> io::Result<String> {
+    let target = path_wide(path);
+    let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
+    // SAFETY: target is NUL-terminated and descriptor is a valid out pointer.
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            target.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &raw mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::from_raw_os_error(
+            i32::try_from(status).unwrap_or(i32::MAX),
+        ));
+    }
+    let mut text: *mut u16 = ptr::null_mut();
+    // SAFETY: descriptor was filled in above and text is a valid out pointer.
+    let converted = unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor,
+            SDDL_REVISION_1,
+            DACL_SECURITY_INFORMATION,
+            &raw mut text,
+            ptr::null_mut(),
+        )
+    };
+    let result = if converted == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        let mut length = 0;
+        // SAFETY: text is NUL-terminated, so the scan stops inside the allocation.
+        while unsafe { *text.add(length) } != 0 {
+            length += 1;
+        }
+        // SAFETY: the first `length` units were just read.
+        let units = unsafe { std::slice::from_raw_parts(text, length) };
+        Ok(String::from_utf16_lossy(units))
+    };
+    // SAFETY: both buffers were allocated by the calls above and are freed once.
+    unsafe {
+        if !text.is_null() {
+            LocalFree(text.cast::<c_void>());
+        }
+        LocalFree(descriptor);
+    }
+    result
 }
 
 #[cfg(test)]

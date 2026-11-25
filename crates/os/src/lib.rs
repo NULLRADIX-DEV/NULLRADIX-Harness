@@ -14,7 +14,7 @@ mod windows;
 pub use browser::open_url;
 #[cfg(target_os = "macos")]
 pub use claude_keychain::claude_keychain_password;
-pub use files::{write_atomic, write_private};
+pub use files::{create_private_dir, write_atomic, write_private};
 pub use paths::{Paths, PathsError, claude_config_dirs, home_dir};
 pub use process::{ProcessTree, process_alive, spawn_detached};
 pub use secrets::{FileSecrets, SecretBackend, SecretError, system_secrets};

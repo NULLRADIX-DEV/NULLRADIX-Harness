@@ -112,7 +112,7 @@ pub fn login_not_found(account: &nullradix_domain::AccountSlug) -> AppError {
 /// An email that is safe on any command line: no spaces, quotes or shell characters.
 fn checked_email(email: &str) -> Result<String, AppError> {
     let email = email.trim();
-    let allowed = |letter: char| letter.is_ascii_alphanumeric() || "._%+-@".contains(letter);
+    let allowed = |letter: char| letter.is_ascii_alphanumeric() || "._+-@".contains(letter);
     let valid = !email.is_empty()
         && email.len() <= EMAIL_MAX
         && email.chars().all(allowed)
@@ -446,7 +446,7 @@ mod tests {
 
     #[test]
     fn emails_are_checked_for_the_command_line() {
-        for good in ["me@example.com", "a.b+c@d-e.org", "x_y%z@host"] {
+        for good in ["me@example.com", "a.b+c@d-e.org", "x_y@host"] {
             assert_eq!(checked_email(&format!(" {good} ")).unwrap(), good);
         }
         for bad in [
@@ -460,6 +460,8 @@ mod tests {
             "-me@example.com",
             "me@exa mple.com",
             "me@example.com|x",
+            "100%@example.com",
+            "me@exa%41mple.com",
             &format!("{}@x.com", "a".repeat(250)),
         ] {
             let error = checked_email(bad).unwrap_err();

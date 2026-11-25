@@ -17,6 +17,7 @@ use std::sync::Mutex;
 struct Folders {
     existing: Mutex<Vec<String>>,
     removed: Mutex<Vec<String>>,
+    fail_remove: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -52,11 +53,20 @@ impl AccountFolders for Folders {
         dir.as_str().to_lowercase()
     }
 
+    fn slug_key(&self, slug: &AccountSlug) -> String {
+        format!("/accounts/{slug}").to_lowercase()
+    }
+
     fn owns(&self, dir: &ConfigDir) -> bool {
         dir.as_str().starts_with("/accounts/")
     }
 
     async fn remove(&self, dir: &ConfigDir) -> Result<(), AppError> {
+        if self.fail_remove.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(AppError::internal(std::io::Error::other(
+                "files are in use",
+            )));
+        }
         self.removed.lock().unwrap().push(dir.as_str().to_owned());
         Ok(())
     }
@@ -537,4 +547,192 @@ async fn the_slug_is_unique_in_the_database() {
         .await
         .unwrap_err();
     assert_eq!(code(&refused), (ErrorKind::Conflict, "account-exists"));
+}
+
+#[tokio::test]
+async fn a_new_slug_never_gets_the_folder_of_another_account() {
+    let f = fixture().await;
+    f.folders
+        .existing
+        .lock()
+        .unwrap()
+        .push(String::from("/Accounts/BOB"));
+    let work = f
+        .accounts
+        .create("Work", Some("/Accounts/BOB"))
+        .await
+        .unwrap();
+    assert_eq!(work.config_dir().unwrap().as_str(), "/Accounts/BOB");
+    let bob = f.add("Bob").await;
+    assert_eq!(bob.slug().as_str(), "bob-2");
+    assert_eq!(bob.config_dir().unwrap().as_str(), "/accounts/bob-2");
+    let other = f.add("Bob").await;
+    assert_eq!(other.slug().as_str(), "bob-3");
+}
+
+/// The store, with updates that can be made to fail.
+struct Flaky {
+    store: Arc<Store>,
+    fail_updates: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl nullradix_app::accounts::AccountRepository for Flaky {
+    async fn insert(&self, account: &Account) -> Result<nullradix_app::Change, AppError> {
+        nullradix_app::accounts::AccountRepository::insert(self.store.as_ref(), account).await
+    }
+
+    async fn list(&self) -> Result<Vec<Account>, AppError> {
+        nullradix_app::accounts::AccountRepository::list(self.store.as_ref()).await
+    }
+
+    async fn get(&self, id: Id<Account>) -> Result<Option<Account>, AppError> {
+        nullradix_app::accounts::AccountRepository::get(self.store.as_ref(), id).await
+    }
+
+    async fn update(
+        &self,
+        account: &Account,
+        expected: Version,
+    ) -> Result<nullradix_app::Change, AppError> {
+        if self.fail_updates.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(AppError::version_conflict("account", account.id()));
+        }
+        nullradix_app::accounts::AccountRepository::update(self.store.as_ref(), account, expected)
+            .await
+    }
+
+    async fn delete(
+        &self,
+        id: Id<Account>,
+        expected: Version,
+        at: nullradix_domain::Timestamp,
+    ) -> Result<nullradix_app::Change, AppError> {
+        nullradix_app::accounts::AccountRepository::delete(self.store.as_ref(), id, expected, at)
+            .await
+    }
+}
+
+async fn flaky() -> (Arc<AccountService>, Arc<Flaky>, Arc<MemorySecretStore>) {
+    let store = Arc::new(Store::in_memory().await.unwrap());
+    let repository = Arc::new(Flaky {
+        store,
+        fail_updates: std::sync::atomic::AtomicBool::new(false),
+    });
+    let secrets = Arc::new(MemorySecretStore::new());
+    let accounts = Arc::new(AccountService::new(
+        repository.clone(),
+        secrets.clone(),
+        Arc::new(Folders::default()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        ChangeSignal::new(),
+    ));
+    (accounts, repository, secrets)
+}
+
+#[tokio::test]
+async fn a_failed_update_leaves_no_new_token_and_keeps_the_old_one() {
+    let (accounts, repository, secrets) = flaky().await;
+    let max = accounts.create("Max", None).await.unwrap();
+    let key = format!("account-token/{}", max.id());
+    repository
+        .fail_updates
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let first = accounts.set_token(max.id(), TOKEN, max.version()).await;
+    assert!(first.is_err());
+    assert_eq!(secrets.keys(), Vec::<String>::new());
+
+    repository
+        .fail_updates
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let set = accounts
+        .set_token(max.id(), TOKEN, max.version())
+        .await
+        .unwrap();
+    repository
+        .fail_updates
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let kept = accounts.clear_token(max.id(), set.version()).await;
+    assert!(kept.is_err());
+    assert_eq!(secrets.get(&key).await.unwrap().unwrap().expose(), TOKEN);
+}
+
+#[tokio::test]
+async fn a_stale_version_leaves_the_stored_token_alone() {
+    let (accounts, _, secrets) = flaky().await;
+    let max = accounts.create("Max", None).await.unwrap();
+    let set = accounts
+        .set_token(max.id(), TOKEN, max.version())
+        .await
+        .unwrap();
+    let key = set.token_ref().unwrap().to_owned();
+    let stale = accounts
+        .set_token(max.id(), "sk-ant-oat01-other", max.version())
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code(), "version-conflict");
+    assert_eq!(secrets.get(&key).await.unwrap().unwrap().expose(), TOKEN);
+}
+
+#[tokio::test]
+async fn racing_token_writes_leave_the_token_of_the_one_that_won() {
+    let (accounts, _, secrets) = flaky().await;
+    let max = accounts.create("Max", None).await.unwrap();
+    let (id, version) = (max.id(), max.version());
+    let first = tokio::spawn({
+        let accounts = accounts.clone();
+        async move { accounts.set_token(id, "sk-ant-oat01-first", version).await }
+    });
+    let second = tokio::spawn({
+        let accounts = accounts.clone();
+        async move { accounts.set_token(id, "sk-ant-oat01-second", version).await }
+    });
+    let results = [first.await.unwrap(), second.await.unwrap()];
+    let winners: Vec<usize> = (0..2).filter(|at| results[*at].is_ok()).collect();
+    assert_eq!(winners.len(), 1);
+    let expected = ["sk-ant-oat01-first", "sk-ant-oat01-second"][winners[0]];
+    let key = format!("account-token/{id}");
+    assert_eq!(secrets.get(&key).await.unwrap().unwrap().expose(), expected);
+}
+
+#[tokio::test]
+async fn a_removed_account_leaves_no_token_and_takes_no_new_one() {
+    let (accounts, _, secrets) = flaky().await;
+    let max = accounts.create("Max", None).await.unwrap();
+    let set = accounts
+        .set_token(max.id(), TOKEN, max.version())
+        .await
+        .unwrap();
+    accounts
+        .remove(max.id(), set.version(), false)
+        .await
+        .unwrap();
+    assert_eq!(secrets.keys(), Vec::<String>::new());
+    let late = accounts
+        .set_token(max.id(), TOKEN, set.version())
+        .await
+        .unwrap_err();
+    assert_eq!(late.code(), "account-not-found");
+    assert_eq!(secrets.keys(), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn a_folder_that_cannot_be_deleted_keeps_the_account() {
+    let f = fixture().await;
+    let max = f.add("Max").await;
+    f.folders
+        .fail_remove
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let refused = f.accounts.remove(max.id(), max.version(), true).await;
+    assert!(refused.is_err());
+    assert_eq!(f.accounts.get(max.id()).await.unwrap(), max);
+    f.folders
+        .fail_remove
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    f.accounts
+        .remove(max.id(), max.version(), true)
+        .await
+        .unwrap();
+    assert_eq!(*f.folders.removed.lock().unwrap(), ["/accounts/max"]);
 }

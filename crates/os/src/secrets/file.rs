@@ -22,7 +22,7 @@ impl FileSecrets {
     #[must_use]
     pub fn in_dir(dir: &Path) -> Self {
         Self {
-            path: dir.join("secrets.json"),
+            path: dir.join("secrets").join("secrets.json"),
             guard: Mutex::new(()),
         }
     }
@@ -62,7 +62,7 @@ impl FileSecrets {
 
     fn write_all(&self, secrets: &BTreeMap<String, String>) -> Result<(), SecretError> {
         if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir).map_err(Self::failed)?;
+            crate::files::create_private_dir(dir).map_err(Self::failed)?;
         }
         let entries: Map<String, Value> = secrets
             .iter()
@@ -146,7 +146,7 @@ mod tests {
     fn a_damaged_file_is_reported_and_left_alone() {
         let (dir, secrets) = store();
         secrets.put("a", "one").unwrap();
-        let path = dir.path().join("data").join("secrets.json");
+        let path = dir.path().join("data").join("secrets").join("secrets.json");
         fs::write(&path, "{ not json").unwrap();
         assert!(matches!(secrets.get("a"), Err(SecretError::Damaged { .. })));
         assert!(matches!(
@@ -172,12 +172,41 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn the_secrets_folder_is_private_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, secrets) = store();
+        secrets.put("a", "one").unwrap();
+        let mode = fs::metadata(dir.path().join("data").join("secrets"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_file_and_its_folder_allow_only_the_owner() {
+        let (dir, secrets) = store();
+        secrets.put("a", "one").unwrap();
+        secrets.put("a", "two").unwrap();
+        let folder = dir.path().join("data").join("secrets");
+        for path in [folder.clone(), folder.join("secrets.json")] {
+            let acl = crate::windows::dacl_sddl(&path).unwrap();
+            // protected, so nothing is inherited, with one entry that gives the owner full access
+            assert!(acl.starts_with("D:P"), "{acl}");
+            assert_eq!(acl.matches('(').count(), 1, "{acl}");
+            assert!(acl.contains(";FA;;;OW)"), "{acl}");
+        }
+        assert_eq!(secrets.get("a").unwrap().as_deref(), Some("two"));
+    }
+    #[cfg(unix)]
+    #[test]
     fn the_file_is_private_to_its_owner() {
         use std::os::unix::fs::PermissionsExt;
         let (dir, secrets) = store();
         secrets.put("a", "one").unwrap();
         secrets.put("a", "two").unwrap();
-        let mode = fs::metadata(dir.path().join("data").join("secrets.json"))
+        let mode = fs::metadata(dir.path().join("data").join("secrets").join("secrets.json"))
             .unwrap()
             .permissions()
             .mode();

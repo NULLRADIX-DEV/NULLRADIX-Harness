@@ -1,6 +1,7 @@
 //! Runs `claude auth login` as a child process of the daemon.
 
 use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
@@ -22,6 +23,10 @@ const REMOVED: [&str; 3] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE
 pub struct LocalLoginRunner {
     program: String,
     prefix: Vec<String>,
+    /// What `~` stands for in an account folder.
+    home: Option<PathBuf>,
+    /// Folder for the default account, which otherwise follows the environment of the daemon.
+    default_folder: Option<PathBuf>,
 }
 
 /// How to start `command`; on Windows `claude` is a batch file that only `cmd` finds.
@@ -57,7 +62,34 @@ impl LocalLoginRunner {
     /// Starts `program` with `prefix` before the login arguments, so tests can stand in for Claude.
     #[must_use]
     pub fn with_launcher(program: String, prefix: Vec<String>) -> Self {
-        Self { program, prefix }
+        Self {
+            program,
+            prefix,
+            home: nullradix_os::home_dir(),
+            default_folder: None,
+        }
+    }
+
+    /// Uses `home` for `~` in account folders, as the folders and usage of the daemon do.
+    #[must_use]
+    pub fn with_home(mut self, home: Option<PathBuf>) -> Self {
+        self.home = home;
+        self
+    }
+
+    /// Logs the default account in in this folder, which then exists before Claude starts.
+    #[must_use]
+    pub fn with_default_folder(mut self, folder: Option<PathBuf>) -> Self {
+        self.default_folder = folder;
+        self
+    }
+
+    /// The folder Claude Code logs in to; none when it follows the environment of the daemon.
+    fn folder_of(&self, spec: &LoginSpec) -> Option<PathBuf> {
+        match &spec.config_dir {
+            Some(dir) => Some(expand_home(self.home.as_deref(), dir.as_str())),
+            None => self.default_folder.clone(),
+        }
     }
 
     fn build(&self, spec: &LoginSpec) -> Command {
@@ -71,12 +103,8 @@ impl LocalLoginRunner {
         for name in REMOVED {
             command.env_remove(name);
         }
-        if let Some(dir) = &spec.config_dir {
-            let home = nullradix_os::home_dir();
-            command.env(
-                "CLAUDE_CONFIG_DIR",
-                expand_home(home.as_deref(), dir.as_str()),
-            );
+        if let Some(folder) = self.folder_of(spec) {
+            command.env("CLAUDE_CONFIG_DIR", folder);
         }
         command
             .stdin(Stdio::piped())
@@ -99,6 +127,14 @@ fn lines(pipe: impl std::io::Read + Send + 'static, output: mpsc::Sender<String>
 #[async_trait]
 impl LoginRunner for LocalLoginRunner {
     async fn start(&self, spec: &LoginSpec) -> Result<LoginProcess, AppError> {
+        if spec.config_dir.is_none()
+            && let Some(folder) = self.default_folder.clone()
+        {
+            tokio::task::spawn_blocking(move || std::fs::create_dir_all(folder))
+                .await
+                .map_err(AppError::internal)?
+                .map_err(AppError::internal)?;
+        }
         let mut command = self.build(spec);
         let mut tree = ProcessTree::spawn(&mut command).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
@@ -277,6 +313,49 @@ mod tests {
         assert_eq!(error.code(), "claude-not-found");
     }
 
+    fn config_dir_of(command: &Command) -> Option<std::ffi::OsString> {
+        command
+            .get_envs()
+            .find(|(name, _)| *name == "CLAUDE_CONFIG_DIR")
+            .and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+    }
+
+    #[test]
+    fn an_isolated_home_serves_tilde_folders_and_the_default_account_alike() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("data");
+        let runner = LocalLoginRunner::with_launcher(String::from("claude"), Vec::new())
+            .with_home(Some(home.clone()))
+            .with_default_folder(Some(home.join(".claude")));
+        let tilde = LoginSpec {
+            config_dir: Some(nullradix_domain::ConfigDir::parse("~/.mcacc/work").unwrap()),
+            email: None,
+        };
+        assert_eq!(
+            config_dir_of(&runner.build(&tilde)),
+            Some(home.join(".mcacc/work").into_os_string())
+        );
+        assert_eq!(
+            config_dir_of(&runner.build(&spec())),
+            Some(home.join(".claude").into_os_string())
+        );
+    }
+
+    #[test]
+    fn the_default_account_follows_the_daemon_without_an_isolated_home() {
+        let runner = LocalLoginRunner::with_launcher(String::from("claude"), Vec::new());
+        assert_eq!(config_dir_of(&runner.build(&spec())), None);
+    }
+
+    #[tokio::test]
+    async fn the_default_folder_exists_when_the_login_starts() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("data/.claude");
+        let runner = shell("echo hi").with_default_folder(Some(folder.clone()));
+        let mut process = runner.start(&spec()).await.unwrap();
+        assert!(folder.is_dir());
+        collect(&mut process.output).await;
+    }
     #[test]
     fn windows_finds_the_batch_file_of_claude_through_cmd() {
         assert_eq!(

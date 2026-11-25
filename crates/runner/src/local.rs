@@ -17,7 +17,7 @@ use nullradix_domain::{Id, Run};
 use nullradix_os::{spawn_detached, write_atomic};
 
 use crate::protocol::{RunFiles, SpecFile, read_output, read_report, supervisor_alive};
-use crate::transcript::Transcripts;
+use crate::transcript::{TranscriptRoots, Transcripts};
 
 /// How the runner starts the supervisor: a program plus leading arguments, the run dir follows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +61,13 @@ impl LocalRunner {
     #[must_use]
     pub fn with_transcript_roots(mut self, roots: Vec<PathBuf>) -> Self {
         self.transcripts = Arc::new(Transcripts::new(roots));
+        self
+    }
+
+    /// Like `with_transcript_roots`, with folders that are kept current by the holder of `roots`.
+    #[must_use]
+    pub fn with_live_transcript_roots(mut self, roots: TranscriptRoots) -> Self {
+        self.transcripts = Arc::new(Transcripts::shared(roots));
         self
     }
 

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::secrets::{SecretStore, SecretValue, secret_store_failed};
@@ -20,15 +21,25 @@ impl OsSecretStore {
         }
     }
 
-    /// The system store, or a private file in the data folder under a home override.
-    pub(crate) fn open(config: &Config) -> Self {
-        let backend: Box<dyn SecretBackend> = if config.isolated {
-            Box::new(FileSecrets::in_dir(&config.paths.data))
-        } else {
-            system_secrets(config.profile.app_name(), &config.paths.data)
-        };
+    /// The system store, or a private file under a home override; detection runs off the runtime.
+    pub(crate) async fn open(config: &Config) -> anyhow::Result<Self> {
+        let (isolated, service, data) = (
+            config.isolated,
+            config.profile.app_name(),
+            config.paths.data.clone(),
+        );
+        let backend = tokio::task::spawn_blocking(move || -> anyhow::Result<Box<dyn SecretBackend>> {
+            if isolated {
+                return Ok(Box::new(FileSecrets::in_dir(&data)));
+            }
+            system_secrets(service, &data).context(
+                "the system secret store cannot be used; unlock it or start its session, or remove secret-tool to keep secrets in a private file",
+            )
+        })
+        .await
+        .context("the secret store check did not finish")??;
         tracing::info!(backend = backend.name(), "secret store ready");
-        Self::new(backend)
+        Ok(Self::new(backend))
     }
 
     async fn blocking<T, F>(&self, call: F) -> Result<T, AppError>
@@ -94,7 +105,8 @@ mod tests {
     #[tokio::test]
     async fn backend_failures_become_a_stable_error_without_details() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("secrets.json"), "{ damaged").unwrap();
+        std::fs::create_dir_all(dir.path().join("secrets")).unwrap();
+        std::fs::write(dir.path().join("secrets").join("secrets.json"), "{ damaged").unwrap();
         let store = file_in(dir.path());
         let error = store.get("a").await.unwrap_err();
         assert_eq!(error.code(), "secret-store-failed");

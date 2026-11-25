@@ -17,4 +17,5 @@ pub use claude_login::LocalClaudeLogins;
 pub use local::{LocalRunner, SupervisorCommand};
 pub use login_process::LocalLoginRunner;
 pub use supervisor::supervise;
+pub use transcript::TranscriptRoots;
 pub use usage_api::{CurlUsageApi, USAGE_URL};

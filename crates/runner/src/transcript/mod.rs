@@ -31,6 +31,7 @@ use self::changes::TranscriptChanges;
 use self::checkout::{Abort, CheckoutGate};
 use self::facts::FactsCollector;
 use self::guard::TranscriptGuard;
+pub use self::guard::TranscriptRoots;
 
 /// Git gets this long before the transcript answers instead, as legacy.
 const GIT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -152,8 +153,13 @@ pub(crate) struct Transcripts {
 impl Transcripts {
     /// Reads only below the `projects` folder of the config folders `roots`.
     pub(crate) fn new(roots: Vec<PathBuf>) -> Self {
+        Self::shared(TranscriptRoots::new(roots))
+    }
+
+    /// Like `new`, with config folders that change while the runner lives.
+    pub(crate) fn shared(roots: TranscriptRoots) -> Self {
         Self {
-            guard: TranscriptGuard::new(roots),
+            guard: TranscriptGuard::shared(roots),
             scans: ScanCache::default(),
             checkouts: CheckoutGate::default(),
         }

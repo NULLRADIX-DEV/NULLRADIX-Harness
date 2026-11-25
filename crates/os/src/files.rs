@@ -27,7 +27,30 @@ fn create(path: &Path, private: bool) -> io::Result<File> {
     }
     #[cfg(not(unix))]
     let _ = private;
-    options.open(path)
+    let file = options.open(path)?;
+    #[cfg(windows)]
+    if private {
+        crate::windows::restrict_to_owner(path)?;
+    }
+    Ok(file)
+}
+
+/// Creates `dir` for its owner only: mode 0700, or an owner-only access list on Windows.
+pub fn create_private_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
+    }
+    #[cfg(windows)]
+    {
+        fs::create_dir_all(dir)?;
+        crate::windows::restrict_to_owner(dir)
+    }
 }
 
 fn replace(path: &Path, bytes: &[u8], private: bool) -> io::Result<()> {

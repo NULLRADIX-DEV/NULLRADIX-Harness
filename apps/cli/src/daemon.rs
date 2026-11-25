@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::{self, File, TryLockError};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,7 +28,7 @@ use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_domain::{Actor, ConfigDir};
 use nullradix_runner::{
     CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalLoginRunner, LocalRunner,
-    SupervisorCommand,
+    SupervisorCommand, TranscriptRoots,
 };
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -113,8 +113,9 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    let account_services = start_accounts(config, &store, &signal);
-    let roots = transcript_roots(config, &account_services.accounts).await?;
+    let account_services = start_accounts(config, &store, &signal).await?;
+    let roots =
+        start_transcript_roots(config, &account_services.accounts, &signal, &shutdown).await?;
     let (runner, runners) = start_runners(config, &store, &signal, roots).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let runs = start_runs(&store, runner, &signal).await?;
@@ -198,10 +199,14 @@ struct AccountServices {
     logins: Arc<LoginService>,
 }
 
-fn start_accounts(config: &Config, store: &Store, signal: &ChangeSignal) -> AccountServices {
+async fn start_accounts(
+    config: &Config,
+    store: &Store,
+    signal: &ChangeSignal,
+) -> anyhow::Result<AccountServices> {
     let accounts = Arc::new(AccountService::new(
         Arc::new(store.clone()),
-        Arc::new(OsSecretStore::open(config)),
+        Arc::new(OsSecretStore::open(config).await?),
         Arc::new(account_folders(config)),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
@@ -214,15 +219,26 @@ fn start_accounts(config: &Config, store: &Store, signal: &ChangeSignal) -> Acco
         Arc::new(SystemClock),
     ));
     let logins = Arc::new(LoginService::new(
-        Arc::new(LocalLoginRunner::claude()),
+        Arc::new(login_runner(config)),
         accounts.clone(),
         files,
         Arc::new(SystemClock),
     ));
-    AccountServices {
+    Ok(AccountServices {
         accounts,
         usage,
         logins,
+    })
+}
+
+/// The login runner; a home override gives it the home and default folder the usage reading uses.
+fn login_runner(config: &Config) -> LocalLoginRunner {
+    if config.isolated {
+        LocalLoginRunner::claude()
+            .with_home(Some(config.paths.data.clone()))
+            .with_default_folder(Some(config.paths.data.join(".claude")))
+    } else {
+        LocalLoginRunner::claude()
     }
 }
 
@@ -340,12 +356,12 @@ fn person_name() -> String {
         .find_map(|name| env::var(name).ok().filter(|value| !value.trim().is_empty()))
         .unwrap_or_else(|| String::from("owner"))
 }
-
-/// Config folders whose transcripts may be read: Claude's own and one per account.
-async fn transcript_roots(
-    config: &Config,
+/// Sets the config folders whose transcripts may be read: Claude's own and one per account.
+async fn refresh_roots(
+    folders: &LocalAccountFolders,
     accounts: &AccountService,
-) -> anyhow::Result<Vec<PathBuf>> {
+    roots: &TranscriptRoots,
+) -> anyhow::Result<()> {
     let dirs: Vec<ConfigDir> = accounts
         .list()
         .await
@@ -353,7 +369,54 @@ async fn transcript_roots(
         .iter()
         .filter_map(|account| account.config_dir().cloned())
         .collect();
-    Ok(account_folders(config).transcript_roots(nullradix_os::claude_config_dirs(), &dirs))
+    roots.replace(folders.transcript_roots(nullradix_os::claude_config_dirs(), &dirs));
+    Ok(())
+}
+
+/// The config folders whose transcripts may be read, kept current as accounts change.
+async fn start_transcript_roots(
+    config: &Config,
+    accounts: &Arc<AccountService>,
+    signal: &ChangeSignal,
+    shutdown: &CancellationToken,
+) -> anyhow::Result<TranscriptRoots> {
+    let roots = TranscriptRoots::default();
+    let folders = account_folders(config);
+    refresh_roots(&folders, accounts, &roots).await?;
+    keep_roots_current(
+        folders,
+        accounts.clone(),
+        signal,
+        roots.clone(),
+        shutdown.clone(),
+    );
+    Ok(roots)
+}
+
+/// Reads the account folders again after every change, so a new account's transcripts open at once.
+fn keep_roots_current(
+    folders: LocalAccountFolders,
+    accounts: Arc<AccountService>,
+    signal: &ChangeSignal,
+    roots: TranscriptRoots,
+    shutdown: CancellationToken,
+) {
+    let mut changes = signal.subscribe();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                outcome = changes.changed() => {
+                    if outcome.is_err() {
+                        return;
+                    }
+                }
+                () = shutdown.cancelled() => return,
+            }
+            if let Err(error) = refresh_roots(&folders, &accounts, &roots).await {
+                tracing::warn!(%error, "transcript folders not refreshed");
+            }
+        }
+    });
 }
 
 /// The runner on this machine, recorded as the local runner; runs start under this binary.
@@ -361,14 +424,15 @@ async fn start_runners(
     config: &Config,
     store: &Store,
     signal: &ChangeSignal,
-    roots: Vec<PathBuf>,
+    roots: TranscriptRoots,
 ) -> anyhow::Result<(Arc<LocalRunner>, Arc<RunnerService>)> {
     let supervisor = SupervisorCommand {
         program: std::env::current_exe().context("cannot locate the nullradix binary")?,
         args: vec![String::from("run-supervisor")],
     };
     let runner = Arc::new(
-        LocalRunner::new(config.paths.data.join("runs"), supervisor).with_transcript_roots(roots),
+        LocalRunner::new(config.paths.data.join("runs"), supervisor)
+            .with_live_transcript_roots(roots),
     );
     let runners = RunnerService::start(
         Arc::new(store.clone()),
@@ -502,4 +566,57 @@ async fn shutdown_signal() {
         () = terminate => {},
     }
     tracing::info!("shutdown requested");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use nullradix_app::secrets::MemorySecretStore;
+
+    use super::*;
+
+    async fn accounts(dir: &Path, signal: &ChangeSignal) -> Arc<AccountService> {
+        let store = Store::in_memory().await.unwrap();
+        Arc::new(AccountService::new(
+            Arc::new(store),
+            Arc::new(MemorySecretStore::new()),
+            Arc::new(LocalAccountFolders::new(dir.join("accounts"))),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn the_folder_of_an_account_added_after_the_start_is_read_at_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let signal = ChangeSignal::new();
+        let accounts = accounts(temp.path(), &signal).await;
+        let folders = LocalAccountFolders::new(temp.path().join("accounts"));
+        let roots = TranscriptRoots::default();
+        refresh_roots(&folders, &accounts, &roots).await.unwrap();
+        let before = roots.get();
+        let shutdown = CancellationToken::new();
+        keep_roots_current(
+            folders,
+            accounts.clone(),
+            &signal,
+            roots.clone(),
+            shutdown.clone(),
+        );
+
+        let max = accounts.create("Max", None).await.unwrap();
+        let folder = PathBuf::from(max.config_dir().unwrap().as_str());
+        for _ in 0..200 {
+            if roots.get().contains(&folder) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(roots.get().contains(&folder));
+        assert!(!before.contains(&folder));
+        shutdown.cancel();
+    }
 }

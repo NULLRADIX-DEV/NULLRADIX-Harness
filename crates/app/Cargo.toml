@@ -16,7 +16,7 @@ parking_lot.workspace = true
 sha2.workspace = true
 strum.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing.workspace = true
 uuid = { workspace = true, features = ["v7"] }
 

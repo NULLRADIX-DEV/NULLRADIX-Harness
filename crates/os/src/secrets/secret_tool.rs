@@ -15,6 +15,29 @@ const PROGRAM: &str = "secret-tool";
 const LIMIT: Duration = Duration::from_secs(10);
 const PROBE_KEY: &str = "nullradix-probe";
 
+/// Whether the Secret Service can be used, and if not, whether that is only because it is absent.
+pub(super) enum Detection {
+    Ready(SecretTool),
+    /// `secret-tool` is not installed.
+    NotInstalled,
+    /// It is installed but does not answer: a locked keyring, no session bus.
+    Failing(SecretError),
+}
+
+impl Detection {
+    pub(super) fn of(tool: SecretTool) -> Self {
+        match tool.get(PROBE_KEY) {
+            Ok(_) => Self::Ready(tool),
+            Err(SecretError::Backend { source, .. })
+                if source.kind() == io::ErrorKind::NotFound =>
+            {
+                Self::NotInstalled
+            }
+            Err(error) => Self::Failing(error),
+        }
+    }
+}
+
 type Runner = Box<dyn Fn(&[String], Option<&[u8]>) -> io::Result<Reply> + Send + Sync>;
 
 /// Talks to the Secret Service through `secret-tool`, secrets only ever on its stdin.
@@ -36,10 +59,9 @@ fn run_program(args: &[String], input: Option<&[u8]>) -> io::Result<Reply> {
 }
 
 impl SecretTool {
-    /// The Secret Service through the installed `secret-tool`, when a session answers.
-    pub(super) fn detect(service: &str) -> Option<Self> {
-        let tool = Self::with_runner(service, Box::new(run_program));
-        tool.get(PROBE_KEY).ok().map(|_| tool)
+    /// Asks the installed `secret-tool` whether a Secret Service session answers.
+    pub(super) fn detect(service: &str) -> Detection {
+        Detection::of(Self::with_runner(service, Box::new(run_program)))
     }
 
     pub(super) fn with_runner(service: &str, run: Runner) -> Self {
@@ -217,6 +239,32 @@ mod tests {
     }
 
     #[test]
+    fn detection_tells_absent_from_broken() {
+        let absent: Runner = Box::new(|_, _| Err(io::Error::from(io::ErrorKind::NotFound)));
+        assert!(matches!(
+            Detection::of(SecretTool::with_runner("nullradix", absent)),
+            Detection::NotInstalled
+        ));
+        let locked: Runner = Box::new(|_, _| {
+            Ok(Reply {
+                success: false,
+                stdout: String::new(),
+                stderr: String::from("Cannot autolaunch D-Bus\n"),
+            })
+        });
+        assert!(matches!(
+            Detection::of(SecretTool::with_runner("nullradix", locked)),
+            Detection::Failing(_)
+        ));
+        let timed_out: Runner = Box::new(|_, _| Err(io::Error::from(io::ErrorKind::TimedOut)));
+        assert!(matches!(
+            Detection::of(SecretTool::with_runner("nullradix", timed_out)),
+            Detection::Failing(_)
+        ));
+        let (tool, _) = fake();
+        assert!(matches!(Detection::of(tool), Detection::Ready(_)));
+    }
+    #[test]
     fn a_missing_program_is_an_error() {
         let run: Runner = Box::new(|_, _| Err(io::Error::from(io::ErrorKind::NotFound)));
         let tool = SecretTool::with_runner("nullradix", run);
@@ -227,7 +275,9 @@ mod tests {
     #[ignore = "needs secret-tool and an unlocked Secret Service session"]
     fn talks_to_a_real_secret_service() {
         let service = format!("nullradix-test-{}", std::process::id());
-        let tool = SecretTool::detect(&service).unwrap();
+        let Detection::Ready(tool) = SecretTool::detect(&service) else {
+            return;
+        };
         tool.put("a", "sk-ant-oat01-fake").unwrap();
         assert_eq!(tool.get("a").unwrap().as_deref(), Some("sk-ant-oat01-fake"));
         tool.delete("a").unwrap();

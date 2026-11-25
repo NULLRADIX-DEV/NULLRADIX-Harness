@@ -36,6 +36,10 @@ impl AccountFolders for Folders {
         dir.as_str().to_owned()
     }
 
+    fn slug_key(&self, slug: &AccountSlug) -> String {
+        format!("/accounts/{slug}")
+    }
+
     fn owns(&self, dir: &ConfigDir) -> bool {
         dir.as_str().starts_with("/accounts/")
     }

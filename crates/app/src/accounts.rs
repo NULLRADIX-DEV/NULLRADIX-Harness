@@ -1,5 +1,6 @@
 //! Claude accounts that runs are spread over, each with its own Claude folder and run token.
 
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -8,6 +9,7 @@ use nullradix_domain::{
     Account, AccountChanges, AccountError, AccountName, AccountSlug, ConfigDir, Id, Limit,
     RunToken, Timestamp, Version,
 };
+use parking_lot::Mutex;
 
 use crate::secrets::{SecretStore, SecretValue};
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
@@ -40,6 +42,8 @@ pub trait AccountFolders: Send + Sync {
     async fn check(&self, dir: &ConfigDir) -> Result<(), AppError>;
     /// Comparable spelling of a typed folder; equal keys mean the same folder.
     fn key(&self, dir: &ConfigDir) -> String;
+    /// Comparable spelling of the folder a new account with this slug would get.
+    fn slug_key(&self, slug: &AccountSlug) -> String;
     /// Whether the folder lies below [`root`](Self::root), so deleting it is allowed.
     fn owns(&self, dir: &ConfigDir) -> bool;
     /// Deletes the folder with everything in it.
@@ -180,6 +184,8 @@ pub struct AccountService {
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     signal: ChangeSignal,
+    /// One lock per account, so token and row changes of an account never interleave.
+    locks: Mutex<HashMap<Id<Account>, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl std::fmt::Debug for AccountService {
@@ -210,6 +216,7 @@ impl AccountService {
             clock,
             ids,
             signal,
+            locks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -259,10 +266,12 @@ impl AccountService {
                 return Err(dir_taken(dir, other.slug()));
             }
         }
+        let own_folder = given.is_none();
         let slug = AccountSlug::from_name(name.as_str()).unique(|slug| {
             existing
                 .iter()
                 .any(|account| account.slug().as_str() == slug)
+                || (own_folder && self.folder_taken(slug, &existing))
         });
         let dir = match given {
             Some(dir) => dir,
@@ -294,6 +303,7 @@ impl AccountService {
         expected: Version,
     ) -> Result<Account, AppError> {
         let changes = patch.checked()?;
+        let _guard = self.lock(id).await;
         let current = self.current(id, expected).await?;
         let Some(next) = current.changed(changes, self.clock.now()) else {
             return Ok(current);
@@ -310,6 +320,7 @@ impl AccountService {
         expected: Version,
         delete_dir: bool,
     ) -> Result<(), AppError> {
+        let _guard = self.lock(id).await;
         let current = self.current(id, expected).await?;
         if current.is_default() {
             return Err(default_stays());
@@ -319,6 +330,10 @@ impl AccountService {
             && !self.folders.owns(dir)
         {
             return Err(dir_not_owned(dir, &self.folders.root()));
+        }
+        // the folder goes first: if it cannot go, the account stays whole
+        if let Some(dir) = folder {
+            self.folders.remove(dir).await?;
         }
         let change = self
             .repository
@@ -330,9 +345,7 @@ impl AccountService {
         {
             tracing::warn!(account = %current.slug(), code = error.code(), "token left in the secret store");
         }
-        if let Some(dir) = folder {
-            self.folders.remove(dir).await?;
-        }
+        self.locks.lock().remove(&id);
         Ok(())
     }
 
@@ -344,17 +357,26 @@ impl AccountService {
         expected: Version,
     ) -> Result<Account, AppError> {
         let token = RunToken::parse(token).map_err(|error| invalid(&error))?;
+        let _guard = self.lock(id).await;
         let current = self.current(id, expected).await?;
         let reference = token_key(id);
+        let previous = self.secrets.get(&reference).await?;
         self.secrets
             .put(&reference, &SecretValue::new(token.expose()))
             .await?;
-        let Some(next) = current.with_token_ref(Some(reference), self.clock.now()) else {
+        let Some(next) = current.with_token_ref(Some(reference.clone()), self.clock.now()) else {
             return Ok(current);
         };
-        let change = self.repository.update(&next, expected).await?;
-        self.signal.notify(&change);
-        Ok(next)
+        match self.repository.update(&next, expected).await {
+            Ok(change) => {
+                self.signal.notify(&change);
+                Ok(next)
+            }
+            Err(error) => {
+                self.restore(&reference, previous).await;
+                Err(error)
+            }
+        }
     }
 
     /// Forgets the token; runs use the login in the account's folder again.
@@ -363,6 +385,7 @@ impl AccountService {
         id: Id<Account>,
         expected: Version,
     ) -> Result<Account, AppError> {
+        let _guard = self.lock(id).await;
         let current = self.current(id, expected).await?;
         let Some(reference) = current.token_ref().map(str::to_owned) else {
             return Ok(current);
@@ -392,6 +415,37 @@ impl AccountService {
                 "its token is missing from the secret store",
             )),
         }
+    }
+
+    /// Puts a secret back as it was before a change that then failed.
+    async fn restore(&self, reference: &str, previous: Option<SecretValue>) {
+        let undone = match previous {
+            Some(value) => self.secrets.put(reference, &value).await,
+            None => self.secrets.delete(reference).await,
+        };
+        if let Err(error) = undone {
+            tracing::warn!(
+                code = error.code(),
+                "token not restored in the secret store"
+            );
+        }
+    }
+
+    async fn lock(&self, id: Id<Account>) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = Arc::clone(self.locks.lock().entry(id).or_default());
+        lock.lock_owned().await
+    }
+
+    /// Whether the folder of a new account named `slug` is one that an account already uses.
+    fn folder_taken(&self, slug: &str, existing: &[Account]) -> bool {
+        let Ok(slug) = AccountSlug::parse(slug) else {
+            return false;
+        };
+        let key = self.folders.slug_key(&slug);
+        existing
+            .iter()
+            .filter_map(Account::config_dir)
+            .any(|dir| self.folders.key(dir) == key)
     }
 
     async fn current(&self, id: Id<Account>, expected: Version) -> Result<Account, AppError> {

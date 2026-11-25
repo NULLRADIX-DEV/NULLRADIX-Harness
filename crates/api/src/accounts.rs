@@ -253,13 +253,15 @@ pub(crate) async fn delete_account(
     ApiPath(path): ApiPath<AccountPath>,
     ApiQuery(query): ApiQuery<DeleteAccountQuery>,
 ) -> Result<StatusCode, ApiError> {
+    let id = Id::from_uuid(path.account_id);
+    let expected = AppError::client_version(query.version)?;
+    // a running login holds files of the folder, so it ends first, if the removal can go on
+    if state.accounts.get(id).await?.version() == expected {
+        state.logins.cancel(id, false);
+    }
     state
         .accounts
-        .remove(
-            Id::from_uuid(path.account_id),
-            AppError::client_version(query.version)?,
-            query.delete_dir,
-        )
+        .remove(id, expected, query.delete_dir)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -424,6 +426,48 @@ mod tests {
         assert_eq!(list["items"].as_array().unwrap().len(), 1);
     }
 
+    #[tokio::test]
+    async fn removing_an_account_ends_its_running_login_first() {
+        let api = test_api().await;
+        let (_, created) = call(
+            &api,
+            Request::post("/api/v1/accounts"),
+            Some(json!({ "name": "Max" })),
+        )
+        .await;
+        let id = created["id"].as_str().unwrap().to_owned();
+        let uuid: uuid::Uuid = id.parse().unwrap();
+        let account = nullradix_domain::Id::from_uuid(uuid);
+        let (status, _) = call(
+            &api,
+            Request::post(format!("/api/v1/accounts/{id}/login")),
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, 202);
+        assert!(api.logins.status(account).is_some());
+
+        let (status, _) = call(
+            &api,
+            Request::delete(format!("/api/v1/accounts/{id}?version=7")),
+            None,
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(
+            api.logins.status(account).map(|login| login.state),
+            Some(nullradix_app::login::LoginState::Running)
+        );
+
+        let (status, _) = call(
+            &api,
+            Request::delete(format!("/api/v1/accounts/{id}?version=1&deleteDir=true")),
+            None,
+        )
+        .await;
+        assert_eq!(status, 204);
+        assert!(api.logins.status(account).is_none());
+    }
     #[tokio::test]
     async fn validates_input_with_problem_details() {
         let api = test_api().await;

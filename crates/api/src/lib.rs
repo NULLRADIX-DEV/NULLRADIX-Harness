@@ -411,6 +411,7 @@ pub(crate) mod tests {
         pub(crate) changes: Arc<dyn ChangeFeed>,
         pub(crate) shutdown: CancellationToken,
         pub(crate) accounts: Arc<AccountService>,
+        pub(crate) logins: Arc<LoginService>,
         pub(crate) _accounts_dir: tempfile::TempDir,
     }
 
@@ -695,12 +696,13 @@ pub(crate) mod tests {
             std::time::Duration::from_millis(50),
         );
         let (sessions, favorites, hooks) = session_services(&store, &runners, &signal);
+        let logins = test_logins(&accounts);
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
             accounts: accounts.clone(),
             usage: test_usage(),
-            logins: test_logins(&accounts),
+            logins: logins.clone(),
             boards: boards.clone(),
             tickets,
             comments,
@@ -736,6 +738,7 @@ pub(crate) mod tests {
             changes,
             shutdown,
             accounts,
+            logins,
             _accounts_dir: accounts_dir,
         }
     }

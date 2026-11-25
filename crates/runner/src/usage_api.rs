@@ -277,12 +277,19 @@ mod tests {
 
     #[tokio::test]
     async fn a_token_with_control_characters_is_never_sent() {
-        let api = CurlUsageApi::at("http://127.0.0.1:9/usage");
-        let error = api
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/usage", listener.local_addr().unwrap());
+        let error = CurlUsageApi::at(&url)
             .fetch(&SecretValue::new("sk-ant-oat01-a\nurl = \"http://evil\""))
             .await
             .unwrap_err();
         assert_eq!(error.code(), "usage-request-failed");
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock,
+            "a request arrived"
+        );
     }
 
     #[test]

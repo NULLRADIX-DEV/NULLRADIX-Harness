@@ -130,6 +130,9 @@ impl AccountFolders for LocalAccountFolders {
     fn key(&self, dir: &ConfigDir) -> String {
         resolved_key(&self.expand(dir.as_str()))
     }
+    fn slug_key(&self, slug: &AccountSlug) -> String {
+        resolved_key(&self.root.join(slug.as_str()))
+    }
 
     fn owns(&self, dir: &ConfigDir) -> bool {
         let path = self.expand(dir.as_str());
