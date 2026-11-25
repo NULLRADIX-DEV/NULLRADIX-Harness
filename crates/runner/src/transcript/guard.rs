@@ -31,6 +31,17 @@ fn parts(path: &Path, fold: bool) -> Vec<String> {
         .collect()
 }
 
+/// A folder name as Claude Code encodes a cwd: `-home-x` or `C--Users-x`.
+fn encoded_cwd(folder: &str) -> bool {
+    let bytes = folder.as_bytes();
+    let shaped = bytes.first() == Some(&b'-')
+        || (bytes.len() > 2 && bytes[0].is_ascii_alphabetic() && &bytes[1..3] == b"--");
+    shaped
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+}
+
 #[cfg(windows)]
 fn is_link(meta: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
@@ -63,28 +74,20 @@ impl TranscriptGuard {
             let allowed = parts(&root.join(PROJECTS), self.fold);
             wanted.len() > allowed.len() && wanted.starts_with(&allowed)
         });
-        listed.cloned().or_else(|| self.named_root(file))
+        listed.cloned().or_else(|| Self::named_root(file))
     }
 
-    /// Hooks report the transcripts of any config folder: `<root>/projects/<folder>/.../<file>`.
-    fn named_root(&self, file: &Path) -> Option<PathBuf> {
+    /// Hooks report transcripts of any config folder: `<root>/projects/<encoded cwd>/.../<file>`.
+    fn named_root(file: &Path) -> Option<PathBuf> {
         let names: Vec<Component<'_>> = file.components().collect();
         let at = names.iter().enumerate().position(|(index, part)| {
-            let Component::Normal(name) = part else {
-                return false;
-            };
-            let name = name.to_string_lossy();
-            let is_projects = if self.fold {
-                name.eq_ignore_ascii_case(PROJECTS)
-            } else {
-                name == PROJECTS
-            };
-            // a named config folder, then a project folder and a file
-            is_projects
+            // Claude Code always writes `projects` in lowercase
+            matches!(part, Component::Normal(name) if *name == PROJECTS)
                 && names[..index]
                     .iter()
                     .any(|above| matches!(above, Component::Normal(_)))
                 && names.len() > index + 2
+                && matches!(names[index + 1], Component::Normal(folder) if encoded_cwd(&folder.to_string_lossy()))
         })?;
         Some(names[..at].iter().collect())
     }
@@ -133,7 +136,7 @@ mod tests {
     fn config() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("claude");
-        let folder = root.join("projects").join("demo");
+        let folder = root.join("projects").join("-work-demo");
         fs::create_dir_all(&folder).unwrap();
         let file = folder.join("s.jsonl");
         fs::write(&file, "{}\n").unwrap();
@@ -160,11 +163,7 @@ mod tests {
         let guard = TranscriptGuard::new(vec![other.path().to_path_buf(), root.clone()]);
         assert!(guard.file(&text(&file)).unwrap().is_some());
         let loose = root.join("s.jsonl");
-        fs::write(
-            &loose, "{}
-",
-        )
-        .unwrap();
+        fs::write(&loose, "{}\n").unwrap();
         let none = TranscriptGuard::new(Vec::new());
         for guard in [&guard, &none] {
             assert_eq!(
@@ -180,14 +179,10 @@ mod tests {
         let guard = TranscriptGuard::new(Vec::new());
         let found = guard.file(&text(&file)).unwrap().unwrap();
         assert_eq!(found, fs::canonicalize(&file).unwrap());
-        let nested = root.join("projects").join("demo").join("deep");
+        let nested = root.join("projects").join("-work-demo").join("deep");
         fs::create_dir_all(&nested).unwrap();
         let sub = nested.join("agent.jsonl");
-        fs::write(
-            &sub, "{}
-",
-        )
-        .unwrap();
+        fs::write(&sub, "{}\n").unwrap();
         assert!(guard.file(&text(&sub)).unwrap().is_some());
     }
 
@@ -201,11 +196,7 @@ mod tests {
         fs::create_dir_all(&other).unwrap();
         let strange = other.join("s.jsonl");
         for path in [&history, &direct, &strange] {
-            fs::write(
-                path, "{}
-",
-            )
-            .unwrap();
+            fs::write(path, "{}\n").unwrap();
             let error = guard.file(&text(path)).unwrap_err();
             assert_eq!(error.code(), "transcript-path-invalid", "{path:?}");
         }
@@ -214,6 +205,31 @@ mod tests {
             guard.file(&text(bare)).unwrap_err().code(),
             "transcript-path-invalid"
         );
+    }
+
+    #[test]
+    fn a_derived_root_needs_lowercase_projects_and_an_encoded_cwd() {
+        let (_dir, root, _file) = config();
+        let guard = TranscriptGuard::new(Vec::new());
+        let plain = root.join("projects").join("app").join("data.jsonl");
+        let shouted = root.join("Projects").join("-work-demo").join("s.jsonl");
+        for path in [&plain, &shouted] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "{}\n").unwrap();
+            let error = guard.file(&text(path)).unwrap_err();
+            assert_eq!(error.code(), "transcript-path-invalid", "{path:?}");
+        }
+    }
+
+    #[test]
+    fn encoded_cwds_look_like_claude_code_writes_them() {
+        assert!(encoded_cwd("-home-x-repo"));
+        assert!(encoded_cwd(
+            "C--Users-ben-repos--NULLRADIX-NullRadix-Harness"
+        ));
+        for name in ["app", "demo", "-home/x", "C-Users", "-a b", ""] {
+            assert!(!encoded_cwd(name), "{name}");
+        }
     }
 
     #[test]
