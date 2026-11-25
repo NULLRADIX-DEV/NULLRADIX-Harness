@@ -66,6 +66,7 @@ jobs:
               - .github/workflows/ci.yml
             web:
               - 'web/**'
+              - 'apps/desktop/ui/**'
               - 'package*.json'
               - eslint.config.js
               - .nvmrc
