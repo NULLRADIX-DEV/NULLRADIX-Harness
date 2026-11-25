@@ -3,3 +3,4 @@ xtask = "run --quiet --package xtask --"
 
 [env]
 SQLX_OFFLINE = "true"
+CLIPPY_CONF_DIR = { value = ".config", relative = true }
