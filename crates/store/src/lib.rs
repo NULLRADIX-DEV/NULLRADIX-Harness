@@ -6,6 +6,7 @@ mod boards;
 mod change_feed;
 mod comments;
 mod customizations;
+mod dispatcher_config;
 mod error;
 mod favorites;
 mod hooks;

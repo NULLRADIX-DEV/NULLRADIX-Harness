@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT cwd, command FROM worktree_setup_steps ORDER BY position",
+  "describe": {
+    "columns": [
+      {
+        "name": "cwd",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktree_setup_steps",
+            "name": "cwd"
+          }
+        }
+      },
+      {
+        "name": "command",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktree_setup_steps",
+            "name": "command"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "c81bc2b9b464a982730cfe91b66c966b5cc9e552b45cff3bb4a0fe2f79dca1d4"
+}

@@ -8313,7 +8313,8 @@
           "account",
           "theme",
           "setting",
-          "customization"
+          "customization",
+          "dispatcher-config"
         ]
       },
       "ExtensionPointDto": {

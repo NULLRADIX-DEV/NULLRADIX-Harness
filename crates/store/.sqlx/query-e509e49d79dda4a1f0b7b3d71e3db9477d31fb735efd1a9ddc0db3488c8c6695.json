@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO dispatch_profiles\n                   (id, name, model, effort, max_turns, timeout_minutes, position)\n                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "e509e49d79dda4a1f0b7b3d71e3db9477d31fb735efd1a9ddc0db3488c8c6695"
+}

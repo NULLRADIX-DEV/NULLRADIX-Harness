@@ -1647,7 +1647,7 @@ export interface components {
             source: components["schemas"]["SourceDto"];
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account" | "theme" | "setting" | "customization";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account" | "theme" | "setting" | "customization" | "dispatcher-config";
         /** @enum {string} */
         ExtensionPointDto: "skill" | "output-style";
         /** @description A marked session; its state is the live one while the session still exists. */

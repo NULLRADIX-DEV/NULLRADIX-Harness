@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM prompt_templates WHERE kind = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "07924b9d1a48c1eb95abaa30ffe67a6a65373556f677c720a49bddd44c541aea"
+}

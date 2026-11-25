@@ -29,6 +29,7 @@ pub enum Entity {
     Theme,
     Setting,
     Customization,
+    DispatcherConfig,
 }
 
 impl Entity {
@@ -141,6 +142,11 @@ mod tests {
         assert_eq!(Entity::Setting.as_str(), "setting");
         assert_eq!("inbox-order".parse::<Entity>(), Ok(Entity::InboxOrder));
         assert_eq!(Entity::Account.as_str(), "account");
+        assert_eq!(Entity::DispatcherConfig.as_str(), "dispatcher-config");
+        assert_eq!(
+            "dispatcher-config".parse::<Entity>(),
+            Ok(Entity::DispatcherConfig)
+        );
         assert!("planet".parse::<Entity>().is_err());
         for op in [ChangeOp::Insert, ChangeOp::Update, ChangeOp::Delete] {
             assert_eq!(op.as_str().parse::<ChangeOp>(), Ok(op));

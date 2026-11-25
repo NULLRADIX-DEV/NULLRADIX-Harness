@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT profile_id AS \"profile_id: Uuid\" FROM dispatch_escalation_steps ORDER BY position",
+  "describe": {
+    "columns": [
+      {
+        "name": "profile_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "dispatch_escalation_steps",
+            "name": "profile_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c22abb7c6a2676bf0f471225f9be2735a3909cb2909276c33d2f946997d5bfa2"
+}

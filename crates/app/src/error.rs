@@ -208,6 +208,17 @@ mod tests {
     }
 
     #[test]
+    fn invalid_input_names_its_fields() {
+        let issue = FieldProblem {
+            field: String::from("wip"),
+            message: String::from("must be a whole number from 0"),
+        };
+        let error = AppError::invalid("x-invalid", "bad").with_fields(vec![issue.clone()]);
+        assert_eq!(error.fields(), [issue]);
+        assert_eq!(AppError::invalid("x-invalid", "bad").fields(), []);
+    }
+
+    #[test]
     fn internal_errors_hide_details_but_keep_the_source() {
         let error = AppError::internal(std::io::Error::other("disk on fire"));
         assert_eq!(error.message(), "internal error");

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO dispatch_config_versions (hash, content, first_seen_at)\n         VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "45aaa52bada7833d0ae69408b076e8233952022b4ae15abe44e9d551f9f199b1"
+}

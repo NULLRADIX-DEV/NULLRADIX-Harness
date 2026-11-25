@@ -1,0 +1,578 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT enabled, wip, window_from, window_to, opt_in_label, opt_out_label, agent_prefix,\n                  stale_minutes, max_attempts, pause_minutes_on_limit, prompt_extra, merge_strategy,\n                  review_before_merge, join_worktrees, worktree_setup_timeout_min,\n                  claude_command, claude_model, claude_effort, claude_max_turns,\n                  claude_timeout_minutes, claude_permission_mode, claude_allowed_tools,\n                  claude_extra_args, claude_use_subscription, git_bash_path,\n                  default_profile_id AS \"default_profile_id: Uuid\", escalate, allow_fable,\n                  research_auto, research_wip, research_max_per_day,\n                  research_profile_id AS \"research_profile_id: Uuid\",\n                  planning_auto, planning_wip, planning_acceptance,\n                  planning_profile_id AS \"planning_profile_id: Uuid\",\n                  autopilot_enabled, autopilot_except_label, autopilot_max_merge_sessions,\n                  account_strategy, account_limit_pct, account_reserve_five_hour,\n                  account_reserve_week, account_reset_grace_min, config_hash, updated_at, version\n           FROM dispatcher_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "enabled",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "name": "wip",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "wip"
+          }
+        }
+      },
+      {
+        "name": "window_from",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "window_from"
+          }
+        }
+      },
+      {
+        "name": "window_to",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "window_to"
+          }
+        }
+      },
+      {
+        "name": "opt_in_label",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "opt_in_label"
+          }
+        }
+      },
+      {
+        "name": "opt_out_label",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "opt_out_label"
+          }
+        }
+      },
+      {
+        "name": "agent_prefix",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "agent_prefix"
+          }
+        }
+      },
+      {
+        "name": "stale_minutes",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "stale_minutes"
+          }
+        }
+      },
+      {
+        "name": "max_attempts",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "max_attempts"
+          }
+        }
+      },
+      {
+        "name": "pause_minutes_on_limit",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "pause_minutes_on_limit"
+          }
+        }
+      },
+      {
+        "name": "prompt_extra",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "prompt_extra"
+          }
+        }
+      },
+      {
+        "name": "merge_strategy",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "merge_strategy"
+          }
+        }
+      },
+      {
+        "name": "review_before_merge",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "review_before_merge"
+          }
+        }
+      },
+      {
+        "name": "join_worktrees",
+        "ordinal": 13,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "join_worktrees"
+          }
+        }
+      },
+      {
+        "name": "worktree_setup_timeout_min",
+        "ordinal": 14,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "worktree_setup_timeout_min"
+          }
+        }
+      },
+      {
+        "name": "claude_command",
+        "ordinal": 15,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "claude_command"
+          }
+        }
+      },
+      {
+        "name": "claude_model",
+        "ordinal": 16,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "claude_model"
+          }
+        }
+      },
+      {
+        "name": "claude_effort",
+        "ordinal": 17,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "claude_effort"
+          }
+        }
+      },
+      {
+        "name": "claude_max_turns",
+        "ordinal": 18,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "claude_max_turns"
+          }
+        }
+      },
+      {
+        "name": "claude_timeout_minutes",
+        "ordinal": 19,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "claude_timeout_minutes"
+          }
+        }
+      },
+      {
+        "name": "claude_permission_mode",
+        "ordinal": 20,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "claude_permission_mode"
+          }
+        }
+      },
+      {
+        "name": "claude_allowed_tools",
+        "ordinal": 21,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "claude_allowed_tools"
+          }
+        }
+      },
+      {
+        "name": "claude_extra_args",
+        "ordinal": 22,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "claude_extra_args"
+          }
+        }
+      },
+      {
+        "name": "claude_use_subscription",
+        "ordinal": 23,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "claude_use_subscription"
+          }
+        }
+      },
+      {
+        "name": "git_bash_path",
+        "ordinal": 24,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "git_bash_path"
+          }
+        }
+      },
+      {
+        "name": "default_profile_id: Uuid",
+        "ordinal": 25,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "default_profile_id"
+          }
+        }
+      },
+      {
+        "name": "escalate",
+        "ordinal": 26,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "escalate"
+          }
+        }
+      },
+      {
+        "name": "allow_fable",
+        "ordinal": 27,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "allow_fable"
+          }
+        }
+      },
+      {
+        "name": "research_auto",
+        "ordinal": 28,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "research_auto"
+          }
+        }
+      },
+      {
+        "name": "research_wip",
+        "ordinal": 29,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "research_wip"
+          }
+        }
+      },
+      {
+        "name": "research_max_per_day",
+        "ordinal": 30,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "research_max_per_day"
+          }
+        }
+      },
+      {
+        "name": "research_profile_id: Uuid",
+        "ordinal": 31,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "research_profile_id"
+          }
+        }
+      },
+      {
+        "name": "planning_auto",
+        "ordinal": 32,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "planning_auto"
+          }
+        }
+      },
+      {
+        "name": "planning_wip",
+        "ordinal": 33,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "planning_wip"
+          }
+        }
+      },
+      {
+        "name": "planning_acceptance",
+        "ordinal": 34,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "planning_acceptance"
+          }
+        }
+      },
+      {
+        "name": "planning_profile_id: Uuid",
+        "ordinal": 35,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "planning_profile_id"
+          }
+        }
+      },
+      {
+        "name": "autopilot_enabled",
+        "ordinal": 36,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "autopilot_enabled"
+          }
+        }
+      },
+      {
+        "name": "autopilot_except_label",
+        "ordinal": 37,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "autopilot_except_label"
+          }
+        }
+      },
+      {
+        "name": "autopilot_max_merge_sessions",
+        "ordinal": 38,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "autopilot_max_merge_sessions"
+          }
+        }
+      },
+      {
+        "name": "account_strategy",
+        "ordinal": 39,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "account_strategy"
+          }
+        }
+      },
+      {
+        "name": "account_limit_pct",
+        "ordinal": 40,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "account_limit_pct"
+          }
+        }
+      },
+      {
+        "name": "account_reserve_five_hour",
+        "ordinal": 41,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "account_reserve_five_hour"
+          }
+        }
+      },
+      {
+        "name": "account_reserve_week",
+        "ordinal": 42,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "account_reserve_week"
+          }
+        }
+      },
+      {
+        "name": "account_reset_grace_min",
+        "ordinal": 43,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "account_reset_grace_min"
+          }
+        }
+      },
+      {
+        "name": "config_hash",
+        "ordinal": 44,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "config_hash"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 45,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 46,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "73f2c746cc8e397e5b77924f594cecade7a0116b3fb3fd46b48012652559c74a"
+}

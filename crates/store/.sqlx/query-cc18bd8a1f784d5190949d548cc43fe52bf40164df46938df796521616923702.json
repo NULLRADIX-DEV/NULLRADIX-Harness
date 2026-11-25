@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM worktree_setup_steps",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "cc18bd8a1f784d5190949d548cc43fe52bf40164df46938df796521616923702"
+}

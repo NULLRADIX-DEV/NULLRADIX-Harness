@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT link.profile_id AS \"profile_id: Uuid\", account.slug\n           FROM dispatch_profile_accounts link JOIN claude_accounts account ON account.id = link.account_id\n           ORDER BY link.profile_id, link.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "profile_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "dispatch_profile_accounts",
+            "name": "profile_id"
+          }
+        }
+      },
+      {
+        "name": "slug",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "slug"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e565938d09490c82a997405eeed11628ceecbad59f0a3eb4713ac9226b352944"
+}

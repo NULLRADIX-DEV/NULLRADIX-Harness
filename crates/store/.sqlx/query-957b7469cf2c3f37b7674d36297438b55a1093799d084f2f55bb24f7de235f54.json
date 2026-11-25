@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id: Uuid\", name, model, effort, max_turns, timeout_minutes\n           FROM dispatch_profiles ORDER BY position, name",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "dispatch_profiles",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatch_profiles",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "model",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatch_profiles",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "name": "effort",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatch_profiles",
+            "name": "effort"
+          }
+        }
+      },
+      {
+        "name": "max_turns",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatch_profiles",
+            "name": "max_turns"
+          }
+        }
+      },
+      {
+        "name": "timeout_minutes",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatch_profiles",
+            "name": "timeout_minutes"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "957b7469cf2c3f37b7674d36297438b55a1093799d084f2f55bb24f7de235f54"
+}

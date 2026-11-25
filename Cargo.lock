@@ -1289,6 +1289,7 @@ name = "nullradix-domain"
 version = "0.1.0"
 dependencies = [
  "semver",
+ "sha2",
  "strum",
  "thiserror",
  "uuid",
