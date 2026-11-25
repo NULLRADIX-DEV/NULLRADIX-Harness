@@ -71,9 +71,11 @@ impl Store {
             .in_memory(true)
             .foreign_keys(true)
             .busy_timeout(BUSY_TIMEOUT);
+        // the one connection is shared, so a stalled machine must not turn waiting into failing
         let pool = SqlitePoolOptions::new()
             .min_connections(1)
             .max_connections(1)
+            .acquire_timeout(Duration::from_mins(2))
             .idle_timeout(None)
             .max_lifetime(None)
             .connect_with(options)

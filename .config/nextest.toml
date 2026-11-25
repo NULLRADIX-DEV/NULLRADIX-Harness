@@ -1,6 +1,8 @@
 [profile.default]
 # a test that leaves pipes open has leaked a process; detached runs must not
 leak-timeout = { period = "500ms", result = "fail" }
+# name a hanging test after a minute and stop it after five
+slow-timeout = { period = "60s", terminate-after = 5 }
 
 [profile.ci]
 fail-fast = false
