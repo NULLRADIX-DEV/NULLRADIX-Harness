@@ -530,6 +530,31 @@ impl SessionWrite for Write {
         }))
     }
 
+    async fn savepoint(&mut self) -> Result<(), AppError> {
+        sqlx::query("SAVEPOINT favorites")
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        Ok(())
+    }
+
+    async fn release_savepoint(&mut self) -> Result<(), AppError> {
+        sqlx::query("RELEASE favorites")
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        Ok(())
+    }
+
+    async fn rollback_savepoint(&mut self) -> Result<(), AppError> {
+        // the savepoint stays open after ROLLBACK TO, so it is released as well
+        sqlx::query("ROLLBACK TO favorites")
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        self.release_savepoint().await
+    }
+
     async fn commit(self: Box<Self>) -> Result<(), AppError> {
         self.0.commit().await.map_err(database)
     }

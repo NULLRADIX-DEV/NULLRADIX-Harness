@@ -3,17 +3,21 @@
 mod common;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 
+use async_trait::async_trait;
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
-use nullradix_app::sessions::SessionService;
-use nullradix_app::{ChangeFeed, ChangeSignal, Clock, Entity, UuidV7Generator};
+use nullradix_app::sessions::{
+    SessionRepository, SessionScope, SessionService, SessionWrite, StoredSession,
+};
+use nullradix_app::{AppError, Change, ChangeFeed, ChangeSignal, Clock, Entity, UuidV7Generator};
 use nullradix_domain::{
-    DisplayState, HookDetails, HookEvent, HookKind, Id, RunnerOs, SessionRef, SessionState,
-    Timestamp,
+    DisplayState, Favorite, HookDetails, HookEvent, HookKind, Id, Repository, Runner, RunnerOs,
+    Session, SessionRef, SessionState, Ticket, TicketKey, Timestamp, Version,
 };
 use nullradix_store::Store;
+use uuid::Uuid;
 
 const START: i64 = 1_791_626_400_000;
 const DAY: i64 = 24 * 60 * 60 * 1000;
@@ -32,10 +36,18 @@ struct Fixture {
     clock: Arc<ManualClock>,
     hooks: HookService,
     favorites: Arc<FavoriteService>,
+    signal: ChangeSignal,
     serial: AtomicU64,
 }
 
 async fn fixture() -> Fixture {
+    fixture_with(|store| store).await
+}
+
+/// The hooks write through `repository`, e.g. a store that fails on demand.
+async fn fixture_with(
+    repository: impl FnOnce(Arc<Store>) -> Arc<dyn SessionRepository>,
+) -> Fixture {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let signal = ChangeSignal::new();
     let runners = common::runners(&store, &signal).await;
@@ -48,11 +60,11 @@ async fn fixture() -> Fixture {
         signal.clone(),
     ));
     let sessions = Arc::new(SessionService::new(
-        store.clone(),
+        repository(store.clone()),
         runners,
         clock.clone(),
         Arc::new(UuidV7Generator),
-        signal,
+        signal.clone(),
     ));
     let hooks = HookService::new(store.clone(), clock.clone()).with_sessions(sessions);
     Fixture {
@@ -60,6 +72,7 @@ async fn fixture() -> Fixture {
         clock,
         hooks,
         favorites,
+        signal,
         serial: AtomicU64::new(0),
     }
 }
@@ -374,4 +387,220 @@ async fn a_resumed_session_joins_its_favorite_whatever_the_case_of_the_folder() 
         resumed,
         usize::from(RunnerOs::current().ignores_path_case())
     );
+}
+
+/// A store whose writes fail to read the favorite folders while `broken` is set.
+struct Flaky {
+    store: Arc<Store>,
+    broken: Arc<AtomicBool>,
+}
+
+struct FlakyWrite {
+    inner: Box<dyn SessionWrite>,
+    broken: Arc<AtomicBool>,
+}
+
+#[async_trait]
+impl SessionRepository for Flaky {
+    async fn begin(&self) -> Result<Box<dyn SessionWrite>, AppError> {
+        Ok(Box::new(FlakyWrite {
+            inner: SessionRepository::begin(&*self.store).await?,
+            broken: self.broken.clone(),
+        }))
+    }
+
+    async fn ticket_id(&self, key: &TicketKey) -> Result<Option<Id<Ticket>>, AppError> {
+        SessionRepository::ticket_id(&*self.store, key).await
+    }
+
+    async fn list(&self, scope: SessionScope) -> Result<Vec<StoredSession>, AppError> {
+        SessionRepository::list(&*self.store, scope).await
+    }
+
+    async fn get(&self, id: &SessionRef) -> Result<Option<StoredSession>, AppError> {
+        SessionRepository::get(&*self.store, id).await
+    }
+
+    async fn prune_before(
+        &self,
+        before: Timestamp,
+        now: Timestamp,
+    ) -> Result<(u64, Option<Change>), AppError> {
+        SessionRepository::prune_before(&*self.store, before, now).await
+    }
+}
+
+#[async_trait]
+impl SessionWrite for FlakyWrite {
+    async fn record_hook(
+        &mut self,
+        event: &HookEvent,
+        received_at: Timestamp,
+    ) -> Result<bool, AppError> {
+        self.inner.record_hook(event, received_at).await
+    }
+
+    async fn session(&mut self, id: &SessionRef) -> Result<Option<Session>, AppError> {
+        self.inner.session(id).await
+    }
+
+    async fn insert(&mut self, session: &Session, feed_id: Uuid) -> Result<Change, AppError> {
+        self.inner.insert(session, feed_id).await
+    }
+
+    async fn update(&mut self, session: &Session, previous: Version) -> Result<Change, AppError> {
+        self.inner.update(session, previous).await
+    }
+
+    async fn touch(&mut self, id: &SessionRef, at: Timestamp) -> Result<Change, AppError> {
+        self.inner.touch(id, at).await
+    }
+
+    async fn next_number(&mut self, repository: Id<Repository>) -> Result<Option<u32>, AppError> {
+        self.inner.next_number(repository).await
+    }
+
+    async fn ticket(&mut self, key: &TicketKey) -> Result<Option<Id<Ticket>>, AppError> {
+        self.inner.ticket(key).await
+    }
+
+    async fn link(
+        &mut self,
+        ticket: Id<Ticket>,
+        session: &SessionRef,
+        at: Timestamp,
+    ) -> Result<bool, AppError> {
+        self.inner.link(ticket, session, at).await
+    }
+
+    async fn linked(&mut self, session: &SessionRef) -> Result<bool, AppError> {
+        self.inner.linked(session).await
+    }
+
+    async fn worktree_tickets(
+        &mut self,
+        runner: Id<Runner>,
+    ) -> Result<Vec<(String, Id<Ticket>)>, AppError> {
+        self.inner.worktree_tickets(runner).await
+    }
+
+    async fn unlocated(&mut self, cwd: &str) -> Result<Vec<Session>, AppError> {
+        self.inner.unlocated(cwd).await
+    }
+
+    async fn favorite(&mut self, id: &SessionRef) -> Result<Option<Favorite>, AppError> {
+        self.inner.favorite(id).await
+    }
+
+    async fn favorite_folders(&mut self) -> Result<Vec<(SessionRef, String)>, AppError> {
+        if self.broken.load(Ordering::SeqCst) {
+            return Err(AppError::unavailable("database-failed", "forced failure"));
+        }
+        self.inner.favorite_folders().await
+    }
+
+    async fn update_favorite(
+        &mut self,
+        favorite: &Favorite,
+        previous: Version,
+    ) -> Result<Change, AppError> {
+        self.inner.update_favorite(favorite, previous).await
+    }
+
+    async fn ticket_keys(&mut self, id: &SessionRef) -> Result<Vec<TicketKey>, AppError> {
+        self.inner.ticket_keys(id).await
+    }
+
+    async fn savepoint(&mut self) -> Result<(), AppError> {
+        self.inner.savepoint().await
+    }
+
+    async fn release_savepoint(&mut self) -> Result<(), AppError> {
+        self.inner.release_savepoint().await
+    }
+
+    async fn rollback_savepoint(&mut self) -> Result<(), AppError> {
+        self.inner.rollback_savepoint().await
+    }
+
+    async fn commit(self: Box<Self>) -> Result<(), AppError> {
+        self.inner.commit().await
+    }
+}
+
+#[tokio::test]
+async fn a_favorite_that_fails_half_way_is_rolled_back_whole() {
+    let broken = Arc::new(AtomicBool::new(false));
+    let flag = broken.clone();
+    let f = fixture_with(|store| {
+        Arc::new(Flaky {
+            store,
+            broken: flag,
+        })
+    })
+    .await;
+    f.hook(
+        HookKind::SessionStart,
+        "s1",
+        "/x/one",
+        HookDetails::default(),
+    )
+    .await;
+    f.favorites.mark("s1", None).await.unwrap();
+    let before = f.favorites.list(None).await.unwrap().remove(0);
+    let before = before.favorite.record().clone();
+
+    // the snapshot refreshes, then the folder lookup of the resume fails
+    broken.store(true, Ordering::SeqCst);
+    f.advance(1000);
+    f.hook(HookKind::SessionStart, "s1", "/x/one", resume())
+        .await;
+    let line = f.favorites.list(None).await.unwrap().remove(0);
+    assert_eq!(line.favorite.record(), &before, "no half-done update");
+    assert_eq!(
+        line.live
+            .unwrap()
+            .session
+            .record()
+            .last_event_at
+            .as_millis(),
+        START + 1000,
+        "the session itself was stored"
+    );
+    assert_eq!(
+        *f.signal.subscribe().borrow(),
+        f.store.head().await.unwrap()
+    );
+
+    // the next hook follows again on the same connection
+    broken.store(false, Ordering::SeqCst);
+    f.advance(1000);
+    f.hook(HookKind::UserPrompt, "s1", "/x/one", prompt("Back"))
+        .await;
+    let line = f.favorites.list(None).await.unwrap().remove(0);
+    assert_eq!(line.favorite.record().title.as_deref(), Some("Back"));
+    assert_eq!(
+        *f.signal.subscribe().borrow(),
+        f.store.head().await.unwrap()
+    );
+}
+
+#[tokio::test]
+async fn every_committed_favorite_change_is_announced() {
+    let f = fixture().await;
+    f.hook(
+        HookKind::SessionStart,
+        "s1",
+        "/x/one",
+        HookDetails::default(),
+    )
+    .await;
+    f.favorites.mark("s1", None).await.unwrap();
+    f.advance(1000);
+    f.hook(HookKind::UserPrompt, "s1", "/x/one", prompt("Next"))
+        .await;
+    let feed = f.store.changes_since(0, 1000).await.unwrap();
+    let last = feed.last().unwrap();
+    assert_eq!(last.entity, Entity::Favorite);
+    assert_eq!(*f.signal.subscribe().borrow(), last.seq);
 }

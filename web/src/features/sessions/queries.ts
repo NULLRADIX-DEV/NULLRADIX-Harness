@@ -52,8 +52,10 @@ export function ticketSessionsQuery(ticketKey: string) {
   });
 }
 
-// The feed does not name sessions, so a detail is fetched again this often until it ended.
+// The feed does not name sessions, so a detail is fetched again this often while it runs.
 export const LIVE_REFRESH_MS = 3000;
+// An ended session may be resumed under the same id, so its detail still looks this often.
+export const ENDED_REFRESH_MS = 15_000;
 
 export function sessionDetailQuery(sessionId: string) {
   return queryOptions({
@@ -65,7 +67,7 @@ export function sessionDetailQuery(sessionId: string) {
         }),
       ),
     refetchInterval: (query) =>
-      query.state.data?.session.displayState === 'ended' ? false : LIVE_REFRESH_MS,
+      query.state.data?.session.displayState === 'ended' ? ENDED_REFRESH_MS : LIVE_REFRESH_MS,
   });
 }
 

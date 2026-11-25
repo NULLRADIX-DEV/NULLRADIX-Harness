@@ -101,6 +101,12 @@ pub trait SessionWrite: Send {
     ) -> Result<Change, AppError>;
     /// Keys of the tickets the session is linked to.
     async fn ticket_keys(&mut self, id: &SessionRef) -> Result<Vec<TicketKey>, AppError>;
+    /// Opens the savepoint of the part of the write that may fail on its own.
+    async fn savepoint(&mut self) -> Result<(), AppError>;
+    /// Keeps what was written since the savepoint.
+    async fn release_savepoint(&mut self) -> Result<(), AppError>;
+    /// Drops what was written since the savepoint.
+    async fn rollback_savepoint(&mut self) -> Result<(), AppError>;
     async fn commit(self: Box<Self>) -> Result<(), AppError>;
 }
 
@@ -235,13 +241,8 @@ impl SessionService {
             change = Some(write.touch(id, now).await?);
         }
         let followed = if change.is_some() {
-            // the event is stored; a favorite that cannot follow must not fail its hook
-            self.follow_favorites(write.as_mut(), event, &session)
-                .await
-                .unwrap_or_else(|error| {
-                    tracing::warn!(%error, session = id.as_str(), "cannot update favorites");
-                    Vec::new()
-                })
+            self.follow_favorites_apart(write.as_mut(), event, &session)
+                .await?
         } else {
             Vec::new()
         };
@@ -256,6 +257,27 @@ impl SessionService {
             tracing::warn!(%error, cwd = event.cwd(), "cannot place the session in its repository");
         }
         Ok(Received { new: true, title })
+    }
+
+    /// A favorite that cannot follow is rolled back as a whole and must not fail its hook.
+    async fn follow_favorites_apart(
+        &self,
+        write: &mut dyn SessionWrite,
+        event: &HookEvent,
+        session: &Session,
+    ) -> Result<Vec<Change>, AppError> {
+        write.savepoint().await?;
+        match self.follow_favorites(write, event, session).await {
+            Ok(changes) => {
+                write.release_savepoint().await?;
+                Ok(changes)
+            }
+            Err(error) => {
+                tracing::warn!(%error, session = event.session().as_str(), "cannot update favorites");
+                write.rollback_savepoint().await?;
+                Ok(Vec::new())
+            }
+        }
     }
 
     /// The favorite snapshot follows the session, and a resumed one joins its favorite.

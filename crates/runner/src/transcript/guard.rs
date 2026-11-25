@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use nullradix_app::AppError;
 use nullradix_app::session_detail::{check_transcript_path, transcript_path_invalid};
@@ -48,7 +48,7 @@ fn unavailable(error: &io::Error) -> AppError {
 }
 
 impl TranscriptGuard {
-    /// Allows the `projects` folder of each of the config folders `roots`.
+    /// Allows the `projects` folder of each of the config folders `roots`, and any a path names.
     pub(crate) fn new(roots: Vec<PathBuf>) -> Self {
         Self {
             roots,
@@ -56,16 +56,37 @@ impl TranscriptGuard {
         }
     }
 
-    /// The config folder whose `projects` folder holds `file`, by its spelling.
-    fn root_of(&self, file: &Path) -> Option<&Path> {
+    /// The config folder whose `projects` folder holds `file`: a listed one, else the one it names.
+    fn root_of(&self, file: &Path) -> Option<PathBuf> {
         let wanted = parts(file, self.fold);
-        self.roots
-            .iter()
-            .find(|root| {
-                let allowed = parts(&root.join(PROJECTS), self.fold);
-                wanted.len() > allowed.len() && wanted.starts_with(&allowed)
-            })
-            .map(PathBuf::as_path)
+        let listed = self.roots.iter().find(|root| {
+            let allowed = parts(&root.join(PROJECTS), self.fold);
+            wanted.len() > allowed.len() && wanted.starts_with(&allowed)
+        });
+        listed.cloned().or_else(|| self.named_root(file))
+    }
+
+    /// Hooks report the transcripts of any config folder: `<root>/projects/<folder>/.../<file>`.
+    fn named_root(&self, file: &Path) -> Option<PathBuf> {
+        let names: Vec<Component<'_>> = file.components().collect();
+        let at = names.iter().enumerate().position(|(index, part)| {
+            let Component::Normal(name) = part else {
+                return false;
+            };
+            let name = name.to_string_lossy();
+            let is_projects = if self.fold {
+                name.eq_ignore_ascii_case(PROJECTS)
+            } else {
+                name == PROJECTS
+            };
+            // a named config folder, then a project folder and a file
+            is_projects
+                && names[..index]
+                    .iter()
+                    .any(|above| matches!(above, Component::Normal(_)))
+                && names.len() > index + 2
+        })?;
+        Some(names[..at].iter().collect())
     }
 
     /// The transcript to read; `None` when it is gone or no file; links and strangers fail.
@@ -133,23 +154,82 @@ mod tests {
     }
 
     #[test]
-    fn any_listed_config_folder_counts_and_others_do_not() {
+    fn a_listed_config_folder_counts_and_a_file_beside_projects_does_not() {
         let (_dir, root, file) = config();
         let other = tempfile::tempdir().unwrap();
-        let guard = TranscriptGuard::new(vec![other.path().to_path_buf(), root]);
+        let guard = TranscriptGuard::new(vec![other.path().to_path_buf(), root.clone()]);
         assert!(guard.file(&text(&file)).unwrap().is_some());
-        let none = TranscriptGuard::new(vec![other.path().to_path_buf()]);
+        let loose = root.join("s.jsonl");
+        fs::write(
+            &loose, "{}
+",
+        )
+        .unwrap();
+        let none = TranscriptGuard::new(Vec::new());
+        for guard in [&guard, &none] {
+            assert_eq!(
+                guard.file(&text(&loose)).unwrap_err().code(),
+                "transcript-path-invalid"
+            );
+        }
+    }
+
+    #[test]
+    fn a_transcript_of_another_config_folder_passes_by_its_shape() {
+        let (_dir, root, file) = config();
+        let guard = TranscriptGuard::new(Vec::new());
+        let found = guard.file(&text(&file)).unwrap().unwrap();
+        assert_eq!(found, fs::canonicalize(&file).unwrap());
+        let nested = root.join("projects").join("demo").join("deep");
+        fs::create_dir_all(&nested).unwrap();
+        let sub = nested.join("agent.jsonl");
+        fs::write(
+            &sub, "{}
+",
+        )
+        .unwrap();
+        assert!(guard.file(&text(&sub)).unwrap().is_some());
+    }
+
+    #[test]
+    fn a_path_without_the_projects_shape_is_refused() {
+        let (_dir, root, _file) = config();
+        let guard = TranscriptGuard::new(Vec::new());
+        let history = root.join("history.jsonl");
+        let direct = root.join("projects").join("s.jsonl");
+        let other = root.join("other").join("demo");
+        fs::create_dir_all(&other).unwrap();
+        let strange = other.join("s.jsonl");
+        for path in [&history, &direct, &strange] {
+            fs::write(
+                path, "{}
+",
+            )
+            .unwrap();
+            let error = guard.file(&text(path)).unwrap_err();
+            assert_eq!(error.code(), "transcript-path-invalid", "{path:?}");
+        }
+        let bare = Path::new("/projects/demo/s.jsonl");
         assert_eq!(
-            none.file(&text(&file)).unwrap_err().code(),
+            guard.file(&text(bare)).unwrap_err().code(),
             "transcript-path-invalid"
         );
-        assert_eq!(
-            TranscriptGuard::new(Vec::new())
-                .file(&text(&file))
-                .unwrap_err()
-                .code(),
-            "transcript-path-invalid"
-        );
+    }
+
+    #[test]
+    fn a_unc_path_stays_refused_even_in_the_projects_shape() {
+        let guard = TranscriptGuard::new(Vec::new());
+        for path in [
+            "\\\\host\\share\\.claude\\projects\\demo\\s.jsonl",
+            "//host/share/.claude/projects/demo/s.jsonl",
+            "\\\\?\\UNC\\host\\share\\.claude\\projects\\demo\\s.jsonl",
+        ] {
+            assert_eq!(
+                guard.file(path).unwrap_err().code(),
+                "transcript-path-invalid",
+                "{path}"
+            );
+        }
     }
 
     #[test]
@@ -177,9 +257,10 @@ mod tests {
         if !link_to(&secret, &link) {
             return;
         }
-        let guard = TranscriptGuard::new(vec![root]);
-        let error = guard.file(&text(&link)).unwrap_err();
-        assert_eq!(error.code(), "transcript-path-invalid");
+        for roots in [vec![root], Vec::new()] {
+            let error = TranscriptGuard::new(roots).file(&text(&link)).unwrap_err();
+            assert_eq!(error.code(), "transcript-path-invalid");
+        }
     }
 
     #[test]
@@ -192,9 +273,11 @@ mod tests {
         if !link_to(&secret, &link) {
             return;
         }
-        let guard = TranscriptGuard::new(vec![root]);
-        let error = guard.file(&text(&link.join("s.jsonl"))).unwrap_err();
-        assert_eq!(error.code(), "transcript-path-invalid");
+        for roots in [vec![root], Vec::new()] {
+            let guard = TranscriptGuard::new(roots);
+            let error = guard.file(&text(&link.join("s.jsonl"))).unwrap_err();
+            assert_eq!(error.code(), "transcript-path-invalid");
+        }
     }
 
     /// Makes `link` point at `target`; false when this machine may not create links.

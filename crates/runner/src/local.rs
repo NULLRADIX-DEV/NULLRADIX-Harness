@@ -57,7 +57,7 @@ impl LocalRunner {
         }
     }
 
-    /// Lets transcripts be read below the `projects` folder of these Claude config folders only.
+    /// Lets transcripts be read below `projects` of these config folders and any a path names.
     #[must_use]
     pub fn with_transcript_roots(mut self, roots: Vec<PathBuf>) -> Self {
         self.transcripts = Arc::new(Transcripts::new(roots));
