@@ -595,7 +595,8 @@ pub fn check_entry_path(name: &str) -> Result<Vec<&str>, PackageError> {
     trimmed
         .split('/')
         .map(|segment| {
-            (!segment.is_empty() && segment != "." && segment != "..")
+            // Windows drops a trailing dot or space, so such names could alias others
+            (!segment.is_empty() && !segment.ends_with(['.', ' ']))
                 .then_some(segment)
                 .ok_or_else(unsafe_path)
         })
@@ -719,6 +720,21 @@ pub fn check_theme_css(css: &str) -> Result<(), PackageError> {
             "backslash escapes are not allowed",
         )));
     }
+    // CSS also ends lines at CR and FF, which the comment stripper would not see
+    if css.contains(['\r', '\u{c}']) {
+        return Err(PackageError::ForbiddenCss(String::from(
+            "carriage returns and form feeds are not allowed",
+        )));
+    }
+    // an unquoted url() keeps comment markers as text
+    if url_values(css)
+        .iter()
+        .any(|value| value.contains("/*") || value.contains("*/"))
+    {
+        return Err(PackageError::ForbiddenCss(String::from(
+            "comment markers inside url() are not allowed",
+        )));
+    }
     let css = strip_comments(css);
     let lower = css.to_ascii_lowercase();
     if lower.contains("@import") {
@@ -726,9 +742,12 @@ pub fn check_theme_css(css: &str) -> Result<(), PackageError> {
             "@import is not allowed",
         )));
     }
-    if lower.contains("image-set(") {
+    if ["image-set(", "image(", "src("]
+        .iter()
+        .any(|call| lower.contains(call))
+    {
         return Err(PackageError::ForbiddenCss(String::from(
-            "image-set() is not allowed",
+            "image-set(), image() and src() are not allowed",
         )));
     }
     for value in url_values(&css) {
@@ -997,6 +1016,9 @@ mod tests {
             "a:b",
             "a\u{0}b",
             "a\nb",
+            "claude./hooks/hooks.json",
+            "assets /a.png",
+            "a.png.",
             &"a/".repeat(MAX_ENTRY_PATH),
         ] {
             assert!(check_entry_path(path).is_err(), "{path:?}");
@@ -1065,6 +1087,11 @@ mod tests {
             "@\\69mport 'https://evil/x.css';",
             "a { background: image-set(\"https://evil/x.png\" 1x) }",
             "a { background: -webkit-image-set(\"https://evil/x.png\" 1x) }",
+            "a{background:url(x/*)}b{background:url(https://evil/p)}c{background:url(*/)}",
+            "a{content:\"x\r\"/* \"}b{background:url(https://evil)}c{d:*/}",
+            "a{content:\"x\u{c}\"/* \"}b{background:url(https://evil)}c{d:*/}",
+            "@font-face { src: src(\"https://evil/f.woff2\") }",
+            "a { background: image(\"https://evil/x.png\") }",
         ] {
             assert!(
                 matches!(check_theme_css(css), Err(PackageError::ForbiddenCss(_))),
