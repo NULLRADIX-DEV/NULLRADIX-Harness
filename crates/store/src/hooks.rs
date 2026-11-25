@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::hooks::HookRepository;
 use nullradix_domain::{HookDetails, HookEvent, HookKind, Id, SessionRef, Timestamp};
+use sqlx::SqliteConnection;
 use uuid::Uuid;
 
 use crate::error::database;
@@ -61,46 +62,55 @@ impl Row {
     }
 }
 
-#[async_trait]
-impl HookRepository for Store {
-    async fn record(&self, event: &HookEvent, received_at: Timestamp) -> Result<bool, AppError> {
-        let id = event.id().as_uuid();
-        let kind = event.kind().as_str();
-        let session = event.session().as_str();
-        let cwd = event.cwd();
-        let occurred_at = event.occurred_at().as_millis();
-        let received_at = received_at.as_millis();
-        let details = event.details();
-        let inserted = sqlx::query!(
-            "INSERT INTO hook_events (id, kind, session_id, cwd, occurred_at, received_at,
+/// Keeps the event unless one with its id exists; true when it was new.
+pub(crate) async fn insert_event(
+    connection: &mut SqliteConnection,
+    event: &HookEvent,
+    received_at: Timestamp,
+) -> Result<bool, StoreError> {
+    let id = event.id().as_uuid();
+    let kind = event.kind().as_str();
+    let session = event.session().as_str();
+    let cwd = event.cwd();
+    let occurred_at = event.occurred_at().as_millis();
+    let received_at = received_at.as_millis();
+    let details = event.details();
+    let inserted = sqlx::query!(
+        "INSERT INTO hook_events (id, kind, session_id, cwd, occurred_at, received_at,
                                       transcript_path, prompt, source, model, reason, message,
                                       notification_type, agent_id, agent_type, ticket, run,
                                       entrypoint)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (id) DO NOTHING",
-            id,
-            kind,
-            session,
-            cwd,
-            occurred_at,
-            received_at,
-            details.transcript_path,
-            details.prompt,
-            details.source,
-            details.model,
-            details.reason,
-            details.message,
-            details.notification_type,
-            details.agent_id,
-            details.agent_type,
-            details.ticket,
-            details.run,
-            details.entrypoint,
-        )
-        .execute(&self.writer)
-        .await
-        .map_err(database)?;
-        Ok(inserted.rows_affected() == 1)
+        id,
+        kind,
+        session,
+        cwd,
+        occurred_at,
+        received_at,
+        details.transcript_path,
+        details.prompt,
+        details.source,
+        details.model,
+        details.reason,
+        details.message,
+        details.notification_type,
+        details.agent_id,
+        details.agent_type,
+        details.ticket,
+        details.run,
+        details.entrypoint,
+    )
+    .execute(connection)
+    .await?;
+    Ok(inserted.rows_affected() == 1)
+}
+
+#[async_trait]
+impl HookRepository for Store {
+    async fn record(&self, event: &HookEvent, received_at: Timestamp) -> Result<bool, AppError> {
+        let mut connection = self.writer.acquire().await.map_err(database)?;
+        Ok(insert_event(&mut connection, event, received_at).await?)
     }
 
     async fn recent(&self, limit: u32) -> Result<Vec<HookEvent>, AppError> {

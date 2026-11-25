@@ -5,8 +5,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use nullradix_domain::{HookError, HookEvent, Timestamp};
+use nullradix_domain::{HookError, HookEvent, HookKind, Timestamp};
 
+use crate::sessions::SessionService;
 use crate::{AppError, Clock};
 
 #[async_trait]
@@ -28,6 +29,10 @@ pub struct HookReply {
     pub env: BTreeMap<String, String>,
 }
 
+/// Names the session's later CLI calls read, as legacy exported them at session start.
+pub const SESSION_VAR: &str = "NULLRADIX_SESSION";
+pub const TICKET_VAR: &str = "NULLRADIX_TICKET";
+
 #[must_use]
 pub fn invalid(error: &HookError) -> AppError {
     let code = match error {
@@ -40,6 +45,7 @@ pub fn invalid(error: &HookError) -> AppError {
 pub struct HookService {
     repository: Arc<dyn HookRepository>,
     clock: Arc<dyn Clock>,
+    sessions: Option<Arc<SessionService>>,
 }
 
 impl std::fmt::Debug for HookService {
@@ -51,12 +57,26 @@ impl std::fmt::Debug for HookService {
 impl HookService {
     #[must_use]
     pub fn new(repository: Arc<dyn HookRepository>, clock: Arc<dyn Clock>) -> Self {
-        Self { repository, clock }
+        Self {
+            repository,
+            clock,
+            sessions: None,
+        }
+    }
+
+    /// Also keeps the session of each event, in the write that records it.
+    #[must_use]
+    pub fn with_sessions(mut self, sessions: Arc<SessionService>) -> Self {
+        self.sessions = Some(sessions);
+        self
     }
 
     /// Records the event; a resend of the same event changes nothing.
     pub async fn receive(&self, event: &HookEvent) -> Result<HookReply, AppError> {
-        let new = self.repository.record(event, self.clock.now()).await?;
+        let new = match &self.sessions {
+            Some(sessions) => sessions.receive(event).await?,
+            None => self.repository.record(event, self.clock.now()).await?,
+        };
         if new {
             tracing::debug!(
                 kind = event.kind().as_str(),
@@ -64,18 +84,46 @@ impl HookService {
                 "hook event"
             );
         }
-        Ok(HookReply::default())
+        let mut reply = HookReply::default();
+        if event.kind() == HookKind::SessionStart {
+            reply.env = self.session_env(event).await;
+        }
+        Ok(reply)
+    }
+
+    /// The session id and its first ticket for the session's environment.
+    async fn session_env(&self, event: &HookEvent) -> BTreeMap<String, String> {
+        let id = event.session().as_str();
+        let mut env = BTreeMap::from([(SESSION_VAR.to_owned(), id.to_owned())]);
+        let Some(sessions) = &self.sessions else {
+            return env;
+        };
+        // the hook answer must not fail on a lookup of what was just stored
+        match sessions.get(id).await {
+            Ok(session) => {
+                if let Some(ticket) = session.tickets.first() {
+                    env.insert(TICKET_VAR.to_owned(), ticket.key.to_string());
+                }
+            }
+            Err(error) => tracing::warn!(%error, session = id, "cannot read the session"),
+        }
+        env
     }
 
     pub async fn recent(&self, limit: u32) -> Result<Vec<HookEvent>, AppError> {
         self.repository.recent(limit).await
     }
 
-    /// Forgets events older than `keep`.
+    /// Forgets events older than `keep` and sessions a week after their end.
     pub async fn prune(&self, keep: Duration) -> Result<u64, AppError> {
         let keep = i64::try_from(keep.as_millis()).unwrap_or(i64::MAX);
         let before = Timestamp::from_millis(self.clock.now().as_millis().saturating_sub(keep));
-        self.repository.prune_before(before).await
+        let pruned = self.repository.prune_before(before).await?;
+        if let Some(sessions) = &self.sessions {
+            let sessions = sessions.prune().await?;
+            tracing::debug!(sessions, "old sessions removed");
+        }
+        Ok(pruned)
     }
 }
 

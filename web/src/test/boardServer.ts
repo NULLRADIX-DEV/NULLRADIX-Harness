@@ -196,6 +196,7 @@ function setup(boards: Board[], initial: Entry[]) {
 
   function register(key: string) {
     const base = `/api/v1/tickets/${key}`;
+    api.set(`GET ${base}/sessions`, () => json(200, { items: [] }));
     api.set(`GET ${base}`, () => {
       const item = find(key, null);
       return item instanceof Response ? item : json(200, detail(item));

@@ -564,6 +564,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_sessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets": {
         parameters: {
             query?: never;
@@ -718,6 +750,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["release_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{ticketKey}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_ticket_sessions"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1039,12 +1087,17 @@ export interface components {
             /** @description Own answer instead of an option. */
             text?: string | null;
         };
+        /**
+         * @description The state, or `stale` after 30 minutes without a hook.
+         * @enum {string}
+         */
+        DisplayStateDto: "idle" | "running" | "waiting" | "ended" | "stale";
         DropNote: {
             /** @description Why nothing comes of it; required. */
             reason?: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session";
         /** @description Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged. */
         FinishTicket: {
             /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
@@ -1477,6 +1530,62 @@ export interface components {
             /** @description Key of the ticket it stood out at. */
             source?: string | null;
         };
+        /** @enum {string} */
+        SessionClientDto: "nullradix" | "claude-code" | "claude-desktop" | "unknown";
+        /** @description A Claude Code session as its hooks reported it. */
+        SessionDto: {
+            client: components["schemas"]["SessionClientDto"];
+            cwd: string;
+            displayState: components["schemas"]["DisplayStateDto"];
+            /** Format: int64 */
+            endedAt?: number | null;
+            /** @description Claude Code's session id. */
+            id: string;
+            /** @description Name to show, such as `SE-001: Fix the login`; may be empty. */
+            label: string;
+            /** Format: int64 */
+            lastEventAt: number;
+            /** @description Idle, running or waiting and not stale. */
+            listening: boolean;
+            model?: string | null;
+            /**
+             * Format: int32
+             * @description Per repository, once the repository is known.
+             */
+            number?: number | null;
+            /**
+             * Format: uuid
+             * @description Repository whose checkout holds the cwd; null outside every known checkout.
+             */
+            repositoryId?: string | null;
+            /** @description Run that started the session, for NULLRADIX sessions. */
+            runName?: string | null;
+            /** Format: uuid */
+            runnerId?: string | null;
+            /** Format: int64 */
+            runtimeMs: number;
+            /** Format: int64 */
+            startedAt: number;
+            state: components["schemas"]["SessionStateDto"];
+            subagents: components["schemas"]["SubagentDto"][];
+            /** @description Linked tickets ordered by key. */
+            tickets: components["schemas"]["SessionTicketDto"][];
+            title?: string | null;
+            transcriptPath?: string | null;
+            /** Format: int64 */
+            version: number;
+        };
+        SessionList: {
+            /** @description Latest activity first. */
+            items: components["schemas"]["SessionDto"][];
+        };
+        /** @enum {string} */
+        SessionStateDto: "idle" | "running" | "waiting" | "ended";
+        SessionTicketDto: {
+            key: string;
+            status: components["schemas"]["TicketStatusDto"];
+            title: string;
+        };
         /** @description Points a board to the repository checked out at a folder on a runner. */
         SetBoardRepository: {
             /** @description Absolute folder on the runner; any folder inside the checkout or a worktree of it. */
@@ -1548,6 +1657,18 @@ export interface components {
             /** Format: int64 */
             seq: number;
         };
+        SubagentDto: {
+            /** Format: int64 */
+            endedAt?: number | null;
+            id: string;
+            /** Format: int64 */
+            startedAt: number;
+            state: components["schemas"]["SubagentStateDto"];
+            /** @description Agent type such as `Explore`. */
+            type: string;
+        };
+        /** @enum {string} */
+        SubagentStateDto: "running" | "ended";
         /**
          * @description What a dispatcher comment reports.
          * @enum {string}
@@ -3929,6 +4050,104 @@ export interface operations {
             };
         };
     };
+    list_sessions: {
+        parameters: {
+            query?: {
+                /** @description Only sessions in this repository. */
+                repositoryId?: string;
+                /** @description `idle`, `running`, `waiting`, `ended` or `stale`. */
+                state?: string;
+                /** @description Only sessions linked to this ticket key. */
+                ticket?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The ticket does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid state or ticket key */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Claude Code's session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     list_tickets: {
         parameters: {
             query?: {
@@ -4670,6 +4889,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TicketDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_ticket_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionList"];
                 };
             };
             401: {

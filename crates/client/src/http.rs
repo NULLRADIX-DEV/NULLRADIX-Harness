@@ -9,9 +9,9 @@ use nullradix_api::{
     HookEventList, HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning,
     NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList, PromoteNote,
     PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard,
-    RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SeenNote,
-    SetBoardRepository, StartRun, StartTicket, StartedTicket, TicketDetailDto, TicketDto,
-    TicketList, UpdateTicket, WritePlan,
+    RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SeenNote, SessionDto,
+    SessionList, SetBoardRepository, StartRun, StartTicket, StartedTicket, TicketDetailDto,
+    TicketDto, TicketList, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -306,6 +306,23 @@ impl Client {
             .send_json(event)
             .map_err(|source| self.unreachable(source))?;
         decode(&mut response, 200)
+    }
+
+    /// Sessions matching `query`, given as pairs such as `("state", "running")`.
+    pub fn list_sessions(&self, query: &[(&str, &str)]) -> Result<SessionList, ClientError> {
+        let mut request = self
+            .agent
+            .get(&self.url("/sessions"))
+            .header("Authorization", &self.authorization()?);
+        for (name, value) in query {
+            request = request.query(*name, *value);
+        }
+        let mut response = request.call().map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn get_session(&self, id: &str) -> Result<SessionDto, ClientError> {
+        self.get_json(&format!("/sessions/{}", segment(id)))
     }
 
     /// Tickets matching `query`, given as pairs such as `("columns", "planned")`.
@@ -883,7 +900,7 @@ mod tests {
             signal.clone(),
             FAST,
         );
-        let hooks = Arc::new(HookService::new(store.clone(), Arc::new(SystemClock)));
+        let (sessions, hooks) = hook_services(&store, &runners, &signal);
         let boards = Arc::new(nullradix_app::boards::BoardService::new(
             store.clone(),
             store.clone(),
@@ -948,6 +965,7 @@ mod tests {
             person: Arc::new(person),
             runs,
             hooks,
+            sessions,
             changes: store,
             signal,
             shutdown: tokio_util::sync::CancellationToken::new(),
@@ -955,6 +973,27 @@ mod tests {
             secure_cookies: false,
             web_dir: None,
         }
+    }
+
+    fn hook_services(
+        store: &Arc<Store>,
+        runners: &Arc<nullradix_app::repositories::RunnerService>,
+        signal: &ChangeSignal,
+    ) -> (
+        Arc<nullradix_app::sessions::SessionService>,
+        Arc<HookService>,
+    ) {
+        let sessions = Arc::new(nullradix_app::sessions::SessionService::new(
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let hooks = Arc::new(
+            HookService::new(store.clone(), Arc::new(SystemClock)).with_sessions(sessions.clone()),
+        );
+        (sessions, hooks)
     }
 
     fn note_service(

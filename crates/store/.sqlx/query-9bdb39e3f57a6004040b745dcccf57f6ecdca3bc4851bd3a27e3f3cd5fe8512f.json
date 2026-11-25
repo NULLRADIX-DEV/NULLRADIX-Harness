@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE claude_sessions\n               SET repository_id = ?, runner_id = ?, number = ?, cwd = ?, state = ?, client = ?,\n                   title = ?, model = ?, transcript_path = ?, run_name = ?, started_at = ?,\n                   last_event_at = ?, ended_at = ?,\n                   touched = (SELECT coalesce(max(touched), 0) + 1 FROM claude_sessions), version = ?\n               WHERE id = ? AND version = ?\n               RETURNING feed_id AS \"feed_id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "feed_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "claude_sessions",
+            "name": "feed_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 16
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9bdb39e3f57a6004040b745dcccf57f6ecdca3bc4851bd3a27e3f3cd5fe8512f"
+}

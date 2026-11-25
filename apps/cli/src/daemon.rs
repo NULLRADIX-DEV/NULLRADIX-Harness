@@ -15,6 +15,7 @@ use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
+use nullradix_app::sessions::SessionService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
@@ -52,18 +53,8 @@ pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
     runtime.block_on(serve(config, discovery))
 }
 
-async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> {
-    let store = Store::open(&config.paths.data.join("nullradix.db"))
-        .await
-        .context("cannot open the database")?;
-    let auth = Arc::new(AuthService::new(
-        Arc::new(store.clone()),
-        Arc::new(SystemClock),
-        Arc::new(UuidV7Generator),
-    ));
-    ensure_local_token(config, &auth).await?;
-    let pruned = auth.prune_expired_sessions().await?;
-    tracing::debug!(pruned, "expired sessions removed");
+/// Binds the loopback address and announces it in the discovery file.
+async fn listen(config: &Config, discovery: &DiscoveryFile) -> anyhow::Result<TcpListener> {
     if !config.address.ip().is_loopback() {
         bail!(
             "refusing to listen on {}: credentials would travel unencrypted, use a loopback address",
@@ -89,6 +80,22 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         data = %config.paths.data.display(),
         "daemon started"
     );
+    Ok(listener)
+}
+
+async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> {
+    let store = Store::open(&config.paths.data.join("nullradix.db"))
+        .await
+        .context("cannot open the database")?;
+    let auth = Arc::new(AuthService::new(
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+    ));
+    ensure_local_token(config, &auth).await?;
+    let pruned = auth.prune_expired_sessions().await?;
+    tracing::debug!(pruned, "expired sessions removed");
+    let listener = listen(config, &discovery).await?;
     let signal = ChangeSignal::new();
     let shutdown = CancellationToken::new();
     let projects = Arc::new(ProjectService::new(
@@ -100,7 +107,14 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (runner, runners) = start_runners(config, &store, &signal).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let runs = start_runs(&store, runner, &signal).await?;
-    let hooks = start_hooks(config, &store, &shutdown);
+    let sessions = Arc::new(SessionService::new(
+        Arc::new(store.clone()),
+        runners.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let state = ApiState {
         auth,
         projects,
@@ -114,6 +128,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         person: board.person,
         runs,
         hooks,
+        sessions,
         changes: Arc::new(store.clone()),
         signal,
         shutdown: shutdown.clone(),
@@ -289,11 +304,16 @@ async fn start_runs(
 }
 
 /// Hook service; what hooks spooled while the daemon was away is taken in alongside.
-fn start_hooks(config: &Config, store: &Store, shutdown: &CancellationToken) -> Arc<HookService> {
-    let hooks = Arc::new(HookService::new(
-        Arc::new(store.clone()),
-        Arc::new(SystemClock),
-    ));
+fn start_hooks(
+    config: &Config,
+    store: &Store,
+    sessions: &Arc<SessionService>,
+    shutdown: &CancellationToken,
+) -> Arc<HookService> {
+    let hooks = Arc::new(
+        HookService::new(Arc::new(store.clone()), Arc::new(SystemClock))
+            .with_sessions(Arc::clone(sessions)),
+    );
     let spool = Spool::in_dir(&config.paths.data);
     intake::start(Arc::clone(&hooks), spool, shutdown.clone());
     hooks

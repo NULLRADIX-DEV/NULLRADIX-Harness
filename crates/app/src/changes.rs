@@ -22,6 +22,7 @@ pub enum Entity {
     Comment,
     Note,
     Question,
+    Session,
 }
 
 impl Entity {

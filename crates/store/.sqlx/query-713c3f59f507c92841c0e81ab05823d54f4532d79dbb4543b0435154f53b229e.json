@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT ts.session_id, p.key AS project_key, t.number, t.title, t.status\n           FROM ticket_sessions ts\n           JOIN claude_sessions s ON s.id = ts.session_id\n           JOIN tickets t ON t.id = ts.ticket_id\n           JOIN projects p ON p.id = t.project_id\n           WHERE (?1 IS NULL OR s.repository_id = ?1)\n             AND (?2 IS NULL OR s.id IN (SELECT session_id FROM ticket_sessions\n                                         WHERE ticket_id = ?2))\n             AND (?3 IS NULL OR s.id = ?3)\n           ORDER BY p.key, t.number",
+  "describe": {
+    "columns": [
+      {
+        "name": "session_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ticket_sessions",
+            "name": "session_id"
+          }
+        }
+      },
+      {
+        "name": "project_key",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "number",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "status",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "713c3f59f507c92841c0e81ab05823d54f4532d79dbb4543b0435154f53b229e"
+}

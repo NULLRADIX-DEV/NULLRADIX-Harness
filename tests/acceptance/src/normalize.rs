@@ -125,6 +125,8 @@ impl Normalizer {
             let moment = key == "at" || key.ends_with("At");
             if moment && field.is_number() {
                 *field = Value::from("<TIME>");
+            } else if key == "runtimeMs" && field.is_number() {
+                *field = Value::from("<DURATION>");
             } else if matches!(key.as_str(), "pid" | "port") && field.is_number() {
                 *field = Value::from(0);
             } else if key == "version" && field.is_string() {

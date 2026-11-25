@@ -1,0 +1,464 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Fix the login"
+    ],
+    "exitCode": 0,
+    "name": "a ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Fix the login\n"
+  },
+  {
+    "cli": [
+      "hook",
+      "session-start"
+    ],
+    "exitCode": 0,
+    "name": "session start",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "hook",
+      "user-prompt"
+    ],
+    "exitCode": 0,
+    "name": "prompt",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "field": "number",
+    "name": "the repository is found",
+    "reached": 1,
+    "wait": "/api/v1/sessions/s-1"
+  },
+  {
+    "name": "running",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/sessions/s-1"
+    },
+    "response": {
+      "json": {
+        "client": "claude-code",
+        "cwd": "<WORK>/arches",
+        "displayState": "running",
+        "endedAt": null,
+        "id": "s-1",
+        "label": "SE-001: Fix the login form please now ...",
+        "lastEventAt": "<TIME>",
+        "listening": true,
+        "model": "fake-opus",
+        "number": 1,
+        "repositoryId": "<ID-5>",
+        "runName": null,
+        "runnerId": "<ID-6>",
+        "runtimeMs": "<DURATION>",
+        "startedAt": "<TIME>",
+        "state": "running",
+        "subagents": [],
+        "tickets": [
+          {
+            "key": "ARC-0001",
+            "status": "backlog",
+            "title": "Fix the login"
+          }
+        ],
+        "title": "Fix the login form please now ...",
+        "transcriptPath": "<WORK>/s-1.jsonl",
+        "version": 4
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "hook",
+      "notification"
+    ],
+    "exitCode": 0,
+    "name": "asks for permission",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "session",
+      "list",
+      "--state",
+      "waiting"
+    ],
+    "exitCode": 0,
+    "name": "waiting",
+    "stderr": "",
+    "stdout": "waiting  less than 1 min  SE-001: Fix the login form please now ...  [s-1]  ARC-0001  last <TIME>  <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "hook",
+      "subagent-start"
+    ],
+    "exitCode": 0,
+    "name": "a subagent starts",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "session",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "with a running subagent",
+    "stderr": "",
+    "stdout": "running  less than 1 min  SE-001: Fix the login form please now ...  [s-1]  ARC-0001  last <TIME>  <WORK>/arches\n    agent Explore agent-1\n"
+  },
+  {
+    "cli": [
+      "hook",
+      "subagent-stop"
+    ],
+    "exitCode": 0,
+    "name": "the subagent stops",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "hook",
+      "stop"
+    ],
+    "exitCode": 0,
+    "name": "stop",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "hook",
+      "session-end"
+    ],
+    "exitCode": 0,
+    "name": "end",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "hook",
+      "session-start"
+    ],
+    "exitCode": 0,
+    "name": "a session outside every checkout",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "name": "all sessions",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/sessions"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "client": "claude-code",
+            "cwd": "<WORK>",
+            "displayState": "idle",
+            "endedAt": null,
+            "id": "s-2",
+            "label": "",
+            "lastEventAt": "<TIME>",
+            "listening": true,
+            "model": null,
+            "number": null,
+            "repositoryId": null,
+            "runName": null,
+            "runnerId": "<ID-6>",
+            "runtimeMs": "<DURATION>",
+            "startedAt": "<TIME>",
+            "state": "idle",
+            "subagents": [],
+            "tickets": [
+              {
+                "key": "ARC-0001",
+                "status": "backlog",
+                "title": "Fix the login"
+              }
+            ],
+            "title": null,
+            "transcriptPath": null,
+            "version": 2
+          },
+          {
+            "client": "claude-code",
+            "cwd": "<WORK>/arches",
+            "displayState": "ended",
+            "endedAt": "<TIME>",
+            "id": "s-1",
+            "label": "SE-001: Fix the login form please now ...",
+            "lastEventAt": "<TIME>",
+            "listening": false,
+            "model": "fake-opus",
+            "number": 1,
+            "repositoryId": "<ID-5>",
+            "runName": null,
+            "runnerId": "<ID-6>",
+            "runtimeMs": "<DURATION>",
+            "startedAt": "<TIME>",
+            "state": "ended",
+            "subagents": [
+              {
+                "endedAt": "<TIME>",
+                "id": "agent-1",
+                "startedAt": "<TIME>",
+                "state": "ended",
+                "type": "Explore"
+              }
+            ],
+            "tickets": [
+              {
+                "key": "ARC-0001",
+                "status": "backlog",
+                "title": "Fix the login"
+              }
+            ],
+            "title": "Fix the login form please now ...",
+            "transcriptPath": "<WORK>/s-1.jsonl",
+            "version": 9
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "sessions of the ticket",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/sessions"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "client": "claude-code",
+            "cwd": "<WORK>",
+            "displayState": "idle",
+            "endedAt": null,
+            "id": "s-2",
+            "label": "",
+            "lastEventAt": "<TIME>",
+            "listening": true,
+            "model": null,
+            "number": null,
+            "repositoryId": null,
+            "runName": null,
+            "runnerId": "<ID-6>",
+            "runtimeMs": "<DURATION>",
+            "startedAt": "<TIME>",
+            "state": "idle",
+            "subagents": [],
+            "tickets": [
+              {
+                "key": "ARC-0001",
+                "status": "backlog",
+                "title": "Fix the login"
+              }
+            ],
+            "title": null,
+            "transcriptPath": null,
+            "version": 2
+          },
+          {
+            "client": "claude-code",
+            "cwd": "<WORK>/arches",
+            "displayState": "ended",
+            "endedAt": "<TIME>",
+            "id": "s-1",
+            "label": "SE-001: Fix the login form please now ...",
+            "lastEventAt": "<TIME>",
+            "listening": false,
+            "model": "fake-opus",
+            "number": 1,
+            "repositoryId": "<ID-5>",
+            "runName": null,
+            "runnerId": "<ID-6>",
+            "runtimeMs": "<DURATION>",
+            "startedAt": "<TIME>",
+            "state": "ended",
+            "subagents": [
+              {
+                "endedAt": "<TIME>",
+                "id": "agent-1",
+                "startedAt": "<TIME>",
+                "state": "ended",
+                "type": "Explore"
+              }
+            ],
+            "tickets": [
+              {
+                "key": "ARC-0001",
+                "status": "backlog",
+                "title": "Fix the login"
+              }
+            ],
+            "title": "Fix the login form please now ...",
+            "transcriptPath": "<WORK>/s-1.jsonl",
+            "version": 9
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "session",
+      "show",
+      "s-1"
+    ],
+    "exitCode": 0,
+    "name": "the ended session",
+    "stderr": "",
+    "stdout": "SE-001: Fix the login form please now ... (s-1)\nState:      ended\nRuntime:    less than 1 min\nStarted:    <TIME>\nLast hook:  <TIME>\nEnded:      <TIME>\nFolder:     <WORK>/arches\nModel:      fake-opus\nTickets:    ARC-0001\nSubagents:\n  Explore agent-1 (ended)\n"
+  },
+  {
+    "cli": [
+      "session",
+      "show",
+      "nope"
+    ],
+    "exitCode": 1,
+    "name": "an unknown session",
+    "stderr": "error: the daemon refused the request: session nope does not exist (session-not-found)\n",
+    "stdout": ""
+  },
+  {
+    "name": "an unknown state",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/sessions?state=busy"
+    },
+    "response": {
+      "json": {
+        "code": "state-invalid",
+        "detail": "busy is none of idle, running, waiting, ended and stale",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:state-invalid"
+      },
+      "status": 422
+    }
+  }
+]

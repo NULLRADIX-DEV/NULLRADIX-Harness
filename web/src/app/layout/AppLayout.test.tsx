@@ -28,8 +28,8 @@ describe('AppLayout', () => {
   it('navigates to a placeholder page', async () => {
     vi.stubGlobal('fetch', daemonOffline());
     renderApp('/board');
-    await userEvent.click(screen.getByRole('link', { name: 'Sessions' }));
-    expect(screen.getByRole('heading', { level: 1, name: 'Sessions' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('link', { name: 'Inbox' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Inbox' })).toBeInTheDocument();
     expect(screen.getByText('Coming soon')).toBeInTheDocument();
   });
 });
