@@ -161,6 +161,7 @@
           "assignee": null,
           "blockedReason": null,
           "boardId": "<ID-2>",
+          "branch": null,
           "column": "backlog",
           "createdAt": "<TIME>",
           "createdById": "<ID-3>",
@@ -191,7 +192,8 @@
           "unlocks": [],
           "updatedAt": "<TIME>",
           "version": 3,
-          "waiting": false
+          "waiting": false,
+          "worktree": null
         }
       },
       "status": 200
@@ -387,6 +389,7 @@
           "assignee": null,
           "blockedReason": null,
           "boardId": "<ID-2>",
+          "branch": null,
           "column": "backlog",
           "createdAt": "<TIME>",
           "createdById": "<ID-3>",
@@ -417,7 +420,8 @@
           "unlocks": [],
           "updatedAt": "<TIME>",
           "version": 6,
-          "waiting": false
+          "waiting": false,
+          "worktree": null
         }
       },
       "status": 200
@@ -527,6 +531,7 @@
           "assignee": null,
           "blockedReason": null,
           "boardId": "<ID-2>",
+          "branch": null,
           "column": "backlog",
           "createdAt": "<TIME>",
           "createdById": "<ID-3>",
@@ -557,7 +562,8 @@
           "unlocks": [],
           "updatedAt": "<TIME>",
           "version": 7,
-          "waiting": false
+          "waiting": false,
+          "worktree": null
         }
       },
       "status": 200
@@ -662,6 +668,7 @@
           "assignee": null,
           "blockedReason": null,
           "boardId": "<ID-2>",
+          "branch": null,
           "column": "backlog",
           "createdAt": "<TIME>",
           "createdById": "<ID-3>",
@@ -692,7 +699,8 @@
           "unlocks": [],
           "updatedAt": "<TIME>",
           "version": 7,
-          "waiting": false
+          "waiting": false,
+          "worktree": null
         }
       },
       "status": 200

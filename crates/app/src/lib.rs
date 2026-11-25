@@ -11,6 +11,7 @@ pub mod projects;
 pub mod repositories;
 pub mod runs;
 pub mod tickets;
+pub mod worktrees;
 
 pub use changes::{Change, ChangeFeed, ChangeOp, ChangeSignal, Entity};
 pub use clock::{Clock, SystemClock};

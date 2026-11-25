@@ -122,6 +122,10 @@ pub struct TicketRecord {
     pub needs_planning: bool,
     pub blocked_reason: Option<String>,
     pub target_branch: Option<TargetBranch>,
+    /// Branch of the worktree the ticket is linked to right now.
+    pub branch: Option<String>,
+    /// Folder of that worktree; set and cleared together with `branch`.
+    pub worktree: Option<String>,
     /// Who wrote the plan and when.
     pub planned: Option<(String, Timestamp)>,
     /// Who plans the ticket right now and since when; a claim lives 15 minutes.
@@ -167,6 +171,8 @@ impl Ticket {
             needs_planning: draft.needs_planning,
             blocked_reason: None,
             target_branch: draft.target_branch,
+            branch: None,
+            worktree: None,
             planned: None,
             planning_claim: None,
             created_by,
@@ -215,6 +221,27 @@ impl Ticket {
             version: before.version.next(),
             ..after
         })
+    }
+}
+
+impl TicketRecord {
+    /// Ends the link to the worktree; the worktree keeps the ticket in its list.
+    pub fn clear_link(&mut self) {
+        self.branch = None;
+        self.worktree = None;
+    }
+}
+
+/// A started ticket keeps its target; the lock looks at the branch before the change.
+pub fn check_target_lock(before: &TicketRecord, after: &TicketRecord) -> Result<(), TicketError> {
+    match &before.branch {
+        Some(branch) if after.target_branch != before.target_branch => {
+            Err(TicketError::TargetBranchLocked {
+                key: before.key.to_string(),
+                branch: branch.clone(),
+            })
+        }
+        _ => Ok(()),
     }
 }
 
@@ -278,6 +305,8 @@ pub fn changes(before: &TicketRecord, after: &TicketRecord) -> Vec<FieldChange> 
             name(&before.planning_claim),
             name(&after.planning_claim),
         ),
+        ("branch", before.branch.clone(), after.branch.clone()),
+        ("worktree", before.worktree.clone(), after.worktree.clone()),
         (
             "targetBranch",
             branch(&before.target_branch),
@@ -675,6 +704,53 @@ mod tests {
             ]
         );
         assert_eq!(super::changes(before.record(), before.record()), []);
+    }
+
+    #[test]
+    fn the_link_shows_after_the_claim_and_before_the_target() {
+        let mut before = sample().record().clone();
+        before.branch = Some(String::from("ticket/ARC-0007-fix-it"));
+        before.worktree = Some(String::from("/work/arches-worktrees/ARC-0007"));
+        let mut after = before.clone();
+        after.clear_link();
+        after.planning_claim = Some((String::from("planner"), Timestamp::from_millis(1)));
+        after.target_branch = TargetBranch::parse("release/1").unwrap();
+        let changes = changes(&before, &after);
+        let shown: Vec<(&str, Option<&str>, Option<&str>)> = changes
+            .iter()
+            .map(|change| (change.field, change.from.as_deref(), change.to.as_deref()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("planningClaimBy", None, Some("planner")),
+                ("branch", Some("ticket/ARC-0007-fix-it"), None),
+                ("worktree", Some("/work/arches-worktrees/ARC-0007"), None),
+                ("targetBranch", None, Some("release/1")),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_target_locks_once_the_ticket_had_a_branch_before_the_change() {
+        let mut before = sample().record().clone();
+        let mut after = before.clone();
+        after.branch = Some(String::from("ticket/ARC-0007-fix-it"));
+        after.target_branch = TargetBranch::parse("release/1").unwrap();
+        assert_eq!(check_target_lock(&before, &after), Ok(()));
+        before.branch.clone_from(&after.branch);
+        assert_eq!(
+            check_target_lock(&before, &after),
+            Err(TicketError::TargetBranchLocked {
+                key: String::from("ARC-0007"),
+                branch: String::from("ticket/ARC-0007-fix-it"),
+            })
+        );
+        // clearing in the same change does not lift the lock, an unchanged target passes
+        after.clear_link();
+        assert!(check_target_lock(&before, &after).is_err());
+        after.target_branch = None;
+        assert_eq!(check_target_lock(&before, &after), Ok(()));
     }
 
     #[test]

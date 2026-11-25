@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT worktree_id AS \"worktree_id: Uuid\" FROM worktree_tickets\n           WHERE ticket_id = ? AND released_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "worktree_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "worktree_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "76ef954e90fec74b0df3ecff7c9066648ebc0c3a009082337deb0c703745fb4a"
+}

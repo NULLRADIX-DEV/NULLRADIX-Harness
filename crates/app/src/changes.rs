@@ -18,6 +18,7 @@ pub enum Entity {
     Run,
     Runner,
     Repository,
+    Worktree,
 }
 
 impl Entity {

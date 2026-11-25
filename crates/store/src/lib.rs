@@ -9,6 +9,7 @@ mod projects;
 mod repositories;
 mod runs;
 mod tickets;
+mod worktrees;
 
 use std::path::Path;
 use std::time::Duration;

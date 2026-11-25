@@ -1,0 +1,63 @@
+{
+  "title": "A ticket change may clear branch and worktree, never set them",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Base" }
+      }
+    },
+    {
+      "name": "set a branch",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1",
+        "body": { "version": 1, "branch": "ticket/ARC-0001-base" }
+      }
+    },
+    {
+      "name": "set a worktree next to a clear",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1",
+        "body": { "version": 1, "branch": null, "worktree": "/work/x" }
+      }
+    },
+    {
+      "name": "clear the link",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1",
+        "body": { "version": 1, "worktree": null }
+      }
+    },
+    {
+      "name": "change the target",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-1",
+        "body": { "version": 2, "targetBranch": "release/1" }
+      }
+    }
+  ]
+}

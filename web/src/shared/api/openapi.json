@@ -3559,7 +3559,8 @@
           "ticket",
           "run",
           "runner",
-          "repository"
+          "repository",
+          "worktree"
         ]
       },
       "Handoff": {
@@ -4516,6 +4517,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Branch of the worktree the ticket works in right now."
+          },
           "column": {
             "$ref": "#/components/schemas/ColumnDto"
           },
@@ -4657,6 +4665,13 @@
           "waiting": {
             "type": "boolean",
             "description": "Ahead of the work with an open dependency."
+          },
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Folder of that worktree on its runner."
           }
         }
       },
@@ -4718,6 +4733,13 @@
             ],
             "format": "uuid",
             "description": "Moves the ticket to another board of its project."
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only `null`, which clears branch and worktree together; a value is refused."
           },
           "dependsOn": {
             "type": [
@@ -4827,6 +4849,13 @@
             "type": "integer",
             "format": "int64",
             "description": "Version the change is based on."
+          },
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only `null`, like `branch`."
           }
         },
         "additionalProperties": false

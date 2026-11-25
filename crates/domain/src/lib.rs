@@ -13,6 +13,7 @@ mod ticket;
 mod ticket_values;
 mod timestamp;
 mod version;
+mod worktree;
 
 pub use board::{Actor, ActorKind, ActorName, Board, BoardError, BoardName, BoardRecord};
 pub use board_rules::{
@@ -33,7 +34,8 @@ pub use text::{TextError, optional_text, required_text, utf16_len, utf16_prefix}
 pub use ticket::{
     ASSIGNEE_MAX, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange, HUMAN_INTERACTION, HistoryEntry,
     PLANNING_CLAIM_TTL, TITLE_MAX, TargetBranch, Ticket, TicketDraft, TicketRecord, TicketTitle,
-    Tombstone, changes, planning_candidate, planning_claim_alive, strip_fence, waits_for_a_person,
+    Tombstone, changes, check_target_lock, planning_candidate, planning_claim_alive, strip_fence,
+    waits_for_a_person,
 };
 pub use ticket_values::{
     Column, Priority, StatusFacts, StatusLock, StatusRequest, TicketError, TicketKey, TicketStatus,
@@ -41,3 +43,8 @@ pub use ticket_values::{
 };
 pub use timestamp::Timestamp;
 pub use version::{InvalidVersion, Version};
+pub use worktree::{
+    ActualState, DesiredState, SetupState, WORKTREE_BRANCH_MAX, WORKTREE_PATH_MAX, Worktree,
+    WorktreeBranch, WorktreeDraft, WorktreeError, WorktreePath, WorktreePurpose, WorktreeRecord,
+    WorktreeTicket,
+};

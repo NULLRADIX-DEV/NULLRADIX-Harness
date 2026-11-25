@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.ticket_id AS \"ticket_id: Uuid\", p.key AS project_key, t.number, l.position,\n                  l.joined_at, l.released_at\n           FROM worktree_tickets l\n           JOIN tickets t ON t.id = l.ticket_id\n           JOIN projects p ON p.id = t.project_id\n           WHERE l.worktree_id = ?\n           ORDER BY l.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "ticket_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "ticket_id"
+          }
+        }
+      },
+      {
+        "name": "project_key",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "number",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "position",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "name": "joined_at",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "joined_at"
+          }
+        }
+      },
+      {
+        "name": "released_at",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "released_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "1a5d74e243c5ae25b0003084d1b531695330e0b02673416f92d6697077a56c3b"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO worktree_tickets (worktree_id, ticket_id, position, joined_at)\n         SELECT ?1, ?2, coalesce(max(position) + 1, 0), ?3 FROM worktree_tickets\n         WHERE worktree_id = ?1\n         ON CONFLICT (worktree_id, ticket_id) DO UPDATE SET released_at = NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "4906248d2b49b8291cc7c3c36eb240ccf394d09c664558569cbd80add0bd041f"
+}

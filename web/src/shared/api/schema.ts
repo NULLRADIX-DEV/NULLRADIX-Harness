@@ -704,7 +704,7 @@ export interface components {
             title: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree";
         /** @description One-time code that opens a browser session. */
         Handoff: {
             code: string;
@@ -979,6 +979,8 @@ export interface components {
             blockedReason?: string | null;
             /** Format: uuid */
             boardId: string;
+            /** @description Branch of the worktree the ticket works in right now. */
+            branch?: string | null;
             column: components["schemas"]["ColumnDto"];
             /** Format: int64 */
             createdAt: number;
@@ -1026,6 +1028,8 @@ export interface components {
             version: number;
             /** @description Ahead of the work with an open dependency. */
             waiting: boolean;
+            /** @description Folder of that worktree on its runner. */
+            worktree?: string | null;
         };
         TicketList: {
             items: components["schemas"]["TicketDto"][];
@@ -1042,6 +1046,8 @@ export interface components {
              * @description Moves the ticket to another board of its project.
              */
             boardId?: string | null;
+            /** @description Only `null`, which clears branch and worktree together; a value is refused. */
+            branch?: string | null;
             /** @description Replaces the dependencies and then ignores the add list; the remove list applies last. */
             dependsOn?: string[] | null;
             dependsOnAdd?: string[] | null;
@@ -1064,6 +1070,8 @@ export interface components {
              * @description Version the change is based on.
              */
             version: number;
+            /** @description Only `null`, like `branch`. */
+            worktree?: string | null;
         };
         /** @description A plan; at least one of plan, handbook and diagram. */
         WritePlan: {

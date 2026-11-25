@@ -1,0 +1,206 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id: Uuid\", repository_id AS \"repository_id: Uuid\",\n                  runner_id AS \"runner_id: Uuid\", branch, target_branch, path, purpose,\n                  desired_state, actual_state, setup_state, ready_to_merge, last_error,\n                  observed_at, created_at, updated_at, version\n           FROM worktrees WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "repository_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "repository_id"
+          }
+        }
+      },
+      {
+        "name": "runner_id: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "runner_id"
+          }
+        }
+      },
+      {
+        "name": "branch",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "branch"
+          }
+        }
+      },
+      {
+        "name": "target_branch",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "target_branch"
+          }
+        }
+      },
+      {
+        "name": "path",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "name": "purpose",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "purpose"
+          }
+        }
+      },
+      {
+        "name": "desired_state",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "desired_state"
+          }
+        }
+      },
+      {
+        "name": "actual_state",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "actual_state"
+          }
+        }
+      },
+      {
+        "name": "setup_state",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "setup_state"
+          }
+        }
+      },
+      {
+        "name": "ready_to_merge",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "ready_to_merge"
+          }
+        }
+      },
+      {
+        "name": "last_error",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "last_error"
+          }
+        }
+      },
+      {
+        "name": "observed_at",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "observed_at"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 14,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 15,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "063437638434ac1bbe4ca0b8d8c822e064ef9d719c43ce065f197bb0c02be101"
+}

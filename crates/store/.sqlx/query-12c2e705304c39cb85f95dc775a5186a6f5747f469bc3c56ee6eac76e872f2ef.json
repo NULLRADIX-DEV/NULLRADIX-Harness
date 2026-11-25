@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT t.id AS \"id: Uuid\", p.key AS project_key, t.project_id AS \"project_id: Uuid\",\n                  t.board_id AS \"board_id: Uuid\", t.number, t.title, t.description, t.acceptance,\n                  t.plan, t.handbook, t.diagram, t.status, t.priority, t.sort_order, t.assignee,\n                  t.needs_planning, t.blocked_reason, t.target_branch, t.planned_by,\n                  t.planned_at, t.planning_claim_by, t.planning_claim_at,\n                  t.created_by AS \"created_by: Uuid\", a.name AS created_by_name, t.created_at,\n                  t.updated_at, t.version\n           FROM tickets t\n           JOIN projects p ON p.id = t.project_id\n           JOIN actors a ON a.id = t.created_by\n           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)\n             AND (?3 IS NULL OR t.id = ?3)",
+  "query": "SELECT t.id AS \"id: Uuid\", p.key AS project_key, t.project_id AS \"project_id: Uuid\",\n                  t.board_id AS \"board_id: Uuid\", t.number, t.title, t.description, t.acceptance,\n                  t.plan, t.handbook, t.diagram, t.status, t.priority, t.sort_order, t.assignee,\n                  t.needs_planning, t.blocked_reason, t.target_branch,\n                  w.branch AS \"branch?\", w.path AS \"worktree?\", t.planned_by,\n                  t.planned_at, t.planning_claim_by, t.planning_claim_at,\n                  t.created_by AS \"created_by: Uuid\", a.name AS created_by_name, t.created_at,\n                  t.updated_at, t.version\n           FROM tickets t\n           JOIN projects p ON p.id = t.project_id\n           JOIN actors a ON a.id = t.created_by\n           LEFT JOIN worktree_tickets l ON l.ticket_id = t.id AND l.released_at IS NULL\n           LEFT JOIN worktrees w ON w.id = l.worktree_id\n           WHERE (?1 IS NULL OR t.project_id = ?1) AND (?2 IS NULL OR t.board_id = ?2)\n             AND (?3 IS NULL OR t.id = ?3)",
   "describe": {
     "columns": [
       {
@@ -202,8 +202,30 @@
         }
       },
       {
-        "name": "planned_by",
+        "name": "branch?",
         "ordinal": 18,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "branch"
+          }
+        }
+      },
+      {
+        "name": "worktree?",
+        "ordinal": 19,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "name": "planned_by",
+        "ordinal": 20,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -214,7 +236,7 @@
       },
       {
         "name": "planned_at",
-        "ordinal": 19,
+        "ordinal": 21,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -225,7 +247,7 @@
       },
       {
         "name": "planning_claim_by",
-        "ordinal": 20,
+        "ordinal": 22,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -236,7 +258,7 @@
       },
       {
         "name": "planning_claim_at",
-        "ordinal": 21,
+        "ordinal": 23,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -247,7 +269,7 @@
       },
       {
         "name": "created_by: Uuid",
-        "ordinal": 22,
+        "ordinal": 24,
         "type_info": "Blob",
         "origin": {
           "Table": {
@@ -258,7 +280,7 @@
       },
       {
         "name": "created_by_name",
-        "ordinal": 23,
+        "ordinal": 25,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -269,7 +291,7 @@
       },
       {
         "name": "created_at",
-        "ordinal": 24,
+        "ordinal": 26,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -280,7 +302,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 25,
+        "ordinal": 27,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -291,7 +313,7 @@
       },
       {
         "name": "version",
-        "ordinal": 26,
+        "ordinal": 28,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -327,6 +349,8 @@
       true,
       true,
       true,
+      true,
+      true,
       false,
       false,
       false,
@@ -334,5 +358,5 @@
       false
     ]
   },
-  "hash": "38d5e0b31d78ea5406cc83c390ef6d1dc406a3160c0bd4905c20e99fbcbce749"
+  "hash": "12c2e705304c39cb85f95dc775a5186a6f5747f469bc3c56ee6eac76e872f2ef"
 }

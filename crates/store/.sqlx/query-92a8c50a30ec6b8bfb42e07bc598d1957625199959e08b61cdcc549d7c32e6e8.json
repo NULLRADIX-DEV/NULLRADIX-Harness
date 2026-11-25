@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO worktrees (id, repository_id, runner_id, branch, target_branch, path, purpose,\n                                desired_state, actual_state, setup_state, ready_to_merge,\n                                last_error, observed_at, created_at, updated_at, version)\n         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 16
+    },
+    "nullable": []
+  },
+  "hash": "92a8c50a30ec6b8bfb42e07bc598d1957625199959e08b61cdcc549d7c32e6e8"
+}

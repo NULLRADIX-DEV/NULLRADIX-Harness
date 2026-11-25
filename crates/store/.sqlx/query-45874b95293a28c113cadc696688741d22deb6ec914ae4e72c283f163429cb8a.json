@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE worktree_tickets SET released_at = ?\n           WHERE ticket_id = ? AND released_at IS NULL\n           RETURNING worktree_id AS \"worktree_id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "worktree_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktree_tickets",
+            "name": "worktree_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "45874b95293a28c113cadc696688741d22deb6ec914ae4e72c283f163429cb8a"
+}

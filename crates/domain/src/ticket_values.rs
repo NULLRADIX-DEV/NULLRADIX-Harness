@@ -26,6 +26,10 @@ pub enum TicketError {
     InvalidTargetBranch(String),
     #[error("{0} is the branch of a ticket, nothing merges there")]
     TicketBranchTarget(String),
+    #[error(
+        "{key} runs on branch {branch} already; the target branch changes only before the start"
+    )]
+    TargetBranchLocked { key: String, branch: String },
 }
 
 /// The human key of a ticket, such as `ARC-0042`; numbers grow past four digits.
