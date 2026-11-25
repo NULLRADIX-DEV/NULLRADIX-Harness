@@ -4,10 +4,12 @@ import {
   addLadderStep,
   addProfile,
   addRule,
+  addSetupStep,
   changeProfile,
   moveLadderStep,
   moveProfile,
   moveRule,
+  moveSetupStep,
   removeProfile,
   type DispatcherForm,
   type FieldErrors,
@@ -424,6 +426,91 @@ export function RulesEditor({ form, errors, accounts, edit }: EditorProps) {
           }}
         >
           Add rule
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function SetupStepsEditor({ form, errors, edit }: Omit<EditorProps, 'accounts'>) {
+  return (
+    <div className="dispatcher-table">
+      <ol className="dispatcher-rows" aria-label="Worktree setup steps">
+        {form.worktreeSetup.map((step, at) => {
+          const n = String(at + 1);
+          const set = (patch: Partial<Omit<(typeof form.worktreeSetup)[number], 'key'>>) => {
+            edit((current) => ({
+              ...current,
+              worktreeSetup: current.worktreeSetup.map((item) =>
+                item.key === step.key ? { ...item, ...patch } : item,
+              ),
+            }));
+          };
+          return (
+            <li key={step.key} className="dispatcher-item">
+              <div className="dispatcher-row setup">
+                <span className="muted">{n}.</span>
+                <input
+                  aria-label={`Setup step ${n} folder`}
+                  value={step.cwd}
+                  placeholder=". (worktree root)"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => {
+                    set({ cwd: event.target.value });
+                  }}
+                />
+                <input
+                  className="mono"
+                  aria-label={`Setup step ${n} command`}
+                  value={step.run}
+                  placeholder="npm ci"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => {
+                    set({ run: event.target.value });
+                  }}
+                />
+                <span className="dispatcher-actions">
+                  <Move
+                    label={`setup step ${n}`}
+                    at={at}
+                    count={form.worktreeSetup.length}
+                    onMove={(to) => {
+                      edit((current) => moveSetupStep(current, at, to));
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    aria-label={`Remove setup step ${n}`}
+                    onClick={() => {
+                      edit((current) => ({
+                        ...current,
+                        worktreeSetup: current.worktreeSetup.filter(
+                          (item) => item.key !== step.key,
+                        ),
+                      }));
+                    }}
+                  >
+                    Remove
+                  </button>
+                </span>
+              </div>
+              <RowErrors errors={errors} prefix={`worktreeSetup[${String(at)}]`} />
+            </li>
+          );
+        })}
+      </ol>
+      <div>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            edit(addSetupStep);
+          }}
+        >
+          Add setup step
         </button>
       </div>
     </div>

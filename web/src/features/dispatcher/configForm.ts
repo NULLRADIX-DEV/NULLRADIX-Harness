@@ -33,6 +33,12 @@ export interface LadderStep {
   profile: string;
 }
 
+export interface SetupRow {
+  key: number;
+  cwd: string;
+  run: string;
+}
+
 export interface DispatcherForm {
   enabled: boolean;
   wip: string;
@@ -45,6 +51,8 @@ export interface DispatcherForm {
   mergeStrategy: 'merge' | 'squash';
   reviewBeforeMerge: boolean;
   joinWorktrees: 'none' | 'same-spec';
+  worktreeSetup: SetupRow[];
+  worktreeSetupTimeoutMinutes: string;
   profiles: ProfileRow[];
   defaultProfile: string;
   escalate: boolean;
@@ -102,6 +110,8 @@ export function toForm(config: DispatcherConfig): DispatcherForm {
     mergeStrategy: config.mergeStrategy,
     reviewBeforeMerge: config.reviewBeforeMerge,
     joinWorktrees: config.joinWorktrees,
+    worktreeSetup: config.worktreeSetup.map((step, key) => ({ key, cwd: step.cwd, run: step.run })),
+    worktreeSetupTimeoutMinutes: text(config.worktreeSetupTimeoutMinutes),
     profiles: config.profiles.map((profile, key) => ({
       key,
       id: profile.id ?? null,
@@ -177,7 +187,7 @@ function ruleOf(row: RuleRow): RuleDto {
   };
 }
 
-// What the form does not edit (prompts, setup steps, Claude limits) stays as `base` has it.
+// What the form does not edit (prompts, Claude limits) stays as `base` has it.
 export function toConfig(form: DispatcherForm, base: DispatcherConfig): DispatcherConfig {
   const window =
     form.from.trim() === '' && form.to.trim() === ''
@@ -196,6 +206,11 @@ export function toConfig(form: DispatcherForm, base: DispatcherConfig): Dispatch
     mergeStrategy: form.mergeStrategy,
     reviewBeforeMerge: form.reviewBeforeMerge,
     joinWorktrees: form.joinWorktrees,
+    worktreeSetup: form.worktreeSetup.map((row) => ({
+      cwd: row.cwd.trim() === '' ? '.' : row.cwd.trim(),
+      run: row.run.trim(),
+    })),
+    worktreeSetupTimeoutMinutes: number(form.worktreeSetupTimeoutMinutes),
     claude: {
       ...base.claude,
       command: form.command.trim() === '' ? 'claude' : form.command.trim(),
@@ -257,6 +272,7 @@ export function checkForm(form: DispatcherForm): Record<string, string> {
   whole('wip', form.wip, 0);
   whole('maxAttempts', form.maxAttempts, 1);
   whole('pauseMinutesOnLimit', form.pauseMinutesOnLimit, 1);
+  whole('worktreeSetupTimeoutMinutes', form.worktreeSetupTimeoutMinutes, 1);
   whole('accountLimitPercent', form.accountLimitPercent, 50, 100);
   whole('accountReserveFiveHour', form.accountReserveFiveHour, 0, 50);
   whole('accountReserveWeek', form.accountReserveWeek, 0, 50);
@@ -294,6 +310,12 @@ export function checkForm(form: DispatcherForm): Record<string, string> {
   });
   form.ladder.forEach((step, at) => {
     if (step.profile.trim() === '') errors[`ladder[${String(at)}]`] = 'Pick a profile.';
+  });
+  form.worktreeSetup.forEach((step, at) => {
+    const path = `worktreeSetup[${String(at)}]`;
+    if (step.run.trim() === '') errors[`${path}.run`] = 'Enter a command.';
+    const problem = folderProblem(step.cwd);
+    if (problem !== null) errors[`${path}.cwd`] = problem;
   });
   return errors;
 }
@@ -405,4 +427,21 @@ export function addRule(form: DispatcherForm): DispatcherForm {
     accounts: [],
   };
   return { ...form, rules: [...form.rules, row] };
+}
+
+// A setup step runs inside the worktree, so its folder is relative and stays below the root.
+export function folderProblem(cwd: string): string | null {
+  const path = cwd.trim().replaceAll('\\', '/');
+  if (path.startsWith('/') || /^[A-Za-z]:/.test(path)) return 'Use a folder inside the worktree.';
+  if (path.split('/').includes('..')) return 'The folder must not leave the worktree.';
+  return null;
+}
+
+export function addSetupStep(form: DispatcherForm): DispatcherForm {
+  const row: SetupRow = { key: nextKey(form.worktreeSetup), cwd: '', run: '' };
+  return { ...form, worktreeSetup: [...form.worktreeSetup, row] };
+}
+
+export function moveSetupStep(form: DispatcherForm, from: number, to: number): DispatcherForm {
+  return { ...form, worktreeSetup: moved(form.worktreeSetup, from, to) };
 }

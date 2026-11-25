@@ -4,11 +4,14 @@ import {
   addLadderStep,
   addProfile,
   addRule,
+  addSetupStep,
   changeProfile,
   checkForm,
+  folderProblem,
   moveLadderStep,
   moveProfile,
   moveRule,
+  moveSetupStep,
   removeProfile,
   toConfig,
   toForm,
@@ -42,12 +45,10 @@ describe('toForm and toConfig', () => {
   it('keep what the form does not edit', () => {
     const config = defaultConfig();
     config.prompts.work = 'own prompt';
-    config.worktreeSetup = [{ cwd: '.', run: 'npm ci' }];
     config.claude.extraArgs = ['--x'];
     config.staleMinutes = 999;
     const next = toConfig({ ...toForm(config), wip: '4' }, config);
     expect(next.prompts.work).toBe('own prompt');
-    expect(next.worktreeSetup).toEqual([{ cwd: '.', run: 'npm ci' }]);
     expect(next.claude.extraArgs).toEqual(['--x']);
     expect(next.staleMinutes).toBe(999);
     expect(next.wip).toBe(4);
@@ -297,5 +298,57 @@ describe('row ids', () => {
     const next = toConfig(f, defaultConfig());
     expect('id' in at(next.profiles, 3)).toBe(false);
     expect('id' in at(next.rules, 4)).toBe(false);
+  });
+});
+
+describe('worktree setup steps', () => {
+  const steps = [
+    { cwd: '.', run: 'npm ci' },
+    { cwd: 'web', run: 'npm run build' },
+  ];
+
+  it('are edited as rows and sent in order', () => {
+    const config = { ...defaultConfig(), worktreeSetup: steps, worktreeSetupTimeoutMinutes: 20 };
+    const f = toForm(config);
+    expect(f.worktreeSetup.map((row) => row.run)).toEqual(['npm ci', 'npm run build']);
+    expect(f.worktreeSetupTimeoutMinutes).toBe('20');
+    const moved = moveSetupStep(f, 1, 0);
+    expect(toConfig(moved, config).worktreeSetup).toEqual([steps[1], steps[0]]);
+    expect(moveSetupStep(f, 0, -1).worktreeSetup).toEqual(f.worktreeSetup);
+    expect(moveSetupStep(f, 1, 2).worktreeSetup).toEqual(f.worktreeSetup);
+  });
+
+  it('start in the worktree root and trim what is typed', () => {
+    const added = addSetupStep(form());
+    expect(at(added.worktreeSetup, 0)).toEqual({ key: 0, cwd: '', run: '' });
+    expect(at(addSetupStep(added).worktreeSetup, 1).key).toBe(1);
+    const typed = {
+      ...added,
+      worktreeSetup: [{ key: 0, cwd: '  ', run: '  pnpm i  ' }],
+    };
+    expect(toConfig(typed, defaultConfig()).worktreeSetup).toEqual([{ cwd: '.', run: 'pnpm i' }]);
+  });
+
+  it('are checked for a command, a folder inside the worktree and a timeout', () => {
+    const f = {
+      ...addSetupStep(addSetupStep(form())),
+      worktreeSetupTimeoutMinutes: '0',
+    };
+    const wrong = {
+      ...f,
+      worktreeSetup: [
+        { key: 0, cwd: '..', run: '' },
+        { key: 1, cwd: 'C:\\x', run: 'ok' },
+      ],
+    };
+    expect(checkForm(wrong)).toEqual({
+      worktreeSetupTimeoutMinutes: 'Enter a whole number from 1.',
+      'worktreeSetup[0].run': 'Enter a command.',
+      'worktreeSetup[0].cwd': 'The folder must not leave the worktree.',
+      'worktreeSetup[1].cwd': 'Use a folder inside the worktree.',
+    });
+    expect(folderProblem('web/app')).toBeNull();
+    expect(folderProblem('/abs')).not.toBeNull();
+    expect(folderProblem('a\\..\\b')).not.toBeNull();
   });
 });

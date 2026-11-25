@@ -411,6 +411,56 @@ describe('DispatcherSection', () => {
     expect(textbox(form, 'Parallel tickets (WIP)').value).toBe('1');
   });
 
+  it('edits the worktree setup: add, order, remove and save', async () => {
+    const server = dispatcherServer(
+      configView({
+        ...defaultConfig(),
+        worktreeSetup: [{ cwd: '.', run: 'npm ci' }],
+      }),
+    );
+    const form = await open();
+    expect(textbox(form, 'Setup step 1 command').value).toBe('npm ci');
+    expect(textbox(form, 'Setup timeout (minutes)').value).toBe('15');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add setup step' }));
+    await userEvent.type(textbox(form, 'Setup step 2 folder'), 'web');
+    await userEvent.type(textbox(form, 'Setup step 2 command'), 'npm run build');
+    await userEvent.click(within(form).getByRole('button', { name: 'Move setup step 2 up' }));
+    expect(textbox(form, 'Setup step 1 command').value).toBe('npm run build');
+    await userEvent.click(within(form).getByRole('button', { name: 'Remove setup step 2' }));
+    await userEvent.click(within(form).getByRole('button', { name: 'Add setup step' }));
+    await userEvent.type(textbox(form, 'Setup step 2 command'), 'npm test');
+    await save(form);
+    await waitFor(() => {
+      expect(server.saves).toHaveLength(1);
+    });
+    expect(server.saves[0]?.config.worktreeSetup).toEqual([
+      { cwd: 'web', run: 'npm run build' },
+      { cwd: '.', run: 'npm test' },
+    ]);
+  });
+
+  it('wants a command in every setup step and shows the folder the daemon refuses', async () => {
+    const server = dispatcherServer();
+    const form = await open();
+    await userEvent.click(within(form).getByRole('button', { name: 'Add setup step' }));
+    await save(form);
+    expect(await within(form).findByText('run: Enter a command.')).toBeInTheDocument();
+    expect(server.saves).toHaveLength(0);
+    await userEvent.type(textbox(form, 'Setup step 1 command'), 'make');
+    server.refuseNext(() =>
+      invalid({
+        type: 'about:blank',
+        title: 'Unprocessable Entity',
+        status: 422,
+        code: 'dispatcher-config-invalid',
+        detail: 'the dispatcher configuration has invalid fields',
+        errors: [{ field: 'worktreeSetup[0].cwd', message: 'leaves the worktree' }],
+      }),
+    );
+    await save(form);
+    expect(await within(form).findByText('cwd: leaves the worktree')).toBeInTheDocument();
+  });
+
   it('says so when the settings cannot be loaded', async () => {
     fakeApi({ 'GET /api/v1/dispatcher/config': () => problem(500, 'internal', 'boom') });
     renderApp('/settings');
