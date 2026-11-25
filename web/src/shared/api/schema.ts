@@ -627,6 +627,8 @@ export interface components {
             /** @description Name to write under, such as `claude`; the acting person when left out. */
             author?: string | null;
             body: string;
+            /** @description Agent session of the caller: the comment counts as delivered and names a session author. */
+            session?: string | null;
         };
         /** @description A new work step. */
         AddStep: {

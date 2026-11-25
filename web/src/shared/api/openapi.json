@@ -3456,6 +3456,13 @@
           },
           "body": {
             "type": "string"
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller: the comment counts as delivered and names a session author."
           }
         },
         "additionalProperties": false

@@ -39,10 +39,16 @@ fn body(text: Option<String>, file: Option<&Path>) -> anyhow::Result<String> {
     }
 }
 
+/// The agent session from `NULLRADIX_SESSION`; an empty value counts as none.
+fn session(value: Option<String>) -> Option<String> {
+    value.filter(|session| !session.trim().is_empty())
+}
+
 pub(crate) fn run(args: CommentArgs, client: &Client) -> anyhow::Result<()> {
     let input = AddComment {
         body: body(args.text, args.body_file.as_deref())?,
         author: args.author,
+        session: session(std::env::var("NULLRADIX_SESSION").ok()),
     };
     let comment = client.add_comment(&canonical(&args.key)?, &input)?;
     println!("Comment on {} saved.", comment.ticket_key);
@@ -79,8 +85,13 @@ pub(crate) fn comment_lines(comments: &[CommentDto], all: bool) -> Vec<String> {
             continue;
         }
         let mut body = comment.body.lines();
+        let agent = if comment.author_kind == ActorKindDto::Human {
+            ""
+        } else {
+            " (agent)"
+        };
         lines.push(format!(
-            "{}  {}: {}",
+            "{}  {}{agent}: {}",
             Timestamp::from_millis(comment.created_at),
             comment.author_name,
             body.next().unwrap_or_default()
@@ -101,6 +112,13 @@ mod tests {
     struct Cli {
         #[command(flatten)]
         args: CommentArgs,
+    }
+
+    #[test]
+    fn an_empty_session_counts_as_none() {
+        assert_eq!(session(None), None);
+        assert_eq!(session(Some(String::from(" "))), None);
+        assert_eq!(session(Some(String::from("s-1"))).as_deref(), Some("s-1"));
     }
 
     #[test]
@@ -146,9 +164,9 @@ mod tests {
                 "(1 older agent comment hidden; --all-comments shows them)",
                 "1970-01-01T00:00:00.000Z  anna: first",
                 "    second line",
-                "1970-01-01T00:00:00.000Z  claude: 2",
-                "1970-01-01T00:00:00.000Z  claude: 3",
-                "1970-01-01T00:00:00.000Z  claude: 4",
+                "1970-01-01T00:00:00.000Z  claude (agent): 2",
+                "1970-01-01T00:00:00.000Z  claude (agent): 3",
+                "1970-01-01T00:00:00.000Z  claude (agent): 4",
             ]
         );
         assert_eq!(comment_lines(&comments, true).len(), 6);

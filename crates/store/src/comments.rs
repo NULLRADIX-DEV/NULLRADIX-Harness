@@ -136,6 +136,11 @@ impl CommentWrite for Write {
 
 #[async_trait]
 impl CommentRepository for Store {
+    async fn ticket_exists(&self, ticket: &TicketKey) -> Result<bool, AppError> {
+        let mut read = self.reader.acquire().await.map_err(database)?;
+        Ok(ticket_id(&mut read, ticket).await?.is_some())
+    }
+
     async fn list(&self, ticket: &TicketKey) -> Result<Option<Vec<CommentLine>>, AppError> {
         let mut read = self.reader.begin().await.map_err(database)?;
         let Some(id) = ticket_id(&mut read, ticket).await? else {
@@ -157,12 +162,17 @@ impl CommentRepository for Store {
         Ok(found)
     }
 
-    async fn mark_delivered(&self, ids: &[Id<Comment>], at: Timestamp) -> Result<(), AppError> {
+    async fn mark_delivered(
+        &self,
+        ids: &[Id<Comment>],
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
         let millis = at.as_millis();
         let mut write = self.begin().await?;
+        let mut last = None;
         for id in ids {
             let uuid = id.as_uuid();
-            sqlx::query!(
+            let marked = sqlx::query!(
                 "UPDATE comments SET delivered_to_agent_at = ?
                  WHERE id = ? AND delivered_to_agent_at IS NULL",
                 millis,
@@ -171,7 +181,67 @@ impl CommentRepository for Store {
             .execute(&mut *write)
             .await
             .map_err(database)?;
+            if marked.rows_affected() > 0 {
+                let change =
+                    change_feed::record(&mut write, Entity::Comment, uuid, ChangeOp::Update, at)
+                        .await?;
+                last = Some(change);
+            }
         }
-        write.commit().await.map_err(database)
+        write.commit().await.map_err(database)?;
+        Ok(last)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn comment_rows(store: &Store) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM comments")
+            .fetch_one(&store.reader)
+            .await
+            .unwrap()
+    }
+
+    async fn run(store: &Store, sql: &'static str) {
+        let id = |n: u128| Uuid::from_u128(n);
+        sqlx::query(sql)
+            .bind(id(1))
+            .bind(id(2))
+            .bind(id(3))
+            .bind(id(4))
+            .execute(&store.writer)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn deleting_a_ticket_deletes_its_comments() {
+        let store = Store::in_memory().await.unwrap();
+        // ?1 actor, ?2 project, ?3 board, ?4 ticket
+        run(
+            &store,
+            "INSERT INTO actors (id, kind, name, created_at) VALUES (?1, 'human', 'anna', 0)",
+        )
+        .await;
+        run(&store, "INSERT INTO projects (id, key, name, created_at, updated_at) VALUES (?2, 'ARC', 'Arches', 0, 0)").await;
+        run(&store, "INSERT INTO boards (id, project_id, name, owner_id, created_at, updated_at) VALUES (?3, ?2, 'Main', ?1, 0, 0)").await;
+        run(&store, "INSERT INTO tickets (id, project_id, board_id, number, title, description, acceptance, plan, handbook, diagram, status, priority, sort_order, needs_planning, created_by, created_at, updated_at) VALUES (?4, ?2, ?3, 1, 'Gone', '', '', '', '', '', 'backlog', 'normal', 0, 0, ?1, 0, 0)").await;
+        for (n, body) in [(5_u128, "soon gone"), (6, "me too")] {
+            sqlx::query("INSERT INTO comments (id, ticket_id, author_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0)")
+                .bind(Uuid::from_u128(n))
+                .bind(Uuid::from_u128(4))
+                .bind(Uuid::from_u128(1))
+                .bind(body)
+                .execute(&store.writer)
+                .await
+                .unwrap();
+        }
+        assert_eq!(comment_rows(&store).await, 2);
+
+        run(&store, "DELETE FROM tickets WHERE id = ?4").await;
+
+        assert_eq!(comment_rows(&store).await, 0);
     }
 }

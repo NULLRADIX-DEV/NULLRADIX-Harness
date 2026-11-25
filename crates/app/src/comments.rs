@@ -29,20 +29,38 @@ pub trait CommentWrite: Send {
 
 #[async_trait]
 pub trait CommentRepository: Send + Sync {
+    async fn ticket_exists(&self, ticket: &TicketKey) -> Result<bool, AppError>;
     /// Comments of the ticket, oldest first; `None` when the ticket does not exist.
     async fn list(&self, ticket: &TicketKey) -> Result<Option<Vec<CommentLine>>, AppError>;
     /// Comments of these tickets no agent session got yet, oldest first.
     async fn undelivered(&self, tickets: &[Id<Ticket>]) -> Result<Vec<CommentLine>, AppError>;
-    /// Marks the comments as delivered; the tickets keep their version.
-    async fn mark_delivered(&self, ids: &[Id<Comment>], at: Timestamp) -> Result<(), AppError>;
+    /// Marks comments delivered, one change each that was not yet; returns the last change.
+    async fn mark_delivered(
+        &self,
+        ids: &[Id<Comment>],
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
 }
 
-/// Who writes a comment: a person in the browser or an agent with a token.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Who writes a comment: the person in the browser, or a caller with a token.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Author<'a> {
+    /// A browser session always writes as the person, undelivered.
     pub by_person: bool,
     /// Name to write under, such as `claude`; the acting person when left out or blank.
     pub name: Option<&'a str>,
+    /// The agent session the caller runs in, as legacy read `NULLRADIX_SESSION`.
+    pub session: Option<&'a str>,
+}
+
+impl Author<'_> {
+    /// Written inside an agent session, so it counts as delivered to agents at once.
+    fn in_session(self) -> bool {
+        !self.by_person
+            && self
+                .session
+                .is_some_and(|session| !session.trim().is_empty())
+    }
 }
 
 #[must_use]
@@ -103,6 +121,9 @@ impl CommentService {
     ) -> Result<CommentLine, AppError> {
         let key = TicketKey::parse(key).map_err(|error| tickets::invalid(&error))?;
         let body = CommentBody::parse(body).map_err(|error| invalid(&error))?;
+        if !self.comments.ticket_exists(&key).await? {
+            return Err(tickets::not_found(&key));
+        }
         // the actor commits on its own, before the ticket write takes the connection
         let actor = self.author(author, person).await?;
         let mut write = self.tickets.begin().await?;
@@ -113,7 +134,7 @@ impl CommentService {
             ticket.id(),
             actor.id(),
             body,
-            !author.by_person,
+            author.in_session(),
             now,
         );
         let revised = ticket.revised(ticket.record().clone(), now);
@@ -151,19 +172,23 @@ impl CommentService {
         if ids.is_empty() {
             return Ok(());
         }
-        self.comments.mark_delivered(ids, self.clock.now()).await
+        if let Some(change) = self.comments.mark_delivered(ids, self.clock.now()).await? {
+            self.signal.notify(&change);
+        }
+        Ok(())
     }
 
-    /// The named author, as a person or a session by who writes; else the acting person.
+    /// The named author, a session inside one and a human otherwise; else the acting person.
     async fn author(&self, author: Author<'_>, person: &Actor) -> Result<Actor, AppError> {
-        let Some(name) = author.name.filter(|name| !name.trim().is_empty()) else {
+        let named = author.name.filter(|name| !name.trim().is_empty());
+        let (Some(name), false) = (named, author.by_person) else {
             return Ok(person.clone());
         };
         let name = ActorName::parse(name).map_err(|error| author_invalid(&error))?;
-        let kind = if author.by_person {
-            ActorKind::Human
-        } else {
+        let kind = if author.in_session() {
             ActorKind::Session
+        } else {
+            ActorKind::Human
         };
         let candidate = Actor::new(self.ids.next(), kind, name, self.clock.now());
         self.actors.ensure(&candidate).await

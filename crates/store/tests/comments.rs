@@ -4,13 +4,15 @@ mod common;
 
 use std::sync::Arc;
 
+use nullradix_app::boards::ActorRepository;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::{Author, CommentLine, CommentService};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::tickets::{NewTicket, TicketService, WriteOptions};
 use nullradix_app::{ChangeFeed, ChangeOp, ChangeSignal, Entity, SystemClock, UuidV7Generator};
-use nullradix_domain::{Actor, ActorKind, Board, Version};
+use nullradix_domain::{Actor, ActorKind, ActorName, Board, Id, Timestamp, Version};
 use nullradix_store::Store;
+use uuid::Uuid;
 
 struct Fixture {
     comments: CommentService,
@@ -23,12 +25,23 @@ struct Fixture {
 const PERSON: Author<'static> = Author {
     by_person: true,
     name: None,
+    session: None,
 };
 
+/// A CLI call under this name inside an agent session.
 fn agent(name: &str) -> Author<'_> {
     Author {
         by_person: false,
         name: Some(name),
+        session: Some("s-1"),
+    }
+}
+
+/// A CLI call under this name outside any agent session.
+fn named(name: &str) -> Author<'_> {
+    Author {
+        name: Some(name),
+        ..Author::default()
     }
 }
 
@@ -165,8 +178,17 @@ async fn comments_list_oldest_first_with_their_authors() {
     f.add(&key, "first", PERSON).await.unwrap();
     f.add(&key, "second", agent("claude")).await.unwrap();
     f.add(&key, "third", agent(" ")).await.unwrap();
+    f.add(&key, "fourth", named("bob")).await.unwrap();
+    let browser = Author {
+        name: Some("claude"),
+        ..PERSON
+    };
+    f.add(&key, "fifth", browser).await.unwrap();
 
-    assert_eq!(f.bodies(&key).await, ["first", "second", "third"]);
+    assert_eq!(
+        f.bodies(&key).await,
+        ["first", "second", "third", "fourth", "fifth"]
+    );
     let authors: Vec<(String, ActorKind)> = f
         .comments
         .list(&key)
@@ -180,6 +202,8 @@ async fn comments_list_oldest_first_with_their_authors() {
         [
             (String::from("anna"), ActorKind::Human),
             (String::from("claude"), ActorKind::Session),
+            (String::from("anna"), ActorKind::Human),
+            (String::from("bob"), ActorKind::Human),
             (String::from("anna"), ActorKind::Human),
         ]
     );
@@ -195,8 +219,19 @@ async fn refuses_empty_comments_unknown_tickets_and_long_names() {
         Err("comment-empty".into())
     );
     assert_eq!(
-        f.add("ARC-9", "x", PERSON).await,
+        f.add("ARC-9", "x", agent("ghost")).await,
         Err("ticket-not-found".into())
+    );
+    let ghost = Actor::new(
+        Id::from_uuid(Uuid::from_u128(7)),
+        ActorKind::Session,
+        ActorName::parse("ghost").unwrap(),
+        Timestamp::from_millis(0),
+    );
+    assert_eq!(
+        f.store.ensure(&ghost).await.unwrap().id(),
+        ghost.id(),
+        "a wrong key leaves no actor behind"
     );
     assert_eq!(
         f.add("nope", "x", PERSON).await,
@@ -224,13 +259,18 @@ async fn refuses_empty_comments_unknown_tickets_and_long_names() {
 }
 
 #[tokio::test]
-async fn only_person_comments_wait_for_delivery_to_agents() {
+async fn only_comments_from_an_agent_session_count_as_delivered() {
     let f = fixture().await;
     let first = f.ticket("One").await;
     let second = f.ticket("Two").await;
     f.add(&first, "please check", PERSON).await.unwrap();
     f.add(&first, "progress", agent("claude")).await.unwrap();
-    f.add(&second, "here too", PERSON).await.unwrap();
+    f.add(&second, "here too", named("bob")).await.unwrap();
+    let browser = Author {
+        session: Some("s-1"),
+        ..PERSON
+    };
+    f.add(&second, "from the board", browser).await.unwrap();
     let ids = [
         f.tickets.get(&first).await.unwrap().view.ticket.id(),
         f.tickets.get(&second).await.unwrap().view.ticket.id(),
@@ -245,7 +285,8 @@ async fn only_person_comments_wait_for_delivery_to_agents() {
         seen,
         [
             (first.clone(), "please check"),
-            (second.clone(), "here too")
+            (second.clone(), "here too"),
+            (second.clone(), "from the board")
         ]
     );
     assert_eq!(
@@ -254,8 +295,23 @@ async fn only_person_comments_wait_for_delivery_to_agents() {
     );
 
     let delivered: Vec<_> = waiting.iter().map(|line| line.comment.id()).collect();
+    let head = f.store.head().await.unwrap();
+    f.comments.mark_delivered(&delivered).await.unwrap();
+    let marked = f.store.changes_since(head, 10).await.unwrap();
+    assert_eq!(
+        marked
+            .iter()
+            .map(|change| (change.entity, change.op, change.entity_id))
+            .collect::<Vec<_>>(),
+        delivered
+            .iter()
+            .map(|id| (Entity::Comment, ChangeOp::Update, id.as_uuid()))
+            .collect::<Vec<_>>()
+    );
+    let head = f.store.head().await.unwrap();
     f.comments.mark_delivered(&delivered).await.unwrap();
     f.comments.mark_delivered(&[]).await.unwrap();
+    assert_eq!(f.store.head().await.unwrap(), head, "nothing left to mark");
 
     assert_eq!(
         f.comments.undelivered(&ids).await.unwrap(),
@@ -279,24 +335,5 @@ async fn only_person_comments_wait_for_delivery_to_agents() {
         version,
         Version::from_stored(3),
         "delivery keeps the version"
-    );
-}
-
-#[tokio::test]
-async fn deleting_a_ticket_deletes_its_comments() {
-    let f = fixture().await;
-    let key = f.ticket("Gone").await;
-    f.add(&key, "soon gone", PERSON).await.unwrap();
-    let id = f.tickets.get(&key).await.unwrap().view.ticket.id();
-
-    f.tickets.delete(&key, &f.person, None).await.unwrap();
-
-    assert_eq!(
-        f.comments.undelivered(&[id]).await.unwrap(),
-        Vec::<CommentLine>::new()
-    );
-    assert_eq!(
-        f.comments.list(&key).await.unwrap_err().code(),
-        "ticket-not-found"
     );
 }

@@ -116,6 +116,9 @@ pub struct AddComment {
     /// Name to write under, such as `claude`; the acting person when left out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
+    /// Agent session of the caller: the comment counts as delivered and names a session author.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[utoipa::path(
@@ -166,6 +169,7 @@ pub(crate) async fn add_comment(
     let author = Author {
         by_person: matches!(principal, Principal::Session { .. }),
         name: input.author.as_deref(),
+        session: input.session.as_deref(),
     };
     let line = state
         .comments
@@ -227,7 +231,7 @@ mod tests {
         let (status, comment) = post(
             &api,
             "/api/v1/tickets/arc-1/comments",
-            &json!({ "body": " Step 2 done ", "author": "claude" }),
+            &json!({ "body": " Step 2 done ", "author": "claude", "session": "s-1" }),
         )
         .await;
         assert_eq!(status, 201);

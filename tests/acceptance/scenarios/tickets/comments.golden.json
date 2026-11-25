@@ -87,7 +87,7 @@
       "claude"
     ],
     "exitCode": 0,
-    "name": "comment from standard input",
+    "name": "a named author outside a session is a person",
     "stderr": "",
     "stdout": "Comment on ARC-0001 saved.\n"
   },
@@ -96,7 +96,8 @@
     "request": {
       "body": {
         "author": "claude",
-        "body": " Step 2 done "
+        "body": " Step 2 done ",
+        "session": "s-1"
       },
       "method": "POST",
       "path": "/api/v1/tickets/ARC-1/comments"
@@ -119,7 +120,8 @@
     "request": {
       "body": {
         "author": "claude",
-        "body": "Step 3 done"
+        "body": "Step 3 done",
+        "session": "s-1"
       },
       "method": "POST",
       "path": "/api/v1/tickets/ARC-1/comments"
@@ -138,23 +140,48 @@
     }
   },
   {
-    "name": "a dispatched agent",
+    "name": "and one more",
     "request": {
       "body": {
-        "author": "junior-ARC-0001",
-        "body": "Ready for review"
+        "author": "claude",
+        "body": "Step 4 done",
+        "session": "s-1"
       },
       "method": "POST",
       "path": "/api/v1/tickets/ARC-1/comments"
     },
     "response": {
       "json": {
-        "authorId": "<ID-7>",
+        "authorId": "<ID-4>",
+        "authorKind": "session",
+        "authorName": "claude",
+        "body": "Step 4 done",
+        "createdAt": "<TIME>",
+        "id": "<ID-7>",
+        "ticketKey": "ARC-0001"
+      },
+      "status": 201
+    }
+  },
+  {
+    "name": "a dispatched agent",
+    "request": {
+      "body": {
+        "author": "junior-ARC-0001",
+        "body": "Ready for review",
+        "session": "s-2"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/comments"
+    },
+    "response": {
+      "json": {
+        "authorId": "<ID-8>",
         "authorKind": "session",
         "authorName": "junior-ARC-0001",
         "body": "Ready for review",
         "createdAt": "<TIME>",
-        "id": "<ID-8>",
+        "id": "<ID-9>",
         "ticketKey": "ARC-0001"
       },
       "status": 201
@@ -221,7 +248,7 @@
     "exitCode": 0,
     "name": "show keeps the last agent comments",
     "stderr": "",
-    "stdout": "ARC-0001  Login page\nStatus backlog | Priority normal | version 6 | unassigned | needs planning\n\n## Comments\n(1 older agent comment hidden; --all-comments shows them)\n<TIME>  tester: Please check the login\n<TIME>  claude: Step 2 done\n<TIME>  claude: Step 3 done\n<TIME>  junior-ARC-0001: Ready for review\n"
+    "stdout": "ARC-0001  Login page\nStatus backlog | Priority normal | version 7 | unassigned | needs planning\n\n## Comments\n(1 older agent comment hidden; --all-comments shows them)\n<TIME>  tester: Please check the login\n<TIME>  claude: Step 1 done\n    Tests pass\n<TIME>  claude (agent): Step 3 done\n<TIME>  claude (agent): Step 4 done\n<TIME>  junior-ARC-0001 (agent): Ready for review\n"
   },
   {
     "cli": [
@@ -233,7 +260,7 @@
     "exitCode": 0,
     "name": "show all comments",
     "stderr": "",
-    "stdout": "ARC-0001  Login page\nStatus backlog | Priority normal | version 6 | unassigned | needs planning\n\n## Comments\n<TIME>  tester: Please check the login\n<TIME>  claude: Step 1 done\n    Tests pass\n<TIME>  claude: Step 2 done\n<TIME>  claude: Step 3 done\n<TIME>  junior-ARC-0001: Ready for review\n"
+    "stdout": "ARC-0001  Login page\nStatus backlog | Priority normal | version 7 | unassigned | needs planning\n\n## Comments\n<TIME>  tester: Please check the login\n<TIME>  claude: Step 1 done\n    Tests pass\n<TIME>  claude (agent): Step 2 done\n<TIME>  claude (agent): Step 3 done\n<TIME>  claude (agent): Step 4 done\n<TIME>  junior-ARC-0001 (agent): Ready for review\n"
   },
   {
     "name": "list",
@@ -250,16 +277,16 @@
             "authorName": "tester",
             "body": "Please check the login",
             "createdAt": "<TIME>",
-            "id": "<ID-9>",
+            "id": "<ID-10>",
             "ticketKey": "ARC-0001"
           },
           {
-            "authorId": "<ID-4>",
-            "authorKind": "session",
+            "authorId": "<ID-11>",
+            "authorKind": "human",
             "authorName": "claude",
             "body": "Step 1 done\nTests pass",
             "createdAt": "<TIME>",
-            "id": "<ID-10>",
+            "id": "<ID-12>",
             "ticketKey": "ARC-0001"
           },
           {
@@ -281,12 +308,21 @@
             "ticketKey": "ARC-0001"
           },
           {
-            "authorId": "<ID-7>",
+            "authorId": "<ID-4>",
+            "authorKind": "session",
+            "authorName": "claude",
+            "body": "Step 4 done",
+            "createdAt": "<TIME>",
+            "id": "<ID-7>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
             "authorKind": "session",
             "authorName": "junior-ARC-0001",
             "body": "Ready for review",
             "createdAt": "<TIME>",
-            "id": "<ID-8>",
+            "id": "<ID-9>",
             "ticketKey": "ARC-0001"
           }
         ]
@@ -309,16 +345,16 @@
             "authorName": "tester",
             "body": "Please check the login",
             "createdAt": "<TIME>",
-            "id": "<ID-9>",
+            "id": "<ID-10>",
             "ticketKey": "ARC-0001"
           },
           {
-            "authorId": "<ID-4>",
-            "authorKind": "session",
+            "authorId": "<ID-11>",
+            "authorKind": "human",
             "authorName": "claude",
             "body": "Step 1 done\nTests pass",
             "createdAt": "<TIME>",
-            "id": "<ID-10>",
+            "id": "<ID-12>",
             "ticketKey": "ARC-0001"
           },
           {
@@ -340,12 +376,21 @@
             "ticketKey": "ARC-0001"
           },
           {
-            "authorId": "<ID-7>",
+            "authorId": "<ID-4>",
+            "authorKind": "session",
+            "authorName": "claude",
+            "body": "Step 4 done",
+            "createdAt": "<TIME>",
+            "id": "<ID-7>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
             "authorKind": "session",
             "authorName": "junior-ARC-0001",
             "body": "Ready for review",
             "createdAt": "<TIME>",
-            "id": "<ID-8>",
+            "id": "<ID-9>",
             "ticketKey": "ARC-0001"
           }
         ],
@@ -377,7 +422,7 @@
           "description": "",
           "diagram": "",
           "handbook": "",
-          "id": "<ID-11>",
+          "id": "<ID-13>",
           "key": "ARC-0001",
           "labels": [],
           "needsPlanning": true,
@@ -396,7 +441,7 @@
           "title": "Login page",
           "unlocks": [],
           "updatedAt": "<TIME>",
-          "version": 6,
+          "version": 7,
           "waiting": false,
           "worktree": null
         }

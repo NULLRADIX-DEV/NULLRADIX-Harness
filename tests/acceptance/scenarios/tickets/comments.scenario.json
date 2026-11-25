@@ -28,7 +28,7 @@
       "cli": { "args": ["ticket", "comment", "arc-1", "Please check the login"] }
     },
     {
-      "name": "comment from standard input",
+      "name": "a named author outside a session is a person",
       "cli": {
         "args": ["ticket", "comment", "ARC-1", "--body-file", "-", "--author", "claude"],
         "stdin": "Step 1 done\nTests pass\n"
@@ -39,7 +39,7 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/tickets/ARC-1/comments",
-        "body": { "body": " Step 2 done ", "author": "claude" }
+        "body": { "body": " Step 2 done ", "author": "claude", "session": "s-1" }
       }
     },
     {
@@ -47,7 +47,15 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/tickets/ARC-1/comments",
-        "body": { "body": "Step 3 done", "author": "claude" }
+        "body": { "body": "Step 3 done", "author": "claude", "session": "s-1" }
+      }
+    },
+    {
+      "name": "and one more",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/comments",
+        "body": { "body": "Step 4 done", "author": "claude", "session": "s-1" }
       }
     },
     {
@@ -55,7 +63,7 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/tickets/ARC-1/comments",
-        "body": { "body": "Ready for review", "author": "junior-ARC-0001" }
+        "body": { "body": "Ready for review", "author": "junior-ARC-0001", "session": "s-2" }
       }
     },
     {
