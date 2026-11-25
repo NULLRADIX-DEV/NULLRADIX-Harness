@@ -17,7 +17,9 @@ use nullradix_app::dispatch::stream::{
 use nullradix_domain::{RunOutcome, Screenshot};
 use nullradix_os::{ProcessTree, write_atomic};
 
-use crate::launch::{self, Launch};
+use crate::launch;
+#[cfg(windows)]
+use crate::launch::Launch;
 use crate::protocol::{
     ClaudeFile, EnvFile, OutputRecord, ResultFile, RunFiles, SpecFile, hold_lock, read_json,
 };
