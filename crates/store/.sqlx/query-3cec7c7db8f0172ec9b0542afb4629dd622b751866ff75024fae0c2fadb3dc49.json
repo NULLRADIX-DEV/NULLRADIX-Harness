@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE dispatcher_settings SET config_hash = ? WHERE id = 1 AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "3cec7c7db8f0172ec9b0542afb4629dd622b751866ff75024fae0c2fadb3dc49"
+}

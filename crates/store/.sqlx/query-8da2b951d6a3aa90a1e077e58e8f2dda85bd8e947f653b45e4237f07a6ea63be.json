@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT hash, content, first_seen_at FROM dispatch_config_versions\n             ORDER BY first_seen_at, hash",
+  "describe": {
+    "columns": [
+      {
+        "name": "hash",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatch_config_versions",
+            "name": "hash"
+          }
+        }
+      },
+      {
+        "name": "content",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatch_config_versions",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "name": "first_seen_at",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatch_config_versions",
+            "name": "first_seen_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8da2b951d6a3aa90a1e077e58e8f2dda85bd8e947f653b45e4237f07a6ea63be"
+}

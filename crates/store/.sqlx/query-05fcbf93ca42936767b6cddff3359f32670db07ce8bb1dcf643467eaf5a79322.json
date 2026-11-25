@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM dispatch_profiles WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "05fcbf93ca42936767b6cddff3359f32670db07ce8bb1dcf643467eaf5a79322"
+}

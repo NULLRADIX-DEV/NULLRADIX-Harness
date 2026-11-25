@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT link.rule_id AS \"rule_id: Uuid\", account.slug\n           FROM dispatch_rule_accounts link JOIN claude_accounts account ON account.id = link.account_id\n           ORDER BY link.rule_id, link.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "rule_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "dispatch_rule_accounts",
+            "name": "rule_id"
+          }
+        }
+      },
+      {
+        "name": "slug",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "claude_accounts",
+            "name": "slug"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b559d055342ca99dab85e89dc02270401e31ce5542cf41ad6f288d567c9847d9"
+}

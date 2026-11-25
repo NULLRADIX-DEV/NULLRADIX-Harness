@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO worktree_setup_steps (position, cwd, command) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "c6405f80f9ef10d5544eb211181bda0220dc026774fe9f69b51b23e50d4a510f"
+}

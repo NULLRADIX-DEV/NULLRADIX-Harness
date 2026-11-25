@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO dispatch_rules\n                   (id, position, profile_id, when_labels, when_priorities, when_files_min,\n                    when_plan_min_chars)\n                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "2c925828d855e856e80be99e1b9016e3b4af359f96158f034afef1b608dfa4f0"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE dispatch_profiles\n                 SET name = ?, model = ?, effort = ?, max_turns = ?, timeout_minutes = ?,\n                     position = ?, version = version + ?\n                 WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "2ec2bbccee0ef0f51b4323a611f51d6ed69703268804bee5c0ba32f861c4708d"
+}

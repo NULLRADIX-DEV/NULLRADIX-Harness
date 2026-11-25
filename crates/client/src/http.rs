@@ -7,16 +7,16 @@ use nullradix_api::{
     BoardDto, BoardList, ChangeStep, ChooseTheme, ClaimPlanning, ClaimSession, ClaimTicket,
     CommentDto, CommentList, CreateAccount, CreateAccountLogin, CreateBoard, CreateCustomization,
     CreateNote, CreateProject, CreateQuestion, CreateTicket, CustomizationDto, CustomizationList,
-    DecideQuestion, DropNote, EffectiveDto, ExtensionPointDto, FavoriteDto, FavoriteList,
-    FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto, HookEventList,
-    HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite, MoveStep, MoveTicket,
-    NextPlanning, NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList,
-    PromoteNote, PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList,
+    DecideQuestion, DispatcherConfigView, DropNote, EffectiveDto, ExtensionPointDto, FavoriteDto,
+    FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto,
+    HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite,
+    MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto,
+    ProjectList, PromoteNote, PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList,
     RebaseCustomization, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto,
     RunList, RunOutput, RunnerList, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto,
     SessionList, SetBoardRepository, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
     ThemeDto, ThemeListDto, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto,
-    UpdateAccount, UpdateCustomization, UpdateTicket, WritePlan,
+    UpdateAccount, UpdateCustomization, UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -159,6 +159,23 @@ impl Client {
     /// Login and limits of every account; `fresh` asks Anthropic again.
     pub fn account_usage(&self, fresh: bool) -> Result<AccountStatusList, ClientError> {
         self.get_json(&format!("/accounts/usage?fresh={fresh}"))
+    }
+
+    pub fn dispatcher_config(&self) -> Result<DispatcherConfigView, ClientError> {
+        self.get_json("/dispatcher/config")
+    }
+
+    pub fn update_dispatcher_config(
+        &self,
+        input: &UpdateDispatcherConfig,
+    ) -> Result<DispatcherConfigView, ClientError> {
+        let mut response = self
+            .agent
+            .put(&self.url("/dispatcher/config"))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
     }
 
     pub fn create_account(&self, input: &CreateAccount) -> Result<AccountDto, ClientError> {
@@ -1153,11 +1170,24 @@ fn decode<T: DeserializeOwned>(
     match response.body_mut().read_json::<Problem>() {
         Ok(problem) => Err(ClientError::Refused {
             status,
+            detail: describe(&problem),
             code: problem.code,
-            detail: problem.detail,
         }),
         Err(_) => Err(ClientError::Protocol(format!("unexpected status {status}"))),
     }
+}
+
+/// The detail, followed by the refused fields when there are some.
+fn describe(problem: &Problem) -> String {
+    if problem.errors.is_empty() {
+        return problem.detail.clone();
+    }
+    let fields: Vec<String> = problem
+        .errors
+        .iter()
+        .map(|error| format!("{}: {}", error.field, error.message))
+        .collect();
+    format!("{}: {}", problem.detail, fields.join("; "))
 }
 
 #[cfg(test)]
@@ -1262,6 +1292,21 @@ mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ))
+    }
+
+    fn dispatcher_service(
+        store: &Arc<Store>,
+        signal: &ChangeSignal,
+    ) -> Arc<nullradix_app::dispatcher_config::DispatcherConfigService> {
+        Arc::new(
+            nullradix_app::dispatcher_config::DispatcherConfigService::new(
+                store.clone(),
+                store.clone(),
+                Arc::new(SystemClock),
+                Arc::new(UuidV7Generator),
+                signal.clone(),
+            ),
+        )
     }
 
     fn project_service(store: &Arc<Store>, signal: &ChangeSignal) -> Arc<ProjectService> {
@@ -1376,6 +1421,7 @@ mod tests {
             auth,
             projects,
             accounts: accounts.clone(),
+            dispatcher_config: dispatcher_service(&store, &signal),
             usage: usage_service(),
             logins: login_service(&accounts),
             boards,

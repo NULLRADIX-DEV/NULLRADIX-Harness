@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO dispatch_rule_accounts (rule_id, account_id, position)\n                 VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "3378ebe1886291f1fc5672d5b988c85233efabb062e5971d34e9c53d312104a9"
+}

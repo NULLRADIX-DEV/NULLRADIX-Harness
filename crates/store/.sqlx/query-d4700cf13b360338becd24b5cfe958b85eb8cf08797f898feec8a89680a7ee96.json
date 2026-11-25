@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE dispatcher_settings SET\n           enabled = ?, wip = ?, window_from = ?, window_to = ?, opt_in_label = ?,\n           opt_out_label = ?, agent_prefix = ?, stale_minutes = ?, max_attempts = ?,\n           pause_minutes_on_limit = ?, prompt_extra = ?, merge_strategy = ?,\n           review_before_merge = ?, join_worktrees = ?, worktree_setup_timeout_min = ?,\n           claude_command = ?, claude_model = ?, claude_effort = ?, claude_max_turns = ?,\n           claude_timeout_minutes = ?, claude_permission_mode = ?, claude_allowed_tools = ?,\n           claude_extra_args = ?, claude_use_subscription = ?, git_bash_path = ?,\n           default_profile_id = ?, escalate = ?, allow_fable = ?, research_auto = ?,\n           research_wip = ?, research_max_per_day = ?, research_profile_id = ?,\n           planning_auto = ?, planning_wip = ?, planning_acceptance = ?, planning_profile_id = ?,\n           autopilot_enabled = ?, autopilot_except_label = ?, autopilot_max_merge_sessions = ?,\n           account_strategy = ?, account_limit_pct = ?, account_reserve_five_hour = ?,\n           account_reserve_week = ?, account_reset_grace_min = ?, config_hash = ?,\n           updated_at = ?, version = version + 1\n         WHERE id = 1 AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 47
+    },
+    "nullable": []
+  },
+  "hash": "d4700cf13b360338becd24b5cfe958b85eb8cf08797f898feec8a89680a7ee96"
+}

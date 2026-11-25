@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id: Uuid\", profile_id AS \"profile_id: Uuid\", when_labels, when_priorities,\n                  when_files_min, when_plan_min_chars\n           FROM dispatch_rules ORDER BY position",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "dispatch_rules",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "profile_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "dispatch_rules",
+            "name": "profile_id"
+          }
+        }
+      },
+      {
+        "name": "when_labels",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatch_rules",
+            "name": "when_labels"
+          }
+        }
+      },
+      {
+        "name": "when_priorities",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatch_rules",
+            "name": "when_priorities"
+          }
+        }
+      },
+      {
+        "name": "when_files_min",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatch_rules",
+            "name": "when_files_min"
+          }
+        }
+      },
+      {
+        "name": "when_plan_min_chars",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatch_rules",
+            "name": "when_plan_min_chars"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "5f5af22914ee685f739d653afc04fa2f5de3100c3511f60cf847aa1289ad1bb1"
+}

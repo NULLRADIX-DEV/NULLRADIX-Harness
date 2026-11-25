@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO dispatch_escalation_steps (position, profile_id) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "29a348a41eb32bbe87347614cc8e2d8ecac467b87a46a3dcffce79963f3a9af1"
+}

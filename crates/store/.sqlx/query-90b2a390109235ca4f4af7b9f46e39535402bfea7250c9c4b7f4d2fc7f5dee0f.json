@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM dispatch_profile_accounts",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "90b2a390109235ca4f4af7b9f46e39535402bfea7250c9c4b7f4d2fc7f5dee0f"
+}

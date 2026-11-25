@@ -5,6 +5,7 @@ mod auth;
 mod boards;
 mod comments;
 mod customizations;
+mod dispatcher_config;
 mod events;
 mod extract;
 mod favorites;
@@ -42,6 +43,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::CustomizationService;
+use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
@@ -76,6 +78,12 @@ pub use customizations::{
     BaseStateDto, CreateCustomization, CustomizationDto, CustomizationList, EffectiveDto,
     ExtensionPointDto, FindingDto as CustomizationFindingDto, OverlayKindDto, OverlayStateDto,
     RebaseCustomization, SourceDto, UpdateCustomization,
+};
+pub use dispatcher_config::{
+    AccountStrategyDto, AutopilotSettingsDto, ClaudeSettingsDto, DispatcherConfigDto,
+    DispatcherConfigView, JoinWorktreesDto, MergeStrategyDto, PlanningSettingsDto, ProfileDto,
+    PromptTemplatesDto, ResearchSettingsDto, RuleConditionDto, RuleDto, TimeWindowDto,
+    UpdateDispatcherConfig, WorktreeSetupStepDto,
 };
 pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
@@ -174,6 +182,7 @@ pub struct ApiState {
     pub auth: Arc<AuthService>,
     pub projects: Arc<ProjectService>,
     pub accounts: Arc<AccountService>,
+    pub dispatcher_config: Arc<DispatcherConfigService>,
     pub usage: Arc<UsageService>,
     pub logins: Arc<LoginService>,
     pub boards: Arc<BoardService>,
@@ -234,6 +243,13 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
         ))
         .routes(routes!(customizations::rebase_customization))
         .routes(routes!(customizations::effective_customization))
+}
+
+fn dispatcher_routes() -> OpenApiRouter<ApiState> {
+    OpenApiRouter::new().routes(routes!(
+        dispatcher_config::get_dispatcher_config,
+        dispatcher_config::update_dispatcher_config
+    ))
 }
 
 fn routes() -> OpenApiRouter<ApiState> {
@@ -325,7 +341,7 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events))
         .merge(account_routes());
-    let v1 = extension_routes(v1);
+    let v1 = extension_routes(v1).merge(dispatcher_routes());
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     doc.info.license = Some(
@@ -758,6 +774,13 @@ pub(crate) mod tests {
             auth: auth.clone(),
             projects: projects.clone(),
             accounts: accounts.clone(),
+            dispatcher_config: Arc::new(DispatcherConfigService::new(
+                store.clone(),
+                store.clone(),
+                Arc::new(SystemClock),
+                Arc::new(UuidV7Generator),
+                signal.clone(),
+            )),
             usage: test_usage(),
             logins: logins.clone(),
             boards: boards.clone(),

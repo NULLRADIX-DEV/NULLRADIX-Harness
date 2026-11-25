@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO prompt_templates (kind, template, updated_at) VALUES (?, ?, ?)\n                     ON CONFLICT (kind) DO UPDATE\n                       SET template = excluded.template, updated_at = excluded.updated_at,\n                           version = version + 1\n                       WHERE template <> excluded.template",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "2e517e94a08343bfc136b5f16d265e385334a80c314c28f47c03bc88a93c8211"
+}

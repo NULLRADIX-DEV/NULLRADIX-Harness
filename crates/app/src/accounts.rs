@@ -23,6 +23,7 @@ pub trait AccountRepository: Send + Sync {
     async fn get(&self, id: Id<Account>) -> Result<Option<Account>, AppError>;
     /// Stores `account` if the stored row still has version `expected`.
     async fn update(&self, account: &Account, expected: Version) -> Result<Change, AppError>;
+    /// The change may be the dispatcher config change when the account was named there.
     async fn delete(
         &self,
         id: Id<Account>,

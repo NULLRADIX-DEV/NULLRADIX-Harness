@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE dispatch_profiles SET name = ' ' || lower(hex(id)) WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "a538d6e737c039f663e0e9b8307b773756a9bc8dd956a15d5892c1c53400cc02"
+}

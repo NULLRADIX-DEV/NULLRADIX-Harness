@@ -5,6 +5,7 @@ mod board;
 mod board_rules;
 mod comment;
 mod customization;
+mod dispatcher_config;
 mod favorite;
 mod hook;
 mod id;
@@ -38,6 +39,13 @@ pub use customization::{
     Base, BaseState, ExtensionPoint, Finding, FrontMatter, OVERLAY_CONTENT_MAX, OVERLAY_NAME_MAX,
     Overlay, OverlayError, OverlayKind, OverlayName, OverlayRecord, OverlayState, base_state,
     check_front_matter, overlay_content, overlay_state,
+};
+pub use dispatcher_config::{
+    AccountStrategy, AutopilotSettings, ClaudeSettings, ConfigError, ConfigFieldError,
+    DEFAULT_ALLOWED_TOOLS, DispatcherConfig, EFFORT_LEVELS, FALLBACK_PROFILE, FINGERPRINT_HASH_LEN,
+    Fingerprint, JoinWorktrees, MAX_PARALLEL_AUTO_RUNS, MODEL_ALIASES, MergeStrategy,
+    PROFILE_NAME_MAX, PlanningSettings, Profile, PromptKind, PromptTemplates, ResearchSettings,
+    Rule, RuleCondition, TimeWindow, WorktreeSetupStep, effort_problem, model_problem,
 };
 pub use favorite::{
     FAVORITE_NOTE_MAX, Favorite, FavoriteRecord, Resumption, favorite_note, resume_command,

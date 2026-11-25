@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM dispatch_escalation_steps",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "5d7d8e9919945b451d00e96c8cc0ad37ad2332e76a984434d9825e0d4e046be7"
+}

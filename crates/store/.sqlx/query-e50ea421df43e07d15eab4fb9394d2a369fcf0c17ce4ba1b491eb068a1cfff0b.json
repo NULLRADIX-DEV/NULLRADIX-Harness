@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE dispatch_rules\n                 SET position = ?, profile_id = ?, when_labels = ?, when_priorities = ?,\n                     when_files_min = ?, when_plan_min_chars = ?, version = version + ?\n                 WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "e50ea421df43e07d15eab4fb9394d2a369fcf0c17ce4ba1b491eb068a1cfff0b"
+}

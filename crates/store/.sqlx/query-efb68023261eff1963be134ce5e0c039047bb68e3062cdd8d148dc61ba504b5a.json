@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM dispatch_rules WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "efb68023261eff1963be134ce5e0c039047bb68e3062cdd8d148dc61ba504b5a"
+}
