@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO dispatcher_log (id, at, level, message, run_id, subject_key)\n             VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "822c6de199d03ee0e1ea68ce15384a63b0a6ea01a80b63663431a24ceba58792"
+}

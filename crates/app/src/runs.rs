@@ -319,6 +319,11 @@ impl RunService {
         self.repository.find(filter, limit).await
     }
 
+    /// Runs that have not ended, oldest first.
+    pub async fn active(&self) -> Result<Vec<Run>, AppError> {
+        self.repository.active().await
+    }
+
     pub async fn denied_tools(&self, id: Id<Run>) -> Result<Vec<DeniedTool>, AppError> {
         self.repository.denied_tools(id).await
     }

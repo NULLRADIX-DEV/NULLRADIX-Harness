@@ -6,6 +6,7 @@ mod browser;
 mod claude_keychain;
 mod command;
 mod files;
+mod local_time;
 mod paths;
 mod process;
 mod secrets;
@@ -20,6 +21,7 @@ pub use browser::open_url;
 #[cfg(target_os = "macos")]
 pub use claude_keychain::claude_keychain_password;
 pub use files::{create_private_dir, write_atomic, write_private};
+pub use local_time::local_utc_offset_minutes;
 pub use paths::{Paths, PathsError, claude_config_dirs, home_dir};
 pub use process::{ProcessTree, process_alive, spawn_detached};
 pub use secrets::{FileSecrets, SecretBackend, SecretError, system_secrets};

@@ -249,6 +249,30 @@ impl DispatcherPromptService {
         })
     }
 
+    /// The instruction of a work run on a ticket that works on `branch`.
+    pub async fn work_prompt(
+        &self,
+        key: &str,
+        branch: &str,
+        feedback: Vec<String>,
+    ) -> Result<String, AppError> {
+        let config = self.config.get().await?.config;
+        let detail = self.tickets.get(key).await?;
+        let record = detail.view.ticket.record();
+        let ticket = record.key.to_string();
+        let run = PromptRun::Work(WorkRun {
+            agent: config.work_agent(&ticket),
+            autopilot: config.autopilot_applies(&record.labels),
+            title: record.title.as_str().to_owned(),
+            answers: self.answers(&record.key, record.project).await?,
+            branch: branch.to_owned(),
+            feedback,
+            ticket,
+        });
+        render_prompt(&run, &config, config.prompts.get(PromptKind::Work))
+            .map_err(AppError::internal)
+    }
+
     async fn run_for(
         &self,
         kind: PromptKind,

@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Actor, ActorKind, Comment, CommentBody, CommentError, CommentOn, Id, Ticket, TicketKey,
-    Timestamp,
+    Actor, ActorKind, Comment, CommentBody, CommentError, CommentOn, Id, Run, SystemMarker, Ticket,
+    TicketKey, Timestamp,
 };
 
 use crate::authors;
@@ -129,6 +129,36 @@ impl CommentService {
             author_name: actor.name().as_str().to_owned(),
             author_kind: actor.kind(),
         })
+    }
+
+    /// Appends a comment of the dispatcher that marks an event of a run.
+    pub async fn add_system(
+        &self,
+        key: &TicketKey,
+        body: &str,
+        marker: SystemMarker,
+        run: Option<Id<Run>>,
+        actor: &Actor,
+    ) -> Result<(), AppError> {
+        let body = CommentBody::parse(body).map_err(|error| invalid(&error))?;
+        let mut write = self.tickets.begin().await?;
+        let ticket = load(write.as_mut(), key, None).await?;
+        let now = self.clock.now();
+        let comment = Comment::system(
+            self.ids.next(),
+            CommentOn::Ticket(ticket.id()),
+            actor.id(),
+            body,
+            marker,
+            run,
+            now,
+        );
+        let revised = ticket.revised(ticket.record().clone(), now);
+        write.update(&revised, ticket.record().version, &[]).await?;
+        let change = write.insert_comment(&comment).await?;
+        write.commit().await?;
+        self.signal.notify(&change);
+        Ok(())
     }
 
     /// Comments of the ticket, oldest first.

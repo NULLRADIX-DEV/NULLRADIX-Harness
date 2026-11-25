@@ -282,6 +282,29 @@ async fn set_ready(
     updated(connection, changed, at).await
 }
 
+async fn set_setup(
+    connection: &mut SqliteConnection,
+    worktree: Id<Worktree>,
+    state: SetupState,
+    at: Timestamp,
+) -> Result<Option<Change>, AppError> {
+    let id = worktree.as_uuid();
+    let state = state.as_str();
+    let millis = at.as_millis();
+    let changed = sqlx::query_scalar!(
+        r#"UPDATE worktrees SET setup_state = ?1, updated_at = ?2, version = version + 1
+           WHERE id = ?3 AND setup_state <> ?1
+           RETURNING id AS "id: Uuid""#,
+        state,
+        millis,
+        id,
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(database)?;
+    updated(connection, changed, at).await
+}
+
 async fn claim_removal(
     connection: &mut SqliteConnection,
     worktree: Id<Worktree>,
@@ -634,5 +657,17 @@ impl WorktreeRepository for Store {
         }
         read.commit().await.map_err(database)?;
         Ok(entries)
+    }
+
+    async fn set_setup(
+        &self,
+        worktree: Id<Worktree>,
+        state: SetupState,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        let mut tx = self.begin().await?;
+        let change = set_setup(&mut tx, worktree, state, at).await?;
+        tx.commit().await.map_err(database)?;
+        Ok(change)
     }
 }
