@@ -1,0 +1,746 @@
+[
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "show"
+    ],
+    "exitCode": 0,
+    "name": "show the default in the CLI",
+    "stderr": "",
+    "stdout": "dispatcher off, version 1 (f1f423e892acc6d6)\nwindow always, wip 1, attempts 2\nlabels in auto out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default medium):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts any\n  large      opus     max     150 turns  120 min  accounts any\nladder small > medium > large\nrules: 4\n  1. labels docs|typo|small -> small\n  2. labels architecture|refactoring -> large\n  3. priority urgent -> large\n  4. files >= 6 -> large\n"
+  },
+  {
+    "name": "read the default over HTTP",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/dispatcher/config"
+    },
+    "response": {
+      "json": {
+        "config": {
+          "accountLimitPercent": 90,
+          "accountReserveFiveHour": 10,
+          "accountReserveWeek": 2,
+          "accountResetGraceMinutes": 30,
+          "accountStrategy": "most-free",
+          "agentPrefix": "worker-",
+          "allowFable": false,
+          "autopilot": {
+            "enabled": false,
+            "exceptLabel": "interactive",
+            "maxMergeSessions": 3
+          },
+          "claude": {
+            "allowedTools": [
+              "Read",
+              "Edit",
+              "Write",
+              "Glob",
+              "Grep",
+              "Bash(harness:*)",
+              "Bash(nullradix:*)",
+              "Bash(node:*)",
+              "Bash(npm test:*)",
+              "Bash(npm run:*)",
+              "Bash(git status:*)",
+              "Bash(git diff:*)",
+              "Bash(git log:*)",
+              "Bash(git branch:*)",
+              "Bash(git add:*)",
+              "Bash(git commit:*)"
+            ],
+            "command": "claude",
+            "effort": null,
+            "extraArgs": [],
+            "gitBashPath": null,
+            "maxTurns": 80,
+            "model": "sonnet",
+            "permissionMode": "acceptEdits",
+            "timeoutMinutes": 60,
+            "useSubscription": true
+          },
+          "defaultProfile": "medium",
+          "enabled": false,
+          "escalate": true,
+          "joinWorktrees": "none",
+          "ladder": [
+            "small",
+            "medium",
+            "large"
+          ],
+          "maxAttempts": 2,
+          "mergeStrategy": "merge",
+          "optInLabel": "auto",
+          "optOutLabel": "manual",
+          "pauseMinutesOnLimit": 60,
+          "planning": {
+            "acceptance": true,
+            "auto": false,
+            "profile": null,
+            "wip": 1
+          },
+          "profiles": [
+            {
+              "accounts": [],
+              "effort": "high",
+              "maxTurns": 40,
+              "model": "sonnet",
+              "name": "small",
+              "timeoutMinutes": 45
+            },
+            {
+              "accounts": [],
+              "effort": "high",
+              "maxTurns": 80,
+              "model": "opus",
+              "name": "medium",
+              "timeoutMinutes": 90
+            },
+            {
+              "accounts": [],
+              "effort": "max",
+              "maxTurns": 150,
+              "model": "opus",
+              "name": "large",
+              "timeoutMinutes": 120
+            }
+          ],
+          "promptExtra": "",
+          "prompts": {
+            "merge": null,
+            "plan": null,
+            "research": null,
+            "work": null
+          },
+          "research": {
+            "auto": false,
+            "maxPerDay": 10,
+            "profile": null,
+            "wip": 1
+          },
+          "reviewBeforeMerge": true,
+          "rules": [
+            {
+              "accounts": [],
+              "profile": "small",
+              "when": {
+                "filesMin": null,
+                "labels": [
+                  "docs",
+                  "typo",
+                  "small"
+                ],
+                "planMinChars": null,
+                "priorities": null
+              }
+            },
+            {
+              "accounts": [],
+              "profile": "large",
+              "when": {
+                "filesMin": null,
+                "labels": [
+                  "architecture",
+                  "refactoring"
+                ],
+                "planMinChars": null,
+                "priorities": null
+              }
+            },
+            {
+              "accounts": [],
+              "profile": "large",
+              "when": {
+                "filesMin": null,
+                "labels": null,
+                "planMinChars": null,
+                "priorities": [
+                  "urgent"
+                ]
+              }
+            },
+            {
+              "accounts": [],
+              "profile": "large",
+              "when": {
+                "filesMin": 6,
+                "labels": null,
+                "planMinChars": null,
+                "priorities": null
+              }
+            }
+          ],
+          "staleMinutes": 150,
+          "window": null,
+          "wip": 1,
+          "worktreeSetup": [],
+          "worktreeSetupTimeoutMinutes": 15
+        },
+        "hash": "f1f423e892acc6d6",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "show",
+      "--json"
+    ],
+    "exitCode": 0,
+    "name": "show the default as JSON",
+    "stderr": "",
+    "stdout": "{\n  \"enabled\": false,\n  \"wip\": 1,\n  \"window\": null,\n  \"optInLabel\": \"auto\",\n  \"optOutLabel\": \"manual\",\n  \"agentPrefix\": \"worker-\",\n  \"staleMinutes\": 150,\n  \"maxAttempts\": 2,\n  \"pauseMinutesOnLimit\": 60,\n  \"promptExtra\": \"\",\n  \"prompts\": {\n    \"work\": null,\n    \"plan\": null,\n    \"research\": null,\n    \"merge\": null\n  },\n  \"mergeStrategy\": \"merge\",\n  \"reviewBeforeMerge\": true,\n  \"joinWorktrees\": \"none\",\n  \"worktreeSetup\": [],\n  \"worktreeSetupTimeoutMinutes\": 15,\n  \"claude\": {\n    \"command\": \"claude\",\n    \"model\": \"sonnet\",\n    \"effort\": null,\n    \"maxTurns\": 80,\n    \"timeoutMinutes\": 60,\n    \"permissionMode\": \"acceptEdits\",\n    \"allowedTools\": [\n      \"Read\",\n      \"Edit\",\n      \"Write\",\n      \"Glob\",\n      \"Grep\",\n      \"Bash(harness:*)\",\n      \"Bash(nullradix:*)\",\n      \"Bash(node:*)\",\n      \"Bash(npm test:*)\",\n      \"Bash(npm run:*)\",\n      \"Bash(git status:*)\",\n      \"Bash(git diff:*)\",\n      \"Bash(git log:*)\",\n      \"Bash(git branch:*)\",\n      \"Bash(git add:*)\",\n      \"Bash(git commit:*)\"\n    ],\n    \"useSubscription\": true,\n    \"extraArgs\": [],\n    \"gitBashPath\": null\n  },\n  \"profiles\": [\n    {\n      \"name\": \"small\",\n      \"model\": \"sonnet\",\n      \"effort\": \"high\",\n      \"maxTurns\": 40,\n      \"timeoutMinutes\": 45,\n      \"accounts\": []\n    },\n    {\n      \"name\": \"medium\",\n      \"model\": \"opus\",\n      \"effort\": \"high\",\n      \"maxTurns\": 80,\n      \"timeoutMinutes\": 90,\n      \"accounts\": []\n    },\n    {\n      \"name\": \"large\",\n      \"model\": \"opus\",\n      \"effort\": \"max\",\n      \"maxTurns\": 150,\n      \"timeoutMinutes\": 120,\n      \"accounts\": []\n    }\n  ],\n  \"defaultProfile\": \"medium\",\n  \"rules\": [\n    {\n      \"when\": {\n        \"labels\": [\n          \"docs\",\n          \"typo\",\n          \"small\"\n        ],\n        \"priorities\": null,\n        \"filesMin\": null,\n        \"planMinChars\": null\n      },\n      \"profile\": \"small\",\n      \"accounts\": []\n    },\n    {\n      \"when\": {\n        \"labels\": [\n          \"architecture\",\n          \"refactoring\"\n        ],\n        \"priorities\": null,\n        \"filesMin\": null,\n        \"planMinChars\": null\n      },\n      \"profile\": \"large\",\n      \"accounts\": []\n    },\n    {\n      \"when\": {\n        \"labels\": null,\n        \"priorities\": [\n          \"urgent\"\n        ],\n        \"filesMin\": null,\n        \"planMinChars\": null\n      },\n      \"profile\": \"large\",\n      \"accounts\": []\n    },\n    {\n      \"when\": {\n        \"labels\": null,\n        \"priorities\": null,\n        \"filesMin\": 6,\n        \"planMinChars\": null\n      },\n      \"profile\": \"large\",\n      \"accounts\": []\n    }\n  ],\n  \"escalate\": true,\n  \"ladder\": [\n    \"small\",\n    \"medium\",\n    \"large\"\n  ],\n  \"allowFable\": false,\n  \"research\": {\n    \"auto\": false,\n    \"wip\": 1,\n    \"maxPerDay\": 10,\n    \"profile\": null\n  },\n  \"planning\": {\n    \"auto\": false,\n    \"wip\": 1,\n    \"acceptance\": true,\n    \"profile\": null\n  },\n  \"autopilot\": {\n    \"enabled\": false,\n    \"exceptLabel\": \"interactive\",\n    \"maxMergeSessions\": 3\n  },\n  \"accountStrategy\": \"most-free\",\n  \"accountLimitPercent\": 90,\n  \"accountReserveFiveHour\": 10,\n  \"accountReserveWeek\": 2,\n  \"accountResetGraceMinutes\": 30\n}\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--enabled",
+      "false"
+    ],
+    "exitCode": 0,
+    "name": "save the same value",
+    "stderr": "",
+    "stdout": "nothing changed, still version 1\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--enabled",
+      "true",
+      "--wip",
+      "2"
+    ],
+    "exitCode": 0,
+    "name": "switch on with two tickets at once",
+    "stderr": "",
+    "stdout": "saved dispatcher configuration, version 2 (f1f423e892acc6d6)\n"
+  },
+  {
+    "file": "<WORK>/custom.json",
+    "lines": 1,
+    "name": "write a custom configuration"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/custom.json"
+    ],
+    "exitCode": 0,
+    "name": "save the custom configuration",
+    "stderr": "",
+    "stdout": "saved dispatcher configuration, version 3 (e2b74f830cb80d9b)\n"
+  },
+  {
+    "name": "read the saved configuration",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/dispatcher/config"
+    },
+    "response": {
+      "json": {
+        "config": {
+          "accountLimitPercent": 90,
+          "accountReserveFiveHour": 10,
+          "accountReserveWeek": 2,
+          "accountResetGraceMinutes": 30,
+          "accountStrategy": "most-free",
+          "agentPrefix": "worker-",
+          "allowFable": false,
+          "autopilot": {
+            "enabled": false,
+            "exceptLabel": "interactive",
+            "maxMergeSessions": 3
+          },
+          "claude": {
+            "allowedTools": [
+              "Read",
+              "Edit",
+              "Write",
+              "Glob",
+              "Grep",
+              "Bash(harness:*)",
+              "Bash(nullradix:*)",
+              "Bash(node:*)",
+              "Bash(npm test:*)",
+              "Bash(npm run:*)",
+              "Bash(git status:*)",
+              "Bash(git diff:*)",
+              "Bash(git log:*)",
+              "Bash(git branch:*)",
+              "Bash(git add:*)",
+              "Bash(git commit:*)"
+            ],
+            "command": "claude",
+            "effort": null,
+            "extraArgs": [],
+            "gitBashPath": null,
+            "maxTurns": 80,
+            "model": "sonnet",
+            "permissionMode": "acceptEdits",
+            "timeoutMinutes": 60,
+            "useSubscription": true
+          },
+          "defaultProfile": "small",
+          "enabled": true,
+          "escalate": true,
+          "joinWorktrees": "none",
+          "ladder": [
+            "small",
+            "medium"
+          ],
+          "maxAttempts": 3,
+          "mergeStrategy": "merge",
+          "optInLabel": null,
+          "optOutLabel": "manual",
+          "pauseMinutesOnLimit": 60,
+          "planning": {
+            "acceptance": false,
+            "auto": false,
+            "profile": null,
+            "wip": 1
+          },
+          "profiles": [
+            {
+              "accounts": [],
+              "effort": "high",
+              "maxTurns": 40,
+              "model": "sonnet",
+              "name": "small",
+              "timeoutMinutes": 45
+            },
+            {
+              "accounts": [],
+              "effort": "high",
+              "maxTurns": 80,
+              "model": "opus",
+              "name": "medium",
+              "timeoutMinutes": 90
+            }
+          ],
+          "promptExtra": "",
+          "prompts": {
+            "merge": null,
+            "plan": null,
+            "research": null,
+            "work": null
+          },
+          "research": {
+            "auto": false,
+            "maxPerDay": 5,
+            "profile": null,
+            "wip": 2
+          },
+          "reviewBeforeMerge": true,
+          "rules": [
+            {
+              "accounts": [],
+              "profile": "medium",
+              "when": {
+                "filesMin": null,
+                "labels": [
+                  "architecture"
+                ],
+                "planMinChars": null,
+                "priorities": null
+              }
+            }
+          ],
+          "staleMinutes": 150,
+          "window": {
+            "from": "08:00",
+            "to": "18:00"
+          },
+          "wip": 2,
+          "worktreeSetup": [],
+          "worktreeSetupTimeoutMinutes": 15
+        },
+        "hash": "e2b74f830cb80d9b",
+        "updatedAt": "<TIME>",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "show"
+    ],
+    "exitCode": 0,
+    "name": "show the saved configuration",
+    "stderr": "",
+    "stdout": "dispatcher on, version 3 (e2b74f830cb80d9b)\nwindow 08:00-18:00, wip 2, attempts 3\nlabels in - out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default small):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts any\nladder small > medium\nrules: 1\n  1. labels architecture -> medium\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--wip=-1"
+    ],
+    "exitCode": 1,
+    "name": "refuse a negative WIP",
+    "stderr": "error: the daemon refused the request: the dispatcher configuration has invalid fields: wip: must be a whole number from 0 (dispatcher-config-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "file": "<WORK>/giant.json",
+    "lines": 1,
+    "name": "write an unknown default profile"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/giant.json"
+    ],
+    "exitCode": 1,
+    "name": "refuse an unknown default profile",
+    "stderr": "error: the daemon refused the request: the dispatcher configuration has invalid fields: defaultProfile: profile \"giant\" does not exist (small, medium) (dispatcher-config-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "file": "<WORK>/research.json",
+    "lines": 1,
+    "name": "write too many research runs"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/research.json"
+    ],
+    "exitCode": 1,
+    "name": "refuse too many research runs",
+    "stderr": "error: the daemon refused the request: the dispatcher configuration has invalid fields: research.wip: must be a whole number from 1 to 5 (dispatcher-config-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "file": "<WORK>/window.json",
+    "lines": 1,
+    "name": "write a broken window"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/window.json"
+    ],
+    "exitCode": 1,
+    "name": "refuse a broken window",
+    "stderr": "error: the daemon refused the request: the dispatcher configuration has invalid fields: window: needs from and to as HH:MM, such as 18:00 and 07:00 (dispatcher-config-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "file": "<WORK>/many.json",
+    "lines": 1,
+    "name": "write several mistakes"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/many.json"
+    ],
+    "exitCode": 1,
+    "name": "refuse every mistake at once",
+    "stderr": "error: the daemon refused the request: the dispatcher configuration has invalid fields: maxAttempts: must be a whole number from 1; accountLimitPercent: must be a whole number from 50 to 100; ladder[1]: profile \"ghost\" does not exist (small, medium); ladder[2]: is on the ladder twice; rules[0].when: needs at least one condition; worktreeSetup[0].cwd: \"../outside\" leaves the worktree (.. is not allowed) (dispatcher-config-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "file": "<WORK>/ghost.json",
+    "lines": 1,
+    "name": "write a rule for an unknown account"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/ghost.json"
+    ],
+    "exitCode": 1,
+    "name": "refuse an unknown account",
+    "stderr": "error: the daemon refused the request: the dispatcher configuration has invalid fields: rules[0].accounts[0]: there is no account with the id \"ghost\" (dispatcher-config-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "file": "<WORK>/typo.json",
+    "lines": 1,
+    "name": "refuse an unknown field in the file"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/typo.json"
+    ],
+    "exitCode": 1,
+    "name": "refuse a misspelled setting",
+    "stderr": "error: the configuration does not fit: unknown field `wipp`, expected one of `enabled`, `wip`, `window`, `optInLabel`, `optOutLabel`, `agentPrefix`, `staleMinutes`, `maxAttempts`, `pauseMinutesOnLimit`, `promptExtra`, `prompts`, `mergeStrategy`, `reviewBeforeMerge`, `joinWorktrees`, `worktreeSetup`, `worktreeSetupTimeoutMinutes`, `claude`, `profiles`, `defaultProfile`, `rules`, `escalate`, `ladder`, `allowFable`, `research`, `planning`, `autopilot`, `accountStrategy`, `accountLimitPercent`, `accountReserveFiveHour`, `accountReserveWeek`, `accountResetGraceMinutes`\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "show"
+    ],
+    "exitCode": 0,
+    "name": "show after the refusals",
+    "stderr": "",
+    "stdout": "dispatcher on, version 3 (e2b74f830cb80d9b)\nwindow 08:00-18:00, wip 2, attempts 3\nlabels in - out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default small):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts any\nladder small > medium\nrules: 1\n  1. labels architecture -> medium\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set"
+    ],
+    "exitCode": 1,
+    "name": "ask for nothing",
+    "stderr": "error: nothing to change, give --file, --enabled or --wip\n",
+    "stdout": ""
+  },
+  {
+    "name": "refuse a body without the configuration",
+    "request": {
+      "body": {
+        "config": {},
+        "version": 2
+      },
+      "method": "PUT",
+      "path": "/api/v1/dispatcher/config"
+    },
+    "response": {
+      "json": {
+        "code": "input-invalid",
+        "detail": "Failed to deserialize the JSON body into the target type: config: missing field `enabled` at line 2 column 14",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:input-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "refuse a version that is no version",
+    "request": {
+      "body": {
+        "version": 0
+      },
+      "method": "PUT",
+      "path": "/api/v1/dispatcher/config"
+    },
+    "response": {
+      "json": {
+        "code": "input-invalid",
+        "detail": "Failed to deserialize the JSON body into the target type: missing field `config` at line 3 column 1",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:input-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "account",
+      "add",
+      "Max"
+    ],
+    "exitCode": 0,
+    "name": "add an account",
+    "stderr": "",
+    "stdout": "added max (Max)\n"
+  },
+  {
+    "file": "<WORK>/accounts.json",
+    "lines": 1,
+    "name": "write a profile with an account"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/accounts.json"
+    ],
+    "exitCode": 0,
+    "name": "allow the account",
+    "stderr": "",
+    "stdout": "saved dispatcher configuration, version 4 (7746e63b2b8c2da8)\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "show"
+    ],
+    "exitCode": 0,
+    "name": "show the accounts of the profiles",
+    "stderr": "",
+    "stdout": "dispatcher on, version 4 (7746e63b2b8c2da8)\nwindow 08:00-18:00, wip 2, attempts 3\nlabels in - out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default small):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts max,default\nladder small > medium\nrules: 1\n  1. priority urgent -> medium\n"
+  },
+  {
+    "name": "read the final configuration",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/dispatcher/config"
+    },
+    "response": {
+      "json": {
+        "config": {
+          "accountLimitPercent": 90,
+          "accountReserveFiveHour": 10,
+          "accountReserveWeek": 2,
+          "accountResetGraceMinutes": 30,
+          "accountStrategy": "most-free",
+          "agentPrefix": "worker-",
+          "allowFable": false,
+          "autopilot": {
+            "enabled": false,
+            "exceptLabel": "interactive",
+            "maxMergeSessions": 3
+          },
+          "claude": {
+            "allowedTools": [
+              "Read",
+              "Edit",
+              "Write",
+              "Glob",
+              "Grep",
+              "Bash(harness:*)",
+              "Bash(nullradix:*)",
+              "Bash(node:*)",
+              "Bash(npm test:*)",
+              "Bash(npm run:*)",
+              "Bash(git status:*)",
+              "Bash(git diff:*)",
+              "Bash(git log:*)",
+              "Bash(git branch:*)",
+              "Bash(git add:*)",
+              "Bash(git commit:*)"
+            ],
+            "command": "claude",
+            "effort": null,
+            "extraArgs": [],
+            "gitBashPath": null,
+            "maxTurns": 80,
+            "model": "sonnet",
+            "permissionMode": "acceptEdits",
+            "timeoutMinutes": 60,
+            "useSubscription": true
+          },
+          "defaultProfile": "small",
+          "enabled": true,
+          "escalate": true,
+          "joinWorktrees": "none",
+          "ladder": [
+            "small",
+            "medium"
+          ],
+          "maxAttempts": 3,
+          "mergeStrategy": "merge",
+          "optInLabel": null,
+          "optOutLabel": "manual",
+          "pauseMinutesOnLimit": 60,
+          "planning": {
+            "acceptance": false,
+            "auto": false,
+            "profile": null,
+            "wip": 1
+          },
+          "profiles": [
+            {
+              "accounts": [],
+              "effort": "high",
+              "maxTurns": 40,
+              "model": "sonnet",
+              "name": "small",
+              "timeoutMinutes": 45
+            },
+            {
+              "accounts": [
+                "max",
+                "default"
+              ],
+              "effort": "high",
+              "maxTurns": 80,
+              "model": "opus",
+              "name": "medium",
+              "timeoutMinutes": 90
+            }
+          ],
+          "promptExtra": "",
+          "prompts": {
+            "merge": null,
+            "plan": null,
+            "research": null,
+            "work": null
+          },
+          "research": {
+            "auto": false,
+            "maxPerDay": 5,
+            "profile": null,
+            "wip": 2
+          },
+          "reviewBeforeMerge": true,
+          "rules": [
+            {
+              "accounts": [
+                "max"
+              ],
+              "profile": "medium",
+              "when": {
+                "filesMin": null,
+                "labels": null,
+                "planMinChars": null,
+                "priorities": [
+                  "urgent"
+                ]
+              }
+            }
+          ],
+          "staleMinutes": 150,
+          "window": {
+            "from": "08:00",
+            "to": "18:00"
+          },
+          "wip": 2,
+          "worktreeSetup": [],
+          "worktreeSetupTimeoutMinutes": 15
+        },
+        "hash": "7746e63b2b8c2da8",
+        "updatedAt": "<TIME>",
+        "version": 4
+      },
+      "status": 200
+    }
+  }
+]

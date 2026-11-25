@@ -7,6 +7,7 @@ mod config;
 mod connect;
 mod customize;
 mod daemon;
+mod dispatcher;
 mod hook;
 mod inbox;
 mod intake;
@@ -67,6 +68,9 @@ enum Command {
     /// Manage the Claude accounts runs are spread over
     #[command(subcommand)]
     Account(account::AccountCommand),
+    /// Configure the dispatcher that starts ready tickets
+    #[command(subcommand)]
+    Dispatcher(dispatcher::DispatcherCommand),
     /// Manage projects
     #[command(subcommand)]
     Project(project::ProjectCommand),
@@ -163,6 +167,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Account(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             account::run(command, &client)
+        }
+        Command::Dispatcher(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            dispatcher::run(command, &client)
         }
         Command::Project(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

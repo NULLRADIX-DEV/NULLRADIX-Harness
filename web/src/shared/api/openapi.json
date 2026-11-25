@@ -1457,6 +1457,99 @@
         }
       }
     },
+    "/api/v1/dispatcher/config": {
+      "get": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "get_dispatcher_config",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatcherConfigView"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "update_dispatcher_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDispatcherConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatcherConfigView"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid fields, listed in `errors`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/events": {
       "get": {
         "tags": [
@@ -7147,6 +7240,13 @@
           }
         }
       },
+      "AccountStrategyDto": {
+        "type": "string",
+        "enum": [
+          "most-free",
+          "order"
+        ]
+      },
       "ActorKindDto": {
         "type": "string",
         "enum": [
@@ -7297,6 +7397,32 @@
             ],
             "format": "int64",
             "description": "Version the answer is based on."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AutopilotSettingsDto": {
+        "type": "object",
+        "description": "No approvals, research answers questions, Claude resolves merge conflicts.",
+        "required": [
+          "enabled",
+          "maxMergeSessions"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "exceptLabel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tickets with this label run without the autopilot."
+          },
+          "maxMergeSessions": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Merge sessions per conflict from 1 to 5."
           }
         },
         "additionalProperties": false
@@ -7615,6 +7741,76 @@
               "null"
             ],
             "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClaudeSettingsDto": {
+        "type": "object",
+        "required": [
+          "command",
+          "maxTurns",
+          "timeoutMinutes",
+          "allowedTools",
+          "useSubscription",
+          "extraArgs"
+        ],
+        "properties": {
+          "allowedTools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the agent may do without asking."
+          },
+          "command": {
+            "type": "string",
+            "description": "`claude` or a full path."
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "extraArgs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "gitBashPath": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Path of `bash.exe` of Git for Windows; none looks for it."
+          },
+          "maxTurns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Default turns for a new profile and part of the stale threshold."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissionMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timeoutMinutes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Default timeout for a new profile and part of the stale threshold."
+          },
+          "useSubscription": {
+            "type": "boolean",
+            "description": "Remove API key variables from the environment of runs."
           }
         },
         "additionalProperties": false
@@ -8248,6 +8444,204 @@
           "remove",
           "context"
         ]
+      },
+      "DispatcherConfigDto": {
+        "type": "object",
+        "description": "The dispatcher's whole configuration; a save replaces all of it.",
+        "required": [
+          "enabled",
+          "wip",
+          "agentPrefix",
+          "staleMinutes",
+          "maxAttempts",
+          "pauseMinutesOnLimit",
+          "promptExtra",
+          "prompts",
+          "mergeStrategy",
+          "reviewBeforeMerge",
+          "joinWorktrees",
+          "worktreeSetup",
+          "worktreeSetupTimeoutMinutes",
+          "claude",
+          "profiles",
+          "defaultProfile",
+          "rules",
+          "escalate",
+          "ladder",
+          "allowFable",
+          "research",
+          "planning",
+          "autopilot",
+          "accountStrategy",
+          "accountLimitPercent",
+          "accountReserveFiveHour",
+          "accountReserveWeek",
+          "accountResetGraceMinutes"
+        ],
+        "properties": {
+          "accountLimitPercent": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "accountReserveFiveHour": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "accountReserveWeek": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "accountResetGraceMinutes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "accountStrategy": {
+            "$ref": "#/components/schemas/AccountStrategyDto"
+          },
+          "agentPrefix": {
+            "type": "string"
+          },
+          "allowFable": {
+            "type": "boolean"
+          },
+          "autopilot": {
+            "$ref": "#/components/schemas/AutopilotSettingsDto"
+          },
+          "claude": {
+            "$ref": "#/components/schemas/ClaudeSettingsDto"
+          },
+          "defaultProfile": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Off means nothing new starts; running runs are still evaluated."
+          },
+          "escalate": {
+            "type": "boolean"
+          },
+          "joinWorktrees": {
+            "$ref": "#/components/schemas/JoinWorktreesDto"
+          },
+          "ladder": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Profile names from cheap to expensive."
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "mergeStrategy": {
+            "$ref": "#/components/schemas/MergeStrategyDto"
+          },
+          "optInLabel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only tickets with this label are picked up; none means all ready tickets."
+          },
+          "optOutLabel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tickets with this label are never picked up."
+          },
+          "pauseMinutesOnLimit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "planning": {
+            "$ref": "#/components/schemas/PlanningSettingsDto"
+          },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileDto"
+            },
+            "description": "In escalation order, cheapest first."
+          },
+          "promptExtra": {
+            "type": "string"
+          },
+          "prompts": {
+            "$ref": "#/components/schemas/PromptTemplatesDto"
+          },
+          "research": {
+            "$ref": "#/components/schemas/ResearchSettingsDto"
+          },
+          "reviewBeforeMerge": {
+            "type": "boolean"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleDto"
+            }
+          },
+          "staleMinutes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Minutes without news before a run counts as orphaned; raised above the longest timeout."
+          },
+          "window": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TimeWindowDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "wip": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Tickets worked on at the same time."
+          },
+          "worktreeSetup": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorktreeSetupStepDto"
+            }
+          },
+          "worktreeSetupTimeoutMinutes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DispatcherConfigView": {
+        "type": "object",
+        "description": "The configuration with the version a save has to be based on.",
+        "required": [
+          "config",
+          "hash",
+          "updatedAt",
+          "version"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/DispatcherConfigDto"
+          },
+          "hash": {
+            "type": "string",
+            "description": "Short hash naming this configuration for the runs started with it."
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "DisplayStateDto": {
         "type": "string",
@@ -9056,6 +9450,13 @@
         },
         "additionalProperties": false
       },
+      "JoinWorktreesDto": {
+        "type": "string",
+        "enum": [
+          "none",
+          "same-spec"
+        ]
+      },
       "LoginCode": {
         "type": "object",
         "description": "The code the browser shows after logging in.",
@@ -9131,6 +9532,13 @@
             "$ref": "#/components/schemas/PrincipalKind"
           }
         }
+      },
+      "MergeStrategyDto": {
+        "type": "string",
+        "enum": [
+          "merge",
+          "squash"
+        ]
       },
       "MoveStep": {
         "type": "object",
@@ -9495,6 +9903,37 @@
           "disabled"
         ]
       },
+      "PlanningSettingsDto": {
+        "type": "object",
+        "description": "Planning runs on tickets.",
+        "required": [
+          "auto",
+          "wip",
+          "acceptance"
+        ],
+        "properties": {
+          "acceptance": {
+            "type": "boolean",
+            "description": "The plan also fills the acceptance of the ticket."
+          },
+          "auto": {
+            "type": "boolean"
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the profile; none uses the default profile."
+          },
+          "wip": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Parallel planning runs from 1 to 5."
+          }
+        },
+        "additionalProperties": false
+      },
       "PrincipalKind": {
         "type": "string",
         "enum": [
@@ -9561,6 +10000,49 @@
             "type": "string"
           }
         }
+      },
+      "ProfileDto": {
+        "type": "object",
+        "description": "Model, effort and limits of a run; the order of profiles is the escalation order.",
+        "required": [
+          "name",
+          "maxTurns",
+          "timeoutMinutes",
+          "accounts"
+        ],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Account ids the profile may use in this order; none means any enabled account."
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maxTurns": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "timeoutMinutes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "ProjectDto": {
         "type": "object",
@@ -9686,6 +10168,37 @@
             "$ref": "#/components/schemas/TicketDto"
           }
         }
+      },
+      "PromptTemplatesDto": {
+        "type": "object",
+        "description": "Own prompt templates per kind of run; none means the built-in template.",
+        "properties": {
+          "merge": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "research": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "work": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "QuestionCommentDto": {
         "type": "object",
@@ -10122,6 +10635,37 @@
           }
         }
       },
+      "ResearchSettingsDto": {
+        "type": "object",
+        "description": "Research runs on open questions.",
+        "required": [
+          "auto",
+          "wip",
+          "maxPerDay"
+        ],
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "maxPerDay": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the profile; none uses the default profile."
+          },
+          "wip": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Parallel research runs from 1 to 5."
+          }
+        },
+        "additionalProperties": false
+      },
       "ResumeOutcome": {
         "type": "string",
         "description": "What a resume did with the ticket's worktree.",
@@ -10187,6 +10731,75 @@
             "type": "string"
           }
         }
+      },
+      "RuleConditionDto": {
+        "type": "object",
+        "description": "Conditions of a rule; all that are set must hold.",
+        "properties": {
+          "filesMin": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "At least this many rows in the plan table under `## Integration`."
+          },
+          "labels": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The ticket carries one of these labels."
+          },
+          "planMinChars": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The plan has at least this many characters."
+          },
+          "priorities": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The priority is one of these."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleDto": {
+        "type": "object",
+        "description": "When `when` holds, `profile` applies; the first matching rule wins.",
+        "required": [
+          "when",
+          "profile",
+          "accounts"
+        ],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Account ids that replace those of the profile; none means as the profile."
+          },
+          "profile": {
+            "type": "string",
+            "description": "Name of the profile."
+          },
+          "when": {
+            "$ref": "#/components/schemas/RuleConditionDto"
+          }
+        },
+        "additionalProperties": false
       },
       "RunDto": {
         "type": "object",
@@ -11466,6 +12079,25 @@
           "not-needed"
         ]
       },
+      "TimeWindowDto": {
+        "type": "object",
+        "description": "Local time window in which new runs may start; `to` before `from` wraps past midnight.",
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "`HH:MM`, inclusive."
+          },
+          "to": {
+            "type": "string",
+            "description": "`HH:MM`, exclusive."
+          }
+        },
+        "additionalProperties": false
+      },
       "TodoItemDto": {
         "type": "object",
         "required": [
@@ -11842,6 +12474,24 @@
         },
         "additionalProperties": false
       },
+      "UpdateDispatcherConfig": {
+        "type": "object",
+        "required": [
+          "version",
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/DispatcherConfigDto"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version the change is based on; a newer stored version fails with `version-conflict`."
+          }
+        },
+        "additionalProperties": false
+      },
       "UpdateTicket": {
         "type": "object",
         "description": "A change of fields; left out fields stay, `null` clears those that may be empty.",
@@ -12104,6 +12754,24 @@
             "type": "string"
           }
         }
+      },
+      "WorktreeSetupStepDto": {
+        "type": "object",
+        "description": "Command run in a fresh worktree before Claude starts.",
+        "required": [
+          "cwd",
+          "run"
+        ],
+        "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Folder relative to the worktree root; `.` is the root itself."
+          },
+          "run": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "WritePlan": {
         "type": "object",

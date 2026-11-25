@@ -260,6 +260,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dispatcher/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_dispatcher_config"];
+        put: operations["update_dispatcher_config"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -1301,6 +1317,8 @@ export interface components {
             items: components["schemas"]["AccountStatusDto"][];
         };
         /** @enum {string} */
+        AccountStrategyDto: "most-free" | "order";
+        /** @enum {string} */
         ActorKindDto: "human" | "session" | "subagent" | "dispatcher" | "system";
         /** @description A new comment; leading and trailing whitespace is dropped. */
         AddComment: {
@@ -1350,6 +1368,17 @@ export interface components {
              * @description Version the answer is based on.
              */
             version?: number | null;
+        };
+        /** @description No approvals, research answers questions, Claude resolves merge conflicts. */
+        AutopilotSettingsDto: {
+            enabled: boolean;
+            /** @description Tickets with this label run without the autopilot. */
+            exceptLabel?: string | null;
+            /**
+             * Format: int64
+             * @description Merge sessions per conflict from 1 to 5.
+             */
+            maxMergeSessions: number;
         };
         /**
          * @description How the starting point of a replacement compares with the shipped file today.
@@ -1455,6 +1484,30 @@ export interface components {
             status?: components["schemas"]["TicketStatusDto"] | null;
             /** Format: int64 */
             version?: number | null;
+        };
+        ClaudeSettingsDto: {
+            /** @description What the agent may do without asking. */
+            allowedTools: string[];
+            /** @description `claude` or a full path. */
+            command: string;
+            effort?: string | null;
+            extraArgs: string[];
+            /** @description Path of `bash.exe` of Git for Windows; none looks for it. */
+            gitBashPath?: string | null;
+            /**
+             * Format: int64
+             * @description Default turns for a new profile and part of the stale threshold.
+             */
+            maxTurns: number;
+            model?: string | null;
+            permissionMode?: string | null;
+            /**
+             * Format: int64
+             * @description Default timeout for a new profile and part of the stale threshold.
+             */
+            timeoutMinutes: number;
+            /** @description Remove API key variables from the environment of runs. */
+            useSubscription: boolean;
         };
         /** @description A ready worktree the cleanup removed or kept; its branch stays either way. */
         CleanedWorktree: {
@@ -1630,6 +1683,70 @@ export interface components {
         };
         /** @enum {string} */
         DiffLineKindDto: "add" | "remove" | "context";
+        /** @description The dispatcher's whole configuration; a save replaces all of it. */
+        DispatcherConfigDto: {
+            /** Format: int64 */
+            accountLimitPercent: number;
+            /** Format: int64 */
+            accountReserveFiveHour: number;
+            /** Format: int64 */
+            accountReserveWeek: number;
+            /** Format: int64 */
+            accountResetGraceMinutes: number;
+            accountStrategy: components["schemas"]["AccountStrategyDto"];
+            agentPrefix: string;
+            allowFable: boolean;
+            autopilot: components["schemas"]["AutopilotSettingsDto"];
+            claude: components["schemas"]["ClaudeSettingsDto"];
+            defaultProfile: string;
+            /** @description Off means nothing new starts; running runs are still evaluated. */
+            enabled: boolean;
+            escalate: boolean;
+            joinWorktrees: components["schemas"]["JoinWorktreesDto"];
+            /** @description Profile names from cheap to expensive. */
+            ladder: string[];
+            /** Format: int64 */
+            maxAttempts: number;
+            mergeStrategy: components["schemas"]["MergeStrategyDto"];
+            /** @description Only tickets with this label are picked up; none means all ready tickets. */
+            optInLabel?: string | null;
+            /** @description Tickets with this label are never picked up. */
+            optOutLabel?: string | null;
+            /** Format: int64 */
+            pauseMinutesOnLimit: number;
+            planning: components["schemas"]["PlanningSettingsDto"];
+            /** @description In escalation order, cheapest first. */
+            profiles: components["schemas"]["ProfileDto"][];
+            promptExtra: string;
+            prompts: components["schemas"]["PromptTemplatesDto"];
+            research: components["schemas"]["ResearchSettingsDto"];
+            reviewBeforeMerge: boolean;
+            rules: components["schemas"]["RuleDto"][];
+            /**
+             * Format: int64
+             * @description Minutes without news before a run counts as orphaned; raised above the longest timeout.
+             */
+            staleMinutes: number;
+            window?: components["schemas"]["TimeWindowDto"] | null;
+            /**
+             * Format: int64
+             * @description Tickets worked on at the same time.
+             */
+            wip: number;
+            worktreeSetup: components["schemas"]["WorktreeSetupStepDto"][];
+            /** Format: int64 */
+            worktreeSetupTimeoutMinutes: number;
+        };
+        /** @description The configuration with the version a save has to be based on. */
+        DispatcherConfigView: {
+            config: components["schemas"]["DispatcherConfigDto"];
+            /** @description Short hash naming this configuration for the runs started with it. */
+            hash: string;
+            /** Format: int64 */
+            updatedAt: number;
+            /** Format: int64 */
+            version: number;
+        };
         /**
          * @description The state, or `stale` after 30 minutes without a hook.
          * @enum {string}
@@ -1885,6 +2002,8 @@ export interface components {
             key: string;
             type: components["schemas"]["InboxItemTypeDto"];
         };
+        /** @enum {string} */
+        JoinWorktreesDto: "none" | "same-spec";
         /** @description The code the browser shows after logging in. */
         LoginCode: {
             /** Format: password */
@@ -1910,6 +2029,8 @@ export interface components {
         Me: {
             kind: components["schemas"]["PrincipalKind"];
         };
+        /** @enum {string} */
+        MergeStrategyDto: "merge" | "squash";
         /** @description A move of one step to another number. */
         MoveStep: {
             expectText?: string | null;
@@ -2026,6 +2147,19 @@ export interface components {
          * @enum {string}
          */
         OverlayStateDto: "active" | "fallback" | "disabled";
+        /** @description Planning runs on tickets. */
+        PlanningSettingsDto: {
+            /** @description The plan also fills the acceptance of the ticket. */
+            acceptance: boolean;
+            auto: boolean;
+            /** @description Name of the profile; none uses the default profile. */
+            profile?: string | null;
+            /**
+             * Format: int64
+             * @description Parallel planning runs from 1 to 5.
+             */
+            wip: number;
+        };
         /** @enum {string} */
         PrincipalKind: "token" | "session";
         /** @enum {string} */
@@ -2044,6 +2178,18 @@ export interface components {
             status: number;
             title: string;
             type: string;
+        };
+        /** @description Model, effort and limits of a run; the order of profiles is the escalation order. */
+        ProfileDto: {
+            /** @description Account ids the profile may use in this order; none means any enabled account. */
+            accounts: string[];
+            effort?: string | null;
+            /** Format: int64 */
+            maxTurns: number;
+            model?: string | null;
+            name: string;
+            /** Format: int64 */
+            timeoutMinutes: number;
         };
         /** @description A project as the API shows it; timestamps are Unix milliseconds. */
         ProjectDto: {
@@ -2077,6 +2223,13 @@ export interface components {
         PromotedNote: {
             note: components["schemas"]["NoteDto"];
             ticket: components["schemas"]["TicketDto"];
+        };
+        /** @description Own prompt templates per kind of run; none means the built-in template. */
+        PromptTemplatesDto: {
+            merge?: string | null;
+            plan?: string | null;
+            research?: string | null;
+            work?: string | null;
         };
         QuestionCommentDto: {
             /** Format: uuid */
@@ -2207,6 +2360,19 @@ export interface components {
             id: string;
             options: components["schemas"]["OptionDto"][];
         };
+        /** @description Research runs on open questions. */
+        ResearchSettingsDto: {
+            auto: boolean;
+            /** Format: int64 */
+            maxPerDay: number;
+            /** @description Name of the profile; none uses the default profile. */
+            profile?: string | null;
+            /**
+             * Format: int64
+             * @description Parallel research runs from 1 to 5.
+             */
+            wip: number;
+        };
         /**
          * @description What a resume did with the ticket's worktree.
          * @enum {string}
@@ -2228,6 +2394,31 @@ export interface components {
             /** Format: int64 */
             at: number;
             sessionId: string;
+        };
+        /** @description Conditions of a rule; all that are set must hold. */
+        RuleConditionDto: {
+            /**
+             * Format: int64
+             * @description At least this many rows in the plan table under `## Integration`.
+             */
+            filesMin?: number | null;
+            /** @description The ticket carries one of these labels. */
+            labels?: string[] | null;
+            /**
+             * Format: int64
+             * @description The plan has at least this many characters.
+             */
+            planMinChars?: number | null;
+            /** @description The priority is one of these. */
+            priorities?: string[] | null;
+        };
+        /** @description When `when` holds, `profile` applies; the first matching rule wins. */
+        RuleDto: {
+            /** @description Account ids that replace those of the profile; none means as the profile. */
+            accounts: string[];
+            /** @description Name of the profile. */
+            profile: string;
+            when: components["schemas"]["RuleConditionDto"];
         };
         /** @description A run as the API shows it; timestamps are Unix milliseconds. */
         RunDto: {
@@ -2605,6 +2796,13 @@ export interface components {
         };
         /** @enum {string} */
         TicketStatusDto: "backlog" | "in-planning" | "planned" | "in-progress" | "blocked" | "done" | "not-needed";
+        /** @description Local time window in which new runs may start; `to` before `from` wraps past midnight. */
+        TimeWindowDto: {
+            /** @description `HH:MM`, inclusive. */
+            from: string;
+            /** @description `HH:MM`, exclusive. */
+            to: string;
+        };
         TodoItemDto: {
             content: string;
             status: components["schemas"]["TodoStatusDto"];
@@ -2713,6 +2911,14 @@ export interface components {
              */
             version: number;
         };
+        UpdateDispatcherConfig: {
+            config: components["schemas"]["DispatcherConfigDto"];
+            /**
+             * Format: int64
+             * @description Version the change is based on; a newer stored version fails with `version-conflict`.
+             */
+            version: number;
+        };
         /** @description A change of fields; left out fields stay, `null` clears those that may be empty. */
         UpdateTicket: {
             acceptance?: string | null;
@@ -2780,6 +2986,12 @@ export interface components {
         WaitingDto: {
             key: string;
             state: string;
+        };
+        /** @description Command run in a fresh worktree before Claude starts. */
+        WorktreeSetupStepDto: {
+            /** @description Folder relative to the worktree root; `.` is the root itself. */
+            cwd: string;
+            run: string;
         };
         /** @description A plan; at least one of plan, handbook and diagram. */
         WritePlan: {
@@ -3927,6 +4139,90 @@ export interface operations {
                 };
             };
             /** @description Nothing shipped: `customization-no-standard` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_dispatcher_config: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatcherConfigView"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_dispatcher_config: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDispatcherConfig"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatcherConfigView"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid fields, listed in `errors` */
             422: {
                 headers: {
                     [name: string]: unknown;
