@@ -155,7 +155,7 @@ impl From<&InstalledTheme> for ThemeDto {
 pub struct ThemeListDto {
     /// Installed themes sorted by id.
     pub items: Vec<ThemeDto>,
-    /// The chosen theme: a built-in one (`nullradix`, `system`, `light`, `dark`) or an installed id.
+    /// The chosen theme: `nullradix`, `system`, `light`, `dark` or an installed id.
     pub active: String,
 }
 

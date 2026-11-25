@@ -5,6 +5,7 @@ mod board;
 mod comment;
 mod config;
 mod connect;
+mod customize;
 mod daemon;
 mod hook;
 mod inbox;
@@ -93,6 +94,9 @@ enum Command {
     /// List and show Claude Code sessions
     #[command(subcommand)]
     Session(session::SessionCommand),
+    /// Replace or add skills and output styles: show, copy, set, switch and reset
+    #[command(subcommand)]
+    Customize(customize::CustomizeCommand),
     /// List, install, choose, remove and pack themes
     #[command(subcommand)]
     Theme(theme::ThemeCommand),
@@ -195,6 +199,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Session(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             session::run(command, &client)
+        }
+        Command::Customize(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            customize::run(command, &client)
         }
         Command::Theme(theme::ThemeCommand::Pack { dir, out }) => theme::pack(&dir, out.as_deref()),
         Command::Theme(command) => {

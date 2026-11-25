@@ -4,6 +4,7 @@ mod account;
 mod board;
 mod board_rules;
 mod comment;
+mod customization;
 mod favorite;
 mod hook;
 mod id;
@@ -33,6 +34,11 @@ pub use board_rules::{
     validate_dependencies,
 };
 pub use comment::{Comment, CommentBody, CommentError, CommentOn, CommentRecord, SystemMarker};
+pub use customization::{
+    Base, BaseState, ExtensionPoint, Finding, FrontMatter, OVERLAY_CONTENT_MAX, OVERLAY_NAME_MAX,
+    Overlay, OverlayError, OverlayKind, OverlayName, OverlayRecord, OverlayState, base_state,
+    check_front_matter, overlay_content, overlay_state,
+};
 pub use favorite::{
     FAVORITE_NOTE_MAX, Favorite, FavoriteRecord, Resumption, favorite_note, resume_command,
     resumed_favorite,

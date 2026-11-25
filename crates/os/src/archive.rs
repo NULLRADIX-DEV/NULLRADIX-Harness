@@ -166,7 +166,7 @@ pub fn pack_zip(entries: &[Entry]) -> Result<Vec<u8>, ArchiveError> {
     Ok(writer.finish().map_err(not_zip)?.into_inner())
 }
 
-/// Every file below `dir`, sorted by path; links, hidden names and files that leave `dir` are refused.
+/// Every file below `dir` by path; links, hidden names and files leaving `dir` are refused.
 pub fn read_tree(dir: &Path, limits: Limits) -> Result<Vec<Entry>, ArchiveError> {
     let root = fs::canonicalize(dir)?;
     let mut entries = Vec::new();
@@ -232,8 +232,7 @@ fn collect(
     Ok(())
 }
 
-/// Makes `parent/name` hold exactly `entries`, all or nothing: the old folder stays until the new
-/// one is complete, and comes back when the swap fails.
+/// Makes `parent/name` hold exactly `entries`; the old folder stays until the new one is complete.
 pub fn replace_dir(parent: &Path, name: &str, entries: &[Entry]) -> Result<(), ArchiveError> {
     if !plain_name(name) {
         return Err(unsafe_path(name));
@@ -286,8 +285,7 @@ pub fn remove_dir(parent: &Path, name: &str) -> Result<bool, ArchiveError> {
     }
 }
 
-/// The content of the regular file at `path` below `root`; `None` when it is missing, is no
-/// regular file, is too large, or resolves to somewhere outside `root`.
+/// The regular file at `path` below `root`; `None` when missing, too large or outside `root`.
 pub fn read_within(root: &Path, path: &[String], max: u64) -> io::Result<Option<Vec<u8>>> {
     let mut file = root.to_path_buf();
     for part in path {

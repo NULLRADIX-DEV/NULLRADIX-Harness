@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO customization_overlays (id, point, name, kind, content, base_content,\n                 base_hash, enabled, created_at, updated_at, version)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "a9f479681656fee579b52fac54f8481ecd0510a8b092a44991e5d5d00695aa0a"
+}

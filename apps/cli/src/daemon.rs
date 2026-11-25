@@ -10,6 +10,7 @@ use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
+use nullradix_app::customizations::{CustomizationService, NoStandards};
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
@@ -128,13 +129,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    let themes = Arc::new(ThemeService::new(
-        Arc::new(store.clone()),
-        Arc::new(FolderThemes::new(config.paths.themes())),
-        Arc::new(SystemClock),
-        Arc::new(UuidV7Generator),
-        signal.clone(),
-    ));
+    let (themes, customizations) = start_extensions(config, &store, &signal);
     let sessions = Arc::new(SessionService::new(
         Arc::new(store.clone()),
         runners.clone(),
@@ -163,6 +158,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         sessions,
         favorites,
         themes,
+        customizations,
         changes: Arc::new(store.clone()),
         signal,
         shutdown: shutdown.clone(),
@@ -269,6 +265,29 @@ fn claude_logins(config: &Config) -> LocalClaudeLogins {
     } else {
         LocalClaudeLogins::from_environment()
     }
+}
+
+/// Themes from the data folder and the customizations in the database.
+fn start_extensions(
+    config: &Config,
+    store: &Store,
+    signal: &ChangeSignal,
+) -> (Arc<ThemeService>, Arc<CustomizationService>) {
+    let themes = Arc::new(ThemeService::new(
+        Arc::new(store.clone()),
+        Arc::new(FolderThemes::new(config.paths.themes())),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    let customizations = Arc::new(CustomizationService::new(
+        Arc::new(store.clone()),
+        Arc::new(NoStandards),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    (themes, customizations)
 }
 
 struct BoardServices {

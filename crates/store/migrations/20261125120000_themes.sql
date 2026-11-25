@@ -14,3 +14,21 @@ CREATE TABLE installed_themes (
   updated_at       INTEGER NOT NULL,
   version          INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1)
 ) STRICT;
+
+-- a person's own skill or output style; it replaces a shipped one of the same name or comes on top
+CREATE TABLE customization_overlays (
+  id           BLOB PRIMARY KEY CHECK (length(id) = 16),
+  point        TEXT NOT NULL CHECK (point IN ('skill', 'output-style')),
+  name         TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 64),
+  kind         TEXT NOT NULL CHECK (kind IN ('replace', 'new')),
+  content      TEXT NOT NULL CHECK (length(content) > 0),
+  -- the shipped file the customization started from
+  base_content TEXT,
+  base_hash    TEXT,
+  enabled      INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  version      INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  UNIQUE (point, name),
+  CHECK ((base_content IS NULL) = (base_hash IS NULL))
+) STRICT;

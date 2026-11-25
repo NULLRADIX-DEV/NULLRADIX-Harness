@@ -981,6 +981,482 @@
         }
       }
     },
+    "/api/v1/customizations": {
+      "get": {
+        "tags": [
+          "customizations"
+        ],
+        "operationId": "list_customizations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomizationList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "customizations"
+        ],
+        "operationId": "create_customization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomization"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the customization"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomizationDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already customized: `customization-exists`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Bad name or content, or nothing shipped to copy: `customization-no-standard`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/customizations/{point}/{name}": {
+      "get": {
+        "tags": [
+          "customizations"
+        ],
+        "operationId": "get_customization",
+        "parameters": [
+          {
+            "name": "point",
+            "in": "path",
+            "description": "Where the customization takes effect.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExtensionPointDto"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the skill or output style.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomizationDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "customizations"
+        ],
+        "operationId": "delete_customization",
+        "parameters": [
+          {
+            "name": "point",
+            "in": "path",
+            "description": "Where the customization takes effect.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExtensionPointDto"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the skill or output style.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Version the deletion is based on.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Dropped; the shipped file is in charge again"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "customizations"
+        ],
+        "operationId": "update_customization",
+        "parameters": [
+          {
+            "name": "point",
+            "in": "path",
+            "description": "Where the customization takes effect.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExtensionPointDto"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the skill or output style.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomization"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomizationDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/customizations/{point}/{name}/effective": {
+      "get": {
+        "tags": [
+          "customizations"
+        ],
+        "operationId": "effective_customization",
+        "parameters": [
+          {
+            "name": "point",
+            "in": "path",
+            "description": "Where the customization takes effect.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExtensionPointDto"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the skill or output style.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The customization when it applies, else the shipped file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Neither applies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/customizations/{point}/{name}/rebase": {
+      "post": {
+        "tags": [
+          "customizations"
+        ],
+        "operationId": "rebase_customization",
+        "parameters": [
+          {
+            "name": "point",
+            "in": "path",
+            "description": "Where the customization takes effect.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExtensionPointDto"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Name of the skill or output style.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebaseCustomization"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The shipped file is the new starting point",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomizationDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Nothing shipped: `customization-no-standard`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/events": {
       "get": {
         "tags": [
@@ -6746,6 +7222,16 @@
         },
         "additionalProperties": false
       },
+      "BaseStateDto": {
+        "type": "string",
+        "description": "How the starting point of a replacement compares with the shipped file today.",
+        "enum": [
+          "none",
+          "current",
+          "outdated",
+          "unknown"
+        ]
+      },
       "BoardDeleted": {
         "type": "object",
         "description": "What a board deletion took with it.",
@@ -7236,6 +7722,30 @@
         },
         "additionalProperties": false
       },
+      "CreateCustomization": {
+        "type": "object",
+        "required": [
+          "point",
+          "name"
+        ],
+        "properties": {
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The whole file with its head; left out copies the shipped file of that name."
+          },
+          "name": {
+            "type": "string",
+            "description": "Lowercase words joined by single hyphens, at most 64 characters."
+          },
+          "point": {
+            "$ref": "#/components/schemas/ExtensionPointDto"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateNote": {
         "type": "object",
         "description": "A new note: a title that makes sense without context and optional details.",
@@ -7458,6 +7968,92 @@
         },
         "additionalProperties": false
       },
+      "CustomizationDto": {
+        "type": "object",
+        "required": [
+          "point",
+          "name",
+          "kind",
+          "state",
+          "content",
+          "enabled",
+          "base",
+          "standard",
+          "problems",
+          "warnings",
+          "createdAt",
+          "updatedAt",
+          "version"
+        ],
+        "properties": {
+          "base": {
+            "$ref": "#/components/schemas/BaseStateDto"
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OverlayKindDto"
+          },
+          "name": {
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/ExtensionPointDto"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindingDto"
+            },
+            "description": "Reasons the shipped file stays in charge."
+          },
+          "standard": {
+            "type": "boolean",
+            "description": "Whether a shipped file of that name exists."
+          },
+          "state": {
+            "$ref": "#/components/schemas/OverlayStateDto"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindingDto"
+            },
+            "description": "Hints that leave the customization in charge."
+          }
+        }
+      },
+      "CustomizationList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomizationDto"
+            },
+            "description": "Skills first, then output styles, each by name."
+          }
+        }
+      },
       "DecideQuestion": {
         "type": "object",
         "description": "Discarding needs a reason; reopening takes none.",
@@ -7595,6 +8191,30 @@
         },
         "additionalProperties": false
       },
+      "EffectiveDto": {
+        "type": "object",
+        "description": "The text that is in charge of a name right now.",
+        "required": [
+          "source",
+          "content",
+          "problems"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindingDto"
+            },
+            "description": "Why the customization does not apply, when the shipped file took over."
+          },
+          "source": {
+            "$ref": "#/components/schemas/SourceDto"
+          }
+        }
+      },
       "EntityDto": {
         "type": "string",
         "enum": [
@@ -7615,6 +8235,13 @@
           "theme",
           "setting",
           "customization"
+        ]
+      },
+      "ExtensionPointDto": {
+        "type": "string",
+        "enum": [
+          "skill",
+          "output-style"
         ]
       },
       "FavoriteDto": {
@@ -7771,6 +8398,21 @@
           "deleted",
           "renamed"
         ]
+      },
+      "FindingDto": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
       },
       "FinishTicket": {
         "type": "object",
@@ -8756,6 +9398,23 @@
           "stderr"
         ]
       },
+      "OverlayKindDto": {
+        "type": "string",
+        "description": "Replaces a shipped file or comes on top of the shipped ones.",
+        "enum": [
+          "replace",
+          "new"
+        ]
+      },
+      "OverlayStateDto": {
+        "type": "string",
+        "description": "Whether the customization applies: problems send it back to the shipped file.",
+        "enum": [
+          "active",
+          "fallback",
+          "disabled"
+        ]
+      },
       "PrincipalKind": {
         "type": "string",
         "enum": [
@@ -9235,6 +9894,19 @@
             "type": "string"
           }
         }
+      },
+      "RebaseCustomization": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "RecordedHookDto": {
         "type": "object",
@@ -9910,6 +10582,13 @@
           }
         }
       },
+      "SourceDto": {
+        "type": "string",
+        "enum": [
+          "custom",
+          "standard"
+        ]
+      },
       "StartLogin": {
         "type": "object",
         "properties": {
@@ -10276,7 +10955,7 @@
         "properties": {
           "active": {
             "type": "string",
-            "description": "The chosen theme: a built-in one (`nullradix`, `system`, `light`, `dark`) or an installed id."
+            "description": "The chosen theme: `nullradix`, `system`, `light`, `dark` or an installed id."
           },
           "items": {
             "type": "array",
@@ -10996,6 +11675,34 @@
               "string",
               "null"
             ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version the change is based on; a newer stored version fails with `version-conflict`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateCustomization": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Replaces the content; left out keeps it."
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Switches the customization on or off; left out keeps it."
           },
           "version": {
             "type": "integer",

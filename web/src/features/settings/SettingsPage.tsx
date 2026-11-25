@@ -2,6 +2,7 @@ import { THEME_LABELS, THEME_MODES, isThemeChoice } from '../../shared/lib/theme
 import { useTheme } from '../../shared/ui/ThemeProvider';
 import { AccountsSection } from '../accounts/AccountsSection';
 import { ProjectsSection } from '../projects/ProjectsSection';
+import { CustomizationsSection } from '../customizations/CustomizationsSection';
 import { ThemesSection } from '../themes/ThemesSection';
 
 export function SettingsPage() {
@@ -35,6 +36,7 @@ export function SettingsPage() {
         </label>
       </section>
       <ThemesSection />
+      <CustomizationsSection />
     </div>
   );
 }

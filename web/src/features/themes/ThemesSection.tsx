@@ -29,7 +29,7 @@ function RemoveRow({ theme }: { theme: Theme }) {
       <div className="theme-row-text">
         <strong>{theme.name}</strong>
         <div className="muted">
-          {theme.author} · v{theme.packageVersion} · {theme.colorScheme}
+          {theme.author} - v{theme.packageVersion} - {theme.colorScheme}
         </div>
       </div>
       {asking ? (

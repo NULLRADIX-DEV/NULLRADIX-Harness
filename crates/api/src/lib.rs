@@ -4,6 +4,7 @@ mod accounts;
 mod auth;
 mod boards;
 mod comments;
+mod customizations;
 mod events;
 mod extract;
 mod favorites;
@@ -40,6 +41,7 @@ use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
+use nullradix_app::customizations::CustomizationService;
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
@@ -70,6 +72,11 @@ pub use accounts::{AccountDto, AccountList, CreateAccount, SetRunToken, UpdateAc
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
 pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
 pub use comments::{ActorKindDto, AddComment, CommentDto, CommentList, SystemMarkerDto};
+pub use customizations::{
+    BaseStateDto, CreateCustomization, CustomizationDto, CustomizationList, EffectiveDto,
+    ExtensionPointDto, FindingDto as CustomizationFindingDto, OverlayKindDto, OverlayStateDto,
+    RebaseCustomization, SourceDto, UpdateCustomization,
+};
 pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use favorites::{FavoriteDto, FavoriteList, MarkFavorite, ResumptionDto};
@@ -183,6 +190,7 @@ pub struct ApiState {
     pub sessions: Arc<SessionService>,
     pub favorites: Arc<FavoriteService>,
     pub themes: Arc<ThemeService>,
+    pub customizations: Arc<CustomizationService>,
     pub changes: Arc<dyn ChangeFeed>,
     pub signal: ChangeSignal,
     /// Cancelled when the daemon stops; long-lived responses end with it.
@@ -208,12 +216,23 @@ fn account_routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(accounts::set_run_token, accounts::clear_run_token))
 }
 
-fn theme_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> {
+fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> {
     router
         .routes(routes!(themes::list_themes, themes::install_theme))
         .routes(routes!(themes::remove_theme))
         .routes(routes!(themes::theme_file))
         .routes(routes!(themes::choose_theme))
+        .routes(routes!(
+            customizations::list_customizations,
+            customizations::create_customization
+        ))
+        .routes(routes!(
+            customizations::get_customization,
+            customizations::update_customization,
+            customizations::delete_customization
+        ))
+        .routes(routes!(customizations::rebase_customization))
+        .routes(routes!(customizations::effective_customization))
 }
 
 fn routes() -> OpenApiRouter<ApiState> {
@@ -304,7 +323,7 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events))
         .merge(account_routes());
-    let v1 = theme_routes(v1);
+    let v1 = extension_routes(v1);
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     doc.info.license = Some(
@@ -715,6 +734,13 @@ pub(crate) mod tests {
         );
         let (sessions, favorites, hooks) = session_services(&store, &runners, &signal);
         let logins = test_logins(&accounts);
+        let customizations = Arc::new(CustomizationService::new(
+            store.clone(),
+            Arc::new(nullradix_app::customizations::NoStandards),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
         let themes = Arc::new(ThemeService::new(
             store.clone(),
             Arc::new(crate::themes::fake::Files::default()),
@@ -746,6 +772,7 @@ pub(crate) mod tests {
             sessions,
             favorites,
             themes,
+            customizations,
             changes: changes.clone(),
             signal,
             shutdown: shutdown.clone(),

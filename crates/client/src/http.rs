@@ -5,17 +5,18 @@ use nullradix_api::{
     API_PREFIX, API_VERSION, AcceptTicket, AccountDto, AccountList, AccountLoginDto,
     AccountStatusList, AddComment, AddQuestionComment, AddStep, AnswerQuestion, BoardDeleted,
     BoardDto, BoardList, ChangeStep, ChooseTheme, ClaimPlanning, ClaimSession, ClaimTicket,
-    CommentDto, CommentList, CreateAccount, CreateAccountLogin, CreateBoard, CreateNote,
-    CreateProject, CreateQuestion, CreateTicket, DecideQuestion, DropNote, FavoriteDto,
-    FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto,
-    HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite,
-    MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto,
-    ProjectList, PromoteNote, PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList,
-    ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto, RunList, RunOutput,
-    RunnerList, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList,
-    SetBoardRepository, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, ThemeDto,
-    ThemeListDto, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateAccount,
-    UpdateTicket, WritePlan,
+    CommentDto, CommentList, CreateAccount, CreateAccountLogin, CreateBoard, CreateCustomization,
+    CreateNote, CreateProject, CreateQuestion, CreateTicket, CustomizationDto, CustomizationList,
+    DecideQuestion, DropNote, EffectiveDto, ExtensionPointDto, FavoriteDto, FavoriteList,
+    FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto, HookEventList,
+    HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite, MoveStep, MoveTicket,
+    NextPlanning, NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList,
+    PromoteNote, PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList,
+    RebaseCustomization, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto,
+    RunList, RunOutput, RunnerList, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto,
+    SessionList, SetBoardRepository, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
+    ThemeDto, ThemeListDto, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto,
+    UpdateAccount, UpdateCustomization, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -510,6 +511,88 @@ impl Client {
             .call()
             .map_err(|source| self.unreachable(source))?;
         expect_empty(&mut response, 204)
+    }
+
+    /// Customizations, skills first, each by name.
+    pub fn list_customizations(&self) -> Result<CustomizationList, ClientError> {
+        self.get_json("/customizations")
+    }
+
+    pub fn get_customization(
+        &self,
+        point: ExtensionPointDto,
+        name: &str,
+    ) -> Result<CustomizationDto, ClientError> {
+        self.get_json(&customization_route(point, name))
+    }
+
+    /// Starts a customization from `content`, or from the shipped file when none is given.
+    pub fn create_customization(
+        &self,
+        input: &CreateCustomization,
+    ) -> Result<CustomizationDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/customizations"))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    pub fn update_customization(
+        &self,
+        point: ExtensionPointDto,
+        name: &str,
+        input: &UpdateCustomization,
+    ) -> Result<CustomizationDto, ClientError> {
+        let mut response = self
+            .agent
+            .patch(&self.url(&customization_route(point, name)))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn rebase_customization(
+        &self,
+        point: ExtensionPointDto,
+        name: &str,
+        version: i64,
+    ) -> Result<CustomizationDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("{}/rebase", customization_route(point, name))))
+            .header("Authorization", &self.authorization()?)
+            .send_json(&RebaseCustomization { version })
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn delete_customization(
+        &self,
+        point: ExtensionPointDto,
+        name: &str,
+        version: i64,
+    ) -> Result<(), ClientError> {
+        let route = format!("{}?version={version}", customization_route(point, name));
+        let mut response = self
+            .agent
+            .delete(&self.url(&route))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    /// The customization when it applies, else the shipped file.
+    pub fn effective_customization(
+        &self,
+        point: ExtensionPointDto,
+        name: &str,
+    ) -> Result<EffectiveDto, ClientError> {
+        self.get_json(&format!("{}/effective", customization_route(point, name)))
     }
 
     /// Favorites, latest marked first; only those of `repository` when given.
@@ -1029,6 +1112,14 @@ impl Client {
 }
 
 /// A path segment that keeps a typed value from reaching another route.
+fn customization_route(point: ExtensionPointDto, name: &str) -> String {
+    let point = match point {
+        ExtensionPointDto::Skill => "skill",
+        ExtensionPointDto::OutputStyle => "output-style",
+    };
+    format!("/customizations/{point}/{}", segment(name))
+}
+
 fn segment(text: &str) -> String {
     text.bytes()
         .map(|byte| {
@@ -1182,6 +1273,19 @@ mod tests {
         ))
     }
 
+    fn customization_service(
+        store: &Arc<Store>,
+        signal: &ChangeSignal,
+    ) -> Arc<nullradix_app::customizations::CustomizationService> {
+        Arc::new(nullradix_app::customizations::CustomizationService::new(
+            store.clone(),
+            Arc::new(nullradix_app::customizations::NoStandards),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ))
+    }
+
     fn theme_service(
         store: &Arc<Store>,
         signal: &ChangeSignal,
@@ -1288,6 +1392,7 @@ mod tests {
             sessions,
             favorites,
             themes: theme_service(&store, &signal),
+            customizations: customization_service(&store, &signal),
             changes: store,
             signal,
             shutdown: tokio_util::sync::CancellationToken::new(),

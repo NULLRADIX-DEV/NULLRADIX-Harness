@@ -7,6 +7,7 @@ pub mod boards;
 mod changes;
 mod clock;
 pub mod comments;
+pub mod customizations;
 mod error;
 pub mod favorites;
 pub mod hooks;

@@ -1,0 +1,134 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT point, name, kind, content, base_content, base_hash, enabled, created_at,\n                updated_at, version\n         FROM customization_overlays\n         WHERE (?1 IS NULL OR point = ?1) AND (?2 IS NULL OR name = ?2)\n         ORDER BY CASE point WHEN 'skill' THEN 0 ELSE 1 END, name",
+  "describe": {
+    "columns": [
+      {
+        "name": "point",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "point"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "kind",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "content",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "name": "base_content",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "base_content"
+          }
+        }
+      },
+      {
+        "name": "base_hash",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "base_hash"
+          }
+        }
+      },
+      {
+        "name": "enabled",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3d6a053087deef3c2996eeedb277283a09e1a5bc10f12358fb7a40018acdaa2c"
+}

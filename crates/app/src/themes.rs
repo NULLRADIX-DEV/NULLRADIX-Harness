@@ -64,8 +64,7 @@ pub trait ThemeRepository: Send + Sync {
     async fn selection(&self) -> Result<Option<String>, AppError>;
 }
 
-/// The files of installed themes. Adapters unpack safely and report problems with
-/// [`crate::theme_package::package_invalid`].
+/// The files of installed themes; adapters report refused packages with `package_invalid`.
 #[async_trait]
 pub trait ThemeFiles: Send + Sync {
     /// The files of a package archive; refuses links, escaping paths and oversized content.

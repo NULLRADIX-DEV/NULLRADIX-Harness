@@ -1,0 +1,182 @@
+{
+  "title": "Customizations are created from files, checked, switched, listed and dropped",
+  "steps": [
+    {
+      "name": "nothing is customized",
+      "cli": {
+        "args": ["customize", "overview"]
+      }
+    },
+    {
+      "name": "a skill with a head",
+      "file": {
+        "path": "{{WORK}}/review.md",
+        "text": "---\nname: review\ndescription: Reviews a change\n---\nLook at the diff first.\n"
+      }
+    },
+    {
+      "name": "customize the skill",
+      "cli": {
+        "args": ["customize", "set", "skill", "review", "--file", "{{WORK}}/review.md"]
+      }
+    },
+    {
+      "name": "an output style without a head",
+      "file": {
+        "path": "{{WORK}}/terse.md",
+        "text": "Be brief.\n"
+      }
+    },
+    {
+      "name": "the output style has problems and falls back",
+      "cli": {
+        "args": ["customize", "set", "output-style", "terse", "--file", "{{WORK}}/terse.md"]
+      }
+    },
+    {
+      "name": "overview lists skills first and names the problems",
+      "cli": {
+        "args": ["customize", "overview"]
+      }
+    },
+    {
+      "name": "list over http",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/customizations"
+      }
+    },
+    {
+      "name": "the skill is in charge",
+      "cli": {
+        "args": ["customize", "show", "skill", "review"]
+      }
+    },
+    {
+      "name": "nothing is in charge of the broken output style",
+      "cli": {
+        "args": ["customize", "show", "output-style", "terse"]
+      }
+    },
+    {
+      "name": "the output style gets a head",
+      "file": {
+        "path": "{{WORK}}/terse.md",
+        "text": "---\ndescription: Short answers\n---\nBe brief.\n"
+      }
+    },
+    {
+      "name": "setting it again replaces the content",
+      "cli": {
+        "args": ["customize", "set", "output-style", "terse", "--file", "{{WORK}}/terse.md"]
+      }
+    },
+    {
+      "name": "the same name cannot be created twice",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/customizations",
+        "body": {
+          "point": "skill",
+          "name": "review",
+          "content": "x"
+        }
+      }
+    },
+    {
+      "name": "names are checked",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/customizations",
+        "body": {
+          "point": "skill",
+          "name": "Bad Name",
+          "content": "x"
+        }
+      }
+    },
+    {
+      "name": "nothing is shipped to copy",
+      "cli": {
+        "args": ["customize", "copy", "skill", "review", "--rebase"]
+      }
+    },
+    {
+      "name": "copying a skill that is not shipped is refused",
+      "cli": {
+        "args": ["customize", "copy", "skill", "other"]
+      }
+    },
+    {
+      "name": "disable the skill",
+      "cli": {
+        "args": ["customize", "disable", "skill", "review"]
+      }
+    },
+    {
+      "name": "a disabled skill is not in charge",
+      "cli": {
+        "args": ["customize", "show", "skill", "review"]
+      }
+    },
+    {
+      "name": "enable it again",
+      "cli": {
+        "args": ["customize", "enable", "skill", "review"]
+      }
+    },
+    {
+      "name": "read one over http",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/customizations/skill/review"
+      },
+      "save": {
+        "version": "json.version"
+      }
+    },
+    {
+      "name": "a stale version is refused",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/customizations/skill/review",
+        "body": {
+          "enabled": false,
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "the effective text over http",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/customizations/skill/review/effective"
+      }
+    },
+    {
+      "name": "a stale delete is refused",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/v1/customizations/skill/review?version=1"
+      }
+    },
+    {
+      "name": "reset drops it",
+      "cli": {
+        "args": ["customize", "reset", "skill", "review"]
+      }
+    },
+    {
+      "name": "resetting again says it is gone",
+      "cli": {
+        "args": ["customize", "reset", "skill", "review"]
+      }
+    },
+    {
+      "name": "one customization is left",
+      "cli": {
+        "args": ["customize", "overview"]
+      }
+    }
+  ]
+}

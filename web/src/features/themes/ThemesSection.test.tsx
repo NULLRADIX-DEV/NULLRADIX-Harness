@@ -91,7 +91,7 @@ describe('ThemesSection', () => {
     renderApp('/settings');
     const list = screen.getByRole('list', { name: 'Installed themes' });
     expect(await within(list).findByText('Night Blue')).toBeInTheDocument();
-    expect(within(list).getByText(/Ada · v1.2.0 · dark/)).toBeInTheDocument();
+    expect(within(list).getByText(/Ada - v1.2.0 - dark/)).toBeInTheDocument();
     const select = screen.getByRole('combobox', { name: 'Theme' });
     expect(within(select).getByRole('option', { name: 'Night Blue' })).toBeInTheDocument();
   });
@@ -109,7 +109,7 @@ describe('ThemesSection', () => {
     expect(await request?.clone().text()).toBe('zip');
 
     await userEvent.upload(input, new File([], 'empty.nullradix'));
-    expect(await screen.findByRole('alert')).toHaveTextContent('not a valid theme package');
+    expect(await screen.findByText('This is not a valid theme package.')).toBeInTheDocument();
   });
 
   it('removes a theme after asking and reports a stale version', async () => {

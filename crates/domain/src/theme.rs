@@ -585,7 +585,7 @@ pub fn is_hidden(path: &str) -> bool {
     path.split('/').any(|segment| segment.starts_with('.'))
 }
 
-/// With a Claude Code theme the hooks file must be there, without one nothing may be below `claude/`.
+/// A Claude Code theme needs its hooks file; without one nothing may be below `claude/`.
 pub fn check_claude_files<'a>(
     manifest: &ThemeManifest,
     paths: impl IntoIterator<Item = &'a str>,
