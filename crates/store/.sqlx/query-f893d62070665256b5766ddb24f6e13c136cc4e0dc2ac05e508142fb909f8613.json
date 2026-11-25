@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT (SELECT COUNT(*) FROM dispatch_profile_accounts WHERE account_id = ?1)\n                    + (SELECT COUNT(*) FROM dispatch_rule_accounts WHERE account_id = ?1) AS \"linked!: i64\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "linked!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f893d62070665256b5766ddb24f6e13c136cc4e0dc2ac05e508142fb909f8613"
+}

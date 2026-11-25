@@ -4,6 +4,7 @@ use std::fmt::Write;
 use sha2::{Digest, Sha256};
 
 use super::config::DispatcherConfig;
+use super::values::PromptKind;
 
 /// Hex characters of a hash: short enough to show, long enough against collisions.
 pub const FINGERPRINT_HASH_LEN: usize = 16;
@@ -165,11 +166,14 @@ impl DispatcherConfig {
     /// The values that change what a run does; window, wip and labels leave the hash alone.
     #[must_use]
     pub fn fingerprint(&self) -> Fingerprint {
-        let prompts = self
-            .prompts
-            .entries()
-            .into_iter()
-            .map(|(kind, template)| (kind.as_str().to_owned(), text(template)));
+        let prompts = [
+            PromptKind::Work,
+            PromptKind::Plan,
+            PromptKind::Research,
+            PromptKind::Merge,
+        ]
+        .into_iter()
+        .map(|kind| (kind.as_str().to_owned(), optional(self.prompts.get(kind))));
         let setup = self
             .worktree_setup
             .iter()
@@ -299,6 +303,22 @@ mod tests {
         for (at, change) in changes.iter().enumerate() {
             assert_eq!(hash(change), base, "change {at}");
         }
+    }
+
+    #[test]
+    fn every_prompt_kind_is_rendered_and_null_when_unset() {
+        let content = DispatcherConfig::default().fingerprint().content;
+        assert!(
+            content.contains(r#""prompts":{"merge":null,"plan":null,"research":null,"work":null}"#)
+        );
+    }
+
+    #[test]
+    fn row_ids_do_not_change_the_hash() {
+        assert_eq!(
+            hash(|config| config.profiles[0].id = Some(uuid::Uuid::from_u128(1))),
+            hash(|_| {})
+        );
     }
 
     #[test]

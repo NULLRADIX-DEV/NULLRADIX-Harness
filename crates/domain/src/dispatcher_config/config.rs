@@ -52,6 +52,7 @@ pub struct DispatcherConfig {
 
 fn profile(name: &str, model: &str, effort: &str, turns: i64, minutes: i64) -> Profile {
     Profile {
+        id: None,
         name: name.to_owned(),
         model: Some(model.to_owned()),
         effort: Some(effort.to_owned()),
@@ -63,6 +64,7 @@ fn profile(name: &str, model: &str, effort: &str, turns: i64, minutes: i64) -> P
 
 fn rule(when: RuleCondition, profile: &str) -> Rule {
     Rule {
+        id: None,
         when,
         profile: profile.to_owned(),
         accounts: Vec::new(),
@@ -181,6 +183,16 @@ impl DispatcherConfig {
                 })
             });
         profiles.chain(rules).collect()
+    }
+
+    /// The configuration without the row ids, to compare drafts with what is stored.
+    #[must_use]
+    pub fn without_ids(mut self) -> Self {
+        self.profiles
+            .iter_mut()
+            .for_each(|profile| profile.id = None);
+        self.rules.iter_mut().for_each(|rule| rule.id = None);
+        self
     }
 
     #[must_use]

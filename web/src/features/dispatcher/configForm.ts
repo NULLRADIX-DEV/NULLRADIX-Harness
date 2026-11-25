@@ -5,6 +5,8 @@ export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 // Numbers and lists stay text while typing, so half-typed input never breaks the form.
 export interface ProfileRow {
   key: number;
+  // Stored id; new rows have none and the daemon gives them one.
+  id: string | null;
   name: string;
   // The name references to this profile currently use; a rename carries them along.
   ref: string;
@@ -17,6 +19,7 @@ export interface ProfileRow {
 
 export interface RuleRow {
   key: number;
+  id: string | null;
   labels: string;
   priorities: string;
   filesMin: string;
@@ -101,6 +104,7 @@ export function toForm(config: DispatcherConfig): DispatcherForm {
     joinWorktrees: config.joinWorktrees,
     profiles: config.profiles.map((profile, key) => ({
       key,
+      id: profile.id ?? null,
       name: profile.name,
       ref: profile.name,
       model: text(profile.model),
@@ -115,6 +119,7 @@ export function toForm(config: DispatcherConfig): DispatcherForm {
     ladder: config.ladder.map((profile, key) => ({ key, profile })),
     rules: config.rules.map((rule, key) => ({
       key,
+      id: rule.id ?? null,
       labels: (rule.when.labels ?? []).join(', '),
       priorities: (rule.when.priorities ?? []).join(', '),
       filesMin: text(rule.when.filesMin),
@@ -148,6 +153,7 @@ export function toForm(config: DispatcherConfig): DispatcherForm {
 
 function profileOf(row: ProfileRow): ProfileDto {
   return {
+    ...(row.id === null ? {} : { id: row.id }),
     name: row.name.trim(),
     model: optional(row.model),
     effort: optional(row.effort),
@@ -159,6 +165,7 @@ function profileOf(row: ProfileRow): ProfileDto {
 
 function ruleOf(row: RuleRow): RuleDto {
   return {
+    ...(row.id === null ? {} : { id: row.id }),
     when: {
       labels: row.labels.trim() === '' ? null : list(row.labels, /,/),
       priorities: row.priorities.trim() === '' ? null : list(row.priorities, /,/),
@@ -334,10 +341,11 @@ export function changeProfile(
 export function addProfile(form: DispatcherForm, defaults: DispatcherConfig): DispatcherForm {
   const row: ProfileRow = {
     key: nextKey(form.profiles),
+    id: null,
     name: '',
     ref: '',
-    model: '',
-    effort: '',
+    model: text(defaults.claude.model),
+    effort: text(defaults.claude.effort),
     maxTurns: text(defaults.claude.maxTurns),
     timeoutMinutes: text(defaults.claude.timeoutMinutes),
     accounts: [],
@@ -388,6 +396,7 @@ export function addLadderStep(form: DispatcherForm): DispatcherForm {
 export function addRule(form: DispatcherForm): DispatcherForm {
   const row: RuleRow = {
     key: nextKey(form.rules),
+    id: null,
     labels: '',
     priorities: '',
     filesMin: '',

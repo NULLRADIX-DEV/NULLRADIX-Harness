@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE dispatch_rules SET position = position + 1000000",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "83fd86516b67f475ed6f0eb133b484ac81d912a24705966f1dca992492179880"
+}

@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use nullradix_app::dispatcher_config::{
-    ConfigSave, ConfigVersion, DispatcherConfigRepository, StoredConfig,
+    CONFIG_ENTITY_ID, ConfigSave, ConfigVersion, DispatcherConfigRepository, SaveOutcome,
+    StoredConfig,
 };
 use nullradix_app::{AppError, Change, ChangeOp, Entity, FieldProblem, IdGenerator};
 use nullradix_domain::{
@@ -103,6 +104,7 @@ async fn profiles(connection: &mut SqliteConnection) -> Result<(Vec<Profile>, Na
     let profiles = rows
         .into_iter()
         .map(|row| Profile {
+            id: Some(row.id),
             accounts: accounts
                 .iter()
                 .filter(|link| link.profile_id == row.id)
@@ -138,6 +140,7 @@ async fn rules(connection: &mut SqliteConnection, names: &Names) -> Result<Vec<R
     let mut rules = Vec::with_capacity(rows.len());
     for row in rows {
         rules.push(Rule {
+            id: Some(row.id),
             when: RuleCondition {
                 labels: optional_list(row.when_labels.as_deref(), "rule labels")?,
                 priorities: optional_list(row.when_priorities.as_deref(), "rule priorities")?,
@@ -377,29 +380,66 @@ async fn read(connection: &mut SqliteConnection) -> Result<StoredConfig, AppErro
     Ok(assemble(row, lists, &names)?)
 }
 
-fn stale_version() -> AppError {
-    AppError::conflict(
-        "version-conflict",
-        "the dispatcher configuration was changed by someone else, reload and try again",
-    )
+/// Why a save stopped; only `App` is a failure, the others are for the caller to name.
+enum Stop {
+    Stale,
+    UnknownAccount(FieldProblem),
+    App(AppError),
 }
 
-fn unknown_account(field: &str, slug: &str) -> AppError {
-    AppError::invalid(
-        "dispatcher-config-invalid",
-        "the dispatcher configuration has invalid fields",
-    )
-    .with_fields(vec![FieldProblem {
+impl From<AppError> for Stop {
+    fn from(error: AppError) -> Self {
+        Self::App(error)
+    }
+}
+
+impl From<StoreError> for Stop {
+    fn from(error: StoreError) -> Self {
+        Self::App(error.into())
+    }
+}
+
+fn unknown_account(field: &str, slug: &str) -> Stop {
+    Stop::UnknownAccount(FieldProblem {
         field: field.to_owned(),
         message: format!("there is no account with the id \"{slug}\""),
-    }])
+    })
 }
 
-fn profile_changed(row: &ProfileRow, profile: &Profile) -> bool {
-    row.model != profile.model
-        || row.effort != profile.effort
-        || row.max_turns != profile.max_turns
-        || row.timeout_minutes != profile.timeout_minutes
+fn profile_changed(old: &Profile, new: &Profile) -> bool {
+    old.name != new.name
+        || old.model != new.model
+        || old.effort != new.effort
+        || old.max_turns != new.max_turns
+        || old.timeout_minutes != new.timeout_minutes
+        || old.accounts != new.accounts
+}
+
+/// The stored profile each draft profile stands for: by id, else by name.
+fn match_profiles(existing: &[Profile], draft: &[Profile]) -> Vec<Option<usize>> {
+    let mut matched: Vec<Option<usize>> = draft
+        .iter()
+        .map(|profile| {
+            profile
+                .id
+                .and_then(|id| existing.iter().position(|found| found.id == Some(id)))
+        })
+        .collect();
+    let mut claimed: Vec<usize> = matched.iter().flatten().copied().collect();
+    for (slot, profile) in matched.iter_mut().zip(draft) {
+        if slot.is_some() {
+            continue;
+        }
+        let by_name = existing
+            .iter()
+            .position(|found| found.name == profile.name)
+            .filter(|index| !claimed.contains(index));
+        if let Some(index) = by_name {
+            claimed.push(index);
+            *slot = Some(index);
+        }
+    }
+    matched
 }
 
 /// Brings the profile rows to the configuration's profiles and returns their ids by name.
@@ -408,25 +448,45 @@ async fn write_profiles(
     config: &DispatcherConfig,
     ids: &dyn IdGenerator,
 ) -> Result<HashMap<String, Uuid>, AppError> {
-    let existing = profile_rows(connection).await?;
+    let (existing, _) = profiles(connection).await?;
+    let matched = match_profiles(&existing, &config.profiles);
+    // names are unique: park rows that change their name so renames and swaps cannot collide
+    for (at, row) in existing.iter().enumerate() {
+        let target = matched.iter().position(|slot| *slot == Some(at));
+        if target.is_some_and(|draft| config.profiles[draft].name == row.name) {
+            continue;
+        }
+        let id = row.id.ok_or_else(|| corrupt("profile id"))?;
+        sqlx::query!(
+            "UPDATE dispatch_profiles SET name = lower(hex(id)) WHERE id = ?",
+            id
+        )
+        .execute(&mut *connection)
+        .await
+        .map_err(database)?;
+    }
     let mut by_name = HashMap::new();
-    for (position, profile) in config.profiles.iter().enumerate() {
-        let position = i64::try_from(position).map_err(|_| corrupt("position"))?;
-        let found = existing.iter().find(|row| row.name == profile.name);
-        let id = found.map_or_else(|| ids.next_uuid(), |row| row.id);
-        let bump = found.is_some_and(|row| profile_changed(row, profile));
-        if found.is_some() {
+    for (at, profile) in config.profiles.iter().enumerate() {
+        let position = i64::try_from(at).map_err(|_| corrupt("position"))?;
+        let found = matched[at].map(|index| &existing[index]);
+        let id = match found {
+            Some(row) => row.id.ok_or_else(|| corrupt("profile id"))?,
+            None => ids.next_uuid(),
+        };
+        if let Some(row) = found {
+            let bump = i64::from(profile_changed(row, profile));
             sqlx::query!(
                 "UPDATE dispatch_profiles
-                 SET model = ?, effort = ?, max_turns = ?, timeout_minutes = ?, position = ?,
-                     version = version + ?
+                 SET name = ?, model = ?, effort = ?, max_turns = ?, timeout_minutes = ?,
+                     position = ?, version = version + ?
                  WHERE id = ?",
+                profile.name,
                 profile.model,
                 profile.effort,
                 profile.max_turns,
                 profile.timeout_minutes,
                 position,
-                i64::from(bump),
+                bump,
                 id,
             )
             .execute(&mut *connection)
@@ -459,7 +519,7 @@ async fn remove_other_profiles(
     keep: &HashMap<String, Uuid>,
 ) -> Result<(), AppError> {
     for row in profile_rows(connection).await? {
-        if keep.contains_key(&row.name) {
+        if keep.values().any(|id| *id == row.id) {
             continue;
         }
         sqlx::query!("DELETE FROM dispatch_profiles WHERE id = ?", row.id)
@@ -483,7 +543,7 @@ async fn write_profile_accounts(
     config: &DispatcherConfig,
     profiles: &HashMap<String, Uuid>,
     accounts: &HashMap<String, Uuid>,
-) -> Result<(), AppError> {
+) -> Result<(), Stop> {
     sqlx::query!("DELETE FROM dispatch_profile_accounts")
         .execute(&mut *connection)
         .await
@@ -511,46 +571,82 @@ async fn write_profile_accounts(
     Ok(())
 }
 
+fn rule_changed(old: &Rule, new: &Rule) -> bool {
+    old.when != new.when || old.profile != new.profile || old.accounts != new.accounts
+}
+
+/// The stored rule each draft rule stands for: by id, else the one at its position.
+fn match_rules(existing: &[Rule], draft: &[Rule]) -> Vec<Option<usize>> {
+    let mut matched: Vec<Option<usize>> = draft
+        .iter()
+        .map(|rule| {
+            rule.id
+                .and_then(|id| existing.iter().position(|found| found.id == Some(id)))
+        })
+        .collect();
+    let mut claimed: Vec<usize> = matched.iter().flatten().copied().collect();
+    for (at, slot) in matched.iter_mut().enumerate() {
+        if slot.is_none() && at < existing.len() && !claimed.contains(&at) {
+            *slot = Some(at);
+            claimed.push(at);
+        }
+    }
+    matched
+}
+
 async fn write_rules(
     connection: &mut SqliteConnection,
     config: &DispatcherConfig,
-    profiles: &HashMap<String, Uuid>,
+    profiles_by_name: &HashMap<String, Uuid>,
     accounts: &HashMap<String, Uuid>,
     ids: &dyn IdGenerator,
-) -> Result<(), AppError> {
-    let existing =
-        sqlx::query_scalar!(r#"SELECT id AS "id: Uuid" FROM dispatch_rules ORDER BY position"#)
-            .fetch_all(&mut *connection)
-            .await
-            .map_err(database)?;
+) -> Result<(), Stop> {
+    let (_, names) = profiles(connection).await?;
+    let existing = rules(connection, &names).await?;
+    let matched = match_rules(&existing, &config.rules);
     sqlx::query!("DELETE FROM dispatch_rule_accounts")
         .execute(&mut *connection)
         .await
         .map_err(database)?;
-    let keep = i64::try_from(config.rules.len()).map_err(|_| corrupt("rule count"))?;
-    sqlx::query!("DELETE FROM dispatch_rules WHERE position > ?", keep)
+    for (at, rule) in existing.iter().enumerate() {
+        if matched.contains(&Some(at)) {
+            continue;
+        }
+        let id = rule.id.ok_or_else(|| corrupt("rule id"))?;
+        sqlx::query!("DELETE FROM dispatch_rules WHERE id = ?", id)
+            .execute(&mut *connection)
+            .await
+            .map_err(database)?;
+    }
+    sqlx::query!("UPDATE dispatch_rules SET position = position + 1000000")
         .execute(&mut *connection)
         .await
         .map_err(database)?;
     for (at, rule) in config.rules.iter().enumerate() {
         let position = i64::try_from(at + 1).map_err(|_| corrupt("position"))?;
-        let id = existing.get(at).copied();
-        let new_id = id.unwrap_or_else(|| ids.next_uuid());
-        let profile_id = id_of(profiles, &rule.profile)?;
+        let found = matched[at].map(|index| &existing[index]);
+        let id = match found {
+            Some(row) => row.id.ok_or_else(|| corrupt("rule id"))?,
+            None => ids.next_uuid(),
+        };
+        let profile_id = id_of(profiles_by_name, &rule.profile)?;
         let labels = optional_json(rule.when.labels.as_ref())?;
         let priorities = optional_json(rule.when.priorities.as_ref())?;
-        if id.is_some() {
+        if let Some(row) = found {
+            let bump = i64::from(rule_changed(row, rule));
             sqlx::query!(
                 "UPDATE dispatch_rules
-                 SET profile_id = ?, when_labels = ?, when_priorities = ?, when_files_min = ?,
-                     when_plan_min_chars = ?, version = version + 1
+                 SET position = ?, profile_id = ?, when_labels = ?, when_priorities = ?,
+                     when_files_min = ?, when_plan_min_chars = ?, version = version + ?
                  WHERE id = ?",
+                position,
                 profile_id,
                 labels,
                 priorities,
                 rule.when.files_min,
                 rule.when.plan_min_chars,
-                new_id,
+                bump,
+                id,
             )
             .execute(&mut *connection)
             .await
@@ -561,7 +657,7 @@ async fn write_rules(
                    (id, position, profile_id, when_labels, when_priorities, when_files_min,
                     when_plan_min_chars)
                  VALUES (?, ?, ?, ?, ?, ?, ?)",
-                new_id,
+                id,
                 position,
                 profile_id,
                 labels,
@@ -582,7 +678,7 @@ async fn write_rules(
             sqlx::query!(
                 "INSERT INTO dispatch_rule_accounts (rule_id, account_id, position)
                  VALUES (?, ?, ?)",
-                new_id,
+                id,
                 account_id,
                 index,
             )
@@ -679,7 +775,7 @@ async fn write_settings(
     connection: &mut SqliteConnection,
     save: &ConfigSave<'_>,
     profiles: &HashMap<String, Uuid>,
-) -> Result<(), AppError> {
+) -> Result<(), Stop> {
     let config = save.config;
     let claude = &config.claude;
     let (window_from, window_to) = config.window.as_ref().map_or((None, None), |window| {
@@ -760,7 +856,7 @@ async fn write_settings(
     .await
     .map_err(database)?;
     if updated.rows_affected() == 0 {
-        return Err(stale_version());
+        return Err(Stop::Stale);
     }
     Ok(())
 }
@@ -784,6 +880,56 @@ async fn keep_version(
     Ok(())
 }
 
+async fn write_all(
+    connection: &mut SqliteConnection,
+    save: &ConfigSave<'_>,
+) -> Result<Change, Stop> {
+    let accounts = account_ids(connection).await?;
+    let profiles = write_profiles(connection, save.config, save.ids).await?;
+    write_profile_accounts(connection, save.config, &profiles, &accounts).await?;
+    write_rules(connection, save.config, &profiles, &accounts, save.ids).await?;
+    write_lists(connection, save.config, &profiles, save.at).await?;
+    write_settings(connection, save, &profiles).await?;
+    remove_other_profiles(connection, &profiles).await?;
+    keep_version(connection, save.fingerprint, save.at).await?;
+    Ok(change_feed::record(
+        connection,
+        Entity::DispatcherConfig,
+        CONFIG_ENTITY_ID,
+        ChangeOp::Update,
+        save.at,
+    )
+    .await?)
+}
+
+/// After accounts left the configuration: new hash and version, and the change.
+pub(crate) async fn resync_after_account_removed(
+    connection: &mut SqliteConnection,
+    at: Timestamp,
+) -> Result<Change, AppError> {
+    let fingerprint = read(connection).await?.config.fingerprint();
+    let millis = at.as_millis();
+    sqlx::query!(
+        "UPDATE dispatcher_settings SET config_hash = ?, updated_at = ?, version = version + 1
+         WHERE id = 1",
+        fingerprint.hash,
+        millis,
+    )
+    .execute(&mut *connection)
+    .await
+    .map_err(database)?;
+    keep_version(connection, &fingerprint, at).await?;
+    change_feed::record(
+        connection,
+        Entity::DispatcherConfig,
+        CONFIG_ENTITY_ID,
+        ChangeOp::Update,
+        at,
+    )
+    .await
+    .map_err(AppError::from)
+}
+
 #[async_trait]
 impl DispatcherConfigRepository for Store {
     async fn load(&self) -> Result<StoredConfig, AppError> {
@@ -793,39 +939,39 @@ impl DispatcherConfigRepository for Store {
         Ok(stored)
     }
 
-    async fn save(&self, save: &ConfigSave<'_>) -> Result<Change, AppError> {
+    async fn save(&self, save: &ConfigSave<'_>) -> Result<SaveOutcome, AppError> {
         let mut tx = self.begin().await?;
-        let accounts = account_ids(&mut tx).await?;
-        let profiles = write_profiles(&mut tx, save.config, save.ids).await?;
-        write_profile_accounts(&mut tx, save.config, &profiles, &accounts).await?;
-        write_rules(&mut tx, save.config, &profiles, &accounts, save.ids).await?;
-        write_lists(&mut tx, save.config, &profiles, save.at).await?;
-        write_settings(&mut tx, save, &profiles).await?;
-        remove_other_profiles(&mut tx, &profiles).await?;
-        keep_version(&mut tx, save.fingerprint, save.at).await?;
-        let change = change_feed::record(
-            &mut tx,
-            Entity::DispatcherConfig,
-            nullradix_app::dispatcher_config::CONFIG_ENTITY_ID,
-            ChangeOp::Update,
-            save.at,
-        )
-        .await?;
-        tx.commit().await.map_err(database)?;
-        Ok(change)
+        match write_all(&mut tx, save).await {
+            Ok(change) => {
+                tx.commit().await.map_err(database)?;
+                Ok(SaveOutcome::Saved(change))
+            }
+            Err(Stop::Stale) => Ok(SaveOutcome::Stale),
+            Err(Stop::UnknownAccount(problem)) => Ok(SaveOutcome::UnknownAccount(problem)),
+            Err(Stop::App(error)) => Err(error),
+        }
     }
 
-    async fn record_hash(&self, fingerprint: &Fingerprint, at: Timestamp) -> Result<(), AppError> {
+    async fn record_hash(
+        &self,
+        fingerprint: &Fingerprint,
+        expected: Version,
+        at: Timestamp,
+    ) -> Result<(), AppError> {
         let mut tx = self.begin().await?;
-        sqlx::query!(
-            "UPDATE dispatcher_settings SET config_hash = ? WHERE id = 1",
+        let version = expected.value();
+        let updated = sqlx::query!(
+            "UPDATE dispatcher_settings SET config_hash = ? WHERE id = 1 AND version = ?",
             fingerprint.hash,
+            version,
         )
         .execute(&mut *tx)
         .await
         .map_err(database)?;
-        keep_version(&mut tx, fingerprint, at).await?;
-        tx.commit().await.map_err(database)?;
+        if updated.rows_affected() > 0 {
+            keep_version(&mut tx, fingerprint, at).await?;
+            tx.commit().await.map_err(database)?;
+        }
         Ok(())
     }
 
@@ -864,7 +1010,7 @@ mod tests {
     async fn the_seeded_rows_equal_the_default_configuration() {
         let store = Store::in_memory().await.unwrap();
         let stored = store.load().await.unwrap();
-        assert_eq!(stored.config, DispatcherConfig::default());
+        assert_eq!(stored.config.without_ids(), DispatcherConfig::default());
         assert_eq!(stored.hash, "");
         let actor: (String,) = sqlx::query_as(
             "SELECT a.kind FROM actors a JOIN dispatcher_settings s ON s.dispatcher_actor_id = a.id",
@@ -973,5 +1119,49 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(rules_after, rules_before[..3]);
+    }
+
+    #[tokio::test]
+    async fn reordering_bumps_no_row_version_and_a_rename_bumps_only_the_profile() {
+        let store = Store::in_memory().await.unwrap();
+        let ids = nullradix_app::UuidV7Generator;
+        let mut config = store.load().await.unwrap().config;
+        config.profiles.reverse();
+        config.rules.reverse();
+        let mut version = Version::INITIAL;
+        for rename in [false, true] {
+            if rename {
+                config.profiles[0].name = String::from("huge");
+                config.ladder[2] = String::from("huge");
+                config.rules[0].profile = String::from("huge");
+                config.rules[1].profile = String::from("huge");
+                config.rules[2].profile = String::from("huge");
+            }
+            let fingerprint = config.fingerprint();
+            let save = ConfigSave {
+                config: &config,
+                fingerprint: &fingerprint,
+                expected: version,
+                at: Timestamp::from_millis(5),
+                ids: &ids,
+            };
+            assert!(matches!(
+                store.save(&save).await.unwrap(),
+                SaveOutcome::Saved(_)
+            ));
+            version = version.next();
+            let profiles: Vec<(String, i64)> =
+                sqlx::query_as("SELECT name, version FROM dispatch_profiles ORDER BY position")
+                    .fetch_all(&store.writer)
+                    .await
+                    .unwrap();
+            let bumped = profiles.iter().filter(|(_, version)| *version == 2).count();
+            assert_eq!(bumped, usize::from(rename), "{profiles:?}");
+            let rules: Vec<(i64,)> = sqlx::query_as("SELECT version FROM dispatch_rules")
+                .fetch_all(&store.writer)
+                .await
+                .unwrap();
+            assert!(rules.iter().all(|(version,)| *version == 1), "{rules:?}");
+        }
     }
 }

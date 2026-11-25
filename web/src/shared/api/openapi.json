@@ -9924,7 +9924,7 @@
               "string",
               "null"
             ],
-            "description": "Name of the profile; none uses the default profile."
+            "description": "Profile name; none uses `planning` if it exists, else the default."
           },
           "wip": {
             "type": "integer",
@@ -10023,6 +10023,14 @@
               "string",
               "null"
             ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Stable id of a stored profile; leave it out for a new one."
           },
           "maxTurns": {
             "type": "integer",
@@ -10656,7 +10664,7 @@
               "string",
               "null"
             ],
-            "description": "Name of the profile; none uses the default profile."
+            "description": "Profile name; none uses `research` if it exists, else the default."
           },
           "wip": {
             "type": "integer",
@@ -10790,6 +10798,14 @@
               "type": "string"
             },
             "description": "Account ids that replace those of the profile; none means as the profile."
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Stable id of a stored rule; leave it out for a new one."
           },
           "profile": {
             "type": "string",

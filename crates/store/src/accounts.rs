@@ -217,6 +217,30 @@ impl AccountRepository for Store {
         let uuid = id.as_uuid();
         let expected = expected.value();
         let mut tx = self.begin().await?;
+        let linked = sqlx::query_scalar!(
+            r#"SELECT (SELECT COUNT(*) FROM dispatch_profile_accounts WHERE account_id = ?1)
+                    + (SELECT COUNT(*) FROM dispatch_rule_accounts WHERE account_id = ?1) AS "linked!: i64""#,
+            uuid,
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(database)?;
+        sqlx::query!(
+            "UPDATE dispatch_profiles SET version = version + 1
+             WHERE id IN (SELECT profile_id FROM dispatch_profile_accounts WHERE account_id = ?)",
+            uuid,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(database)?;
+        sqlx::query!(
+            "UPDATE dispatch_rules SET version = version + 1
+             WHERE id IN (SELECT rule_id FROM dispatch_rule_accounts WHERE account_id = ?)",
+            uuid,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(database)?;
         let deleted = sqlx::query!(
             "DELETE FROM claude_accounts WHERE id = ? AND version = ?",
             uuid,
@@ -230,6 +254,11 @@ impl AccountRepository for Store {
         }
         let change =
             change_feed::record(&mut tx, Entity::Account, uuid, ChangeOp::Delete, at).await?;
+        let change = if linked > 0 {
+            crate::dispatcher_config::resync_after_account_removed(&mut tx, at).await?
+        } else {
+            change
+        };
         tx.commit().await.map_err(database)?;
         Ok(change)
     }

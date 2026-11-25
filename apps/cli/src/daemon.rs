@@ -117,6 +117,11 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
+    let dispatcher_config = dispatcher_config_service(&store, &signal);
+    dispatcher_config
+        .sync_hash()
+        .await
+        .context("cannot record the dispatcher configuration")?;
     let account_services = start_accounts(config, &store, &signal).await?;
     let roots =
         start_transcript_roots(config, &account_services.accounts, &signal, &shutdown).await?;
@@ -130,7 +135,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         auth,
         projects,
         accounts: account_services.accounts,
-        dispatcher_config: dispatcher_config_service(&store, &signal),
+        dispatcher_config,
         usage: account_services.usage,
         logins: account_services.logins.clone(),
         boards: board.boards,

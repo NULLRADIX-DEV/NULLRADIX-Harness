@@ -16,6 +16,7 @@ export const dispatcherKeys = {
 
 export const dispatcherLive: ChangeRegistry = {
   'dispatcher-config': [dispatcherKeys.all],
+  account: [dispatcherKeys.all],
 };
 
 export function dispatcherConfigQuery() {

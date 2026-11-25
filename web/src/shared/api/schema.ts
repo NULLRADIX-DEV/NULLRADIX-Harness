@@ -2152,7 +2152,7 @@ export interface components {
             /** @description The plan also fills the acceptance of the ticket. */
             acceptance: boolean;
             auto: boolean;
-            /** @description Name of the profile; none uses the default profile. */
+            /** @description Profile name; none uses `planning` if it exists, else the default. */
             profile?: string | null;
             /**
              * Format: int64
@@ -2184,6 +2184,11 @@ export interface components {
             /** @description Account ids the profile may use in this order; none means any enabled account. */
             accounts: string[];
             effort?: string | null;
+            /**
+             * Format: uuid
+             * @description Stable id of a stored profile; leave it out for a new one.
+             */
+            id?: string | null;
             /** Format: int64 */
             maxTurns: number;
             model?: string | null;
@@ -2365,7 +2370,7 @@ export interface components {
             auto: boolean;
             /** Format: int64 */
             maxPerDay: number;
-            /** @description Name of the profile; none uses the default profile. */
+            /** @description Profile name; none uses `research` if it exists, else the default. */
             profile?: string | null;
             /**
              * Format: int64
@@ -2416,6 +2421,11 @@ export interface components {
         RuleDto: {
             /** @description Account ids that replace those of the profile; none means as the profile. */
             accounts: string[];
+            /**
+             * Format: uuid
+             * @description Stable id of a stored rule; leave it out for a new one.
+             */
+            id?: string | null;
             /** @description Name of the profile. */
             profile: string;
             when: components["schemas"]["RuleConditionDto"];

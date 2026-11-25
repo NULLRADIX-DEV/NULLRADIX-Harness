@@ -177,6 +177,7 @@ fn accounts(slugs: &[String], field: &str, check: &mut Checker) -> Vec<String> {
 fn profiles(config: &mut DispatcherConfig, check: &mut Checker) {
     if config.profiles.is_empty() {
         config.profiles.push(Profile {
+            id: None,
             name: String::from(FALLBACK_PROFILE),
             model: config.claude.model.clone(),
             effort: config.claude.effort.clone(),
@@ -186,9 +187,13 @@ fn profiles(config: &mut DispatcherConfig, check: &mut Checker) {
         });
     }
     let allow_fable = config.allow_fable;
+    let mut ids = HashSet::new();
     let mut names: HashSet<String> = HashSet::new();
     for (at, profile) in config.profiles.iter_mut().enumerate() {
         let field = format!("profiles[{at}]");
+        if profile.id.is_some_and(|id| !ids.insert(id)) {
+            check.add(&format!("{field}.id"), "is used by another profile");
+        }
         match required_text(&profile.name, PROFILE_NAME_MAX).map(str::to_owned) {
             Ok(name) => {
                 profile.name = name;
@@ -237,8 +242,12 @@ fn texts(list: Option<Vec<String>>) -> Option<Vec<String>> {
 }
 
 fn rules(rules: &mut [Rule], names: &[String], check: &mut Checker) {
+    let mut ids = HashSet::new();
     for (at, rule) in rules.iter_mut().enumerate() {
         let field = format!("rules[{at}]");
+        if rule.id.is_some_and(|id| !ids.insert(id)) {
+            check.add(&format!("{field}.id"), "is used by another rule");
+        }
         let when = &mut rule.when;
         when.labels = texts(when.labels.take());
         when.priorities = texts(when.priorities.take());
@@ -431,7 +440,7 @@ impl DispatcherConfig {
             .iter()
             .map(|profile| profile.timeout_minutes)
             .fold(self.claude.timeout_minutes, i64::max);
-        if self.stale_minutes < 0 {
+        if self.stale_minutes < 1 {
             check.add("staleMinutes", "must be a whole number from 1");
         }
         if self.stale_minutes < longest.saturating_add(10) {
@@ -444,6 +453,7 @@ impl DispatcherConfig {
 mod tests {
     use super::*;
     use crate::dispatcher_config::{AccountStrategy, JoinWorktrees, MergeStrategy, RuleCondition};
+    use uuid::Uuid;
 
     fn fields(config: DispatcherConfig) -> Vec<String> {
         config
@@ -774,10 +784,6 @@ mod tests {
     fn the_stale_threshold_stays_above_the_longest_timeout() {
         let config = DispatcherConfig::default().normalized().unwrap();
         assert_eq!(config.stale_minutes, 150);
-        let config = changed(|config| config.stale_minutes = 0)
-            .normalized()
-            .unwrap();
-        assert_eq!(config.stale_minutes, 150);
         let config = changed(|config| config.stale_minutes = 129)
             .normalized()
             .unwrap();
@@ -794,6 +800,22 @@ mod tests {
             fields(changed(|config| config.stale_minutes = -3)),
             ["staleMinutes"]
         );
+        assert_eq!(
+            fields(changed(|config| config.stale_minutes = 0)),
+            ["staleMinutes"]
+        );
+    }
+
+    #[test]
+    fn row_ids_are_not_shared() {
+        let id = Uuid::from_u128(7);
+        let found = fields(changed(|config| {
+            config.profiles[0].id = Some(id);
+            config.profiles[1].id = Some(id);
+            config.rules[0].id = Some(id);
+            config.rules[1].id = Some(id);
+        }));
+        assert_eq!(found, ["profiles[1].id", "rules[1].id"]);
     }
 
     #[test]

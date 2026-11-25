@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE dispatch_rules SET version = version + 1\n             WHERE id IN (SELECT rule_id FROM dispatch_rule_accounts WHERE account_id = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "e605ae3cc4f0cf18effe50e8a4083ffec4148f96272ccadcf8f53902eb52cae2"
+}

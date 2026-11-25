@@ -64,6 +64,7 @@ describe('toForm and toConfig', () => {
       rules: [
         {
           key: 0,
+          id: null,
           labels: ' docs , typo ',
           priorities: '',
           filesMin: '3',
@@ -214,10 +215,16 @@ describe('profile edits', () => {
     const next = addProfile(form(), defaultConfig());
     expect(at(next.profiles, 3)).toMatchObject({
       name: '',
+      id: null,
+      model: 'sonnet',
+      effort: '',
       maxTurns: '80',
       timeoutMinutes: '60',
       accounts: [],
     });
+    const own = defaultConfig();
+    own.claude = { ...own.claude, model: 'opus', effort: 'max' };
+    expect(at(addProfile(form(), own).profiles, 3)).toMatchObject({ model: 'opus', effort: 'max' });
     expect(new Set(next.profiles.map((profile) => profile.key)).size).toBe(4);
   });
 
@@ -250,5 +257,45 @@ describe('adding steps and rules', () => {
     const next = addRule(form());
     expect(next.rules).toHaveLength(5);
     expect(at(next.rules, 4)).toMatchObject({ profile: 'medium', labels: '', accounts: [] });
+  });
+});
+
+describe('row ids', () => {
+  const ids = (): DispatcherForm => {
+    const config = defaultConfig();
+    config.profiles.forEach(
+      (profile, at) => (profile.id = `00000000-0000-7000-8000-00000000001${String(at)}`),
+    );
+    config.rules.forEach(
+      (rule, at) => (rule.id = `00000000-0000-7000-8000-00000000002${String(at)}`),
+    );
+    return toForm(config);
+  };
+
+  it('travel through the form, a rename and a reorder', () => {
+    const f = moveRule(
+      moveProfile(changeProfile(ids(), at(ids().profiles, 0).key, { name: 'tiny' }), 0, 2),
+      0,
+      3,
+    );
+    const next = toConfig(f, defaultConfig());
+    expect(next.profiles.map((profile) => [profile.name, profile.id])).toEqual([
+      ['medium', '00000000-0000-7000-8000-000000000011'],
+      ['large', '00000000-0000-7000-8000-000000000012'],
+      ['tiny', '00000000-0000-7000-8000-000000000010'],
+    ]);
+    expect(next.rules.map((rule) => rule.id)).toEqual([
+      '00000000-0000-7000-8000-000000000021',
+      '00000000-0000-7000-8000-000000000022',
+      '00000000-0000-7000-8000-000000000023',
+      '00000000-0000-7000-8000-000000000020',
+    ]);
+  });
+
+  it('are left out for new rows', () => {
+    const f = addRule(addProfile(form(), defaultConfig()));
+    const next = toConfig(f, defaultConfig());
+    expect('id' in at(next.profiles, 3)).toBe(false);
+    expect('id' in at(next.rules, 4)).toBe(false);
   });
 });

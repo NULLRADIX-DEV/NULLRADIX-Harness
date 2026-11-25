@@ -3,7 +3,9 @@
 use std::sync::Arc;
 
 use nullradix_app::accounts::AccountRepository;
-use nullradix_app::dispatcher_config::DispatcherConfigService;
+use nullradix_app::dispatcher_config::{
+    ConfigSave, DispatcherConfigRepository, DispatcherConfigService, SaveOutcome,
+};
 use nullradix_app::{
     AppError, ChangeFeed, ChangeOp, ChangeSignal, Entity, ErrorKind, SystemClock, UuidV7Generator,
 };
@@ -60,6 +62,26 @@ impl Fixture {
             .collect()
     }
 
+    async fn remove_account(&self, slug: &str) {
+        let accounts = self.store.list().await.unwrap();
+        let account = accounts
+            .iter()
+            .find(|account| account.slug().as_str() == slug)
+            .unwrap();
+        self.store
+            .delete(
+                account.id(),
+                account.version(),
+                nullradix_app::Clock::now(&SystemClock),
+            )
+            .await
+            .unwrap();
+    }
+
+    async fn stored_hash(&self) -> String {
+        self.store.load().await.unwrap().hash
+    }
+
     async fn current(&self) -> DispatcherConfig {
         self.config.get().await.unwrap().config
     }
@@ -81,18 +103,34 @@ fn fields(error: &AppError) -> Vec<String> {
 async fn a_fresh_store_holds_the_default_configuration() {
     let f = fixture().await;
     let view = f.config.get().await.unwrap();
-    assert_eq!(view.config, DispatcherConfig::default());
+    assert_eq!(
+        view.config.clone().without_ids(),
+        DispatcherConfig::default()
+    );
+    assert!(
+        view.config
+            .profiles
+            .iter()
+            .all(|profile| profile.id.is_some())
+    );
+    assert!(view.config.rules.iter().all(|rule| rule.id.is_some()));
     assert_eq!(view.version, Version::INITIAL);
     assert_eq!(view.hash, DispatcherConfig::default().fingerprint().hash);
     assert!(view.updated_at.as_millis() > 1_767_225_600_000);
 }
 
 #[tokio::test]
-async fn the_first_read_keeps_the_default_as_a_version_once() {
+async fn reading_never_writes_and_the_startup_sync_keeps_the_default_as_a_version_once() {
     let f = fixture().await;
     assert_eq!(f.config.versions().await.unwrap(), vec![]);
     let first = f.config.get().await.unwrap();
     f.config.get().await.unwrap();
+    assert_eq!(f.config.versions().await.unwrap(), vec![]);
+    assert_eq!(f.ops().await, vec![]);
+    assert_eq!(f.stored_hash().await, "");
+
+    f.config.sync_hash().await.unwrap();
+    f.config.sync_hash().await.unwrap();
     let versions = f.config.versions().await.unwrap();
     assert_eq!(versions.len(), 1);
     assert_eq!(versions[0].hash, first.hash);
@@ -100,6 +138,8 @@ async fn the_first_read_keeps_the_default_as_a_version_once() {
         versions[0].content,
         DispatcherConfig::default().fingerprint().content
     );
+    assert_eq!(f.stored_hash().await, first.hash);
+    assert_eq!(f.config.get().await.unwrap().version, Version::INITIAL);
     assert_eq!(f.ops().await, vec![]);
 }
 
@@ -135,9 +175,9 @@ async fn an_update_is_stored_versioned_announced_and_read_back() {
         .await
         .unwrap();
     assert_eq!(saved.version, Version::from_stored(2));
-    assert_eq!(saved.config, draft);
+    assert_eq!(saved.config, f.current().await);
     let read = f.config.get().await.unwrap();
-    assert_eq!(read.config, draft);
+    assert_eq!(read.config.without_ids(), draft.clone().without_ids());
     assert_eq!(read.version, Version::from_stored(2));
     assert_eq!(read.hash, saved.hash);
     assert_eq!(
@@ -212,7 +252,7 @@ async fn an_invalid_draft_reports_every_field_and_stores_nothing() {
         (ErrorKind::Invalid, "dispatcher-config-invalid")
     );
     assert_eq!(fields(&error), ["wip", "defaultProfile", "research.wip"]);
-    assert_eq!(f.current().await, DispatcherConfig::default());
+    assert_eq!(f.current().await.without_ids(), DispatcherConfig::default());
     assert_eq!(f.ops().await, vec![]);
 }
 
@@ -267,6 +307,7 @@ async fn profiles_rules_and_the_ladder_are_replaced_as_a_whole() {
     draft.profiles.remove(0);
     draft.profiles[0].name = String::from("regular");
     draft.profiles.push(nullradix_domain::Profile {
+        id: None,
         name: String::from("huge"),
         model: None,
         effort: None,
@@ -278,6 +319,7 @@ async fn profiles_rules_and_the_ladder_are_replaced_as_a_whole() {
     draft.ladder = vec![String::from("huge"), String::from("regular")];
     draft.rules = vec![
         nullradix_domain::Rule {
+            id: None,
             when: RuleCondition {
                 plan_min_chars: Some(2000),
                 ..RuleCondition::default()
@@ -286,6 +328,7 @@ async fn profiles_rules_and_the_ladder_are_replaced_as_a_whole() {
             accounts: Vec::new(),
         },
         nullradix_domain::Rule {
+            id: None,
             when: RuleCondition {
                 labels: Some(vec![String::from("quick")]),
                 priorities: Some(vec![String::from("low"), String::from("normal")]),
@@ -302,9 +345,9 @@ async fn profiles_rules_and_the_ladder_are_replaced_as_a_whole() {
         .update(draft.clone(), Version::INITIAL)
         .await
         .unwrap();
-    assert_eq!(saved.config, draft);
+    assert_eq!(saved.config.without_ids(), draft.clone().without_ids());
     let read = f.current().await;
-    assert_eq!(read, draft);
+    assert_eq!(read.clone().without_ids(), draft.without_ids());
     assert_eq!(
         read.profiles
             .iter()
@@ -358,30 +401,21 @@ async fn setup_steps_and_own_templates_round_trip_and_clear() {
 }
 
 #[tokio::test]
-async fn removing_an_account_drops_it_from_the_configuration_and_records_the_new_hash() {
+async fn removing_an_account_drops_it_from_the_configuration_and_records_the_change() {
     let f = fixture().await;
     f.add_account("max").await;
     let mut draft = f.current().await;
     draft.profiles[2].accounts = vec![String::from("max")];
+    draft.rules[0].accounts = vec![String::from("max")];
     let saved = f.config.update(draft, Version::INITIAL).await.unwrap();
-    let removed = f.store.list().await.unwrap();
-    let max = removed
-        .iter()
-        .find(|account| account.slug().as_str() == "max")
-        .unwrap();
-    f.store
-        .delete(
-            max.id(),
-            max.version(),
-            nullradix_app::Clock::now(&SystemClock),
-        )
-        .await
-        .unwrap();
+    f.remove_account("max").await;
 
     let view = f.config.get().await.unwrap();
     assert_eq!(view.config.profiles[2].accounts, Vec::<String>::new());
+    assert_eq!(view.config.rules[0].accounts, Vec::<String>::new());
     assert_ne!(view.hash, saved.hash);
-    assert_eq!(view.version, saved.version);
+    assert_eq!(view.version, saved.version.next());
+    assert_eq!(f.stored_hash().await, view.hash);
     assert!(
         f.config
             .versions()
@@ -389,6 +423,30 @@ async fn removing_an_account_drops_it_from_the_configuration_and_records_the_new
             .unwrap()
             .iter()
             .any(|v| v.hash == view.hash)
+    );
+    assert_eq!(
+        f.ops().await,
+        vec![
+            (Entity::Account, ChangeOp::Insert),
+            (Entity::DispatcherConfig, ChangeOp::Update),
+            (Entity::Account, ChangeOp::Delete),
+            (Entity::DispatcherConfig, ChangeOp::Update),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn removing_an_account_the_configuration_does_not_name_leaves_it_alone() {
+    let f = fixture().await;
+    f.add_account("max").await;
+    f.remove_account("max").await;
+    assert_eq!(f.config.get().await.unwrap().version, Version::INITIAL);
+    assert_eq!(
+        f.ops().await,
+        vec![
+            (Entity::Account, ChangeOp::Insert),
+            (Entity::Account, ChangeOp::Delete),
+        ]
     );
 }
 
@@ -411,4 +469,123 @@ async fn racing_updates_let_exactly_one_win() {
         .find_map(|result| result.as_ref().err())
         .unwrap();
     assert_eq!(code(refused), (ErrorKind::Conflict, "version-conflict"));
+}
+
+#[tokio::test]
+async fn renamed_and_reordered_rows_keep_their_ids() {
+    let f = fixture().await;
+    let before = f.current().await;
+    let mut draft = before.clone();
+    draft.profiles[0].name = String::from("tiny");
+    draft.default_profile = String::from("medium");
+    draft.ladder = vec![
+        String::from("tiny"),
+        String::from("medium"),
+        String::from("large"),
+    ];
+    draft.rules[0].profile = String::from("tiny");
+    draft.profiles.reverse();
+    draft.rules.reverse();
+    f.config.update(draft, Version::INITIAL).await.unwrap();
+
+    let after = f.current().await;
+    let ids = |config: &DispatcherConfig| {
+        config
+            .profiles
+            .iter()
+            .map(|profile| (profile.name.clone(), profile.id))
+            .collect::<std::collections::HashMap<_, _>>()
+    };
+    let (old, new) = (ids(&before), ids(&after));
+    assert_eq!(new["tiny"], old["small"]);
+    assert_eq!(new["medium"], old["medium"]);
+    assert_eq!(new["large"], old["large"]);
+    assert_eq!(
+        after
+            .profiles
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        ["large", "medium", "tiny"]
+    );
+    let rule_ids: Vec<_> = before.rules.iter().rev().map(|rule| rule.id).collect();
+    assert_eq!(
+        after.rules.iter().map(|rule| rule.id).collect::<Vec<_>>(),
+        rule_ids
+    );
+}
+
+#[tokio::test]
+async fn profiles_swap_names_by_id_and_a_replacement_may_reuse_a_name() {
+    let f = fixture().await;
+    let before = f.current().await;
+    let mut draft = before.clone();
+    draft.profiles[0].name = String::from("large");
+    draft.profiles[2].name = String::from("small");
+    draft.ladder = vec![
+        String::from("large"),
+        String::from("medium"),
+        String::from("small"),
+    ];
+    draft.rules.clear();
+    f.config.update(draft, Version::INITIAL).await.unwrap();
+    let after = f.current().await;
+    assert_eq!(after.profiles[0].name, "large");
+    assert_eq!(after.profiles[0].id, before.profiles[0].id);
+    assert_eq!(after.profiles[2].id, before.profiles[2].id);
+}
+
+#[tokio::test]
+async fn a_draft_without_ids_is_matched_by_name_and_position() {
+    let f = fixture().await;
+    let before = f.current().await;
+    let mut draft = before.clone().without_ids();
+    draft.profiles[1].max_turns = 81;
+    draft.rules[1].when.labels = Some(vec![String::from("big")]);
+    f.config.update(draft, Version::INITIAL).await.unwrap();
+    let after = f.current().await;
+    for (old, new) in before.profiles.iter().zip(&after.profiles) {
+        assert_eq!(old.id, new.id);
+    }
+    for (old, new) in before.rules.iter().zip(&after.rules) {
+        assert_eq!(old.id, new.id);
+    }
+}
+
+#[tokio::test]
+async fn the_store_names_a_stale_version_and_a_vanished_account_without_error_codes() {
+    let f = fixture().await;
+    let mut draft = f.current().await;
+    draft.wip = 2;
+    let fingerprint = draft.fingerprint();
+    let save = |config: &DispatcherConfig, expected: Version| {
+        let config = config.clone();
+        let fingerprint = fingerprint.clone();
+        let store = f.store.clone();
+        async move {
+            store
+                .save(&ConfigSave {
+                    config: &config,
+                    fingerprint: &fingerprint,
+                    expected,
+                    at: nullradix_app::Clock::now(&SystemClock),
+                    ids: &UuidV7Generator,
+                })
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(
+        save(&draft, Version::from_stored(9)).await,
+        SaveOutcome::Stale
+    );
+    draft.profiles[0].accounts = vec![String::from("gone")];
+    match save(&draft, Version::INITIAL).await {
+        SaveOutcome::UnknownAccount(problem) => {
+            assert_eq!(problem.field, "profiles[0].accounts[0]");
+        }
+        other => panic!("unexpected outcome {other:?}"),
+    }
+    assert_eq!(f.current().await.wip, 1);
+    assert_eq!(f.ops().await, vec![]);
 }

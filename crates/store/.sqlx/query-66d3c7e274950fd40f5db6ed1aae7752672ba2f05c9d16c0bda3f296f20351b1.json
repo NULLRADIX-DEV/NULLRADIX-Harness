@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE dispatch_profiles SET version = version + 1\n             WHERE id IN (SELECT profile_id FROM dispatch_profile_accounts WHERE account_id = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "66d3c7e274950fd40f5db6ed1aae7752672ba2f05c9d16c0bda3f296f20351b1"
+}

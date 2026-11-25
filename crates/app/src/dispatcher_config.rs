@@ -16,7 +16,7 @@ pub const CONFIG_ENTITY_ID: Uuid = Uuid::from_u128(0x019a_0000_0000_7000_8000_00
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredConfig {
     pub config: DispatcherConfig,
-    /// Hash the store last recorded; it may lag behind after accounts were removed.
+    /// Hash the store last recorded; it lags until `sync_hash` runs.
     pub hash: String,
     pub version: Version,
     pub updated_at: Timestamp,
@@ -41,14 +41,29 @@ pub struct ConfigSave<'a> {
     pub ids: &'a dyn IdGenerator,
 }
 
+/// What a save did; the refusals are the caller's to name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SaveOutcome {
+    Saved(Change),
+    /// The stored version is no longer the expected one.
+    Stale,
+    /// A profile or rule names an account that is gone.
+    UnknownAccount(FieldProblem),
+}
+
 #[async_trait]
 pub trait DispatcherConfigRepository: Send + Sync {
     /// The stored configuration; a fresh store holds the defaults.
     async fn load(&self) -> Result<StoredConfig, AppError>;
     /// Stores the configuration, bumps its version and keeps the hash as a version.
-    async fn save(&self, save: &ConfigSave<'_>) -> Result<Change, AppError>;
-    /// Keeps `fingerprint` as the hash of the stored configuration without changing the version.
-    async fn record_hash(&self, fingerprint: &Fingerprint, at: Timestamp) -> Result<(), AppError>;
+    async fn save(&self, save: &ConfigSave<'_>) -> Result<SaveOutcome, AppError>;
+    /// Keeps `fingerprint` as the hash of the stored configuration while it is still at `expected`.
+    async fn record_hash(
+        &self,
+        fingerprint: &Fingerprint,
+        expected: Version,
+        at: Timestamp,
+    ) -> Result<(), AppError>;
     /// Every configuration that was in force, oldest first.
     async fn versions(&self) -> Result<Vec<ConfigVersion>, AppError>;
 }
@@ -68,6 +83,17 @@ fn invalid_fields(fields: Vec<FieldProblem>) -> AppError {
         "the dispatcher configuration has invalid fields",
     )
     .with_fields(fields)
+}
+
+fn stale_version() -> AppError {
+    AppError::conflict(
+        "version-conflict",
+        "the dispatcher configuration was changed by someone else, reload and try again",
+    )
+}
+
+fn unknown_account(problem: FieldProblem) -> AppError {
+    invalid_fields(vec![problem])
 }
 
 fn issues(error: ConfigError) -> AppError {
@@ -116,21 +142,28 @@ impl DispatcherConfigService {
         }
     }
 
-    /// The configuration in force; its hash is kept as a version when it is new.
+    /// The configuration in force; reading never writes.
     pub async fn get(&self) -> Result<ConfigView, AppError> {
+        let stored = self.repository.load().await?;
+        let hash = stored.config.fingerprint().hash;
+        Ok(ConfigView {
+            config: stored.config,
+            hash,
+            version: stored.version,
+            updated_at: stored.updated_at,
+        })
+    }
+
+    /// Keeps the hash of the stored configuration when it differs from what the store recorded.
+    pub async fn sync_hash(&self) -> Result<(), AppError> {
         let stored = self.repository.load().await?;
         let fingerprint = stored.config.fingerprint();
         if fingerprint.hash != stored.hash {
             self.repository
-                .record_hash(&fingerprint, self.clock.now())
+                .record_hash(&fingerprint, stored.version, self.clock.now())
                 .await?;
         }
-        Ok(ConfigView {
-            config: stored.config,
-            hash: fingerprint.hash,
-            version: stored.version,
-            updated_at: stored.updated_at,
-        })
+        Ok(())
     }
 
     /// Replaces the configuration; a draft that changes nothing returns the current one.
@@ -143,17 +176,14 @@ impl DispatcherConfigService {
         self.check_accounts(&config).await?;
         let current = self.get().await?;
         if current.version != expected {
-            return Err(AppError::conflict(
-                "version-conflict",
-                "the dispatcher configuration was changed by someone else, reload and try again",
-            ));
+            return Err(stale_version());
         }
-        if config == current.config {
+        if config.clone().without_ids() == current.config.clone().without_ids() {
             return Ok(current);
         }
         let fingerprint = config.fingerprint();
         let at = self.clock.now();
-        let change = self
+        let outcome = self
             .repository
             .save(&ConfigSave {
                 config: &config,
@@ -163,13 +193,12 @@ impl DispatcherConfigService {
                 ids: self.ids.as_ref(),
             })
             .await?;
-        self.signal.notify(&change);
-        Ok(ConfigView {
-            config,
-            hash: fingerprint.hash,
-            version: expected.next(),
-            updated_at: at,
-        })
+        match outcome {
+            SaveOutcome::Saved(change) => self.signal.notify(&change),
+            SaveOutcome::Stale => return Err(stale_version()),
+            SaveOutcome::UnknownAccount(problem) => return Err(unknown_account(problem)),
+        }
+        self.get().await
     }
 
     /// Every configuration that was in force, oldest first.

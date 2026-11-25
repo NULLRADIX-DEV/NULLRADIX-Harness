@@ -1,4 +1,5 @@
 use strum::{EnumIter, EnumString, IntoStaticStr};
+use uuid::Uuid;
 
 /// Tools a work run may use without asking.
 pub const DEFAULT_ALLOWED_TOOLS: [&str; 16] = [
@@ -177,6 +178,8 @@ pub struct ClaudeSettings {
 /// Model, effort and limits of a run; the order of profiles is the escalation order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Profile {
+    /// Set once stored; a draft without one is matched by name.
+    pub id: Option<Uuid>,
     pub name: String,
     pub model: Option<String>,
     pub effort: Option<String>,
@@ -208,6 +211,8 @@ impl RuleCondition {
 /// When `when` holds, `profile` applies; the first matching rule wins.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
+    /// Set once stored; a draft without one is matched by position.
+    pub id: Option<Uuid>,
     pub when: RuleCondition,
     pub profile: String,
     /// Replaces the accounts of the profile when set.

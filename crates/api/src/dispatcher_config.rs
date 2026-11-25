@@ -9,6 +9,7 @@ use nullradix_domain::{
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{ApiError, ApiJson, ApiState, Problem};
 
@@ -141,6 +142,8 @@ pub struct ClaudeSettingsDto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProfileDto {
+    /// Stable id of a stored profile; leave it out for a new one.
+    pub id: Option<Uuid>,
     pub name: String,
     pub model: Option<String>,
     pub effort: Option<String>,
@@ -168,6 +171,8 @@ pub struct RuleConditionDto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuleDto {
+    /// Stable id of a stored rule; leave it out for a new one.
+    pub id: Option<Uuid>,
     pub when: RuleConditionDto,
     /// Name of the profile.
     pub profile: String,
@@ -183,7 +188,7 @@ pub struct ResearchSettingsDto {
     /// Parallel research runs from 1 to 5.
     pub wip: i64,
     pub max_per_day: i64,
-    /// Name of the profile; none uses the default profile.
+    /// Profile name; none uses `research` if it exists, else the default.
     pub profile: Option<String>,
 }
 
@@ -196,7 +201,7 @@ pub struct PlanningSettingsDto {
     pub wip: i64,
     /// The plan also fills the acceptance of the ticket.
     pub acceptance: bool,
-    /// Name of the profile; none uses the default profile.
+    /// Profile name; none uses `planning` if it exists, else the default.
     pub profile: Option<String>,
 }
 
@@ -333,6 +338,7 @@ impl From<ClaudeSettingsDto> for ClaudeSettings {
 impl From<Profile> for ProfileDto {
     fn from(profile: Profile) -> Self {
         Self {
+            id: profile.id,
             name: profile.name,
             model: profile.model,
             effort: profile.effort,
@@ -346,6 +352,7 @@ impl From<Profile> for ProfileDto {
 impl From<ProfileDto> for Profile {
     fn from(profile: ProfileDto) -> Self {
         Self {
+            id: profile.id,
             name: profile.name,
             model: profile.model,
             effort: profile.effort,
@@ -359,6 +366,7 @@ impl From<ProfileDto> for Profile {
 impl From<Rule> for RuleDto {
     fn from(rule: Rule) -> Self {
         Self {
+            id: rule.id,
             when: RuleConditionDto {
                 labels: rule.when.labels,
                 priorities: rule.when.priorities,
@@ -374,6 +382,7 @@ impl From<Rule> for RuleDto {
 impl From<RuleDto> for Rule {
     fn from(rule: RuleDto) -> Self {
         Self {
+            id: rule.id,
             when: RuleCondition {
                 labels: rule.when.labels,
                 priorities: rule.when.priorities,
