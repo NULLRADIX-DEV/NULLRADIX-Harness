@@ -6,6 +6,7 @@ mod change_feed;
 mod comments;
 mod error;
 mod hooks;
+mod notes;
 mod projects;
 mod repositories;
 mod runs;

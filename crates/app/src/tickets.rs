@@ -340,7 +340,7 @@ pub fn invalid(error: &TicketError) -> AppError {
     }
 }
 
-fn broken_rule(error: &RuleError) -> AppError {
+pub(crate) fn broken_rule(error: &RuleError) -> AppError {
     let code = match error {
         RuleError::LabelTooLong { .. } => "value-too-long",
         RuleError::SelfDependency(_) => "dependency-self",
@@ -458,6 +458,34 @@ pub fn columns(text: &str) -> Result<Option<Vec<Column>>, AppError> {
     Ok((!columns.is_empty()).then_some(columns))
 }
 
+/// Status and priority of a new ticket, read from its input before the write starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Kind {
+    pub(crate) status: TicketStatus,
+    pub(crate) priority: Priority,
+}
+
+impl Kind {
+    pub(crate) fn of(input: &NewTicket) -> Result<Self, AppError> {
+        let status = match input.status.as_deref() {
+            Some(text) => TicketStatus::parse(text).map_err(|error| invalid(&error))?,
+            None => TicketStatus::Backlog,
+        };
+        let priority = match input.priority.as_deref() {
+            Some(text) => Priority::parse(text).map_err(|error| invalid(&error))?,
+            None => Priority::Normal,
+        };
+        Ok(Self { status, priority })
+    }
+}
+
+/// Where a new ticket goes: its checked board and the key of the board's project.
+pub(crate) struct Placement<'a> {
+    pub(crate) board: &'a Board,
+    pub(crate) project_key: ProjectKey,
+    pub(crate) kind: Kind,
+}
+
 pub struct TicketService {
     repository: Arc<dyn TicketRepository>,
     projects: Arc<dyn ProjectRepository>,
@@ -504,14 +532,7 @@ impl TicketService {
         actor: &Actor,
         options: WriteOptions,
     ) -> Result<TicketView, AppError> {
-        let status = match input.status.as_deref() {
-            Some(text) => TicketStatus::parse(text).map_err(|error| invalid(&error))?,
-            None => TicketStatus::Backlog,
-        };
-        let priority = match input.priority.as_deref() {
-            Some(text) => Priority::parse(text).map_err(|error| invalid(&error))?,
-            None => Priority::Normal,
-        };
+        let kind = Kind::of(input)?;
         let mut write = self.repository.begin().await?;
         let found = write
             .board(board)
@@ -534,11 +555,38 @@ impl TicketService {
             drop(write);
             return Err(boards::missing(self.projects.as_ref(), project, board).await);
         };
+        let placement = Placement {
+            board: &board,
+            project_key,
+            kind,
+        };
+        let (view, change) = self
+            .insert_new(write.as_mut(), placement, input, actor, options)
+            .await?;
+        write.commit().await?;
+        self.signal.notify(&change);
+        Ok(view)
+    }
+
+    /// Builds and inserts a new ticket in an open write whose board is checked already.
+    pub(crate) async fn insert_new(
+        &self,
+        write: &mut dyn TicketWrite,
+        placement: Placement<'_>,
+        input: &NewTicket,
+        actor: &Actor,
+        options: WriteOptions,
+    ) -> Result<(TicketView, Change), AppError> {
+        let Placement {
+            board,
+            project_key,
+            kind: Kind { status, priority },
+        } = placement;
         let title = TicketTitle::parse(&input.title).map_err(|error| invalid(&error))?;
         let depends_on = dependency_keys(&input.depends_on)?;
         let steps = step::new_steps(&input.steps, || self.ids.next())
             .map_err(|error| step_error(&error))?;
-        let key = TicketKey::new(project_key, write.take_number(project).await?);
+        let key = TicketKey::new(project_key, write.take_number(board.project()).await?);
         let index = write.dependency_index().await?;
         if !depends_on.is_empty() {
             validate_dependencies(&key, &depends_on, index.edges())
@@ -575,7 +623,7 @@ impl TicketService {
         let ticket = Ticket::new(
             self.ids.next(),
             key,
-            &board,
+            board,
             draft,
             sort_order,
             actor.id(),
@@ -584,14 +632,12 @@ impl TicketService {
         let history = [HistoryEntry::created(self.ids.next(), &ticket)];
         let change = write.insert(&ticket, &history).await?;
         write.replace_steps(ticket.id(), &steps).await?;
-        write.commit().await?;
-        self.signal.notify(&change);
         let row = TicketRow {
             ticket,
             created_by_name: actor.name().as_str().to_owned(),
             steps: progress(&steps),
         };
-        Ok(TicketView::new(row, &index))
+        Ok((TicketView::new(row, &index), change))
     }
 
     /// Tickets in display order: column, priority, number.

@@ -8,6 +8,7 @@ mod extract;
 mod health;
 mod hooks;
 mod host;
+mod notes;
 mod problem;
 mod projects;
 mod repositories;
@@ -30,6 +31,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
 use nullradix_app::hooks::HookService;
+use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
@@ -55,7 +57,10 @@ pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
 pub use hooks::{HookEventDto, HookEventList, HookKindDto, HookReplyDto, RecordedHookDto};
 pub use host::AllowedHosts;
-pub use problem::{ApiError, Problem};
+pub use notes::{
+    CreateNote, DropNote, NoteDto, NoteList, NoteStateDto, PromoteNote, PromotedNote, SeenNote,
+};
+pub use problem::{ApiError, Problem, SimilarNoteDto};
 pub use projects::{CreateProject, ProjectDto, ProjectList, RenameProject};
 pub use repositories::{
     CheckoutDto, RepositoryDto, RepositoryList, RunnerDto, RunnerList, RunnerOsDto,
@@ -119,6 +124,7 @@ pub struct ApiState {
     pub tickets: Arc<TicketService>,
     pub comments: Arc<CommentService>,
     pub worktrees: Arc<WorktreeService>,
+    pub notes: Arc<NoteService>,
     pub runners: Arc<RunnerService>,
     /// The person every token and browser session acts for.
     pub person: Arc<nullradix_domain::Actor>,
@@ -183,6 +189,11 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(tickets::claim_planning, tickets::release_planning))
         .routes(routes!(tickets::next_planning))
         .routes(routes!(tickets::claim_next_planning))
+        .routes(routes!(notes::list_notes, notes::add_note))
+        .routes(routes!(notes::get_note))
+        .routes(routes!(notes::seen_note))
+        .routes(routes!(notes::promote_note))
+        .routes(routes!(notes::drop_note))
         .routes(routes!(runs::list_runs, runs::start_run))
         .routes(routes!(runs::get_run))
         .routes(routes!(runs::cancel_run))
@@ -315,6 +326,7 @@ pub(crate) mod tests {
         Arc<TicketService>,
         Arc<CommentService>,
         Arc<WorktreeService>,
+        Arc<NoteService>,
     ) {
         let tickets = Arc::new(TicketService::new(
             store.clone(),
@@ -340,7 +352,16 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        (tickets, comments, worktrees)
+        let notes = Arc::new(NoteService::new(
+            store.clone(),
+            tickets.clone(),
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        (tickets, comments, worktrees, notes)
     }
 
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
@@ -388,7 +409,7 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        let (tickets, comments, worktrees) = ticket_services(&store, &runners, &signal);
+        let (tickets, comments, worktrees, notes) = ticket_services(&store, &runners, &signal);
         let person = Arc::new(
             nullradix_app::boards::local_person(
                 store.as_ref(),
@@ -415,6 +436,7 @@ pub(crate) mod tests {
             tickets,
             comments,
             worktrees,
+            notes,
             runners: runners.clone(),
             person: person.clone(),
             runs,

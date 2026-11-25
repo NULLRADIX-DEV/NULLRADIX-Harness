@@ -420,6 +420,295 @@
         ]
       }
     },
+    "/api/v1/notes/{noteNumber}": {
+      "get": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "get_note",
+        "parameters": [
+          {
+            "name": "noteNumber",
+            "in": "path",
+            "description": "Note number such as `12`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notes/{noteNumber}/drop": {
+      "post": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "drop_note",
+        "parameters": [
+          {
+            "name": "noteNumber",
+            "in": "path",
+            "description": "Note number such as `12`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DropNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The note is promoted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notes/{noteNumber}/promote": {
+      "post": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "promote_note",
+        "parameters": [
+          {
+            "name": "noteNumber",
+            "in": "path",
+            "description": "Note number such as `12`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The note and the ticket made from it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromotedNote"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The note is not open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notes/{noteNumber}/seen": {
+      "post": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "seen_note",
+        "parameters": [
+          {
+            "name": "noteNumber",
+            "in": "path",
+            "description": "Note number such as `12`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeenNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The note is promoted or dropped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/planning-queue": {
       "get": {
         "tags": [
@@ -1202,6 +1491,187 @@
           },
           "409": {
             "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{projectId}/boards/{boardId}/notes": {
+      "get": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "list_notes",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "boardId",
+            "in": "path",
+            "description": "Board id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "`open`, `promoted`, `dropped` or `all`; only open notes when left out.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Only notes found at this ticket key.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notes by number",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "add_note",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "boardId",
+            "in": "path",
+            "description": "Board id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the new note"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A similar note exists; `similar` names it",
             "content": {
               "application/json": {
                 "schema": {
@@ -3876,6 +4346,58 @@
         },
         "additionalProperties": false
       },
+      "CreateNote": {
+        "type": "object",
+        "description": "A new note: a title that makes sense without context and optional details.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to note it under, such as `claude`; the acting person when left out."
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where, how to see it, suspected cause, proposal."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Adds it even when a similar open or promoted note exists."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Entries may hold several labels split by commas."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a named author is then a session, else a human."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Key of the ticket it was found at; it must belong to the board's project."
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateProject": {
         "type": "object",
         "required": [
@@ -3980,6 +4502,16 @@
         },
         "additionalProperties": false
       },
+      "DropNote": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Why nothing comes of it; required."
+          }
+        },
+        "additionalProperties": false
+      },
       "EntityDto": {
         "type": "string",
         "enum": [
@@ -3990,7 +4522,8 @@
           "runner",
           "repository",
           "worktree",
-          "comment"
+          "comment",
+          "note"
         ]
       },
       "FinishTicket": {
@@ -4444,6 +4977,131 @@
         },
         "additionalProperties": false
       },
+      "NoteDto": {
+        "type": "object",
+        "description": "A finding kept for a later ticket; timestamps are Unix milliseconds.",
+        "required": [
+          "number",
+          "id",
+          "boardId",
+          "authorId",
+          "authorName",
+          "title",
+          "body",
+          "labels",
+          "seenCount",
+          "seenIn",
+          "state",
+          "createdAt",
+          "updatedAt",
+          "version"
+        ],
+        "properties": {
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "boardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "number": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number people type, such as 12."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it was dropped."
+          },
+          "seenCount": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How often it stood out, the first time included.",
+            "minimum": 0
+          },
+          "seenIn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Other tickets it stood out at again."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Key of the ticket it was found at."
+          },
+          "state": {
+            "$ref": "#/components/schemas/NoteStateDto"
+          },
+          "ticketKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Key of the ticket it was promoted to."
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "NoteList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteDto"
+            }
+          }
+        }
+      },
+      "NoteStateDto": {
+        "type": "string",
+        "enum": [
+          "open",
+          "promoted",
+          "dropped"
+        ]
+      },
       "OutputLineDto": {
         "type": "object",
         "required": [
@@ -4511,6 +5169,13 @@
             ],
             "description": "Key of the entity that already exists, such as `ARC-0007` for a duplicate ticket."
           },
+          "similar": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SimilarNoteDto"
+            },
+            "description": "Notes that already describe the finding, for `note-similar`; most similar first."
+          },
           "status": {
             "type": "integer",
             "format": "int32",
@@ -4571,6 +5236,81 @@
             "items": {
               "$ref": "#/components/schemas/ProjectDto"
             }
+          }
+        }
+      },
+      "PromoteNote": {
+        "type": "object",
+        "description": "What the ticket made from a note gets instead of the note's values.",
+        "properties": {
+          "by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to create the ticket under, such as `claude`; the acting person when left out."
+          },
+          "labels": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Replaces the note's labels."
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityDto",
+                "description": "Normal when left out."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a named creator is then a session, else a human."
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TicketStatusDto",
+                "description": "Backlog when left out; read as text, so an unknown one is `status-invalid`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The note's title when left out."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PromotedNote": {
+        "type": "object",
+        "required": [
+          "note",
+          "ticket"
+        ],
+        "properties": {
+          "note": {
+            "$ref": "#/components/schemas/NoteDto"
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/TicketDto"
           }
         }
       },
@@ -4829,6 +5569,20 @@
           "linux"
         ]
       },
+      "SeenNote": {
+        "type": "object",
+        "description": "The finding stood out again.",
+        "properties": {
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Key of the ticket it stood out at."
+          }
+        },
+        "additionalProperties": false
+      },
       "SetBoardRepository": {
         "type": "object",
         "description": "Points a board to the repository checked out at a folder on a runner.",
@@ -4853,6 +5607,34 @@
           }
         },
         "additionalProperties": false
+      },
+      "SimilarNoteDto": {
+        "type": "object",
+        "description": "A note the similarity check found.",
+        "required": [
+          "number",
+          "title",
+          "state"
+        ],
+        "properties": {
+          "number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/NoteStateDto"
+          },
+          "ticketKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Key of the ticket it was promoted to."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
       },
       "StartRun": {
         "type": "object",

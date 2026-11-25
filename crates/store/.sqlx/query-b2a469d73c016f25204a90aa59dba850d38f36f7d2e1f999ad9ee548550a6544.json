@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.note_id AS \"note_id: Uuid\", l.label\n           FROM note_labels l\n           JOIN notes n ON n.id = l.note_id\n           WHERE (?1 IS NULL OR n.board_id = ?1) AND (?2 IS NULL OR n.rid = ?2)\n           ORDER BY l.note_id, l.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "note_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "note_labels",
+            "name": "note_id"
+          }
+        }
+      },
+      {
+        "name": "label",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "note_labels",
+            "name": "label"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b2a469d73c016f25204a90aa59dba850d38f36f7d2e1f999ad9ee548550a6544"
+}

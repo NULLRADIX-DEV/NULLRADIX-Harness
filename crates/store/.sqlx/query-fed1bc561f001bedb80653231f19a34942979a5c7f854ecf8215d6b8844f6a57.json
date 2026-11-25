@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO notes (id, board_id, author_id, title, body, source_ticket_id,\n                                 source_ticket_key, state, promoted_ticket_id,\n                                 promoted_ticket_key, reason, created_at, updated_at, version)\n               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n               RETURNING rid AS \"rid!: i64\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "rid!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "rid"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 14
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fed1bc561f001bedb80653231f19a34942979a5c7f854ecf8215d6b8844f6a57"
+}

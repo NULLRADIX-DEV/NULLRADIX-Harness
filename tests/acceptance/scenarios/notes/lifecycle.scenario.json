@@ -1,0 +1,171 @@
+{
+  "title": "Notes keep findings, refuse known ones, count sightings and become tickets",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "origin ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Start worktrees" }
+      }
+    },
+    {
+      "name": "second ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": { "title": "Merge worktrees" }
+      }
+    },
+    {
+      "name": "add on the board of the origin",
+      "cli": {
+        "args": [
+          "note",
+          "add",
+          "Dispatcher starts the worktree twice",
+          "--details",
+          "WorktreeManager creates the branch twice",
+          "--from",
+          "arc-1",
+          "--label",
+          "git",
+          "--author",
+          "claude"
+        ]
+      }
+    },
+    {
+      "name": "a known finding is refused",
+      "cli": {
+        "args": ["note", "add", "WorktreeManager: branch twice, dispatcher", "--from", "ARC-2"]
+      }
+    },
+    {
+      "name": "the refusal names the candidates",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/notes",
+        "body": { "title": "WorktreeManager: branch twice, dispatcher" }
+      }
+    },
+    {
+      "name": "a title is one line",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/notes",
+        "body": { "title": "first line\nsecond line" }
+      }
+    },
+    {
+      "name": "a title is needed",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/notes",
+        "body": { "title": "  ", "body": "only details" }
+      }
+    },
+    {
+      "name": "seen at the origin only counts",
+      "cli": { "args": ["note", "seen", "1", "--from", "ARC-1"] }
+    },
+    {
+      "name": "seen at another ticket",
+      "cli": { "args": ["note", "seen", "1", "--from", "arc-2"] }
+    },
+    {
+      "name": "another finding",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/notes",
+        "body": { "title": "Login page is slow", "labels": ["perf, web"] }
+      }
+    },
+    {
+      "name": "force adds a similar one",
+      "cli": {
+        "args": [
+          "note",
+          "add",
+          "WorktreeManager: branch twice, dispatcher",
+          "--board",
+          "{{board}}",
+          "--force"
+        ]
+      }
+    },
+    { "name": "open notes", "cli": { "args": ["note", "list", "--board", "{{board}}"] } },
+    { "name": "drop needs a reason", "cli": { "args": ["note", "drop", "3"] } },
+    {
+      "name": "drop",
+      "cli": { "args": ["note", "drop", "3", "--reason", "same as note 1"] }
+    },
+    {
+      "name": "promote",
+      "cli": { "args": ["note", "promote", "1", "--priority", "high", "--by", "claude"] }
+    },
+    {
+      "name": "promoted notes are not seen again",
+      "http": { "method": "POST", "path": "/api/v1/notes/1/seen", "body": {} }
+    },
+    {
+      "name": "promoted notes are not dropped",
+      "http": { "method": "POST", "path": "/api/v1/notes/1/drop", "body": { "reason": "no" } }
+    },
+    {
+      "name": "dropped notes are not promoted",
+      "http": { "method": "POST", "path": "/api/v1/notes/3/promote", "body": {} }
+    },
+    {
+      "name": "all notes",
+      "cli": { "args": ["note", "list", "--board", "{{board}}", "--state", "all"] }
+    },
+    {
+      "name": "promoted as markdown",
+      "cli": { "args": ["note", "list", "--board", "{{board}}", "--state", "promoted", "--md"] }
+    },
+    {
+      "name": "notes from the origin",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/notes?state=all&source=arc-1"
+      }
+    },
+    {
+      "name": "dropped notes",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/notes?state=dropped"
+      }
+    },
+    {
+      "name": "unknown state",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/notes?state=taken"
+      }
+    },
+    { "name": "show", "cli": { "args": ["note", "show", "1"] } },
+    { "name": "the ticket made from it", "cli": { "args": ["ticket", "show", "ARC-3"] } },
+    { "name": "missing note", "http": { "method": "GET", "path": "/api/v1/notes/99" } },
+    { "name": "no note number", "cli": { "args": ["note", "show", "twelve"] } }
+  ]
+}

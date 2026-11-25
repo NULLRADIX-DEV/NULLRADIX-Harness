@@ -1,6 +1,7 @@
 import type { components } from './schema';
 
 export type Problem = components['schemas']['Problem'];
+export type SimilarNote = components['schemas']['SimilarNoteDto'];
 
 export const PROBLEM_CONTENT_TYPE = 'application/problem+json';
 
@@ -9,6 +10,7 @@ export class ApiProblemError extends Error {
   readonly code: string;
   readonly detail: string;
   readonly existing: string | null;
+  readonly similar: readonly SimilarNote[];
 
   constructor(problem: Problem) {
     super(problem.detail);
@@ -17,6 +19,7 @@ export class ApiProblemError extends Error {
     this.code = problem.code;
     this.detail = problem.detail;
     this.existing = problem.existing ?? null;
+    this.similar = problem.similar ?? [];
   }
 }
 

@@ -1,0 +1,70 @@
+.db-notes-dialog {
+  width: min(760px, 100%);
+}
+
+.db-notes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.db-notes-head h2 {
+  margin: 0;
+}
+
+.db-note-filter[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.db-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.db-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.db-note-body {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--text-soft);
+}
+
+.db-note-similar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+}
+
+.db-note-similar p,
+.db-note-similar ul {
+  margin: 0;
+}
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}

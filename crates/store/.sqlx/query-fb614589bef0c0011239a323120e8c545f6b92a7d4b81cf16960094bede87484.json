@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO note_sightings (note_id, position, ticket_id, ticket_key, seen_at)\n             VALUES (?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "fb614589bef0c0011239a323120e8c545f6b92a7d4b81cf16960094bede87484"
+}

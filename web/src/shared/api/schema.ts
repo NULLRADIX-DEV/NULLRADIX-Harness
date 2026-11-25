@@ -148,6 +148,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notes/{noteNumber}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_note"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notes/{noteNumber}/drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["drop_note"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notes/{noteNumber}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["promote_note"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notes/{noteNumber}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["seen_note"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/planning-queue": {
         parameters: {
             query?: never;
@@ -242,6 +306,22 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["rename_board"];
+        trace?: never;
+    };
+    "/api/v1/projects/{projectId}/boards/{boardId}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_notes"];
+        put?: never;
+        post: operations["add_note"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/projects/{projectId}/boards/{boardId}/repository": {
@@ -763,6 +843,22 @@ export interface components {
         CreateBoard: {
             name: string;
         };
+        /** @description A new note: a title that makes sense without context and optional details. */
+        CreateNote: {
+            /** @description Name to note it under, such as `claude`; the acting person when left out. */
+            author?: string | null;
+            /** @description Where, how to see it, suspected cause, proposal. */
+            body?: string | null;
+            /** @description Adds it even when a similar open or promoted note exists. */
+            force?: boolean;
+            /** @description Entries may hold several labels split by commas. */
+            labels?: string[];
+            /** @description Agent session of the caller; a named author is then a session, else a human. */
+            session?: string | null;
+            /** @description Key of the ticket it was found at; it must belong to the board's project. */
+            source?: string | null;
+            title: string;
+        };
         CreateProject: {
             key: string;
             name: string;
@@ -787,8 +883,12 @@ export interface components {
             targetBranch?: string | null;
             title: string;
         };
+        DropNote: {
+            /** @description Why nothing comes of it; required. */
+            reason?: string;
+        };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note";
         /** @description Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged. */
         FinishTicket: {
             /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
@@ -924,6 +1024,49 @@ export interface components {
             /** Format: uuid */
             projectId?: string | null;
         };
+        /** @description A finding kept for a later ticket; timestamps are Unix milliseconds. */
+        NoteDto: {
+            /** Format: uuid */
+            authorId: string;
+            authorName: string;
+            /** Format: uuid */
+            boardId: string;
+            body: string;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: uuid */
+            id: string;
+            labels: string[];
+            /**
+             * Format: int64
+             * @description Number people type, such as 12.
+             */
+            number: number;
+            /** @description Why it was dropped. */
+            reason?: string | null;
+            /**
+             * Format: int32
+             * @description How often it stood out, the first time included.
+             */
+            seenCount: number;
+            /** @description Other tickets it stood out at again. */
+            seenIn: string[];
+            /** @description Key of the ticket it was found at. */
+            source?: string | null;
+            state: components["schemas"]["NoteStateDto"];
+            /** @description Key of the ticket it was promoted to. */
+            ticketKey?: string | null;
+            title: string;
+            /** Format: int64 */
+            updatedAt: number;
+            /** Format: int64 */
+            version: number;
+        };
+        NoteList: {
+            items: components["schemas"]["NoteDto"][];
+        };
+        /** @enum {string} */
+        NoteStateDto: "open" | "promoted" | "dropped";
         OutputLineDto: {
             /** Format: int64 */
             seq: number;
@@ -942,6 +1085,8 @@ export interface components {
             detail: string;
             /** @description Key of the entity that already exists, such as `ARC-0007` for a duplicate ticket. */
             existing?: string | null;
+            /** @description Notes that already describe the finding, for `note-similar`; most similar first. */
+            similar?: components["schemas"]["SimilarNoteDto"][];
             /** Format: int32 */
             status: number;
             title: string;
@@ -962,6 +1107,23 @@ export interface components {
         };
         ProjectList: {
             items: components["schemas"]["ProjectDto"][];
+        };
+        /** @description What the ticket made from a note gets instead of the note's values. */
+        PromoteNote: {
+            /** @description Name to create the ticket under, such as `claude`; the acting person when left out. */
+            by?: string | null;
+            /** @description Replaces the note's labels. */
+            labels?: string[] | null;
+            priority?: components["schemas"]["PriorityDto"] | null;
+            /** @description Agent session of the caller; a named creator is then a session, else a human. */
+            session?: string | null;
+            status?: components["schemas"]["TicketStatusDto"] | null;
+            /** @description The note's title when left out. */
+            title?: string | null;
+        };
+        PromotedNote: {
+            note: components["schemas"]["NoteDto"];
+            ticket: components["schemas"]["TicketDto"];
         };
         RecordedHookDto: {
             event: components["schemas"]["HookEventDto"];
@@ -1037,6 +1199,11 @@ export interface components {
         };
         /** @enum {string} */
         RunnerOsDto: "windows" | "linux";
+        /** @description The finding stood out again. */
+        SeenNote: {
+            /** @description Key of the ticket it stood out at. */
+            source?: string | null;
+        };
         /** @description Points a board to the repository checked out at a folder on a runner. */
         SetBoardRepository: {
             /** @description Absolute folder on the runner; any folder inside the checkout or a worktree of it. */
@@ -1048,6 +1215,15 @@ export interface components {
              * @description Version the change is based on.
              */
             version: number;
+        };
+        /** @description A note the similarity check found. */
+        SimilarNoteDto: {
+            /** Format: int64 */
+            number: number;
+            state: components["schemas"]["NoteStateDto"];
+            /** @description Key of the ticket it was promoted to. */
+            ticketKey?: string | null;
+            title: string;
         };
         /** @description A command to run on the daemon's machine; only token holders may start runs. */
         StartRun: {
@@ -1552,6 +1728,230 @@ export interface operations {
                 };
             };
             /** @description Invalid event, body or hook name */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Note number such as `12`. */
+                noteNumber: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    drop_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Note number such as `12`. */
+                noteNumber: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DropNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The note is promoted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    promote_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Note number such as `12`. */
+                noteNumber: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromoteNote"];
+            };
+        };
+        responses: {
+            /** @description The note and the ticket made from it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromotedNote"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The note is not open */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    seen_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Note number such as `12`. */
+                noteNumber: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SeenNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The note is promoted or dropped */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2149,6 +2549,123 @@ export interface operations {
                 };
             };
             /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_notes: {
+        parameters: {
+            query?: {
+                /** @description `open`, `promoted`, `dropped` or `all`; only open notes when left out. */
+                state?: string;
+                /** @description Only notes found at this ticket key. */
+                source?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+                /** @description Board id. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notes by number */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    add_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+                /** @description Board id. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNote"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the new note */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A similar note exists; `similar` names it */
             409: {
                 headers: {
                     [name: string]: unknown;
