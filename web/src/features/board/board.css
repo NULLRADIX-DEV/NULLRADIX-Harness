@@ -714,6 +714,100 @@
   margin: 0;
 }
 
+/* Comments */
+.db-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.db-composer-box {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.db-composer-box:focus-within {
+  border-color: var(--line-strong);
+}
+
+.db-composer-box textarea {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  resize: vertical;
+}
+
+.db-composer-box textarea:focus {
+  outline: none;
+}
+
+.db-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--surface-alt);
+  font-size: 12px;
+}
+
+.db-comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.db-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.db-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.db-comment-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.db-comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.db-comment-head .tl-time {
+  margin-left: auto;
+}
+
+.db-tabpanel p.db-comment-body {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 /* Steps */
 .db-steps {
   display: flex;

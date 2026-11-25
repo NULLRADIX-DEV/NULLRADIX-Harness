@@ -4,6 +4,7 @@ pub mod auth;
 pub mod boards;
 mod changes;
 mod clock;
+pub mod comments;
 mod error;
 pub mod hooks;
 mod ids;

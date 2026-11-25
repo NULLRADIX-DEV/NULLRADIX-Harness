@@ -1,5 +1,6 @@
 import type { Board } from '../features/boards/queries';
 import type {
+  Comment,
   HistoryLine,
   Step,
   Ticket,
@@ -78,10 +79,29 @@ export interface Entry {
   ticket: Ticket;
   steps: Step[];
   history: HistoryLine[];
+  comments: Comment[];
 }
 
-export function entry(base: Ticket, steps: Step[] = [], history: HistoryLine[] = []): Entry {
-  return { ticket: base, steps, history };
+export function entry(
+  base: Ticket,
+  steps: Step[] = [],
+  history: HistoryLine[] = [],
+  comments: Comment[] = [],
+): Entry {
+  return { ticket: base, steps, history, comments };
+}
+
+// A comment from a small number, by the person unless an agent name is given.
+export function comment(key: string, number: number, body: string, agent?: string): Comment {
+  return {
+    id: `0190a0b0-0000-7000-8000-${String(800 + number).padStart(12, '0')}`,
+    ticketKey: key,
+    authorId: USER_ID,
+    authorName: agent ?? 'Ben',
+    authorKind: agent === undefined ? 'human' : 'session',
+    body,
+    createdAt: Date.now(),
+  };
 }
 
 function line(field: string, from: string | null, to: string | null): HistoryLine {
@@ -113,7 +133,12 @@ function setup(boards: Board[], initial: Entry[]) {
   });
 
   function detail(item: Entry): TicketDetail {
-    return { ticket: item.ticket, steps: item.steps, history: item.history };
+    return {
+      ticket: item.ticket,
+      steps: item.steps,
+      history: item.history,
+      comments: item.comments,
+    };
   }
 
   function revise(item: Entry, change: Partial<Ticket>, history: HistoryLine[] = []) {
@@ -218,6 +243,16 @@ function setup(boards: Board[], initial: Entry[]) {
       registerStep(key, added.id);
       revise(item, {}, [line('step', null, `${String(item.steps.length)}: ${body.text}`)]);
       return json(201, detail(item));
+    });
+    api.set(`POST ${base}/comments`, async (request) => {
+      const body = (await request.json()) as { body: string };
+      const item = find(key, null);
+      if (item instanceof Response) return item;
+      if (body.body.trim() === '') return problem(422, 'comment-empty', 'the comment is empty');
+      const added = comment(key, item.comments.length + 1, body.body.trim());
+      item.comments = [...item.comments, added];
+      revise(item, {});
+      return json(201, added);
     });
     for (const each of entries.get(key)?.steps ?? []) registerStep(key, each.id);
   }

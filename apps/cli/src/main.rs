@@ -1,6 +1,7 @@
 //! The `nullradix` command line and daemon.
 
 mod board;
+mod comment;
 mod config;
 mod connect;
 mod daemon;

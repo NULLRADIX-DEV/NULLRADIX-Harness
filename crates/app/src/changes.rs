@@ -19,6 +19,7 @@ pub enum Entity {
     Runner,
     Repository,
     Worktree,
+    Comment,
 }
 
 impl Entity {

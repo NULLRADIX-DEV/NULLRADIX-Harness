@@ -2,6 +2,7 @@
 
 mod auth;
 mod boards;
+mod comments;
 mod events;
 mod extract;
 mod health;
@@ -27,6 +28,7 @@ use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
+use nullradix_app::comments::CommentService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::RunnerService;
@@ -47,6 +49,7 @@ use utoipa_axum::routes;
 
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
 pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
+pub use comments::{ActorKindDto, AddComment, CommentDto, CommentList, SystemMarkerDto};
 pub use events::{ChangeDto, ChangeOpDto, EntityDto, StreamPosition};
 pub use extract::{ApiJson, ApiPath, ApiQuery};
 pub use health::Health;
@@ -114,6 +117,7 @@ pub struct ApiState {
     pub projects: Arc<ProjectService>,
     pub boards: Arc<BoardService>,
     pub tickets: Arc<TicketService>,
+    pub comments: Arc<CommentService>,
     pub worktrees: Arc<WorktreeService>,
     pub runners: Arc<RunnerService>,
     /// The person every token and browser session acts for.
@@ -167,6 +171,7 @@ fn routes() -> OpenApiRouter<ApiState> {
         ))
         .routes(routes!(tickets::move_ticket))
         .routes(routes!(tickets::add_step))
+        .routes(routes!(comments::list_comments, comments::add_comment))
         .routes(routes!(tickets::change_step, tickets::remove_step))
         .routes(routes!(tickets::move_step))
         .routes(routes!(tickets::claim_ticket))
@@ -306,8 +311,20 @@ pub(crate) mod tests {
         store: &Arc<Store>,
         runners: &Arc<RunnerService>,
         signal: &ChangeSignal,
-    ) -> (Arc<TicketService>, Arc<WorktreeService>) {
+    ) -> (
+        Arc<TicketService>,
+        Arc<CommentService>,
+        Arc<WorktreeService>,
+    ) {
         let tickets = Arc::new(TicketService::new(
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let comments = Arc::new(CommentService::new(
+            store.clone(),
             store.clone(),
             store.clone(),
             Arc::new(SystemClock),
@@ -323,7 +340,7 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        (tickets, worktrees)
+        (tickets, comments, worktrees)
     }
 
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
@@ -371,7 +388,7 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        let (tickets, worktrees) = ticket_services(&store, &runners, &signal);
+        let (tickets, comments, worktrees) = ticket_services(&store, &runners, &signal);
         let person = Arc::new(
             nullradix_app::boards::local_person(
                 store.as_ref(),
@@ -396,6 +413,7 @@ pub(crate) mod tests {
             projects: projects.clone(),
             boards: boards.clone(),
             tickets,
+            comments,
             worktrees,
             runners: runners.clone(),
             person: person.clone(),

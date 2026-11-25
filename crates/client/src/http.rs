@@ -2,13 +2,13 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, AcceptTicket, AddStep, BoardDeleted, BoardDto, BoardList, ChangeStep,
-    ClaimPlanning, ClaimTicket, CreateBoard, CreateProject, CreateTicket, FinishTicket,
-    FinishedTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto,
-    MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, Problem, ProjectDto, ProjectList,
-    ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto, RunList, RunOutput,
-    RunnerList, SetBoardRepository, StartRun, StartTicket, StartedTicket, TicketDetailDto,
-    TicketDto, TicketList, UpdateTicket, WritePlan,
+    API_PREFIX, API_VERSION, AcceptTicket, AddComment, AddStep, BoardDeleted, BoardDto, BoardList,
+    ChangeStep, ClaimPlanning, ClaimTicket, CommentDto, CommentList, CreateBoard, CreateProject,
+    CreateTicket, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto, HookEventList,
+    HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, Problem,
+    ProjectDto, ProjectList, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto,
+    RunList, RunOutput, RunnerList, SetBoardRepository, StartRun, StartTicket, StartedTicket,
+    TicketDetailDto, TicketDto, TicketList, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -363,6 +363,21 @@ impl Client {
         decode(&mut response, 200)
     }
 
+    /// Comments of the ticket, oldest first; `key` as for [`Client::get_ticket`].
+    pub fn list_comments(&self, key: &str) -> Result<CommentList, ClientError> {
+        self.get_json(&format!("/tickets/{key}/comments"))
+    }
+
+    pub fn add_comment(&self, key: &str, input: &AddComment) -> Result<CommentDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/tickets/{key}/comments")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
     pub fn add_step(&self, key: &str, input: &AddStep) -> Result<TicketDetailDto, ClientError> {
         let mut response = self
             .agent
@@ -654,6 +669,33 @@ mod tests {
         }
     }
 
+    async fn local_runner(
+        store: &Arc<Store>,
+        signal: &ChangeSignal,
+    ) -> (
+        Arc<LocalRunner>,
+        Arc<nullradix_app::repositories::RunnerService>,
+    ) {
+        let runner = Arc::new(LocalRunner::new(
+            std::env::temp_dir().join("nullradix-client-tests"),
+            SupervisorCommand {
+                program: std::path::PathBuf::from("nullradix-missing-supervisor"),
+                args: Vec::new(),
+            },
+        ));
+        let runners = nullradix_app::repositories::RunnerService::start(
+            store.clone(),
+            store.clone(),
+            runner.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        )
+        .await
+        .unwrap();
+        (runner, Arc::new(runners))
+    }
+
     async fn test_state(ready: std::sync::mpsc::Sender<Secret>) -> ApiState {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
@@ -669,25 +711,7 @@ mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        let runner = Arc::new(LocalRunner::new(
-            std::env::temp_dir().join("nullradix-client-tests"),
-            SupervisorCommand {
-                program: std::path::PathBuf::from("nullradix-missing-supervisor"),
-                args: Vec::new(),
-            },
-        ));
-        let runners = Arc::new(
-            nullradix_app::repositories::RunnerService::start(
-                store.clone(),
-                store.clone(),
-                runner.clone(),
-                Arc::new(SystemClock),
-                Arc::new(UuidV7Generator),
-                signal.clone(),
-            )
-            .await
-            .unwrap(),
-        );
+        let (runner, runners) = local_runner(&store, &signal).await;
         let runs = RunService::new(
             store.clone(),
             runner,
@@ -707,6 +731,14 @@ mod tests {
             signal.clone(),
         ));
         let tickets = Arc::new(nullradix_app::tickets::TicketService::new(
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
+        let comments = Arc::new(nullradix_app::comments::CommentService::new(
+            store.clone(),
             store.clone(),
             store.clone(),
             Arc::new(SystemClock),
@@ -735,6 +767,7 @@ mod tests {
             projects,
             boards,
             tickets,
+            comments,
             worktrees,
             runners,
             person: Arc::new(person),

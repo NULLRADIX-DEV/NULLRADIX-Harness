@@ -471,6 +471,7 @@
     },
     "response": {
       "json": {
+        "comments": [],
         "history": [
           {
             "actorId": "<ID-3>",

@@ -1,0 +1,407 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Login page",
+      "--board",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "create",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Login page\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "comment",
+      "arc-1",
+      "Please check the login"
+    ],
+    "exitCode": 0,
+    "name": "comment as the person",
+    "stderr": "",
+    "stdout": "Comment on ARC-0001 saved.\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "comment",
+      "ARC-1",
+      "--body-file",
+      "-",
+      "--author",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "comment from standard input",
+    "stderr": "",
+    "stdout": "Comment on ARC-0001 saved.\n"
+  },
+  {
+    "name": "comment over http",
+    "request": {
+      "body": {
+        "author": "claude",
+        "body": " Step 2 done "
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/comments"
+    },
+    "response": {
+      "json": {
+        "authorId": "<ID-4>",
+        "authorKind": "session",
+        "authorName": "claude",
+        "body": "Step 2 done",
+        "createdAt": "<TIME>",
+        "id": "<ID-5>",
+        "ticketKey": "ARC-0001"
+      },
+      "status": 201
+    }
+  },
+  {
+    "name": "another agent comment",
+    "request": {
+      "body": {
+        "author": "claude",
+        "body": "Step 3 done"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/comments"
+    },
+    "response": {
+      "json": {
+        "authorId": "<ID-4>",
+        "authorKind": "session",
+        "authorName": "claude",
+        "body": "Step 3 done",
+        "createdAt": "<TIME>",
+        "id": "<ID-6>",
+        "ticketKey": "ARC-0001"
+      },
+      "status": 201
+    }
+  },
+  {
+    "name": "a dispatched agent",
+    "request": {
+      "body": {
+        "author": "junior-ARC-0001",
+        "body": "Ready for review"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/comments"
+    },
+    "response": {
+      "json": {
+        "authorId": "<ID-7>",
+        "authorKind": "session",
+        "authorName": "junior-ARC-0001",
+        "body": "Ready for review",
+        "createdAt": "<TIME>",
+        "id": "<ID-8>",
+        "ticketKey": "ARC-0001"
+      },
+      "status": 201
+    }
+  },
+  {
+    "name": "empty comment",
+    "request": {
+      "body": {
+        "body": "  "
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/comments"
+    },
+    "response": {
+      "json": {
+        "code": "comment-empty",
+        "detail": "the comment is empty",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:comment-empty"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "unknown ticket",
+    "request": {
+      "body": {
+        "body": "Hello"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-9/comments"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-not-found",
+        "detail": "ticket ARC-0009 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:ticket-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "comment",
+      "ARC-1",
+      " "
+    ],
+    "exitCode": 1,
+    "name": "empty comment from the cli",
+    "stderr": "error: the daemon refused the request: the comment is empty (comment-empty)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "show",
+      "ARC-1"
+    ],
+    "exitCode": 0,
+    "name": "show keeps the last agent comments",
+    "stderr": "",
+    "stdout": "ARC-0001  Login page\nStatus backlog | Priority normal | version 6 | unassigned | needs planning\n\n## Comments\n(1 older agent comment hidden; --all-comments shows them)\n<TIME>  tester: Please check the login\n<TIME>  claude: Step 2 done\n<TIME>  claude: Step 3 done\n<TIME>  junior-ARC-0001: Ready for review\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "show",
+      "ARC-1",
+      "--all-comments"
+    ],
+    "exitCode": 0,
+    "name": "show all comments",
+    "stderr": "",
+    "stdout": "ARC-0001  Login page\nStatus backlog | Priority normal | version 6 | unassigned | needs planning\n\n## Comments\n<TIME>  tester: Please check the login\n<TIME>  claude: Step 1 done\n    Tests pass\n<TIME>  claude: Step 2 done\n<TIME>  claude: Step 3 done\n<TIME>  junior-ARC-0001: Ready for review\n"
+  },
+  {
+    "name": "list",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/comments"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "authorId": "<ID-3>",
+            "authorKind": "human",
+            "authorName": "tester",
+            "body": "Please check the login",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-4>",
+            "authorKind": "session",
+            "authorName": "claude",
+            "body": "Step 1 done\nTests pass",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-4>",
+            "authorKind": "session",
+            "authorName": "claude",
+            "body": "Step 2 done",
+            "createdAt": "<TIME>",
+            "id": "<ID-5>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-4>",
+            "authorKind": "session",
+            "authorName": "claude",
+            "body": "Step 3 done",
+            "createdAt": "<TIME>",
+            "id": "<ID-6>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-7>",
+            "authorKind": "session",
+            "authorName": "junior-ARC-0001",
+            "body": "Ready for review",
+            "createdAt": "<TIME>",
+            "id": "<ID-8>",
+            "ticketKey": "ARC-0001"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the detail carries the comments and a new version",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-3>",
+            "authorKind": "human",
+            "authorName": "tester",
+            "body": "Please check the login",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-4>",
+            "authorKind": "session",
+            "authorName": "claude",
+            "body": "Step 1 done\nTests pass",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-4>",
+            "authorKind": "session",
+            "authorName": "claude",
+            "body": "Step 2 done",
+            "createdAt": "<TIME>",
+            "id": "<ID-5>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-4>",
+            "authorKind": "session",
+            "authorName": "claude",
+            "body": "Step 3 done",
+            "createdAt": "<TIME>",
+            "id": "<ID-6>",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-7>",
+            "authorKind": "session",
+            "authorName": "junior-ARC-0001",
+            "body": "Ready for review",
+            "createdAt": "<TIME>",
+            "id": "<ID-8>",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "backlog",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-11>",
+          "key": "ARC-0001",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 1,
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Login page",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 6,
+          "waiting": false,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
+  }
+]

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::comments::CommentDto;
 use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -265,6 +266,8 @@ pub struct TicketDetailDto {
     /// Oldest first.
     pub history: Vec<HistoryDto>,
     pub steps: Vec<StepDto>,
+    /// Oldest first.
+    pub comments: Vec<CommentDto>,
 }
 
 impl From<TicketDetail> for TicketDetailDto {
@@ -282,6 +285,7 @@ impl From<TicketDetail> for TicketDetailDto {
                     detail: step.detail,
                 })
                 .collect(),
+            comments: detail.comments.into_iter().map(CommentDto::from).collect(),
         }
     }
 }
