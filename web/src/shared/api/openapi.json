@@ -5624,6 +5624,85 @@
         }
       }
     },
+    "/api/v1/tickets/{ticketKey}/resume": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "resume_ticket",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumedTicket"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown ticket or runner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The ticket changed meanwhile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not started, or the folder belongs to something else",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticketKey}/sessions": {
       "get": {
         "tags": [
@@ -9030,6 +9109,56 @@
             "items": {
               "$ref": "#/components/schemas/OptionDto"
             }
+          }
+        }
+      },
+      "ResumeOutcome": {
+        "type": "string",
+        "description": "What a resume did with the ticket's worktree.",
+        "enum": [
+          "ready",
+          "reset",
+          "skipped"
+        ]
+      },
+      "ResumedTicket": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "outcome",
+          "restored"
+        ],
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the worktree is not used, when the outcome is not ready."
+          },
+          "movedAside": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where a leftover folder in the way was moved to."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ResumeOutcome"
+          },
+          "restored": {
+            "type": "boolean",
+            "description": "The folder was added again."
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/TicketDto"
+          },
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Folder of the worktree on the runner, with forward slashes; only when ready."
           }
         }
       },

@@ -1012,6 +1012,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resume_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticketKey}/sessions": {
         parameters: {
             query?: never;
@@ -1985,6 +2001,23 @@ export interface components {
             /** Format: uuid */
             id: string;
             options: components["schemas"]["OptionDto"][];
+        };
+        /**
+         * @description What a resume did with the ticket's worktree.
+         * @enum {string}
+         */
+        ResumeOutcome: "ready" | "reset" | "skipped";
+        ResumedTicket: {
+            /** @description Why the worktree is not used, when the outcome is not ready. */
+            message?: string | null;
+            /** @description Where a leftover folder in the way was moved to. */
+            movedAside?: string | null;
+            outcome: components["schemas"]["ResumeOutcome"];
+            /** @description The folder was added again. */
+            restored: boolean;
+            ticket: components["schemas"]["TicketDto"];
+            /** @description Folder of the worktree on the runner, with forward slashes; only when ready. */
+            worktree?: string | null;
         };
         ResumptionDto: {
             /** Format: int64 */
@@ -6736,6 +6769,72 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resume_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumedTicket"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket or runner */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The ticket changed meanwhile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not started, or the folder belongs to something else */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner is not connected */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

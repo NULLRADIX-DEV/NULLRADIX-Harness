@@ -324,6 +324,34 @@ async fn mark_removed(
     updated(connection, changed, at).await
 }
 
+async fn mark_restored(
+    connection: &mut SqliteConnection,
+    worktree: Id<Worktree>,
+    at: Timestamp,
+) -> Result<Option<Change>, AppError> {
+    let id = worktree.as_uuid();
+    let millis = at.as_millis();
+    let changed = sqlx::query_scalar!(
+        r#"UPDATE worktrees
+           SET desired_state = 'present', actual_state = 'present', last_error = NULL,
+               observed_at = ?1, updated_at = ?1, version = version + 1
+           WHERE id = ?2 AND (desired_state <> 'present' OR actual_state <> 'present')
+           RETURNING id AS "id: Uuid""#,
+        millis,
+        id,
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(|error| {
+        if unique_violation(&error, "worktrees.branch") {
+            AppError::invalid("branch-exists", "another live worktree has this branch")
+        } else {
+            database(error)
+        }
+    })?;
+    updated(connection, changed, at).await
+}
+
 async fn mark_kept(
     connection: &mut SqliteConnection,
     worktree: Id<Worktree>,
@@ -508,6 +536,14 @@ impl WorktreeWrite for Write {
         at: Timestamp,
     ) -> Result<Option<Change>, AppError> {
         mark_removed(&mut self.0, worktree, at).await
+    }
+
+    async fn mark_restored(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        mark_restored(&mut self.0, worktree, at).await
     }
 
     async fn mark_kept(

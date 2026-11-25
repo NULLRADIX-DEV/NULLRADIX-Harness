@@ -13,7 +13,9 @@ use crate::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
     TranscriptSource, TranscriptSummary,
 };
-use crate::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
+use crate::worktrees::{
+    CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval,
+};
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
 /// What to execute; the runner owns how.
@@ -96,6 +98,8 @@ pub trait RunnerPort: Send + Sync {
     async fn create_worktree(&self, request: &NewWorktree) -> Result<CreatedWorktree, AppError>;
     /// Whether each absolute folder exists, in the order given.
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError>;
+    /// Adds a ticket's worktree again on its existing branch, moving leftovers aside.
+    async fn ensure_worktree(&self, request: &EnsureWorktree) -> Result<EnsuredWorktree, AppError>;
     /// Removes a clean worktree folder after its links; refusals are answers, not errors.
     async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError>;
     /// A page of a session transcript; `None` when the file is gone.

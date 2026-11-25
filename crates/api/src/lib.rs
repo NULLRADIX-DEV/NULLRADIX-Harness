@@ -115,7 +115,8 @@ pub use tickets::{
 };
 pub use usage::{AccountStatusDto, AccountStatusList, UsageDto, UsageReasonDto, UsageWindowDto};
 pub use worktrees::{
-    CleanedWorktree, FinishTicket, FinishedTicket, StartTicket, StartedTicket, TargetCreatedDto,
+    CleanedWorktree, FinishTicket, FinishedTicket, ResumeOutcome, ResumedTicket, StartTicket,
+    StartedTicket, TargetCreatedDto,
 };
 
 /// Major version of the HTTP contract; clients refuse to talk to a different one.
@@ -257,6 +258,7 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(tickets::claim_ticket))
         .routes(routes!(worktrees::start_ticket))
         .routes(routes!(worktrees::finish_ticket))
+        .routes(routes!(worktrees::resume_ticket))
         .routes(routes!(tickets::release_ticket))
         .routes(routes!(tickets::accept_ticket))
         .routes(routes!(tickets::write_plan))

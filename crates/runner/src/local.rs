@@ -12,7 +12,9 @@ use nullradix_app::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
     TranscriptSource, TranscriptSummary,
 };
-use nullradix_app::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
+use nullradix_app::worktrees::{
+    CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval,
+};
 use nullradix_domain::{Id, Run};
 use nullradix_os::{spawn_detached, write_atomic};
 
@@ -162,6 +164,10 @@ impl RunnerPort for LocalRunner {
 
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError> {
         crate::worktree::folders_exist(paths).await
+    }
+
+    async fn ensure_worktree(&self, request: &EnsureWorktree) -> Result<EnsuredWorktree, AppError> {
+        crate::ensure::ensure(request).await
     }
 
     async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError> {

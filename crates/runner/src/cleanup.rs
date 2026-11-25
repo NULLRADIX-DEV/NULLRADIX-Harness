@@ -20,7 +20,7 @@ const HARNESS_FILES: [&str; 7] = [
     ".claude/rules/nexus-board.md",
 ];
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, AppError> {
     tokio::task::spawn_blocking(work)
@@ -95,7 +95,7 @@ fn strip_status(line: &str) -> &str {
 }
 
 /// Whether git lists the folder as a worktree; `None` when git cannot tell.
-async fn listed(root: &Path, path: &str) -> Option<bool> {
+pub(crate) async fn listed(root: &Path, path: &str) -> Option<bool> {
     let list = git(root, &["worktree", "list", "--porcelain"]).await.ok()?;
     let path = PathBuf::from(path);
     blocking(move || {
