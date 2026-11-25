@@ -314,6 +314,13 @@ impl WorktreeService {
             path: path.as_str().to_owned(),
             target: target.clone(),
         };
+        // a start committing after this check still leaves git's work behind, as in legacy
+        if let Some(entry) = self.worktrees.of_ticket(ticket.id()).await? {
+            return Err(already_running(
+                ticket.key(),
+                entry.worktree.branch().as_str(),
+            ));
+        }
         let created = self.runners.create_worktree(place.runner, &request).await?;
         let now = self.clock.now();
         let draft = WorktreeDraft {
@@ -327,6 +334,10 @@ impl WorktreeService {
         let worktree = Worktree::new(self.ids.next(), draft, now).seen_present(now);
         let mut write = self.tickets.repository().begin().await?;
         let before = fresh(write.as_mut(), ticket.key(), force).await?;
+        // git proved branch and folder gone, so a live row with this branch is stale
+        write
+            .retire_branch(place.repository, place.runner, worktree.branch(), now)
+            .await?;
         write.insert_worktree(&worktree, before.id()).await?;
         self.link(write, &before, &worktree, actor, "started")
             .await?;
@@ -355,6 +366,7 @@ impl WorktreeService {
         after.branch = Some(worktree.branch().as_str().to_owned());
         after.worktree = Some(worktree.path().as_str().to_owned());
         after.status = TicketStatus::InProgress;
+        after.blocked_reason = None;
         if record.status != TicketStatus::InProgress {
             after.sort_order = write
                 .next_sort_order(record.board, TicketStatus::InProgress)

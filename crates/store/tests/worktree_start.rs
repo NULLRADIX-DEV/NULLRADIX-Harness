@@ -8,14 +8,15 @@ use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::{Located, RunnerService, not_a_git_project};
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
-use nullradix_app::tickets::{NewTicket, TicketService, WriteOptions};
+use nullradix_app::tickets::{NewTicket, TicketPatch, TicketService, WriteOptions};
 use nullradix_app::worktrees::{
     CreatedWorktree, NewWorktree, StartMode, Started, TargetCreated, WorktreeRepository,
     WorktreeService,
 };
 use nullradix_app::{AppError, ChangeSignal, SystemClock, UuidV7Generator};
 use nullradix_domain::{
-    Actor, ActualState, Board, DesiredState, Id, Run, Runner, TicketStatus, Version,
+    Actor, ActualState, Board, DesiredState, Id, Run, Runner, TicketStatus, Version, Worktree,
+    WorktreeBranch, WorktreeDraft, WorktreePath, WorktreePurpose,
 };
 use nullradix_store::Store;
 
@@ -377,6 +378,12 @@ async fn auto_join_takes_the_first_open_worktree_with_the_same_target() {
         .await
         .unwrap();
     assert!(!alone.joined);
+    let other = fixture.ticket("Other").await;
+    let later = fixture
+        .start(&other, "/work/arches", StartMode::New)
+        .await
+        .unwrap();
+    assert_ne!(later.worktree, alone.worktree);
     let second = fixture.ticket("Second").await;
     let joined = fixture
         .start(&second, "/work/arches", StartMode::AutoJoin)
@@ -400,12 +407,20 @@ async fn auto_join_takes_the_first_open_worktree_with_the_same_target() {
     assert!(own.warnings[0].starts_with("core.longpaths"));
     fixture.git.folders.lock().unwrap().remove(&alone.worktree);
     let third = fixture.ticket("Third").await;
-    let fresh = fixture
+    let next = fixture
         .start(&third, "/work/arches", StartMode::AutoJoin)
         .await
         .unwrap();
+    assert!(next.joined);
+    assert_eq!(next.worktree, later.worktree);
+    fixture.git.folders.lock().unwrap().remove(&later.worktree);
+    let fourth = fixture.ticket("Fourth").await;
+    let fresh = fixture
+        .start(&fourth, "/work/arches", StartMode::AutoJoin)
+        .await
+        .unwrap();
     assert!(!fresh.joined);
-    assert_eq!(fresh.worktree, "/work/arches-worktrees/ARC-0004");
+    assert_eq!(fresh.worktree, "/work/arches-worktrees/ARC-0006");
 }
 
 #[tokio::test]
@@ -427,4 +442,93 @@ async fn a_failed_git_step_leaves_the_ticket_untouched() {
         .await
         .unwrap();
     assert_eq!(entries.len(), 0);
+}
+
+#[tokio::test]
+async fn starting_a_blocked_ticket_clears_its_reason() {
+    let fixture = fixture().await;
+    let key = fixture.ticket("Stuck").await;
+    let patch = TicketPatch {
+        status: Some(String::from("blocked")),
+        blocked_reason: Some(Some(String::from("waiting for the API"))),
+        ..TicketPatch::default()
+    };
+    fixture
+        .tickets
+        .update(&key, &patch, &fixture.person, Version::INITIAL, FORCE)
+        .await
+        .unwrap();
+    let started = fixture
+        .start(&key, "/work/arches", StartMode::New)
+        .await
+        .unwrap();
+    let record = started.ticket.ticket.record();
+    assert_eq!(record.status, TicketStatus::InProgress);
+    assert_eq!(record.blocked_reason, None);
+    let history = fixture.tickets.get(&key).await.unwrap().history;
+    let cleared = history
+        .iter()
+        .find(|line| line.field == "blockedReason" && line.note.as_deref() == Some("started"))
+        .unwrap();
+    assert_eq!(cleared.from.as_deref(), Some("waiting for the API"));
+    assert_eq!(cleared.to, None);
+}
+
+#[tokio::test]
+async fn a_stale_live_row_with_the_branch_is_replaced() {
+    let fixture = fixture().await;
+    let key = fixture.ticket("Fix").await;
+    let holder = fixture.ticket("Holder").await;
+    let holder_id = fixture.tickets.get(&holder).await.unwrap().view.ticket.id();
+    let repository = fixture.bound.repository().unwrap();
+    let draft = WorktreeDraft {
+        repository,
+        runner: fixture.runner,
+        branch: WorktreeBranch::parse("ticket/ARC-0001-fix").unwrap(),
+        target_branch: None,
+        path: WorktreePath::parse("/work/arches-worktrees/OLD").unwrap(),
+        purpose: WorktreePurpose::Work,
+    };
+    let stale = Worktree::new(
+        Id::from_uuid(uuid::Uuid::now_v7()),
+        draft,
+        nullradix_domain::Timestamp::from_millis(1),
+    );
+    let mut write = nullradix_app::tickets::TicketRepository::begin(fixture.store.as_ref())
+        .await
+        .unwrap();
+    write.insert_worktree(&stale, holder_id).await.unwrap();
+    write.commit().await.unwrap();
+    let started = fixture
+        .start(&key, "/work/arches", StartMode::New)
+        .await
+        .unwrap();
+    assert_eq!(started.branch, "ticket/ARC-0001-fix");
+    let old = fixture.store.get(stale.id()).await.unwrap().unwrap();
+    let record = old.worktree.record();
+    assert_eq!(
+        (record.desired, record.actual),
+        (DesiredState::Absent, ActualState::Removed)
+    );
+    assert_eq!(old.tickets.len(), 1);
+    assert_eq!(old.tickets[0].ticket, holder_id);
+    assert!(!old.tickets[0].live());
+    assert_eq!(fixture.store.of_ticket(holder_id).await.unwrap(), None);
+    let new = fixture
+        .store
+        .of_ticket(started.ticket.ticket.id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(new.worktree.id(), stale.id());
+    assert_eq!(new.owner().unwrap().ticket, started.ticket.ticket.id());
+    assert_eq!(
+        fixture
+            .store
+            .list(repository, fixture.runner)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
 }

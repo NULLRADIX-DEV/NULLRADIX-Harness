@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE worktrees\n           SET desired_state = 'absent', actual_state = 'removed', observed_at = ?1,\n               updated_at = ?1, version = version + 1\n           WHERE repository_id = ?2 AND runner_id = ?3 AND branch = ?4\n             AND (actual_state <> 'removed' OR desired_state = 'present')\n           RETURNING id AS \"id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "973ed9177c9692b5973e84ec1f309ad7b2b72bad9ba31f79fafb9d2270ee020f"
+}

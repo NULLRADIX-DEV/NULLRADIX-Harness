@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE worktree_tickets SET released_at = ? WHERE worktree_id = ? AND released_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e8a34af8da7888462f98d8368d1e019ffa019ea350bedb504f6c2d9272822d0c"
+}

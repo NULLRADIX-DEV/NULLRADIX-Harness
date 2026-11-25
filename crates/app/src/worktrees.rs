@@ -69,6 +69,14 @@ pub trait WorktreeWrite: Send {
         ticket: Id<Ticket>,
         at: Timestamp,
     ) -> Result<Option<Change>, AppError>;
+    /// Marks the live worktree with this branch removed and ends its links; `None` without one.
+    async fn retire_branch(
+        &mut self,
+        repository: Id<Repository>,
+        runner: Id<Runner>,
+        branch: &WorktreeBranch,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
     /// The worktree the ticket is linked to right now.
     async fn live_worktree(
         &mut self,
