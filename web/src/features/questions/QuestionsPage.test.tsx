@@ -170,4 +170,60 @@ describe('QuestionsPage', () => {
     expect(await sent?.json()).toEqual({ body: 'Looks good' });
     expect(box).toHaveValue('');
   });
+
+  it('keeps a typed answer when a comment arrives and shows a conflict', async () => {
+    let current = detail();
+    const api = server(current);
+    api.set(`GET ${DETAIL}`, () => json(200, current));
+    api.set(`POST ${DETAIL}/comments`, () => {
+      const note = {
+        id: '0190a0b0-0000-7000-8000-00000000d002',
+        questionKey: 'ARC-Q0001',
+        authorId: '0190a0b0-0000-7000-8000-0000000000c1',
+        authorName: 'claude',
+        authorKind: 'session' as const,
+        body: 'New finding',
+        createdAt: 4,
+      };
+      current = { ...current, question: { ...current.question, version: 2 }, comments: [note] };
+      return json(201, note);
+    });
+    api.set(`POST ${DETAIL}/answer`, () =>
+      problem(409, 'version-conflict', 'changed by someone else'),
+    );
+    renderApp('/questions?question=ARC-Q0001');
+
+    const panel = within(await screen.findByRole('article', { name: 'Question ARC-Q0001' }));
+    await userEvent.click(panel.getByRole('radio', { name: /File/ }));
+    await userEvent.type(panel.getByRole('textbox', { name: 'Reason' }), 'Simple');
+    await userEvent.type(panel.getByRole('textbox', { name: 'New comment' }), 'New finding');
+    await userEvent.click(panel.getByRole('button', { name: 'Comment' }));
+    expect(await panel.findByText('New finding', { selector: 'p' })).toBeInTheDocument();
+
+    expect(panel.getByRole('radio', { name: /File/ })).toBeChecked();
+    expect(panel.getByRole('textbox', { name: 'Reason' })).toHaveValue('Simple');
+    await userEvent.click(panel.getByRole('button', { name: 'Answer: O1' }));
+
+    expect(await panel.findByRole('alert')).toHaveTextContent(
+      'This question changed in the meantime.',
+    );
+    const [sent] = api.requests(`POST ${DETAIL}/answer`);
+    expect(await sent?.json()).toEqual({ option: 'O1', version: 2, reason: 'Simple' });
+    expect(panel.getByRole('textbox', { name: 'Reason' })).toHaveValue('Simple');
+  });
+
+  it('explains the reserved autopilot reason', async () => {
+    const api = server();
+    api.set(`POST ${DETAIL}/answer`, () =>
+      problem(422, 'autopilot-reason-reserved', 'kept for the dispatcher'),
+    );
+    renderApp('/questions?question=ARC-Q0001');
+
+    const panel = within(await screen.findByRole('article', { name: 'Question ARC-Q0001' }));
+    await userEvent.click(panel.getByRole('radio', { name: /Db/ }));
+    await userEvent.type(panel.getByRole('textbox', { name: 'Reason' }), 'Autopilot: mine');
+    await userEvent.click(panel.getByRole('button', { name: 'Answer: O2' }));
+
+    expect(await panel.findByRole('alert')).toHaveTextContent('kept for the dispatcher. Write it');
+  });
 });

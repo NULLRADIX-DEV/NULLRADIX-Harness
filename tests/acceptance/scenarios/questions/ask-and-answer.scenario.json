@@ -6,26 +6,39 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/projects",
-        "body": { "key": "ARC", "name": "Arches" }
+        "body": {
+          "key": "ARC",
+          "name": "Arches"
+        }
       },
-      "save": { "project": "json.id" }
+      "save": {
+        "project": "json.id"
+      }
     },
     {
       "name": "board",
       "http": {
         "method": "POST",
         "path": "/api/v1/projects/{{project}}/boards",
-        "body": { "name": "Main" }
+        "body": {
+          "name": "Main"
+        }
       },
-      "save": { "board": "json.id" }
+      "save": {
+        "board": "json.id"
+      }
     },
     {
       "name": "the board to work on",
-      "cli": { "args": ["board", "use", "{{board}}"] }
+      "cli": {
+        "args": ["board", "use", "{{board}}"]
+      }
     },
     {
       "name": "ticket",
-      "cli": { "args": ["ticket", "create", "Login page", "--acceptance", "Users can log in"] }
+      "cli": {
+        "args": ["ticket", "create", "Login page", "--acceptance", "Users can log in"]
+      }
     },
     {
       "name": "ask with options on the board's project",
@@ -59,8 +72,16 @@
         "body": {
           "title": "Which colour?",
           "options": [
-            { "title": "Red", "text": "warm", "recommended": true },
-            { "title": "Blue", "text": "cold", "recommended": true }
+            {
+              "title": "Red",
+              "text": "warm",
+              "recommended": true
+            },
+            {
+              "title": "Blue",
+              "text": "cold",
+              "recommended": true
+            }
           ]
         }
       }
@@ -70,27 +91,42 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/projects/{{project}}/questions",
-        "body": { "title": "Keep the old login?", "author": "claude", "session": "s-1" }
+        "body": {
+          "title": "Keep the old login?",
+          "author": "claude",
+          "session": "s-1"
+        }
       }
     },
     {
       "name": "the ticket shows the open question",
-      "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1"
+      }
     },
     {
       "name": "the open question holds the ticket back",
-      "cli": { "args": ["ticket", "move", "ARC-1", "in-progress"] }
+      "cli": {
+        "args": ["ticket", "move", "ARC-1", "in-progress"]
+      }
     },
     {
       "name": "list the open questions",
-      "cli": { "args": ["question", "list"] }
+      "cli": {
+        "args": ["question", "list"]
+      }
     },
     {
       "name": "an agent may not answer",
       "http": {
         "method": "POST",
         "path": "/api/v1/questions/ARC-Q1/answer",
-        "body": { "option": "O2", "author": "claude", "session": "s-1" }
+        "body": {
+          "option": "O2",
+          "author": "claude",
+          "session": "s-1"
+        }
       }
     },
     {
@@ -98,12 +134,17 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/questions/ARC-Q1/answer",
-        "body": { "option": "O2", "session": "s-2" }
+        "body": {
+          "option": "O2",
+          "session": "s-2"
+        }
       }
     },
     {
       "name": "an unknown option is refused",
-      "cli": { "args": ["question", "answer", "ARC-Q1", "--option", "O3"] }
+      "cli": {
+        "args": ["question", "answer", "ARC-Q1", "--option", "O3"]
+      }
     },
     {
       "name": "the person answers by option",
@@ -113,47 +154,113 @@
     },
     {
       "name": "answering twice is refused",
-      "cli": { "args": ["question", "answer", "ARC-Q1", "--text", "Files after all"] }
+      "cli": {
+        "args": ["question", "answer", "ARC-Q1", "--text", "Files after all"]
+      }
     },
     {
       "name": "the ticket moves now",
-      "cli": { "args": ["ticket", "move", "ARC-1", "in-progress"] }
+      "cli": {
+        "args": ["ticket", "move", "ARC-1", "in-progress"]
+      }
     },
     {
       "name": "comment",
-      "cli": { "args": ["question", "comment", "ARC-Q1", "Done with SQLite", "--author", "claude"] }
+      "cli": {
+        "args": ["question", "comment", "ARC-Q1", "Done with SQLite", "--author", "claude"]
+      }
     },
     {
       "name": "an empty comment is refused",
-      "cli": { "args": ["question", "comment", "ARC-Q1", " "] }
+      "cli": {
+        "args": ["question", "comment", "ARC-Q1", " "]
+      }
     },
     {
       "name": "no open question is left",
-      "cli": { "args": ["question", "list"] }
+      "cli": {
+        "args": ["question", "list"]
+      }
     },
     {
       "name": "list the answered ones",
-      "cli": { "args": ["question", "list", "--state", "answered", "--ticket", "ARC-1"] }
+      "cli": {
+        "args": ["question", "list", "--state", "answered", "--ticket", "ARC-1"]
+      }
     },
     {
       "name": "an unknown state is refused",
-      "cli": { "args": ["question", "list", "--state", "offen"] }
+      "cli": {
+        "args": ["question", "list", "--state", "offen"]
+      }
     },
     {
       "name": "show",
-      "cli": { "args": ["question", "show", "ARC-Q1"] }
+      "cli": {
+        "args": ["question", "show", "ARC-Q1"]
+      }
     },
     {
       "name": "the detail over http",
-      "http": { "method": "GET", "path": "/api/v1/questions/ARC-Q1" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/questions/ARC-Q1"
+      }
     },
     {
       "name": "the list with counts over http",
-      "http": { "method": "GET", "path": "/api/v1/projects/{{project}}/questions?state=all" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/projects/{{project}}/questions?state=all"
+      }
     },
     {
       "name": "the ticket history notes the answer",
-      "cli": { "args": ["ticket", "show", "ARC-1", "--history"] }
+      "cli": {
+        "args": ["ticket", "show", "ARC-1", "--history"]
+      }
+    },
+    {
+      "name": "reopen with a reason",
+      "cli": {
+        "args": ["question", "reopen", "ARC-Q1", "--reason", "New facts"]
+      }
+    },
+    {
+      "name": "reopening an open question is refused",
+      "cli": {
+        "args": ["question", "reopen", "ARC-Q1"]
+      }
+    },
+    {
+      "name": "discarding needs a reason",
+      "cli": {
+        "args": ["question", "discard", "ARC-Q1"]
+      }
+    },
+    {
+      "name": "discard with a reason",
+      "cli": {
+        "args": ["question", "discard", "ARC-Q1", "--reason", "Solved elsewhere"]
+      }
+    },
+    {
+      "name": "discarding twice is refused",
+      "cli": {
+        "args": ["question", "discard", "ARC-Q1", "--reason", "Again"]
+      }
+    },
+    {
+      "name": "show keeps the earlier decision in a comment",
+      "cli": {
+        "args": ["question", "show", "ARC-Q1"]
+      }
+    },
+    {
+      "name": "the ticket history names the reasons",
+      "cli": {
+        "args": ["ticket", "show", "ARC-1", "--history"]
+      }
     }
   ]
 }

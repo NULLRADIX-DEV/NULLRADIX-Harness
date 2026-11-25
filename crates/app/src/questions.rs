@@ -7,8 +7,8 @@ use nullradix_domain::{
     Actor, ActorKind, AnswerInput, Comment, CommentBody, CommentOn, DecisionError, HistoryEntry,
     Id, OptionDraft, Project, Question, QuestionDraft, QuestionError, QuestionKey, QuestionOption,
     QuestionRef, QuestionState, QuestionTitle, Research, ResearchError, RuleError, Ticket,
-    TicketKey, TicketStatus, Timestamp, Version, normalize_labels, number_options, occasion,
-    session, ticket_note,
+    TicketKey, TicketStatus, Timestamp, Version, describe, normalize_labels, number_options,
+    occasion, reopen_note, session, ticket_note,
 };
 
 use crate::authors::{self, Author};
@@ -281,16 +281,23 @@ pub struct Answer {
 enum Step<'a> {
     Answer(&'a Answer),
     Discard(Option<&'a str>),
-    Reopen,
+    Reopen(Option<&'a str>),
 }
 
 impl Step<'_> {
+    fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Answer(answer) => answer.reason.as_deref(),
+            Self::Discard(reason) | Self::Reopen(reason) => *reason,
+        }
+    }
+
     /// The note on each ticket of the question, as legacy wrote it.
     const fn label(&self) -> &'static str {
         match self {
             Self::Answer(_) => "question answered",
             Self::Discard(_) => "question discarded",
-            Self::Reopen => "question reopened",
+            Self::Reopen(_) => "question reopened",
         }
     }
 }
@@ -606,15 +613,16 @@ impl QuestionService {
             .await
     }
 
-    /// Opens an answered or discarded question again; the tickets wait again.
+    /// Opens an answered or discarded question again; a comment keeps the earlier decision.
     pub async fn reopen(
         &self,
         key: &str,
+        reason: Option<&str>,
         author: Author<'_>,
         person: &Actor,
         expected: Option<Version>,
     ) -> Result<QuestionDetail, AppError> {
-        self.decide(key, Step::Reopen, author, person, expected)
+        self.decide(key, Step::Reopen(reason), author, person, expected)
             .await
     }
 
@@ -627,6 +635,11 @@ impl QuestionService {
         expected: Option<Version>,
     ) -> Result<QuestionDetail, AppError> {
         let key = QuestionKey::parse(key).map_err(|error| invalid(&error))?;
+        // the earlier decision in words, read before the write takes the connection
+        let earlier = match step {
+            Step::Reopen(_) => earlier_decision(&self.read(&key).await?),
+            _ => None,
+        };
         let by = self.author(author, person).await?;
         let mut write = self.tickets.begin().await?;
         let before = load(write.as_mut(), &key, expected).await?;
@@ -643,13 +656,30 @@ impl QuestionService {
                 before.answered(input, newest, &by, now)
             }
             Step::Discard(reason) => before.discarded(reason, &by, now),
-            Step::Reopen => before.reopened(&by, now),
+            Step::Reopen(_) => before.reopened(&by, now),
         }
         .map_err(|error| refused(&error))?;
-        let change = write
+        let mut change = write
             .update_question(&after, before.record().version)
             .await?;
-        self.note_tickets(write.as_mut(), &before, &after, step.label(), &by, now)
+        let reason = step.reason();
+        if let Step::Reopen(_) = step {
+            let earlier = earlier
+                .as_ref()
+                .map(|(text, by)| (text.as_str(), by.as_str()));
+            let body = CommentBody::parse(&reopen_note(reason, earlier))
+                .map_err(|error| comments::invalid(&error))?;
+            let comment = Comment::new(
+                self.ids.next(),
+                CommentOn::Question(after.id()),
+                by.id(),
+                body,
+                author.in_session(),
+                now,
+            );
+            change = write.insert_comment(&comment).await?;
+        }
+        self.note_tickets(write.as_mut(), &before, &after, &step, &by, now)
             .await?;
         write.commit().await?;
         self.signal.notify(&change);
@@ -662,12 +692,12 @@ impl QuestionService {
         write: &mut dyn TicketWrite,
         before: &Question,
         after: &Question,
-        label: &str,
+        step: &Step<'_>,
         by: &Actor,
         now: Timestamp,
     ) -> Result<(), AppError> {
         let record = after.record();
-        let note = ticket_note(label, &record.key, &record.title);
+        let note = ticket_note(step.label(), &record.key, &record.title, step.reason());
         let mut history = Vec::new();
         for key in &record.tickets {
             let Some(ticket) = write.ticket(key).await? else {
@@ -687,30 +717,30 @@ impl QuestionService {
         write.note_tickets(&history).await
     }
 
-    /// The shared author rule, after `in_session_as_person`.
     async fn author(&self, author: Author<'_>, person: &Actor) -> Result<Actor, AppError> {
         authors::resolve(
             self.actors.as_ref(),
             self.ids.as_ref(),
             self.clock.as_ref(),
-            in_session_as_person(author, person),
+            author,
             person,
         )
         .await
     }
 }
 
-/// Legacy `question_actor`: a session without a name acts as a session under the person's name.
-fn in_session_as_person<'a>(author: Author<'a>, person: &'a Actor) -> Author<'a> {
-    let unnamed = author.name.is_none_or(|name| name.trim().is_empty());
-    if author.in_session() && unnamed {
-        Author {
-            name: Some(person.name().as_str()),
-            ..author
-        }
-    } else {
-        author
-    }
+/// The decision of a question in words with the name of who made it.
+fn earlier_decision(detail: &QuestionDetail) -> Option<(String, String)> {
+    let row = &detail.view.row;
+    let record = row.question.record();
+    let decision = record.decision.as_ref()?;
+    let options: Vec<QuestionOption> = detail
+        .research
+        .iter()
+        .flat_map(|round| round.options.iter().cloned())
+        .collect();
+    let by = row.decided_by_name.clone().unwrap_or_default();
+    Some((describe(record.state, decision, &options), by))
 }
 
 /// The question with this key, which must still have `expected` when one is given.
@@ -911,35 +941,6 @@ mod tests {
             references(&[String::from("x")]).unwrap_err().code(),
             "reference-invalid"
         );
-    }
-
-    #[test]
-    fn a_session_without_a_name_acts_as_a_session_under_the_persons_name() {
-        let person = Actor::new(
-            Id::from_uuid(uuid::Uuid::from_u128(1)),
-            ActorKind::Human,
-            nullradix_domain::ActorName::parse("anna").unwrap(),
-            Timestamp::from_millis(0),
-        );
-        let in_session = Author {
-            session: Some("s-1"),
-            ..Author::default()
-        };
-        assert_eq!(in_session_as_person(in_session, &person).name, Some("anna"));
-        let named = Author {
-            name: Some("claude"),
-            ..in_session
-        };
-        assert_eq!(in_session_as_person(named, &person).name, Some("claude"));
-        for outside in [
-            Author::default(),
-            Author {
-                by_person: true,
-                ..in_session
-            },
-        ] {
-            assert_eq!(in_session_as_person(outside, &person), outside);
-        }
     }
 
     #[test]

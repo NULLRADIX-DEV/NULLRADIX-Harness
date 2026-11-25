@@ -4,13 +4,14 @@ use std::time::Duration;
 use nullradix_api::{
     API_PREFIX, API_VERSION, AcceptTicket, AddComment, AddQuestionComment, AddStep, AnswerQuestion,
     BoardDeleted, BoardDto, BoardList, ChangeStep, ClaimPlanning, ClaimTicket, CommentDto,
-    CommentList, CreateBoard, CreateNote, CreateProject, CreateQuestion, CreateTicket, DropNote,
-    FinishTicket, FinishedTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto,
-    HookReplyDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList,
-    Problem, ProjectDto, ProjectList, PromoteNote, PromotedNote, QuestionCommentDto,
-    QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard, RenameProject, RepositoryList,
-    RunDto, RunList, RunOutput, RunnerList, SeenNote, SetBoardRepository, StartRun, StartTicket,
-    StartedTicket, TicketDetailDto, TicketDto, TicketList, UpdateTicket, WritePlan,
+    CommentList, CreateBoard, CreateNote, CreateProject, CreateQuestion, CreateTicket,
+    DecideQuestion, DropNote, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto,
+    HookEventList, HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning,
+    NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList, PromoteNote,
+    PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard,
+    RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SeenNote,
+    SetBoardRepository, StartRun, StartTicket, StartedTicket, TicketDetailDto, TicketDto,
+    TicketList, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -424,6 +425,22 @@ impl Client {
         let mut response = self
             .agent
             .post(&self.url(&format!("/questions/{key}/answer")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    /// Discards or reopens the question; `step` is `discard` or `reopen`.
+    pub fn decide_question(
+        &self,
+        key: &str,
+        step: &str,
+        input: &DecideQuestion,
+    ) -> Result<QuestionDetailDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/questions/{key}/{step}")))
             .header("Authorization", &self.authorization()?)
             .send_json(input)
             .map_err(|source| self.unreachable(source))?;

@@ -393,7 +393,7 @@ async fn an_open_question_holds_its_tickets_back_until_a_person_answers() {
     );
     assert_eq!(
         line.note.as_deref(),
-        Some("question answered: ARC-Q0001 \"Which store?\"")
+        Some("question answered: ARC-Q0001 \"Which store?\"; reason: fits")
     );
     assert_eq!(f.start(&ticket, false).await, Ok(()));
 }
@@ -424,13 +424,37 @@ async fn force_lifts_the_question_lock_and_reopening_restores_it() {
         discard(Some("again")).await.unwrap_err().code(),
         "question-state-invalid"
     );
-    f.questions
-        .reopen(&key, PERSON, &f.person, None)
+    let reopened = f
+        .questions
+        .reopen(&key, Some(" new facts "), PERSON, &f.person, None)
         .await
         .unwrap();
+    assert_eq!(reopened.view.row.question.record().decision, None);
+    let kept: Vec<&str> = reopened
+        .comments
+        .iter()
+        .map(|line| line.comment.body())
+        .collect();
+    assert_eq!(
+        kept,
+        ["Reopened. Reason: new facts. Earlier decision: discarded. Reason: moot (anna)"]
+    );
+    let note = f.tickets.get(&ticket).await.unwrap().history.pop().unwrap();
+    assert_eq!(
+        (
+            note.from.as_deref(),
+            note.to.as_deref(),
+            note.note.as_deref()
+        ),
+        (
+            Some("discarded"),
+            Some("open"),
+            Some("question reopened: ARC-Q0001 \"Why?\"; reason: new facts")
+        )
+    );
     assert_eq!(
         f.questions
-            .reopen(&key, PERSON, &f.person, None)
+            .reopen(&key, None, PERSON, &f.person, None)
             .await
             .unwrap_err()
             .code(),
@@ -549,11 +573,25 @@ async fn deleting_a_ticket_drops_it_from_its_questions() {
 #[tokio::test]
 async fn a_session_caller_without_a_name_asks_as_a_session_and_never_decides() {
     let f = fixture().await;
-    let key = f.ask(&titled("Why?")).await.unwrap();
     let session_only = Author {
         session: Some("s-1"),
         ..Author::default()
     };
+    let asked = f
+        .questions
+        .create(f.board.project(), &titled("Why?"), session_only, &f.person)
+        .await
+        .unwrap();
+    let row = &asked.view.row;
+    assert_eq!(
+        (
+            row.origin_name.as_str(),
+            row.origin_kind.as_str(),
+            row.question.record().origin_session.as_deref()
+        ),
+        ("anna", "session", Some("s-1"))
+    );
+    let key = row.question.key().to_string();
     let in_session = f
         .questions
         .comment(&key, "why", session_only, &f.person)

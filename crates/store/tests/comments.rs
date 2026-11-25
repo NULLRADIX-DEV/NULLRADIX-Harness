@@ -202,7 +202,8 @@ async fn comments_list_oldest_first_with_their_authors() {
         [
             (String::from("anna"), ActorKind::Human),
             (String::from("claude"), ActorKind::Session),
-            (String::from("anna"), ActorKind::Human),
+            // a session without a name writes as a session under the person's name
+            (String::from("anna"), ActorKind::Session),
             (String::from("bob"), ActorKind::Human),
             (String::from("anna"), ActorKind::Human),
         ]

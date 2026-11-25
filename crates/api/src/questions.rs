@@ -655,6 +655,7 @@ pub(crate) async fn reopen_question(
         .questions
         .reopen(
             &path.question_key,
+            input.reason.as_deref(),
             author,
             &state.person,
             version(input.version)?,

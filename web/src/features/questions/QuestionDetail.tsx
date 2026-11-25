@@ -29,6 +29,8 @@ const MESSAGES: ProblemMessages = {
   'decision-option-unknown': 'This option is not one of the newest round.',
   'decision-reason-missing': 'Discarding needs a reason.',
   'human-only': 'Only a person decides a question.',
+  'autopilot-reason-reserved':
+    'A reason starting with "Autopilot:" is kept for the dispatcher. Write it another way.',
   'comment-empty': 'A comment needs a text.',
   'question-not-found': 'This question no longer exists.',
 };
@@ -349,7 +351,8 @@ export function QuestionDetail({ questionKey }: { questionKey: string }) {
         <p className="qx-description">{question.description}</p>
       )}
       {question.state === 'open' ? (
-        <Decide key={question.version} detail={data} />
+        // a comment bumps the version; the draft stays and the newest version is sent
+        <Decide detail={data} />
       ) : (
         <>
           <Decided detail={data} />

@@ -620,6 +620,90 @@
     "exitCode": 0,
     "name": "the ticket history notes the answer",
     "stderr": "",
-    "stdout": "ARC-0001  Login page\nStatus in-progress | Priority normal | version 2 | unassigned | needs planning\nAcceptance: Users can log in\n\n## History\n<TIME>  tester  status: backlog (created)\n<TIME>  tester  question: open -> answered (question answered: ARC-Q0001 \"Which store?\")\n<TIME>  tester  status: backlog -> in-progress (moved)\n"
+    "stdout": "ARC-0001  Login page\nStatus in-progress | Priority normal | version 2 | unassigned | needs planning\nAcceptance: Users can log in\n\n## History\n<TIME>  tester  status: backlog (created)\n<TIME>  tester  question: open -> answered (question answered: ARC-Q0001 \"Which store?\"; reason: Fits the daemon)\n<TIME>  tester  status: backlog -> in-progress (moved)\n"
+  },
+  {
+    "cli": [
+      "question",
+      "reopen",
+      "ARC-Q1",
+      "--reason",
+      "New facts"
+    ],
+    "exitCode": 0,
+    "name": "reopen with a reason",
+    "stderr": "",
+    "stdout": "ARC-Q0001 reopened.\n"
+  },
+  {
+    "cli": [
+      "question",
+      "reopen",
+      "ARC-Q1"
+    ],
+    "exitCode": 1,
+    "name": "reopening an open question is refused",
+    "stderr": "error: the daemon refused the request: question ARC-Q0001 is open already (question-state-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "discard",
+      "ARC-Q1"
+    ],
+    "exitCode": 1,
+    "name": "discarding needs a reason",
+    "stderr": "error: the daemon refused the request: give a reason (decision-reason-missing)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "discard",
+      "ARC-Q1",
+      "--reason",
+      "Solved elsewhere"
+    ],
+    "exitCode": 0,
+    "name": "discard with a reason",
+    "stderr": "",
+    "stdout": "ARC-Q0001 discarded.\n"
+  },
+  {
+    "cli": [
+      "question",
+      "discard",
+      "ARC-Q1",
+      "--reason",
+      "Again"
+    ],
+    "exitCode": 1,
+    "name": "discarding twice is refused",
+    "stderr": "error: the daemon refused the request: question ARC-Q0001 is not open; reopen it first (question-state-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "show",
+      "ARC-Q1"
+    ],
+    "exitCode": 0,
+    "name": "show keeps the earlier decision in a comment",
+    "stderr": "",
+    "stdout": "ARC-Q0001  Which store?\nState: discarded | version 5\nTags: storage\nAsked by: claude (person)\nOccasion: planning ARC-0001\nAbout: ARC-0001 Login page\nDepends on: -\nWaits on: -\n\n(no description)\n\nOptions:\n  O1: File - one JSON file\n  O2 (recommended): Db - SQLite next to the daemon\n\nDecision: discarded. Reason: Solved elsewhere\n  by tester, <TIME>\n\nComments:\n  <TIME>  claude (person): Done with SQLite\n  <TIME>  tester (person): Reopened. Reason: New facts. Earlier decision: option O2 \"Db\" chosen. Reason: Fits the daemon (tester)\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "show",
+      "ARC-1",
+      "--history"
+    ],
+    "exitCode": 0,
+    "name": "the ticket history names the reasons",
+    "stderr": "",
+    "stdout": "ARC-0001  Login page\nStatus in-progress | Priority normal | version 2 | unassigned | needs planning\nAcceptance: Users can log in\n\n## History\n<TIME>  tester  status: backlog (created)\n<TIME>  tester  question: open -> answered (question answered: ARC-Q0001 \"Which store?\"; reason: Fits the daemon)\n<TIME>  tester  status: backlog -> in-progress (moved)\n<TIME>  tester  question: answered -> open (question reopened: ARC-Q0001 \"Which store?\"; reason: New facts)\n<TIME>  tester  question: open -> discarded (question discarded: ARC-Q0001 \"Which store?\"; reason: Solved elsewhere)\n"
   }
 ]

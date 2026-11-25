@@ -3,8 +3,8 @@ use std::process::ExitCode;
 
 use clap::Subcommand;
 use nullradix_api::{
-    ActorKindDto, AddQuestionComment, AnswerQuestion, CreateQuestion, NewOption, QuestionDetailDto,
-    QuestionDto, QuestionStateDto,
+    ActorKindDto, AddQuestionComment, AnswerQuestion, CreateQuestion, DecideQuestion, NewOption,
+    QuestionDetailDto, QuestionDto, QuestionStateDto,
 };
 use nullradix_client::Client;
 use nullradix_domain::Timestamp;
@@ -32,6 +32,22 @@ pub(crate) enum QuestionCommand {
     },
     /// Answer by an option of the newest round or an own text; people only
     Answer(AnswerArgs),
+    /// Discard an open question with a reason; people only
+    Discard(DecideArgs),
+    /// Open an answered or discarded question again; people only
+    Reopen(DecideArgs),
+}
+
+#[derive(clap::Args)]
+pub(crate) struct DecideArgs {
+    /// Question key such as ARC-Q7
+    key: String,
+    /// Why; discarding needs one
+    #[arg(long)]
+    reason: Option<String>,
+    /// Name of the person who decides; the person the daemon acts for when left out
+    #[arg(long)]
+    author: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -170,8 +186,26 @@ pub(crate) fn run(
                 decision_text(&detail)
             );
         }
+        QuestionCommand::Discard(args) => {
+            let detail = decide(client, "discard", args)?;
+            println!("{} discarded.", detail.question.key);
+        }
+        QuestionCommand::Reopen(args) => {
+            let detail = decide(client, "reopen", args)?;
+            println!("{} reopened.", detail.question.key);
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn decide(client: &Client, step: &str, args: DecideArgs) -> anyhow::Result<QuestionDetailDto> {
+    let input = DecideQuestion {
+        reason: args.reason,
+        version: None,
+        author: args.author,
+        session: agent_session(),
+    };
+    Ok(client.decide_question(args.key.trim(), step, &input)?)
 }
 
 fn add(args: AddArgs, client: &Client, choice: &BoardChoice) -> anyhow::Result<()> {
@@ -481,6 +515,12 @@ mod tests {
         assert!(parse(&["--text", "neither"]).is_ok());
         let both = parse(&["--option", "O1", "--text", "x"]).err().unwrap();
         assert_eq!(both.kind(), clap::error::ErrorKind::ArgumentConflict);
+        let discard = Cli::try_parse_from(["question", "discard", "ARC-Q1", "--reason", "moot"]);
+        assert!(matches!(
+            discard.unwrap().command,
+            QuestionCommand::Discard(DecideArgs { ref reason, .. }) if reason.as_deref() == Some("moot")
+        ));
+        assert!(Cli::try_parse_from(["question", "reopen", "ARC-Q1"]).is_ok());
         let list = Cli::try_parse_from(["question", "list"]).unwrap();
         assert!(
             matches!(list.command, QuestionCommand::List(ListArgs { ref state, .. }) if state == "open")

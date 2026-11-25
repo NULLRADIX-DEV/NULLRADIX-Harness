@@ -526,13 +526,52 @@ fn require_person(by: &Actor) -> Result<(), DecisionError> {
 
 /// The note on each ticket a decision touches, such as `question answered: ARC-Q0001 "Why?"`.
 #[must_use]
-pub fn ticket_note(step: &str, key: &QuestionKey, title: &QuestionTitle) -> String {
-    let note = format!("{step}: {key} \"{}\"", title.as_str());
+pub fn ticket_note(
+    step: &str,
+    key: &QuestionKey,
+    title: &QuestionTitle,
+    reason: Option<&str>,
+) -> String {
+    let because = trimmed(reason).map_or_else(String::new, |reason| format!("; reason: {reason}"));
+    let note = format!("{step}: {key} \"{}\"{because}", title.as_str());
     if utf16_len(&note) > TICKET_NOTE_MAX {
         format!("{}...", utf16_prefix(&note, TICKET_NOTE_MAX - 3))
     } else {
         note
     }
+}
+
+/// A decision in words, such as `option O2 "Db" chosen. Reason: fits`.
+#[must_use]
+pub fn describe(state: QuestionState, decision: &Decision, options: &[QuestionOption]) -> String {
+    let because = decision
+        .reason
+        .as_deref()
+        .map_or_else(String::new, |reason| format!(" Reason: {reason}"));
+    match (&decision.choice, state) {
+        (_, QuestionState::Discarded) | (None, _) => format!("discarded.{because}"),
+        (Some(Choice::Option(number)), _) => {
+            let title = options
+                .iter()
+                .find(|option| option.number == *number)
+                .map_or_else(String::new, |option| format!(" \"{}\"", option.title));
+            format!("option O{number}{title} chosen.{because}")
+        }
+        (Some(Choice::Text(text)), _) => format!("answer: {text}.{because}"),
+    }
+}
+
+/// What a reopening keeps on the question, as legacy wrote it into the question's history.
+#[must_use]
+pub fn reopen_note(reason: Option<&str>, earlier: Option<(&str, &str)>) -> String {
+    let mut parts = vec![String::from("Reopened.")];
+    if let Some(reason) = trimmed(reason) {
+        parts.push(format!("Reason: {reason}."));
+    }
+    if let Some((decision, by)) = earlier {
+        parts.push(format!("Earlier decision: {decision} ({by})"));
+    }
+    parts.join(" ")
 }
 
 #[cfg(test)]
@@ -850,15 +889,52 @@ mod tests {
     }
 
     #[test]
+    fn decisions_and_reopenings_read_like_legacy_history() {
+        let decision = |choice, reason: Option<&str>| Decision {
+            choice,
+            reason: reason.map(str::to_owned),
+            by: id(1),
+            at: Timestamp::from_millis(0),
+        };
+        let chosen = decision(Some(Choice::Option(2)), Some("fits"));
+        assert_eq!(
+            describe(QuestionState::Answered, &chosen, &options()),
+            "option O2 \"Db\" chosen. Reason: fits"
+        );
+        let own = decision(Some(Choice::Text(String::from("Neither"))), None);
+        assert_eq!(
+            describe(QuestionState::Answered, &own, &[]),
+            "answer: Neither."
+        );
+        let gone = decision(None, Some("moot"));
+        assert_eq!(
+            describe(QuestionState::Discarded, &gone, &[]),
+            "discarded. Reason: moot"
+        );
+        assert_eq!(
+            reopen_note(
+                Some(" new facts "),
+                Some(("discarded. Reason: moot", "anna"))
+            ),
+            "Reopened. Reason: new facts. Earlier decision: discarded. Reason: moot (anna)"
+        );
+        assert_eq!(reopen_note(None, None), "Reopened.");
+    }
+
+    #[test]
     fn ticket_notes_are_clipped_to_the_legacy_room() {
         let key = QuestionKey::parse("ARC-Q1").unwrap();
         let short = QuestionTitle::parse("Which store?").unwrap();
         assert_eq!(
-            ticket_note("question answered", &key, &short),
-            "question answered: ARC-Q0001 \"Which store?\""
+            ticket_note("question answered", &key, &short, Some(" fits ")),
+            "question answered: ARC-Q0001 \"Which store?\"; reason: fits"
+        );
+        assert_eq!(
+            ticket_note("question reopened", &key, &short, Some(" ")),
+            "question reopened: ARC-Q0001 \"Which store?\""
         );
         let long = QuestionTitle::parse(&"x".repeat(400)).unwrap();
-        let note = ticket_note("question answered", &key, &long);
+        let note = ticket_note("question answered", &key, &long, None);
         assert_eq!(utf16_len(&note), 200);
         assert!(note.ends_with("..."));
     }

@@ -36,7 +36,8 @@ pub use question::{
     AUTOPILOT_PREFIX, AnswerInput, Choice, Decision, DecisionError, OCCASION_MAX, OPTION_TITLE_MAX,
     OPTIONS_MAX, OptionDraft, QUESTION_TITLE_MAX, Question, QuestionDraft, QuestionError,
     QuestionKey, QuestionOption, QuestionRecord, QuestionRef, QuestionState, QuestionTitle,
-    Research, ResearchError, SESSION_MAX, number_options, occasion, session, ticket_note,
+    Research, ResearchError, SESSION_MAX, describe, number_options, occasion, reopen_note, session,
+    ticket_note,
 };
 pub use repository::{
     CHECKOUT_PATH_MAX, Checkout, CheckoutPath, CheckoutRecord, REPOSITORY_NAME_MAX,
