@@ -174,7 +174,7 @@
           }
         ],
         "title": "Fix the login form please now ...",
-        "transcriptPath": "<WORK>/s-1.jsonl",
+        "transcriptPath": "<WORK>/claude-config/projects/arches/s-1.jsonl",
         "version": 4
       },
       "status": 200
@@ -334,7 +334,7 @@
               }
             ],
             "title": "Fix the login form please now ...",
-            "transcriptPath": "<WORK>/s-1.jsonl",
+            "transcriptPath": "<WORK>/claude-config/projects/arches/s-1.jsonl",
             "version": 9
           }
         ]
@@ -414,7 +414,7 @@
               }
             ],
             "title": "Fix the login form please now ...",
-            "transcriptPath": "<WORK>/s-1.jsonl",
+            "transcriptPath": "<WORK>/claude-config/projects/arches/s-1.jsonl",
             "version": 9
           }
         ]

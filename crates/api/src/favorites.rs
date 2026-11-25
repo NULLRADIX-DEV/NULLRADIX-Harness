@@ -247,7 +247,7 @@ mod tests {
             marked["command"]
                 .as_str()
                 .unwrap()
-                .ends_with("&& claude --resume s-1")
+                .ends_with("claude --resume s-1")
         );
         let (status, kept) = call(
             &api,

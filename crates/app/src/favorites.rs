@@ -3,9 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nullradix_domain::{
-    Favorite, Id, Repository, RunnerOs, Session, SessionRef, Timestamp, Version, resumed_favorite,
-};
+use nullradix_domain::{Favorite, Id, Repository, SessionRef, Timestamp, Version};
 use uuid::Uuid;
 
 use crate::repositories::RunnerService;
@@ -144,36 +142,6 @@ impl FavoriteService {
     ) -> Result<Vec<FavoriteLine>, AppError> {
         let stored = self.repository.list(repository).await?;
         self.lines(stored).await
-    }
-
-    /// After a hook: the snapshot follows the session, and a resumed one is linked.
-    pub async fn follow(&self, session: &Session, resumed: bool) -> Result<(), AppError> {
-        let id = session.id();
-        let mut write = self.repository.begin().await?;
-        let mut changes = Vec::new();
-        if let Some(known) = write.favorite(id).await? {
-            let tickets = match write.session(id).await? {
-                Some(stored) => keys(&stored),
-                None => known.record().tickets.clone(),
-            };
-            let next = known.refreshed(session, tickets);
-            changes.push(write.update(&next, known.record().version).await?);
-        }
-        if resumed {
-            let fold = self.runners.local().os() == RunnerOs::Windows;
-            let folders = write.folders().await?;
-            if let Some(owner) = resumed_favorite(&folders, &session.record().cwd, fold)
-                && let Some(known) = write.favorite(owner).await?
-                && let Some(next) = known.resumed(id, session.record().last_event_at)
-            {
-                changes.push(write.update(&next, known.record().version).await?);
-            }
-        }
-        write.commit().await?;
-        for change in &changes {
-            self.signal.notify(change);
-        }
-        Ok(())
     }
 
     async fn lines(&self, stored: Vec<StoredFavorite>) -> Result<Vec<FavoriteLine>, AppError> {

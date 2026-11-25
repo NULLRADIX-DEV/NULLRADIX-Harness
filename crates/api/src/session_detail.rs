@@ -549,7 +549,7 @@ mod tests {
     use axum::http::Request;
     use serde_json::{Value, json};
 
-    use crate::tests::{TestApi, bearer, send, test_api};
+    use crate::tests::{TestApi, bearer, send, test_api, transcript_root};
 
     fn line(value: &Value) -> String {
         format!("{value}\n")
@@ -599,7 +599,11 @@ mod tests {
         let api = test_api().await;
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_string_lossy().replace('\\', "/");
-        let path = dir.path().join("s-1.jsonl");
+        let folder = transcript_root()
+            .join("projects")
+            .join(uuid::Uuid::now_v7().to_string());
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("s-1.jsonl");
         std::fs::write(&path, transcript(&cwd)).unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

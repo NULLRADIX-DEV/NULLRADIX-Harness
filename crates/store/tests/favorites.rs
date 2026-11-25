@@ -10,7 +10,8 @@ use nullradix_app::hooks::HookService;
 use nullradix_app::sessions::SessionService;
 use nullradix_app::{ChangeFeed, ChangeSignal, Clock, Entity, UuidV7Generator};
 use nullradix_domain::{
-    DisplayState, HookDetails, HookEvent, HookKind, Id, SessionRef, SessionState, Timestamp,
+    DisplayState, HookDetails, HookEvent, HookKind, Id, RunnerOs, SessionRef, SessionState,
+    Timestamp,
 };
 use nullradix_store::Store;
 
@@ -46,16 +47,13 @@ async fn fixture() -> Fixture {
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    let sessions = Arc::new(
-        SessionService::new(
-            store.clone(),
-            runners,
-            clock.clone(),
-            Arc::new(UuidV7Generator),
-            signal,
-        )
-        .with_favorites(favorites.clone()),
-    );
+    let sessions = Arc::new(SessionService::new(
+        store.clone(),
+        runners,
+        clock.clone(),
+        Arc::new(UuidV7Generator),
+        signal,
+    ));
     let hooks = HookService::new(store.clone(), clock.clone()).with_sessions(sessions);
     Fixture {
         store,
@@ -141,10 +139,7 @@ async fn marking_keeps_a_snapshot_and_a_note_newest_first() {
     assert_eq!(record.last_state, SessionState::Running);
     assert!(line.live.is_some());
     assert!(!line.cwd_exists, "the folder runner knows no folder");
-    assert_eq!(
-        line.favorite.command(),
-        "cd \"/x/one\" && claude --resume s1"
-    );
+    assert_eq!(line.favorite.command(), "cd '/x/one' && claude --resume s1");
     f.advance(1000);
     f.favorites.mark("s2", None).await.unwrap();
     assert_eq!(f.ids().await, ["s2", "s1"]);
@@ -273,4 +268,110 @@ async fn unmarking_forgets_the_favorite_and_its_resumptions() {
     let again = f.favorites.mark("s1", None).await.unwrap();
     assert_eq!(again.favorite.record().resumed_as, Vec::new());
     assert_eq!(again.favorite.record().note, "");
+}
+
+#[tokio::test]
+async fn a_hook_writes_its_session_and_favorite_in_one_commit() {
+    let f = fixture().await;
+    f.hook(
+        HookKind::SessionStart,
+        "s1",
+        "/x/one",
+        HookDetails::default(),
+    )
+    .await;
+    f.hook(
+        HookKind::SessionStart,
+        "plain",
+        "/x/two",
+        HookDetails::default(),
+    )
+    .await;
+    f.favorites.mark("s1", None).await.unwrap();
+    let before = f.store.changes_since(0, 1000).await.unwrap().len();
+    f.advance(1000);
+    f.hook(
+        HookKind::UserPrompt,
+        "plain",
+        "/x/two",
+        prompt("No favorite"),
+    )
+    .await;
+    let feed = f.store.changes_since(0, 1000).await.unwrap();
+    assert_eq!(
+        feed.len(),
+        before + 1,
+        "a session without favorite adds no favorite change"
+    );
+    f.hook(HookKind::UserPrompt, "s1", "/x/one", prompt("Followed"))
+        .await;
+    let feed = f.store.changes_since(0, 1000).await.unwrap();
+    let [.., session, favorite] = feed.as_slice() else {
+        panic!("too few changes");
+    };
+    assert_eq!(session.entity, Entity::Session);
+    assert_eq!(favorite.entity, Entity::Favorite);
+    assert_eq!(
+        favorite.seq,
+        session.seq + 1,
+        "one transaction, in commit order"
+    );
+    let line = f.favorites.list(None).await.unwrap().remove(0);
+    assert_eq!(line.favorite.record().title.as_deref(), Some("Followed"));
+}
+
+#[tokio::test]
+async fn hooks_keep_their_order_in_the_favorite() {
+    let f = fixture().await;
+    f.hook(
+        HookKind::SessionStart,
+        "s1",
+        "/x/one",
+        HookDetails::default(),
+    )
+    .await;
+    f.favorites.mark("s1", None).await.unwrap();
+    for round in 0..20 {
+        f.advance(1000);
+        tokio::join!(
+            f.hook(HookKind::UserPrompt, "s1", "/x/one", prompt("First")),
+            f.hook(HookKind::Stop, "s1", "/x/one", HookDetails::default()),
+            f.hook(HookKind::UserPrompt, "s1", "/x/one", prompt("Second")),
+        );
+        let line = f.favorites.list(None).await.unwrap().remove(0);
+        let stored = line.live.unwrap();
+        let record = line.favorite.record();
+        assert_eq!(
+            record.last_state,
+            stored.session.record().state,
+            "round {round}"
+        );
+        assert_eq!(
+            record.last_event_at,
+            stored.session.record().last_event_at,
+            "round {round}"
+        );
+        assert_eq!(record.title, stored.session.record().title, "round {round}");
+    }
+}
+
+#[tokio::test]
+async fn a_resumed_session_joins_its_favorite_whatever_the_case_of_the_folder() {
+    let f = fixture().await;
+    f.hook(
+        HookKind::SessionStart,
+        "a",
+        "/Work/One",
+        HookDetails::default(),
+    )
+    .await;
+    f.favorites.mark("a", None).await.unwrap();
+    f.hook(HookKind::SessionStart, "a2", "/work/one", resume())
+        .await;
+    let line = f.favorites.list(None).await.unwrap().remove(0);
+    let resumed = line.favorite.record().resumed_as.len();
+    assert_eq!(
+        resumed,
+        usize::from(RunnerOs::current().ignores_path_case())
+    );
 }

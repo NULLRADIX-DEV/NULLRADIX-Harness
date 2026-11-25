@@ -116,16 +116,13 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    let sessions = Arc::new(
-        SessionService::new(
-            Arc::new(store.clone()),
-            runners.clone(),
-            Arc::new(SystemClock),
-            Arc::new(UuidV7Generator),
-            signal.clone(),
-        )
-        .with_favorites(favorites.clone()),
-    );
+    let sessions = Arc::new(SessionService::new(
+        Arc::new(store.clone()),
+        runners.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let state = ApiState {
         auth,

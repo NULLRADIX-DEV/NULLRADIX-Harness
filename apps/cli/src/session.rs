@@ -805,7 +805,7 @@ mod tests {
                 session_id: String::from("fedcba9876543210"),
                 at: 0,
             }],
-            command: String::from("cd \"/repo\" && claude --resume 0123456789abcdef"),
+            command: String::from("cd '/repo' && claude --resume 0123456789abcdef"),
             version: 1,
         };
         assert_eq!(
@@ -815,7 +815,7 @@ mod tests {
                 "    note: login fix",
                 "    folder: /repo (missing)",
                 "    resumed as: fedcba98",
-                "    cd \"/repo\" && claude --resume 0123456789abcdef",
+                "    cd '/repo' && claude --resume 0123456789abcdef",
             ]
         );
         let cli = Cli::try_parse_from(["session", "favorite", "abc", "--note", "x"]).unwrap();

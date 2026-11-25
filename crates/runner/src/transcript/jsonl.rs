@@ -1,7 +1,7 @@
 //! Complete lines of a JSONL file with their byte offsets; a last line without newline waits.
 
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
 use serde_json::Value;
@@ -24,47 +24,68 @@ pub(crate) fn count(items: usize) -> i64 {
     i64::try_from(items).unwrap_or(i64::MAX)
 }
 
-/// Complete lines of `bytes` read from `base`; blank lines drop, bad UTF-8 counts as broken.
-pub(crate) fn lines(bytes: &[u8], base: u64) -> Vec<Line<'_>> {
-    let mut list = Vec::new();
-    let mut start = 0usize;
-    while let Some(found) = bytes[start..].iter().position(|byte| *byte == b'\n') {
-        let end = start + found;
-        let raw = &bytes[start..end];
-        let raw = raw.strip_suffix(b"\r").unwrap_or(raw);
-        let text = std::str::from_utf8(raw).unwrap_or("\u{FFFD}");
-        let text = text.trim_start_matches('\u{FEFF}');
-        if !text.trim().is_empty() {
-            list.push(Line {
-                start: offset(base, start),
-                end: offset(base, end + 1),
-                text,
-            });
+/// Text of a raw line: no line break, bad UTF-8 counts as broken, a byte order mark drops.
+fn line_text(raw: &[u8]) -> &str {
+    let raw = raw.strip_suffix(b"\n").unwrap_or(raw);
+    let raw = raw.strip_suffix(b"\r").unwrap_or(raw);
+    let text = std::str::from_utf8(raw).unwrap_or("\u{FFFD}");
+    text.trim_start_matches('\u{FEFF}')
+}
+
+/// Complete lines of a source one at a time, so a page never holds more than one line.
+pub(crate) struct LineReader<R> {
+    source: R,
+    /// Offset of the next unread byte.
+    next: u64,
+    /// Offset behind the last complete line, blank ones included.
+    complete: u64,
+    buffer: Vec<u8>,
+}
+
+impl<R: BufRead> LineReader<R> {
+    /// Reads `source` that starts at offset `base` of its file.
+    pub(crate) fn new(source: R, base: u64) -> Self {
+        Self {
+            source,
+            next: base,
+            complete: base,
+            buffer: Vec::new(),
         }
-        start = end + 1;
     }
-    list
+
+    /// The next complete line; blank lines drop and a last line without newline waits.
+    pub(crate) fn next_line(&mut self) -> io::Result<Option<Line<'_>>> {
+        let (start, end) = loop {
+            self.buffer.clear();
+            let length = self.source.read_until(b'\n', &mut self.buffer)?;
+            if self.buffer.last() != Some(&b'\n') {
+                return Ok(None);
+            }
+            let start = self.next;
+            self.next = offset(start, length);
+            self.complete = self.next;
+            if !line_text(&self.buffer).trim().is_empty() {
+                break (start, self.next);
+            }
+        };
+        Ok(Some(Line {
+            start,
+            end,
+            text: line_text(&self.buffer),
+        }))
+    }
+
+    /// Offset behind the last complete line read.
+    pub(crate) fn complete(&self) -> u64 {
+        self.complete
+    }
 }
 
-/// Offset behind the last complete line.
-pub(crate) fn complete_end(bytes: &[u8], base: u64) -> u64 {
-    match bytes.iter().rposition(|byte| *byte == b'\n') {
-        Some(index) => offset(base, index + 1),
-        None => base,
-    }
-}
-
-/// The file from `offset` to its end; an offset behind the end reads nothing.
-pub(crate) fn read_from(path: &Path, offset: u64) -> io::Result<Vec<u8>> {
+/// Lines of the file at `path` from `offset` on; an offset behind the end reads nothing.
+pub(crate) fn open_lines(path: &Path, offset: u64) -> io::Result<LineReader<BufReader<File>>> {
     let mut file = File::open(path)?;
-    let len = file.metadata()?.len();
-    if offset >= len {
-        return Ok(Vec::new());
-    }
     file.seek(SeekFrom::Start(offset))?;
-    let mut bytes = Vec::with_capacity(usize::try_from(len - offset).unwrap_or(0));
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes)
+    Ok(LineReader::new(BufReader::new(file), offset))
 }
 
 /// A text field of an object; blank texts count as missing.
@@ -92,26 +113,58 @@ pub(crate) fn number(value: &Value, name: &str) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use serde_json::json;
 
     use super::*;
 
+    type Found = (Vec<(u64, u64, String)>, u64);
+
+    fn read(bytes: &[u8], base: u64) -> Found {
+        let mut reader = LineReader::new(Cursor::new(bytes), base);
+        let mut found = Vec::new();
+        while let Some(line) = reader.next_line().unwrap() {
+            found.push((line.start, line.end, line.text.to_owned()));
+        }
+        (found, reader.complete())
+    }
+
     #[test]
     fn only_complete_lines_count_with_their_offsets() {
         let bytes = b"{\"a\":1}\r\n\n{\"b\":2}\n{\"half";
-        let found = lines(bytes, 10);
+        let (found, complete) = read(bytes, 10);
         assert_eq!(found.len(), 2);
-        assert_eq!(found[0].text, "{\"a\":1}");
-        assert_eq!((found[0].start, found[0].end), (10, 19));
-        assert_eq!(found[1].text, "{\"b\":2}");
-        assert_eq!((found[1].start, found[1].end), (20, 28));
-        assert_eq!(complete_end(bytes, 10), 28);
+        assert_eq!(found[0], (10, 19, String::from("{\"a\":1}")));
+        assert_eq!(found[1], (20, 28, String::from("{\"b\":2}")));
+        assert_eq!(complete, 28);
     }
 
     #[test]
     fn without_a_newline_nothing_is_complete() {
-        assert_eq!(lines(b"{\"a\":1}", 0), Vec::new());
-        assert_eq!(complete_end(b"{\"a\":1}", 5), 5);
+        assert_eq!(read(b"{\"a\":1}", 5), (Vec::new(), 5));
+    }
+
+    #[test]
+    fn blank_lines_move_the_complete_end_and_bad_text_is_marked() {
+        let (found, complete) = read(b"{}\n\n\xFF\xFE\n\xEF\xBB\xBF{}\n \n", 0);
+        let texts: Vec<&str> = found.iter().map(|line| line.2.as_str()).collect();
+        assert_eq!(texts, ["{}", "\u{FFFD}", "{}"]);
+        assert_eq!(complete, 15);
+    }
+
+    #[test]
+    fn a_file_is_read_from_an_offset_line_by_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.jsonl");
+        std::fs::write(&path, "{\"a\":1}\n{\"b\":2}\n").unwrap();
+        let mut reader = open_lines(&path, 8).unwrap();
+        assert_eq!(reader.next_line().unwrap().unwrap().text, "{\"b\":2}");
+        assert!(reader.next_line().unwrap().is_none());
+        assert_eq!(reader.complete(), 16);
+        let mut behind = open_lines(&path, 99).unwrap();
+        assert!(behind.next_line().unwrap().is_none());
+        assert_eq!(behind.complete(), 99);
     }
 
     #[test]

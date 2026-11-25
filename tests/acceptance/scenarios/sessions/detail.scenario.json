@@ -73,7 +73,7 @@
     {
       "name": "the transcript Claude Code wrote",
       "file": {
-        "path": "{{WORK}}/s-1.jsonl",
+        "path": "{{WORK}}/claude-config/projects/arches/s-1.jsonl",
         "lines": [
           {
             "type": "user",
@@ -195,7 +195,7 @@
           "session_id": "s-1",
           "cwd": "{{WORK}}/arches",
           "source": "startup",
-          "transcript_path": "{{WORK}}/s-1.jsonl"
+          "transcript_path": "{{WORK}}/claude-config/projects/arches/s-1.jsonl"
         }
       }
     },

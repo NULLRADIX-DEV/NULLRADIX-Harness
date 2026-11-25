@@ -259,6 +259,8 @@ fn command(program: &Path, home: &Path, env: &BTreeMap<String, String>) -> Comma
         .env("NULLRADIX_HOME", home)
         .env("NULLRADIX_PROFILE", "dev")
         .env("NULLRADIX_PERSON", "tester")
+        // transcripts are read below `projects` of this folder only
+        .env("CLAUDE_CONFIG_DIR", home.join("work").join("claude-config"))
         .envs(env);
     command
 }

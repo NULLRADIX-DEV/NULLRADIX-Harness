@@ -6,15 +6,14 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    DisplayState, HookEvent, HookKind, Id, Repository, Runner, Session, SessionRef, SessionView,
-    Ticket, TicketKey, TicketStatus, Timestamp, Version, path_within, session_prune_before,
-    ticket_names,
+    DisplayState, Favorite, HookEvent, HookKind, Id, Repository, Runner, Session, SessionRef,
+    SessionView, Ticket, TicketKey, TicketStatus, Timestamp, Version, path_within,
+    resumed_favorite, session_prune_before, ticket_names,
 };
 use parking_lot::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use crate::favorites::FavoriteService;
 use crate::repositories::RunnerService;
 use crate::session_detail::{
     ChangeRequest, DEFAULT_PAGE_LIMIT, DiffRequest, FileDiff, MAX_PAGE_LIMIT, SessionChanges,
@@ -90,6 +89,18 @@ pub trait SessionWrite: Send {
     ) -> Result<Vec<(String, Id<Ticket>)>, AppError>;
     /// Sessions in `cwd` whose repository is not known yet.
     async fn unlocated(&mut self, cwd: &str) -> Result<Vec<Session>, AppError>;
+    /// The favorite of the session, if it is one.
+    async fn favorite(&mut self, id: &SessionRef) -> Result<Option<Favorite>, AppError>;
+    /// Session and folder of every favorite.
+    async fn favorite_folders(&mut self) -> Result<Vec<(SessionRef, String)>, AppError>;
+    /// Fails with a version conflict when the stored favorite is not at `previous`.
+    async fn update_favorite(
+        &mut self,
+        favorite: &Favorite,
+        previous: Version,
+    ) -> Result<Change, AppError>;
+    /// Keys of the tickets the session is linked to.
+    async fn ticket_keys(&mut self, id: &SessionRef) -> Result<Vec<TicketKey>, AppError>;
     async fn commit(self: Box<Self>) -> Result<(), AppError>;
 }
 
@@ -161,7 +172,6 @@ pub struct SessionService {
     signal: ChangeSignal,
     located: Mutex<HashMap<String, Located>>,
     lookups: Mutex<Vec<JoinHandle<()>>>,
-    favorites: Option<Arc<FavoriteService>>,
 }
 
 impl std::fmt::Debug for SessionService {
@@ -187,15 +197,7 @@ impl SessionService {
             signal,
             located: Mutex::new(HashMap::new()),
             lookups: Mutex::new(Vec::new()),
-            favorites: None,
         }
-    }
-
-    /// Also lets favorites follow their sessions and catch resumptions.
-    #[must_use]
-    pub fn with_favorites(mut self, favorites: Arc<FavoriteService>) -> Self {
-        self.favorites = Some(favorites);
-        self
     }
 
     /// Records the hook event and applies it to its session in one write.
@@ -232,19 +234,20 @@ impl SessionService {
         if self.link_tickets(write.as_mut(), event, &session).await? && change.is_none() {
             change = Some(write.touch(id, now).await?);
         }
-        write.commit().await?;
-        if let Some(change) = &change {
-            self.signal.notify(change);
-        }
-        if let Some(favorites) = &self.favorites
-            && change.is_some()
-        {
-            let resumed = event.kind() == HookKind::SessionStart
-                && event.details().source.as_deref() == Some("resume");
+        let followed = if change.is_some() {
             // the event is stored; a favorite that cannot follow must not fail its hook
-            if let Err(error) = favorites.follow(&session, resumed).await {
-                tracing::warn!(%error, session = id.as_str(), "cannot update favorites");
-            }
+            self.follow_favorites(write.as_mut(), event, &session)
+                .await
+                .unwrap_or_else(|error| {
+                    tracing::warn!(%error, session = id.as_str(), "cannot update favorites");
+                    Vec::new()
+                })
+        } else {
+            Vec::new()
+        };
+        write.commit().await?;
+        for change in change.iter().chain(&followed) {
+            self.signal.notify(change);
         }
         // the event is stored; a failed lookup must not fail its hook
         if session.record().repository.is_none()
@@ -253,6 +256,35 @@ impl SessionService {
             tracing::warn!(%error, cwd = event.cwd(), "cannot place the session in its repository");
         }
         Ok(Received { new: true, title })
+    }
+
+    /// The favorite snapshot follows the session, and a resumed one joins its favorite.
+    async fn follow_favorites(
+        &self,
+        write: &mut dyn SessionWrite,
+        event: &HookEvent,
+        session: &Session,
+    ) -> Result<Vec<Change>, AppError> {
+        let id = session.id();
+        let mut changes = Vec::new();
+        if let Some(known) = write.favorite(id).await? {
+            let tickets = write.ticket_keys(id).await?;
+            let next = known.refreshed(session, tickets);
+            changes.push(write.update_favorite(&next, known.record().version).await?);
+        }
+        let resumed = event.kind() == HookKind::SessionStart
+            && event.details().source.as_deref() == Some("resume");
+        if resumed {
+            let fold = self.runners.local().os().ignores_path_case();
+            let folders = write.favorite_folders().await?;
+            if let Some(owner) = resumed_favorite(&folders, &session.record().cwd, fold)
+                && let Some(known) = write.favorite(owner).await?
+                && let Some(next) = known.resumed(id, session.record().last_event_at)
+            {
+                changes.push(write.update_favorite(&next, known.record().version).await?);
+            }
+        }
+        Ok(changes)
     }
 
     /// Links the tickets the hook names, else those whose worktree holds the cwd, as legacy.

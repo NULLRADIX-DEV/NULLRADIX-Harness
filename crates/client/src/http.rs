@@ -1097,16 +1097,13 @@ mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        let sessions = Arc::new(
-            nullradix_app::sessions::SessionService::new(
-                store.clone(),
-                runners.clone(),
-                Arc::new(SystemClock),
-                Arc::new(UuidV7Generator),
-                signal.clone(),
-            )
-            .with_favorites(favorites.clone()),
-        );
+        let sessions = Arc::new(nullradix_app::sessions::SessionService::new(
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
         let hooks = Arc::new(
             HookService::new(store.clone(), Arc::new(SystemClock)).with_sessions(sessions.clone()),
         );

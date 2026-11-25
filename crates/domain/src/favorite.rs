@@ -138,20 +138,62 @@ impl Favorite {
     }
 }
 
-/// `cd "<folder>" && claude --resume <id>`; quotes in the folder are escaped, odd ids quoted.
+/// A drive letter path or a network path, as Windows spells folders.
+fn is_windows_path(path: &str) -> bool {
+    let mut letters = path.chars();
+    let drive = letters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && letters.next() == Some(':')
+        && matches!(letters.next(), None | Some('\\' | '/'));
+    drive || path.starts_with("\\\\")
+}
+
+/// Single quotes keep everything literal in bash and zsh; a quote inside closes and reopens.
+fn posix_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// Single quotes are literal in PowerShell; a quote, also a typographic one, is doubled.
+fn powershell_quote(text: &str) -> String {
+    let mut quoted = String::from("'");
+    for letter in text.chars() {
+        quoted.push(letter);
+        if matches!(
+            letter,
+            '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}'
+        ) {
+            quoted.push(letter);
+        }
+    }
+    quoted.push('\'');
+    quoted
+}
+
+/// `cd '<folder>' && claude --resume <id>`, for Windows folders with PowerShell `Set-Location`.
 #[must_use]
 pub fn resume_command(cwd: &str, session: &str) -> String {
-    let folder = format!("\"{}\"", cwd.replace('"', "\\\""));
     let plain = !session.is_empty()
         && session
             .chars()
             .all(|letter| letter.is_ascii_alphanumeric() || matches!(letter, '.' | '_' | '-'));
+    if is_windows_path(cwd) {
+        let id = if plain {
+            session.to_owned()
+        } else {
+            powershell_quote(session)
+        };
+        return format!(
+            "Set-Location -LiteralPath {}; claude --resume {id}",
+            powershell_quote(cwd)
+        );
+    }
     let id = if plain {
         session.to_owned()
     } else {
-        format!("'{}'", session.replace('\'', "'\\''"))
+        posix_quote(session)
     };
-    format!("cd {folder} && claude --resume {id}")
+    format!("cd {} && claude --resume {id}", posix_quote(cwd))
 }
 
 /// Folder spelling for comparing: slashes, no trailing one, case folded where paths ignore case.
@@ -286,19 +328,73 @@ mod tests {
     }
 
     #[test]
-    fn the_resume_command_quotes_as_legacy() {
+    fn the_resume_command_quotes_folders_for_bash_and_zsh() {
         assert_eq!(
-            resume_command("D:/My Project/wt", "abc-123"),
-            "cd \"D:/My Project/wt\" && claude --resume abc-123"
-        );
-        assert_eq!(
-            resume_command("D:/a\"b", "x"),
-            "cd \"D:/a\\\"b\" && claude --resume x"
+            resume_command("/home/a/My Project", "abc-123"),
+            "cd '/home/a/My Project' && claude --resume abc-123"
         );
         assert_eq!(
             resume_command("/tmp", "a b;c"),
-            "cd \"/tmp\" && claude --resume 'a b;c'"
+            "cd '/tmp' && claude --resume 'a b;c'"
         );
+        assert_eq!(
+            resume_command("/it's", "it's"),
+            "cd '/it'\\''s' && claude --resume 'it'\\''s'"
+        );
+        assert_eq!(
+            resume_command("/a\"b", ""),
+            "cd '/a\"b' && claude --resume ''"
+        );
+    }
+
+    #[test]
+    fn nothing_in_a_folder_or_id_expands_in_a_shell() {
+        for hostile in [
+            "/x/$(rm -rf y)",
+            "/x/`id`",
+            "/x/$HOME",
+            "/x/a\\b",
+            "/x/${PATH}",
+            "/x/!!",
+        ] {
+            let command = resume_command(hostile, "$(id)");
+            assert_eq!(
+                command,
+                format!("cd '{hostile}' && claude --resume '$(id)'"),
+                "{hostile}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_windows_folder_is_quoted_for_powershell() {
+        assert_eq!(
+            resume_command("D:\\My Project\\wt", "abc-123"),
+            "Set-Location -LiteralPath 'D:\\My Project\\wt'; claude --resume abc-123"
+        );
+        assert_eq!(
+            resume_command("D:/a'b$(x)`c", "x y"),
+            "Set-Location -LiteralPath 'D:/a''b$(x)`c'; claude --resume 'x y'"
+        );
+        assert_eq!(
+            resume_command("\\\\host\\share\\it\u{2019}s", "x"),
+            "Set-Location -LiteralPath '\\\\host\\share\\it\u{2019}\u{2019}s'; claude --resume x"
+        );
+        assert_eq!(
+            resume_command("C:\\a[1]", "x"),
+            "Set-Location -LiteralPath 'C:\\a[1]'; claude --resume x"
+        );
+    }
+
+    #[test]
+    fn only_drives_and_shares_count_as_windows_folders() {
+        assert!(is_windows_path("C:"));
+        assert!(is_windows_path("c:/x"));
+        assert!(is_windows_path("\\\\host\\share"));
+        assert!(!is_windows_path("/home/a"));
+        assert!(!is_windows_path("a:b"));
+        assert!(!is_windows_path("rel/x"));
+        assert!(!is_windows_path(""));
     }
 
     #[test]

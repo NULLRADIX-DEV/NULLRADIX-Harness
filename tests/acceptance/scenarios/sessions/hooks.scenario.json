@@ -60,7 +60,7 @@
           "cwd": "{{WORK}}/arches",
           "source": "startup",
           "model": "fake-opus",
-          "transcript_path": "{{WORK}}/s-1.jsonl"
+          "transcript_path": "{{WORK}}/claude-config/projects/arches/s-1.jsonl"
         }
       }
     },

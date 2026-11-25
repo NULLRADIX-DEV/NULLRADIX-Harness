@@ -116,7 +116,7 @@
     "stdout": "ARC-0001 created: Write the notes\n"
   },
   {
-    "file": "<WORK>/s-1.jsonl",
+    "file": "<WORK>/claude-config/projects/arches/s-1.jsonl",
     "lines": 6,
     "name": "the transcript Claude Code wrote"
   },
@@ -203,7 +203,7 @@
           "subagents": [],
           "tickets": [],
           "title": "Write the notes file please",
-          "transcriptPath": "<WORK>/s-1.jsonl",
+          "transcriptPath": "<WORK>/claude-config/projects/arches/s-1.jsonl",
           "version": 6
         },
         "todos": [],
@@ -215,7 +215,7 @@
         },
         "transcript": {
           "available": true,
-          "path": "<WORK>/s-1.jsonl",
+          "path": "<WORK>/claude-config/projects/arches/s-1.jsonl",
           "sizeBytes": 1345
         }
       },
@@ -231,7 +231,7 @@
     "exitCode": 0,
     "name": "show with the detail",
     "stderr": "",
-    "stdout": "SE-001: Write the notes file please (s-1)\nState:      idle\nRuntime:    less than 1 min\nStarted:    <TIME>\nLast hook:  <TIME>\nFolder:     <WORK>/arches\nModel:      fake-opus\nClient:     claude-code\nBranch:     main\nClaude:     2.1.0\nTokens:     10 in, 20 out, 300 cache read, 40 cache write\nContext:    350 of 200000 tokens\nTranscript: <WORK>/s-1.jsonl (1345 bytes)\n"
+    "stdout": "SE-001: Write the notes file please (s-1)\nState:      idle\nRuntime:    less than 1 min\nStarted:    <TIME>\nLast hook:  <TIME>\nFolder:     <WORK>/arches\nModel:      fake-opus\nClient:     claude-code\nBranch:     main\nClaude:     2.1.0\nTokens:     10 in, 20 out, 300 cache read, 40 cache write\nContext:    350 of 200000 tokens\nTranscript: <WORK>/claude-config/projects/arches/s-1.jsonl (1345 bytes)\n"
   },
   {
     "name": "the transcript",
@@ -415,7 +415,7 @@
           }
         ],
         "title": "Write the notes file please",
-        "transcriptPath": "<WORK>/s-1.jsonl",
+        "transcriptPath": "<WORK>/claude-config/projects/arches/s-1.jsonl",
         "version": 6
       },
       "status": 200
@@ -432,7 +432,7 @@
     "exitCode": 0,
     "name": "mark the session as favorite",
     "stderr": "",
-    "stdout": "s-1 is a favorite.\nidle     SE-001: Write the notes file please  [s-1]  ARC-0001\n    note: The notes work\n    folder: <WORK>/arches\n    cd \"<WORK>/arches\" && claude --resume s-1\n"
+    "stdout": "s-1 is a favorite.\nidle     SE-001: Write the notes file please  [s-1]  ARC-0001\n    note: The notes work\n    folder: <WORK>/arches\n    cd '<WORK>/arches' && claude --resume s-1\n"
   },
   {
     "cli": [
@@ -462,7 +462,7 @@
     "exitCode": 0,
     "name": "the favorites",
     "stderr": "",
-    "stdout": "idle     SE-001: Write the notes file please  [s-1]  ARC-0001\n    note: The notes work\n    folder: <WORK>/arches\n    resumed as: s-3\n    cd \"<WORK>/arches\" && claude --resume s-1\n"
+    "stdout": "idle     SE-001: Write the notes file please  [s-1]  ARC-0001\n    note: The notes work\n    folder: <WORK>/arches\n    resumed as: s-3\n    cd '<WORK>/arches' && claude --resume s-1\n"
   },
   {
     "name": "the favorites over http",
@@ -474,7 +474,7 @@
       "json": {
         "items": [
           {
-            "command": "cd \"<WORK>/arches\" && claude --resume s-1",
+            "command": "cd '<WORK>/arches' && claude --resume s-1",
             "cwd": "<WORK>/arches",
             "cwdExists": true,
             "displayState": "idle",

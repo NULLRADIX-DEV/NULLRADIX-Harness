@@ -1,8 +1,11 @@
 //! Changes from git against the merge base when the session has its own worktree or branch.
 
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use nullradix_app::AppError;
 use nullradix_app::session_detail::{
@@ -13,6 +16,9 @@ use nullradix_app::worktrees::git_failed;
 use super::jsonl::count;
 use super::unified_diff;
 use crate::worktree::output;
+
+/// Most bytes of a new file that are read; of a longer one only the start counts.
+pub(crate) const MAX_UNTRACKED_BYTES: u64 = 2 * 1024 * 1024;
 
 /// Where and against what the session is compared.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,9 +38,16 @@ async fn blocking<T: Send + 'static>(
         .map_err(AppError::internal)
 }
 
+/// The arguments with paths taken literally, so `a[1].txt` is no pattern.
+fn literal<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut all = vec!["--literal-pathspecs"];
+    all.extend_from_slice(args);
+    all
+}
+
 /// Trimmed output when git succeeds, `None` otherwise.
 async fn attempt(dir: &Path, args: &[&str]) -> Option<String> {
-    let output = output(dir, args).await.ok()?;
+    let output = output(dir, &literal(args)).await.ok()?;
     output
         .status
         .success()
@@ -43,7 +56,7 @@ async fn attempt(dir: &Path, args: &[&str]) -> Option<String> {
 
 /// Untrimmed output, for `-z` lists.
 async fn raw(dir: &Path, args: &[&str]) -> Result<String, AppError> {
-    let output = output(dir, args).await?;
+    let output = output(dir, &literal(args)).await?;
     if output.status.success() {
         return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }
@@ -103,7 +116,10 @@ pub(crate) async fn scope(cwd: &Path) -> Result<Option<GitScope>, AppError> {
 }
 
 /// Changed files, committed, uncommitted and new, by path.
-pub(crate) async fn files(scope: &GitScope) -> Result<Vec<ChangedFile>, AppError> {
+pub(crate) async fn files(
+    scope: &GitScope,
+    abort: &Arc<AtomicBool>,
+) -> Result<Vec<ChangedFile>, AppError> {
     let root = &scope.root;
     let base = scope.merge_base.as_str();
     let stats = numstat(&raw(root, &["diff", "-M", "--numstat", "-z", base]).await?);
@@ -121,9 +137,9 @@ pub(crate) async fn files(scope: &GitScope) -> Result<Vec<ChangedFile>, AppError
         })
         .collect();
     for path in untracked(root).await? {
-        let content = read_inside(root, &path).await?;
+        let head = read_inside(root, &path, abort, false).await?;
         files.push(ChangedFile {
-            added: content.map_or(0, |text| count(text.lines().count())),
+            added: head.map_or(0, |head| count(head.lines)),
             path,
             status: FileStatus::Added,
             removed: 0,
@@ -134,12 +150,20 @@ pub(crate) async fn files(scope: &GitScope) -> Result<Vec<ChangedFile>, AppError
 }
 
 /// Diff of a listed file; other paths are refused or not found.
-pub(crate) async fn file(scope: &GitScope, path: &str) -> Result<FileDiff, AppError> {
+pub(crate) async fn file(
+    scope: &GitScope,
+    path: &str,
+    abort: &Arc<AtomicBool>,
+) -> Result<FileDiff, AppError> {
     check_change_path(path)?;
     let root = &scope.root;
     if untracked(root).await?.iter().any(|file| file == path) {
-        let content = read_inside(root, path).await?.unwrap_or_default();
-        return Ok(unified_diff::all_added(path, &content, None));
+        let head = read_inside(root, path, abort, true)
+            .await?
+            .unwrap_or_default();
+        let mut diff = unified_diff::all_added(path, &head.text, None);
+        diff.truncated |= head.cut;
+        return Ok(diff);
     }
     let base = scope.merge_base.as_str();
     let entry = name_status(&raw(root, &["diff", "-M", "--name-status", "-z", base]).await?)
@@ -191,19 +215,63 @@ async fn untracked(root: &Path) -> Result<Vec<String>, AppError> {
     )
 }
 
-/// Text of a file only when it resolves inside `root`; links leading out read nothing.
-async fn read_inside(root: &Path, path: &str) -> Result<Option<String>, AppError> {
+/// The start of a new file: its text when kept, its line count, and whether the cap cut it.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Head {
+    text: String,
+    lines: usize,
+    cut: bool,
+}
+
+/// The start of a file only when it resolves inside `root`; links leading out read nothing.
+async fn read_inside(
+    root: &Path,
+    path: &str,
+    abort: &Arc<AtomicBool>,
+    keep: bool,
+) -> Result<Option<Head>, AppError> {
     let root = root.to_path_buf();
     let path = path.to_owned();
-    blocking(move || {
-        let real_root = fs::canonicalize(&root).ok()?;
-        let real = fs::canonicalize(root.join(&path)).ok()?;
-        if !real.starts_with(&real_root) {
+    let abort = Arc::clone(abort);
+    blocking(move || read_head(&root, &path, &abort, keep)).await
+}
+
+/// Reads line by line up to [`MAX_UNTRACKED_BYTES`]; text that is not UTF-8 or a stop gives none.
+fn read_head(root: &Path, path: &str, abort: &AtomicBool, keep: bool) -> Option<Head> {
+    let real_root = fs::canonicalize(root).ok()?;
+    let real = fs::canonicalize(root.join(path)).ok()?;
+    if !real.starts_with(&real_root) {
+        return None;
+    }
+    // a pipe or device would block the read
+    let meta = fs::metadata(&real).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let mut reader = BufReader::new(File::open(&real).ok()?.take(MAX_UNTRACKED_BYTES));
+    let mut head = Head {
+        cut: meta.len() > MAX_UNTRACKED_BYTES,
+        ..Head::default()
+    };
+    let mut line = Vec::new();
+    loop {
+        if abort.load(Ordering::Relaxed) {
             return None;
         }
-        String::from_utf8(fs::read(real).ok()?).ok()
-    })
-    .await
+        line.clear();
+        if reader.read_until(b'\n', &mut line).ok()? == 0 {
+            return Some(head);
+        }
+        // the cap may cut the last line, which then does not count
+        if head.cut && line.last() != Some(&b'\n') {
+            return Some(head);
+        }
+        let text = std::str::from_utf8(&line).ok()?;
+        head.lines += 1;
+        if keep {
+            head.text.push_str(text);
+        }
+    }
 }
 
 fn status_of(letter: char) -> FileStatus {
@@ -324,6 +392,10 @@ mod tests {
         assert!(output.status.success(), "git {args:?}: {output:?}");
     }
 
+    fn idle() -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(false))
+    }
+
     /// A repository on `main` with two files.
     fn repository(dir: &Path) -> PathBuf {
         let root = dir.join("repo");
@@ -370,7 +442,7 @@ mod tests {
         let found = scope(&tree).await.unwrap().expect("the worktree is found");
         assert_eq!(found.base, "main");
         assert_eq!(
-            files(&found).await.unwrap(),
+            files(&found, &idle()).await.unwrap(),
             vec![
                 ChangedFile {
                     path: "gone.txt".into(),
@@ -392,7 +464,7 @@ mod tests {
                 },
             ]
         );
-        let diff = file(&found, "old.txt").await.unwrap();
+        let diff = file(&found, "old.txt", &idle()).await.unwrap();
         let kinds: Vec<DiffLineKind> = diff.hunks[0].lines.iter().map(|line| line.kind).collect();
         assert_eq!(
             kinds,
@@ -404,7 +476,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            file(&found, "new.txt").await.unwrap().hunks[0].header,
+            file(&found, "new.txt", &idle()).await.unwrap().hunks[0].header,
             "@@ -0,0 +1,2 @@"
         );
     }
@@ -418,7 +490,7 @@ mod tests {
         git(&root, &["add", "-A"]);
         git(&root, &["commit", "-q", "-m", "t"]);
         let found = scope(&root).await.unwrap().expect("the branch is found");
-        let listed = files(&found).await.unwrap();
+        let listed = files(&found, &idle()).await.unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].path, "t.txt");
         assert_eq!(listed[0].status, FileStatus::Added);
@@ -431,10 +503,10 @@ mod tests {
         let tree = worktree(&root, "wt-2");
         let found = scope(&tree).await.unwrap().unwrap();
         for path in ["../x", "/etc/passwd", "C:/x", "-p", "a/../../b", ""] {
-            let error = file(&found, path).await.unwrap_err();
+            let error = file(&found, path, &idle()).await.unwrap_err();
             assert_eq!(error.code(), "change-path-invalid", "{path}");
         }
-        let error = file(&found, "old.txt").await.unwrap_err();
+        let error = file(&found, "old.txt", &idle()).await.unwrap_err();
         assert_eq!(error.code(), "change-not-found");
     }
 
@@ -450,5 +522,75 @@ mod tests {
         assert_eq!(stats["b.bin"], (0, 0));
         let renamed = numstat("3\t0\t\0old.txt\0new.txt\0");
         assert_eq!(renamed["new.txt"], (3, 0));
+    }
+
+    #[tokio::test]
+    async fn paths_are_taken_literally_not_as_patterns() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = repository(dir.path());
+        fs::write(root.join("a[1].txt"), "x\n").unwrap();
+        fs::write(root.join("a1.txt"), "y\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-q", "-m", "more"]);
+        let tree = worktree(&root, "wt-glob");
+        fs::write(tree.join("a[1].txt"), "x\nbracket\n").unwrap();
+        fs::write(tree.join("a1.txt"), "y\nplain\n").unwrap();
+        let found = scope(&tree).await.unwrap().unwrap();
+        let diff = file(&found, "a[1].txt", &idle()).await.unwrap();
+        let texts: Vec<&str> = diff
+            .hunks
+            .iter()
+            .flat_map(|hunk| hunk.lines.iter().map(|line| line.text.as_str()))
+            .collect();
+        assert!(texts.contains(&"bracket"));
+        assert!(
+            !texts.contains(&"plain"),
+            "a1.txt is another file: {texts:?}"
+        );
+        let error = file(&found, "a?.txt", &idle()).await.unwrap_err();
+        assert_eq!(error.code(), "change-not-found");
+    }
+
+    #[tokio::test]
+    async fn a_huge_new_file_is_read_only_up_to_the_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = repository(dir.path());
+        let tree = worktree(&root, "wt-big");
+        let line = "0123456789abcdef0123456789abcdef\n";
+        let cap = usize::try_from(MAX_UNTRACKED_BYTES).unwrap();
+        let total = cap / line.len() * 3;
+        fs::write(tree.join("big.txt"), line.repeat(total)).unwrap();
+        fs::write(tree.join("small.txt"), "a\nb\n").unwrap();
+        fs::write(tree.join("binary.bin"), b"\xFF\xFE\x00\n").unwrap();
+        let found = scope(&tree).await.unwrap().unwrap();
+        let listed = files(&found, &idle()).await.unwrap();
+        let added = |name: &str| listed.iter().find(|file| file.path == name).unwrap().added;
+        assert_eq!(added("small.txt"), 2);
+        assert_eq!(added("binary.bin"), 0);
+        let counted = usize::try_from(added("big.txt")).unwrap();
+        assert!(counted > 0 && counted < total, "{counted} of {total}");
+        assert!(counted * line.len() <= cap);
+        let diff = file(&found, "big.txt", &idle()).await.unwrap();
+        assert!(diff.truncated, "a cut file says so");
+        assert!(diff.hunks.iter().all(|hunk| hunk.lines.len() <= 5000));
+        assert!(!file(&found, "small.txt", &idle()).await.unwrap().truncated);
+    }
+
+    #[test]
+    fn a_stopped_read_gives_up_and_files_that_are_no_files_read_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.txt"), "x\n").unwrap();
+        fs::create_dir(dir.path().join("folder")).unwrap();
+        let go = AtomicBool::new(false);
+        let head = read_head(dir.path(), "a.txt", &go, true).unwrap();
+        assert_eq!(
+            (head.text.as_str(), head.lines, head.cut),
+            ("x\n", 1, false)
+        );
+        assert_eq!(read_head(dir.path(), "a.txt", &go, false).unwrap().text, "");
+        assert_eq!(read_head(dir.path(), "folder", &go, true), None);
+        assert_eq!(read_head(dir.path(), "../a.txt", &go, true), None);
+        let stop = AtomicBool::new(true);
+        assert_eq!(read_head(dir.path(), "a.txt", &stop, true), None);
     }
 }

@@ -444,17 +444,27 @@ pub(crate) mod tests {
         (tickets, comments, questions, worktrees, notes)
     }
 
+    /// The Claude config folder the test runner reads transcripts below.
+    pub(crate) fn transcript_root() -> PathBuf {
+        std::env::temp_dir()
+            .join("nullradix-api-tests")
+            .join("claude")
+    }
+
     async fn test_runners(
         store: &Arc<Store>,
         signal: &ChangeSignal,
     ) -> (Arc<nullradix_runner::LocalRunner>, Arc<RunnerService>) {
-        let runner = Arc::new(nullradix_runner::LocalRunner::new(
-            std::env::temp_dir().join("nullradix-api-tests"),
-            nullradix_runner::SupervisorCommand {
-                program: PathBuf::from("nullradix-missing-supervisor"),
-                args: Vec::new(),
-            },
-        ));
+        let runner = Arc::new(
+            nullradix_runner::LocalRunner::new(
+                std::env::temp_dir().join("nullradix-api-tests"),
+                nullradix_runner::SupervisorCommand {
+                    program: PathBuf::from("nullradix-missing-supervisor"),
+                    args: Vec::new(),
+                },
+            )
+            .with_transcript_roots(vec![transcript_root()]),
+        );
         let runners = RunnerService::start(
             store.clone(),
             store.clone(),
@@ -480,16 +490,13 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
-        let sessions = Arc::new(
-            SessionService::new(
-                store.clone(),
-                runners.clone(),
-                Arc::new(SystemClock),
-                Arc::new(UuidV7Generator),
-                signal.clone(),
-            )
-            .with_favorites(favorites.clone()),
-        );
+        let sessions = Arc::new(SessionService::new(
+            store.clone(),
+            runners.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
         let hooks = Arc::new(
             HookService::new(store.clone(), Arc::new(SystemClock)).with_sessions(sessions.clone()),
         );

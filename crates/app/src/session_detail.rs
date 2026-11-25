@@ -307,14 +307,17 @@ pub fn check_change_path(path: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Only an absolute `.jsonl` path without `..` parts may be read as a transcript.
+/// Only a local absolute `.jsonl` path without `..`, share or device parts is a transcript.
 pub fn check_transcript_path(path: &str) -> Result<(), AppError> {
     let normalized = path.replace('\\', "/");
     let bytes = normalized.as_bytes();
     let drive =
         bytes.len() > 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/';
-    let absolute = normalized.starts_with('/') || drive;
-    let valid = absolute
+    let rooted = normalized.starts_with('/') && !normalized.starts_with("//");
+    // a colon behind the drive names a data stream
+    let stream = drive && normalized[2..].contains(':');
+    let valid = (rooted || drive)
+        && !stream
         && normalized.to_ascii_lowercase().ends_with(".jsonl")
         && !normalized.contains('\0')
         && !normalized.split('/').any(|part| part == "..");
@@ -383,6 +386,13 @@ mod tests {
             "C:s.jsonl",
             "",
             "/a/b.jsonl\0",
+            "\\\\host\\share\\x.jsonl",
+            "//host/share/x.jsonl",
+            "\\\\?\\UNC\\host\\share\\x.jsonl",
+            "\\\\?\\C:\\Users\\a\\x.jsonl",
+            "\\\\.\\pipe\\x.jsonl",
+            "\\\\.\\C:\\x.jsonl",
+            "C:\\a\\b:s.jsonl",
         ] {
             assert_eq!(
                 check_transcript_path(path).unwrap_err().code(),

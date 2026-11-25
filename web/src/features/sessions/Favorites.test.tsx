@@ -45,7 +45,7 @@ function favorite(overrides: Partial<Favorite> = {}): Favorite {
     live: false,
     lastEventAt: Date.now(),
     resumedAs: [{ sessionId: 'fedcba98-0000-7000-8000-000000000002', at: Date.now() }],
-    command: 'cd "/work/arches" && claude --resume ' + ID,
+    command: "cd '/work/arches' && claude --resume " + ID,
     version: 1,
     ...overrides,
   };
@@ -75,7 +75,7 @@ describe('Favorites', () => {
     const card = await screen.findByRole('article', { name: `Favorite ${ID.slice(0, 8)}` });
     expect(within(card).getByDisplayValue('login fix')).toBeInTheDocument();
     expect(
-      within(card).getByText(`cd "/work/arches" && claude --resume ${ID}`),
+      within(card).getByText(`cd '/work/arches' && claude --resume ${ID}`),
     ).toBeInTheDocument();
     expect(within(card).getByText('Resumed as fedcba98')).toBeInTheDocument();
     expect(within(card).getByRole('alert')).toHaveTextContent('The folder is gone.');

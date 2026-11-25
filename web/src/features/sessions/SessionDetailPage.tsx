@@ -1,9 +1,10 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { ChangesView } from './ChangesView';
 import { formatDuration, sessionRuntime, sessionTitle, withLiveState } from './format';
-import { sessionDetailQuery, sessionKeys, type SessionClient, type SessionDetail } from './queries';
+import { useRefreshChangesOnGrowth } from './liveChanges';
+import { sessionDetailQuery, type SessionClient, type SessionDetail } from './queries';
 import { FavoriteStar } from './Favorites';
 import { SessionStateBadge } from './SessionStateBadge';
 import { TranscriptView } from './TranscriptView';
@@ -158,17 +159,11 @@ function Detail({
   );
 }
 
-// One session with its figures, transcript and changes; refreshed while it runs.
+// One session with its figures, transcript and changes; refreshed until it ended.
 export function SessionDetailPage() {
   const { sessionId = '' } = useParams();
-  const queryClient = useQueryClient();
   const { status, data, dataUpdatedAt } = useQuery(sessionDetailQuery(sessionId));
-  // a newer detail means the transcript grew, so changes and open diffs read again
-  useEffect(() => {
-    if (dataUpdatedAt === 0) return;
-    void queryClient.invalidateQueries({ queryKey: sessionKeys.changes(sessionId) });
-    void queryClient.invalidateQueries({ queryKey: [...sessionKeys.all, 'diff', sessionId] });
-  }, [queryClient, sessionId, dataUpdatedAt]);
+  useRefreshChangesOnGrowth(sessionId, data?.transcript.sizeBytes);
   return (
     <div className="page session-detail">
       <p>

@@ -123,6 +123,38 @@ pub(crate) fn transcript() -> String {
     text
 }
 
+/// Rounds of a prompt, a tool call with its result and an answer, each with its own ids.
+pub(crate) fn repeated(rounds: usize) -> String {
+    let mut text = String::new();
+    for round in 0..rounds {
+        let tool = format!("toolu_{round}");
+        let lines = [
+            user(
+                &format!("p{round}"),
+                json!(format!("Question {round}")),
+                json!({}),
+            ),
+            tool_use(
+                &format!("c{round}"),
+                &format!("m{round}"),
+                &tool,
+                "Bash",
+                json!({ "command": "ls" }),
+                [0; 4],
+            ),
+            tool_result(&format!("r{round}"), &tool, json!("ok"), false, json!({})),
+            assistant(
+                &format!("a{round}"),
+                &format!("n{round}"),
+                json!({ "type": "text", "text": format!("Answer {round}") }),
+                [0; 4],
+            ),
+        ];
+        text.extend(lines.iter().map(line));
+    }
+    text
+}
+
 fn first_lines() -> Vec<Value> {
     vec![
         json!({ "type": "custom-title", "customTitle": "Demo title", "sessionId": "s-demo" }),

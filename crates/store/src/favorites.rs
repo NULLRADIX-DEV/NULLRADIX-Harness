@@ -172,6 +172,79 @@ async fn save_resumes(
     Ok(())
 }
 
+/// Saves the favorite; fails with a version conflict when it is not stored at `previous`.
+pub(crate) async fn save(
+    connection: &mut SqliteConnection,
+    favorite: &Favorite,
+    previous: Version,
+) -> Result<Change, AppError> {
+    let record = favorite.record();
+    let id = record.session.as_str();
+    let repository = record.repository.map(|id| id.as_uuid());
+    let keys = ticket_keys(favorite)?;
+    let state = record.last_state.as_str();
+    let last_event_at = record.last_event_at.as_millis();
+    let version = record.version.value();
+    let previous = previous.value();
+    let updated = sqlx::query_scalar!(
+        r#"UPDATE favorites
+               SET repository_id = ?, note = ?, cwd = ?, title = ?, ticket_keys = ?,
+                   last_state = ?, last_event_at = ?, version = ?
+               WHERE session_id = ? AND version = ?
+               RETURNING feed_id AS "feed_id: Uuid""#,
+        repository,
+        record.note,
+        record.cwd,
+        record.title,
+        keys,
+        state,
+        last_event_at,
+        version,
+        id,
+        previous,
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(database)?;
+    let Some(feed_id) = updated else {
+        let exists = sqlx::query_scalar!("SELECT version FROM favorites WHERE session_id = ?", id)
+            .fetch_optional(&mut *connection)
+            .await;
+        return Err(missed_guard(
+            exists,
+            AppError::version_conflict("favorite", id),
+            session_not_found(id),
+        ));
+    };
+    save_resumes(&mut *connection, favorite).await?;
+    Ok(change_feed::record(
+        &mut *connection,
+        Entity::Favorite,
+        feed_id,
+        ChangeOp::Update,
+        record.last_event_at,
+    )
+    .await?)
+}
+
+pub(crate) async fn find(
+    connection: &mut SqliteConnection,
+    id: &SessionRef,
+) -> Result<Option<Favorite>, StoreError> {
+    Ok(load(connection, None, Some(id.as_str())).await?.pop())
+}
+
+pub(crate) async fn folders(
+    connection: &mut SqliteConnection,
+) -> Result<Vec<(SessionRef, String)>, StoreError> {
+    let rows = sqlx::query!(r#"SELECT session_id AS "session_id!", cwd FROM favorites"#)
+        .fetch_all(&mut *connection)
+        .await?;
+    rows.into_iter()
+        .map(|row| Ok((session_ref(&row.session_id)?, row.cwd)))
+        .collect()
+}
+
 pub(crate) struct Write(Transaction<'static, Sqlite>);
 
 #[async_trait]
@@ -181,18 +254,11 @@ impl FavoriteWrite for Write {
     }
 
     async fn favorite(&mut self, id: &SessionRef) -> Result<Option<Favorite>, AppError> {
-        Ok(load(&mut self.0, None, Some(id.as_str())).await?.pop())
+        Ok(find(&mut self.0, id).await?)
     }
 
     async fn folders(&mut self) -> Result<Vec<(SessionRef, String)>, AppError> {
-        let rows = sqlx::query!(r#"SELECT session_id AS "session_id!", cwd FROM favorites"#)
-            .fetch_all(&mut *self.0)
-            .await
-            .map_err(database)?;
-        Ok(rows
-            .into_iter()
-            .map(|row| Ok((session_ref(&row.session_id)?, row.cwd)))
-            .collect::<Result<Vec<_>, StoreError>>()?)
+        Ok(folders(&mut self.0).await?)
     }
 
     async fn insert(&mut self, favorite: &Favorite, feed_id: Uuid) -> Result<Change, AppError> {
@@ -235,54 +301,7 @@ impl FavoriteWrite for Write {
     }
 
     async fn update(&mut self, favorite: &Favorite, previous: Version) -> Result<Change, AppError> {
-        let record = favorite.record();
-        let id = record.session.as_str();
-        let repository = record.repository.map(|id| id.as_uuid());
-        let keys = ticket_keys(favorite)?;
-        let state = record.last_state.as_str();
-        let last_event_at = record.last_event_at.as_millis();
-        let version = record.version.value();
-        let previous = previous.value();
-        let updated = sqlx::query_scalar!(
-            r#"UPDATE favorites
-               SET repository_id = ?, note = ?, cwd = ?, title = ?, ticket_keys = ?,
-                   last_state = ?, last_event_at = ?, version = ?
-               WHERE session_id = ? AND version = ?
-               RETURNING feed_id AS "feed_id: Uuid""#,
-            repository,
-            record.note,
-            record.cwd,
-            record.title,
-            keys,
-            state,
-            last_event_at,
-            version,
-            id,
-            previous,
-        )
-        .fetch_optional(&mut *self.0)
-        .await
-        .map_err(database)?;
-        let Some(feed_id) = updated else {
-            let exists =
-                sqlx::query_scalar!("SELECT version FROM favorites WHERE session_id = ?", id)
-                    .fetch_optional(&mut *self.0)
-                    .await;
-            return Err(missed_guard(
-                exists,
-                AppError::version_conflict("favorite", id),
-                session_not_found(id),
-            ));
-        };
-        save_resumes(&mut self.0, favorite).await?;
-        Ok(change_feed::record(
-            &mut self.0,
-            Entity::Favorite,
-            feed_id,
-            ChangeOp::Update,
-            record.last_event_at,
-        )
-        .await?)
+        save(&mut self.0, favorite, previous).await
     }
 
     async fn delete(&mut self, id: &SessionRef, at: Timestamp) -> Result<Option<Change>, AppError> {

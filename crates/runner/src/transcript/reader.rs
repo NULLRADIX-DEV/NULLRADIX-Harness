@@ -1,6 +1,8 @@
 //! Reads a page of the transcript from a byte offset into entries, as legacy.
 
 use std::collections::HashMap;
+use std::io::{self, BufRead};
+use std::path::Path;
 use std::sync::LazyLock;
 
 use nullradix_app::session_detail::{
@@ -9,52 +11,68 @@ use nullradix_app::session_detail::{
 use regex::Regex;
 use serde_json::Value;
 
-use super::jsonl::{self, Line, flag, number, text};
+use super::jsonl::{self, Line, LineReader, flag, number, text};
 use super::summary::summarize;
 
 const IMAGE: &str = "[image]";
+/// How far behind a full page the file is searched for results of the calls it leaves open.
+const LOOKAHEAD_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Reads the file at `path` from offset `base`, about `limit` entries at most.
+pub(crate) fn parse_file(path: &Path, base: u64, limit: usize) -> io::Result<TranscriptChunk> {
+    parse_lines(&mut jsonl::open_lines(path, base)?, limit)
+}
 
 /// Reads `bytes` that start at offset `base` of the file, about `limit` entries at most.
+#[cfg(test)]
 pub(crate) fn parse(bytes: &[u8], base: u64, limit: usize) -> TranscriptChunk {
-    let lines = jsonl::lines(bytes, base);
+    let mut lines = LineReader::new(io::Cursor::new(bytes), base);
+    parse_lines(&mut lines, limit).unwrap()
+}
+
+/// Reads lines until `limit` entries are found, then on only while calls still lack results.
+pub(crate) fn parse_lines<R: BufRead>(
+    lines: &mut LineReader<R>,
+    limit: usize,
+) -> io::Result<TranscriptChunk> {
     let mut page = Page::default();
     let mut cut = false;
-    let mut cursor = base;
-    let mut next = lines.len();
-    for (index, line) in lines.iter().enumerate() {
-        if page.entries.len() >= limit.max(1) {
+    let mut cursor = lines.complete();
+    let base = cursor;
+    let mut search_until = u64::MAX;
+    while let Some(line) = lines.next_line()? {
+        if !cut && page.entries.len() >= limit.max(1) {
             cut = true;
-            next = index;
-            break;
+            search_until = line.end.saturating_add(LOOKAHEAD_BYTES);
         }
-        page.feed(line);
-        cursor = line.end;
-    }
-    if !cut {
-        cursor = jsonl::complete_end(bytes, base);
-    }
-    // results of calls still open, in the rest of the file
-    for line in &lines[next..] {
-        if page.pending.is_empty() {
-            break;
-        }
-        if !line.text.contains("tool_use_id") {
+        if !cut {
+            page.feed(&line);
+            cursor = line.end;
             continue;
         }
-        if let Ok(value) = serde_json::from_str::<Value>(line.text) {
+        // results of calls still open, in the rest of the file
+        if page.pending.is_empty() || line.end > search_until {
+            break;
+        }
+        if line.text.contains("tool_use_id")
+            && let Ok(value) = serde_json::from_str::<Value>(line.text)
+        {
             page.results(&value);
         }
+    }
+    if !cut {
+        cursor = lines.complete();
     }
     if let Some(start) = page.pending.values().map(|(_, start)| *start).min()
         && (!cut || start > base)
     {
         cursor = cursor.min(start);
     }
-    TranscriptChunk {
+    Ok(TranscriptChunk {
         entries: page.entries,
         cursor,
         skipped: page.skipped,
-    }
+    })
 }
 
 #[derive(Default)]
@@ -601,6 +619,56 @@ mod tests {
                 assert_eq!(id, "toolu_read");
                 assert!(result.is_some());
             }
+            other => panic!("no tool: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_page_of_a_large_file_reads_only_its_part_and_a_short_look_ahead() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.jsonl");
+        let content = fixtures::repeated(5000);
+        std::fs::write(&path, &content).unwrap();
+        let mut lines = jsonl::open_lines(&path, 0).unwrap();
+        let page = parse_lines(&mut lines, 50).unwrap();
+        assert_eq!(page.entries.len(), 50);
+        let file = len(&content);
+        assert!(
+            lines.complete() * 100 < file,
+            "{} of {file}",
+            lines.complete()
+        );
+        assert!(page.cursor <= lines.complete());
+        let later = parse_file(&path, page.cursor, 50).unwrap();
+        assert_eq!(later.entries.len(), 50);
+        assert_ne!(later.entries[0].id(), page.entries[0].id());
+    }
+
+    #[test]
+    fn the_search_for_a_missing_result_stops_after_a_bound() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("open.jsonl");
+        let filler = fixtures::line(&json!({ "type": "queue-operation", "pad": "x".repeat(1000) }));
+        let first = fixtures::line(&fixtures::user("u-first", json!("Hi"), json!({})));
+        let mut content = format!("{first}{}", open_call("a-open"));
+        let rest = usize::try_from(LOOKAHEAD_BYTES).unwrap() / filler.len() + 100;
+        content.push_str(&filler.repeat(rest));
+        content.push_str(&open_result());
+        std::fs::write(&path, &content).unwrap();
+        let mut lines = jsonl::open_lines(&path, 0).unwrap();
+        let page = parse_lines(&mut lines, 2).unwrap();
+        assert_eq!(
+            page.cursor,
+            len(&first),
+            "the open call is read again later"
+        );
+        assert!(
+            lines.complete() < len(&content),
+            "the result is out of reach"
+        );
+        assert!(lines.complete() < LOOKAHEAD_BYTES + 100_000);
+        match &page.entries[1] {
+            TranscriptEntry::Tool { result, .. } => assert_eq!(*result, None),
             other => panic!("no tool: {other:?}"),
         }
     }

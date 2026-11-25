@@ -17,7 +17,7 @@ use nullradix_domain::{Id, Run};
 use nullradix_os::{spawn_detached, write_atomic};
 
 use crate::protocol::{RunFiles, SpecFile, read_output, read_report, supervisor_alive};
-use crate::transcript::{self, ScanCache};
+use crate::transcript::Transcripts;
 
 /// How the runner starts the supervisor: a program plus leading arguments, the run dir follows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub struct SupervisorCommand {
 pub struct LocalRunner {
     runs: PathBuf,
     supervisor: SupervisorCommand,
-    scans: Arc<ScanCache>,
+    transcripts: Arc<Transcripts>,
 }
 
 fn unavailable(error: &io::Error) -> AppError {
@@ -53,8 +53,15 @@ impl LocalRunner {
         Self {
             runs,
             supervisor,
-            scans: Arc::default(),
+            transcripts: Arc::new(Transcripts::new(nullradix_os::claude_config_dirs())),
         }
+    }
+
+    /// Lets transcripts be read below the `projects` folder of these Claude config folders only.
+    #[must_use]
+    pub fn with_transcript_roots(mut self, roots: Vec<PathBuf>) -> Self {
+        self.transcripts = Arc::new(Transcripts::new(roots));
+        self
     }
 
     fn files(&self, run: Id<Run>) -> RunFiles {
@@ -158,22 +165,22 @@ impl RunnerPort for LocalRunner {
         &self,
         request: &TranscriptRead,
     ) -> Result<Option<TranscriptChunk>, AppError> {
-        transcript::read(request).await
+        self.transcripts.read(request).await
     }
 
     async fn transcript_facts(
         &self,
         source: &TranscriptSource,
     ) -> Result<Option<TranscriptSummary>, AppError> {
-        transcript::facts(&self.scans, source).await
+        self.transcripts.facts(source).await
     }
 
     async fn session_changes(&self, request: &ChangeRequest) -> Result<SessionChanges, AppError> {
-        transcript::changes(&self.scans, request).await
+        self.transcripts.changes(request).await
     }
 
     async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError> {
-        transcript::diff(&self.scans, request).await
+        self.transcripts.diff(request).await
     }
 }
 

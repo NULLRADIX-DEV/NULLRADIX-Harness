@@ -272,6 +272,9 @@ fn file_step(file: &File, saved: &BTreeMap<String, String>) -> anyhow::Result<(V
         text.push_str(&fill_value(line, saved).to_string());
         text.push('\n');
     }
+    if let Some(folder) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(folder).with_context(|| format!("cannot create {path}"))?;
+    }
     std::fs::write(&path, text).with_context(|| format!("cannot write {path}"))?;
     let entry = json!({ "file": path, "lines": file.lines.len() });
     Ok((entry, json!({})))
