@@ -29,10 +29,9 @@ pub fn size_problem(template: &str) -> Option<String> {
         .then(|| format!("is longer than {} KiB", MAX_TEMPLATE_BYTES / 1024))
 }
 
-/// A command such as `nullradix ticket done {{ticketId}}`, with flags allowed between words.
-///
-/// One pass over the words: `reached[k]` tells that some start has matched the first `k` words.
+/// A command such as `nullradix ticket done {{ticketId}}`, flags allowed between words; one pass.
 fn has_command(template: &str, wanted: &[&str]) -> bool {
+    // reached[k]: some start has matched the first k words
     let last = wanted.len() - 1;
     let mut reached = vec![false; wanted.len()];
     for word in template.split_whitespace() {
