@@ -2,7 +2,7 @@ import type { components } from './schema';
 
 export type Problem = components['schemas']['Problem'];
 export type SimilarNote = components['schemas']['SimilarNoteDto'];
-export type FieldError = components['schemas']['FieldErrorDto'];
+export type FieldError = components['schemas']['FieldProblemDto'];
 
 export const PROBLEM_CONTENT_TYPE = 'application/problem+json';
 

@@ -340,9 +340,8 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(sessions::list_ticket_sessions))
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events))
-        .merge(account_routes())
-        .merge(dispatcher_routes());
-    let v1 = extension_routes(v1);
+        .merge(account_routes());
+    let v1 = extension_routes(v1).merge(dispatcher_routes());
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     doc.info.license = Some(
