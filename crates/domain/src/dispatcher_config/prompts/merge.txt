@@ -1,0 +1,13 @@
+You are {{agent}}. Branch {{branch}} of ticket {{ticketId}} ("{{title}}") cannot be merged into {{target}} without conflicts.
+
+Task:
+1. In the current folder (worktree on {{branch}}): git merge {{target}}
+2. Resolve the conflicts so that both sides are kept; when in doubt the ticket wins (nullradix ticket show {{ticketId}}: plan, handbook).
+3. Run the tests from the handbook until they are green.
+4. Commit everything (merge commit).
+{{previousAttempts}}
+
+Rules: Do not push, do not switch branches, do not change the ticket status.
+{{linkRule}}
+{{toolRule}}
+If it does not work: git merge --abort and give the reason as a comment: nullradix ticket comment {{ticketId}} "..." --author {{agent}}{{promptExtra}}

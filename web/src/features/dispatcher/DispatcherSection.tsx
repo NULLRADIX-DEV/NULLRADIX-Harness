@@ -18,9 +18,11 @@ import {
   ProfileOptions,
   ProfilesEditor,
   RulesEditor,
+  SetupStepsEditor,
   profileNames,
   type Edit,
 } from './editors';
+import { PromptsEditor } from './PromptsEditor';
 import {
   dispatcherConfigQuery,
   useSaveDispatcherConfig,
@@ -205,6 +207,26 @@ function Operation({ form, errors, edit }: FormProps) {
         </SelectSetting>
       </Group>
     </>
+  );
+}
+
+function WorktreeSetup({ form, errors, edit }: FormProps) {
+  return (
+    <Group
+      title="Worktree setup"
+      hint="Commands run in a fresh worktree before Claude starts, one after the other. The folder is relative to the worktree root."
+    >
+      <SetupStepsEditor form={form} errors={errors} edit={edit} />
+      <NumberSetting
+        label="Setup timeout (minutes)"
+        hint="The whole setup is stopped after this long."
+        value={form.worktreeSetupTimeoutMinutes}
+        error={errors['worktreeSetupTimeoutMinutes']}
+        onChange={(value) => {
+          edit((current) => ({ ...current, worktreeSetupTimeoutMinutes: value }));
+        }}
+      />
+    </Group>
   );
 }
 
@@ -537,6 +559,7 @@ function ConfigEditor({
         </p>
       )}
       <Operation {...props} />
+      <WorktreeSetup {...props} />
       <Profiles {...props} base={base} />
       <AccountSettings {...props} />
       <AutoRuns {...props} />
@@ -577,6 +600,7 @@ export function DispatcherSection() {
         <p className="form-error">Could not load the dispatcher settings.</p>
       )}
       {config.status === 'success' && <ConfigEditor view={config.data} accounts={choices} />}
+      {config.status === 'success' && <PromptsEditor />}
     </section>
   );
 }

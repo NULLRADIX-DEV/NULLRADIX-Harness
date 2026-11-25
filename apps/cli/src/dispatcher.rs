@@ -14,6 +14,9 @@ pub(crate) enum DispatcherCommand {
     /// Show and change the dispatcher configuration
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Show, set, reset and preview the prompt templates of runs
+    #[command(subcommand)]
+    Prompt(crate::dispatcher_prompt::PromptCommand),
 }
 
 #[derive(Subcommand)]
@@ -52,6 +55,9 @@ pub(crate) fn run(command: DispatcherCommand, client: &Client) -> anyhow::Result
             }
         }
         DispatcherCommand::Config(ConfigCommand::Set(args)) => set(client, &args)?,
+        DispatcherCommand::Prompt(command) => {
+            return crate::dispatcher_prompt::run(command, client);
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

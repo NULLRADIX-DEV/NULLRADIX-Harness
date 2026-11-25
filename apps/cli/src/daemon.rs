@@ -12,6 +12,7 @@ use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::{CustomizationService, NoStandards};
 use nullradix_app::dispatcher_config::DispatcherConfigService;
+use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
@@ -131,11 +132,13 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (themes, customizations) = start_extensions(config, &store, &signal);
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
+    let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
     let state = ApiState {
         auth,
         projects,
         accounts: account_services.accounts,
         dispatcher_config,
+        dispatcher_prompts,
         usage: account_services.usage,
         logins: account_services.logins.clone(),
         boards: board.boards,
@@ -199,6 +202,17 @@ fn dispatcher_config_service(store: &Store, signal: &ChangeSignal) -> Arc<Dispat
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),
+    ))
+}
+
+fn dispatcher_prompt_service(
+    config: &Arc<DispatcherConfigService>,
+    board: &BoardServices,
+) -> Arc<DispatcherPromptService> {
+    Arc::new(DispatcherPromptService::new(
+        config.clone(),
+        board.tickets.clone(),
+        board.questions.clone(),
     ))
 }
 

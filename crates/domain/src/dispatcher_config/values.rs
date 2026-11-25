@@ -101,9 +101,22 @@ pub enum PromptKind {
 }
 
 impl PromptKind {
+    pub const ALL: [Self; 4] = [Self::Work, Self::Plan, Self::Research, Self::Merge];
+
     #[must_use]
     pub fn as_str(self) -> &'static str {
         self.into()
+    }
+
+    /// Name for people, such as in the editor.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Work => "Work",
+            Self::Plan => "Planning",
+            Self::Research => "Research",
+            Self::Merge => "Merge",
+        }
     }
 }
 

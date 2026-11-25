@@ -12,6 +12,7 @@ use nullradix_app::{
 use nullradix_domain::{
     Account, AccountName, AccountSlug, ConfigDir, DispatcherConfig, Id, JoinWorktrees,
     MergeStrategy, PromptKind, RuleCondition, TimeWindow, Version, WorktreeSetupStep,
+    default_template,
 };
 use nullradix_store::Store;
 use uuid::Uuid;
@@ -359,6 +360,11 @@ async fn profiles_rules_and_the_ladder_are_replaced_as_a_whole() {
     assert_eq!(read.rules.len(), 2);
 }
 
+/// An own template: the default with a last line.
+fn own(kind: PromptKind, last: &str) -> String {
+    format!("{}\n{last}", default_template(kind))
+}
+
 #[tokio::test]
 async fn setup_steps_and_own_templates_round_trip_and_clear() {
     let f = fixture().await;
@@ -375,10 +381,10 @@ async fn setup_steps_and_own_templates_round_trip_and_clear() {
     ];
     draft
         .prompts
-        .set(PromptKind::Work, Some(String::from("do the work\nnow")));
+        .set(PromptKind::Work, Some(own(PromptKind::Work, "now")));
     draft
         .prompts
-        .set(PromptKind::Merge, Some(String::from("merge it")));
+        .set(PromptKind::Merge, Some(own(PromptKind::Merge, "then stop")));
     draft.prompt_extra = String::from("be kind");
     let saved = f
         .config
@@ -392,7 +398,7 @@ async fn setup_steps_and_own_templates_round_trip_and_clear() {
     next.worktree_setup.pop();
     next.prompts.set(PromptKind::Work, None);
     next.prompts
-        .set(PromptKind::Plan, Some(String::from("plan it")));
+        .set(PromptKind::Plan, Some(own(PromptKind::Plan, "plan it")));
     let after = f.config.update(next.clone(), saved.version).await.unwrap();
     assert_eq!(after.version, Version::from_stored(3));
     let read = f.current().await;

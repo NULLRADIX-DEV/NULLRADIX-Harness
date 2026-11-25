@@ -4,6 +4,7 @@ use std::fmt;
 use crate::{AccountSlug, TextError, required_text};
 
 use super::config::{DispatcherConfig, FALLBACK_PROFILE};
+use super::prompt_check::{missing_parts, size_problem, unknown_placeholders};
 use super::values::{
     ClaudeSettings, EFFORT_LEVELS, MAX_PARALLEL_AUTO_RUNS, MODEL_ALIASES, PROFILE_NAME_MAX,
     Profile, PromptKind, Rule, TimeWindow, WorktreeSetupStep,
@@ -329,6 +330,36 @@ fn setup_steps(steps: &mut [WorktreeSetupStep], check: &mut Checker) {
     }
 }
 
+/// An own prompt template may only use known placeholders and must keep the required parts.
+fn template(kind: PromptKind, text: &str, check: &mut Checker) {
+    let field = format!("prompts.{}", kind.as_str());
+    if let Some(problem) = size_problem(text) {
+        check.add(&field, problem);
+        return;
+    }
+    let unknown = unknown_placeholders(kind, text);
+    if !unknown.is_empty() {
+        let names: Vec<String> = unknown
+            .iter()
+            .map(|name| format!("{{{{{name}}}}}"))
+            .collect();
+        check.add(
+            &field,
+            format!("uses unknown placeholders {}", names.join(", ")),
+        );
+    }
+    let missing: Vec<&str> = missing_parts(kind, text)
+        .iter()
+        .map(|part| part.label)
+        .collect();
+    if !missing.is_empty() {
+        check.add(
+            &field,
+            format!("lacks required parts: {}", missing.join("; ")),
+        );
+    }
+}
+
 fn window(window: Option<&TimeWindow>, check: &mut Checker) {
     if let Some(window) = window
         && (!is_clock(&window.from) || !is_clock(&window.to))
@@ -396,17 +427,15 @@ impl DispatcherConfig {
         self.auto_runs(&names, &mut check);
         self.stale(&mut check);
         setup_steps(&mut self.worktree_setup, &mut check);
-        for kind in [
-            PromptKind::Work,
-            PromptKind::Plan,
-            PromptKind::Research,
-            PromptKind::Merge,
-        ] {
+        for kind in PromptKind::ALL {
             let tidy = self
                 .prompts
                 .get(kind)
                 .filter(|text| !text.trim().is_empty())
                 .map(|text| text.replace("\r\n", "\n"));
+            if let Some(text) = &tidy {
+                template(kind, text, &mut check);
+            }
             self.prompts.set(kind, tidy);
         }
         if check.errors.is_empty() {
@@ -452,7 +481,9 @@ impl DispatcherConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dispatcher_config::{AccountStrategy, JoinWorktrees, MergeStrategy, RuleCondition};
+    use crate::dispatcher_config::{
+        AccountStrategy, JoinWorktrees, MergeStrategy, RuleCondition, default_template,
+    };
     use uuid::Uuid;
 
     fn fields(config: DispatcherConfig) -> Vec<String> {
@@ -877,18 +908,70 @@ mod tests {
 
     #[test]
     fn prompt_templates_keep_their_text_but_lose_blank_ones_and_carriage_returns() {
+        let own = format!("  {}", default_template(PromptKind::Work));
         let config = changed(|config| {
-            config.prompts.work = Some(String::from("  line one\r\nline two  "));
+            config.prompts.work = Some(own.replace('\n', "\r\n"));
             config.prompts.plan = Some(String::from("   "));
         });
         let config = config.normalized().unwrap();
-        assert_eq!(
-            config.prompts.work.as_deref(),
-            Some("  line one\nline two  ")
-        );
+        assert_eq!(config.prompts.work.as_deref(), Some(own.as_str()));
         assert_eq!(config.prompts.plan, None);
         assert_eq!(config.prompts.entries().len(), 1);
-        assert_eq!(config.prompts.get(PromptKind::Work).map(str::len), Some(21));
+    }
+
+    #[test]
+    fn a_huge_prompt_template_is_refused_per_field_without_being_checked() {
+        let huge = "--author ".repeat(2 * 1024 * 1024 / 9);
+        let started = std::time::Instant::now();
+        let errors = changed(|config| config.prompts.work = Some(huge.clone()))
+            .normalized()
+            .unwrap_err()
+            .0;
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field, "prompts.work");
+        assert_eq!(errors[0].message, "is longer than 64 KiB");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn prompt_templates_with_unknown_placeholders_or_missing_parts_are_refused_per_field() {
+        let error = changed(|config| {
+            config.prompts.work = Some(String::from("Do {{ticketId}} as {{agent}} {{nope}}"));
+            config.prompts.research = Some(String::from("Research {{questionId}} as {{agent}}"));
+        })
+        .normalized()
+        .unwrap_err();
+        let fields: Vec<(&str, &str)> = error
+            .0
+            .iter()
+            .map(|found| (found.field.as_str(), found.message.as_str()))
+            .collect();
+        assert_eq!(
+            fields,
+            [
+                ("prompts.work", "uses unknown placeholders {{nope}}"),
+                (
+                    "prompts.work",
+                    "lacks required parts: Outcome done: nullradix ticket done {{ticketId}}; Outcome blocked: nullradix ticket set {{ticketId}} --status blocked; Outcome question: nullradix question add ... --ticket {{ticketId}}; Attribution --author {{agent}}"
+                ),
+                (
+                    "prompts.research",
+                    "lacks required parts: Saving: nullradix research submit {{questionId}}; File research.json"
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn every_default_template_is_accepted_as_an_own_one() {
+        let config = changed(|config| {
+            for kind in PromptKind::ALL {
+                config
+                    .prompts
+                    .set(kind, Some(default_template(kind).to_owned()));
+            }
+        });
+        assert!(config.normalized().is_ok());
     }
 
     #[test]

@@ -1550,6 +1550,280 @@
         }
       }
     },
+    "/api/v1/dispatcher/prompt-previews": {
+      "post": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "preview_prompt",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewPrompt"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptPreviewDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such ticket or question",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Bad key, unknown placeholders or missing parts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dispatcher/prompts": {
+      "get": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "list_prompts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptListDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dispatcher/prompts/{kind}": {
+      "get": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "get_prompt",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PromptKindDto"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "set_prompt",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PromptKindDto"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPrompt"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unknown placeholders or missing parts: `dispatcher-prompt-invalid`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "reset_prompt",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PromptKindDto"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Version of the dispatcher configuration the change is based on.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dropped; the default is in charge again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/events": {
       "get": {
         "tags": [
@@ -9903,6 +10177,24 @@
           "disabled"
         ]
       },
+      "PlaceholderDto": {
+        "type": "object",
+        "description": "A placeholder a template may use.",
+        "required": [
+          "name",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "What goes there."
+          },
+          "name": {
+            "type": "string",
+            "description": "Used as `{{name}}`."
+          }
+        }
+      },
       "PlanningSettingsDto": {
         "type": "object",
         "description": "Planning runs on tickets.",
@@ -9930,6 +10222,32 @@
             "type": "integer",
             "format": "int64",
             "description": "Parallel planning runs from 1 to 5."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreviewPrompt": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Ticket key for work, plan and merge, question key for research; none uses sample values."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PromptKindDto"
+          },
+          "template": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Rendered instead of the stored template, without saving it."
           }
         },
         "additionalProperties": false
@@ -10174,6 +10492,131 @@
           },
           "ticket": {
             "$ref": "#/components/schemas/TicketDto"
+          }
+        }
+      },
+      "PromptDetail": {
+        "type": "object",
+        "required": [
+          "prompt",
+          "version"
+        ],
+        "properties": {
+          "prompt": {
+            "$ref": "#/components/schemas/PromptDto"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version of the dispatcher configuration the template lives in."
+          }
+        }
+      },
+      "PromptDto": {
+        "type": "object",
+        "description": "A prompt kind with its default, its own template and what an editor needs.",
+        "required": [
+          "kind",
+          "label",
+          "default",
+          "placeholders",
+          "required"
+        ],
+        "properties": {
+          "default": {
+            "type": "string",
+            "description": "The template that applies without an own one."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PromptKindDto"
+          },
+          "label": {
+            "type": "string"
+          },
+          "placeholders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlaceholderDto"
+            }
+          },
+          "required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The parts every template of this kind must keep."
+          },
+          "template": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The own template; none means the default applies."
+          }
+        }
+      },
+      "PromptKindDto": {
+        "type": "string",
+        "description": "Kind of run a prompt template is for.",
+        "enum": [
+          "work",
+          "plan",
+          "research",
+          "merge"
+        ]
+      },
+      "PromptListDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "version"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PromptDto"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version of the dispatcher configuration the templates live in."
+          }
+        }
+      },
+      "PromptPreviewDto": {
+        "type": "object",
+        "description": "An instruction as the agent would get it.",
+        "required": [
+          "kind",
+          "sample",
+          "prompt",
+          "standIns"
+        ],
+        "properties": {
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PromptKindDto"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "sample": {
+            "type": "boolean",
+            "description": "Sample values were used because no key was given."
+          },
+          "standIns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Placeholders that show a stand-in text because their data does not exist yet."
           }
         }
       },
@@ -11288,6 +11731,25 @@
             "type": "integer",
             "format": "int64",
             "description": "Version the change is based on."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetPrompt": {
+        "type": "object",
+        "required": [
+          "template",
+          "version"
+        ],
+        "properties": {
+          "template": {
+            "type": "string",
+            "description": "The own template; blank goes back to the default."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version of the dispatcher configuration the change is based on."
           }
         },
         "additionalProperties": false

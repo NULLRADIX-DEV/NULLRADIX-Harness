@@ -1,0 +1,4 @@
+- Read files with Read and change them with Edit or Write - not through cat/sed/head or node/python scripts.
+  Use Bash/PowerShell only for commands (tests, build, git, nullradix), each with a short description.
+- Always run commands in the foreground (no run_in_background, no Monitor/ScheduleWakeup), long ones with timeout: 1800000.
+  If a command ends up in the background anyway, do not wait for it: restart it in the foreground and wait for the result.

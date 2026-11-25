@@ -8,6 +8,7 @@ mod connect;
 mod customize;
 mod daemon;
 mod dispatcher;
+mod dispatcher_prompt;
 mod hook;
 mod inbox;
 mod intake;
