@@ -7,6 +7,10 @@ use nullradix_app::repositories::{
     Located, RunnerService, not_a_git_project, path_missing, path_relative,
 };
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
+use nullradix_app::session_detail::{
+    ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
+    TranscriptSource, TranscriptSummary, change_not_found,
+};
 use nullradix_app::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
 use nullradix_app::{AppError, ChangeSignal, SystemClock, UuidV7Generator};
 use nullradix_domain::{Id, Run};
@@ -70,6 +74,27 @@ impl RunnerPort for FolderRunner {
         _request: &RemoveWorktree,
     ) -> Result<WorktreeRemoval, AppError> {
         Err(AppError::unavailable("runner-failed", "runs nothing"))
+    }
+    async fn read_transcript(
+        &self,
+        _request: &TranscriptRead,
+    ) -> Result<Option<TranscriptChunk>, AppError> {
+        Ok(None)
+    }
+
+    async fn transcript_facts(
+        &self,
+        _source: &TranscriptSource,
+    ) -> Result<Option<TranscriptSummary>, AppError> {
+        Ok(None)
+    }
+
+    async fn session_changes(&self, _request: &ChangeRequest) -> Result<SessionChanges, AppError> {
+        Ok(SessionChanges::none())
+    }
+
+    async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError> {
+        Err(change_not_found(&request.path))
     }
 }
 

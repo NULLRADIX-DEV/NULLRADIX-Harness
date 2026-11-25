@@ -15,6 +15,7 @@ mod projects;
 mod questions;
 mod repositories;
 mod runs;
+mod session_detail;
 mod sessions;
 mod tickets;
 mod web;
@@ -82,6 +83,12 @@ pub use repositories::{
 };
 pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
+};
+pub use session_detail::{
+    ChangeOriginDto, ChangedFileDto, ClaimSession, ContextUsageDto, DiffHunkDto, DiffLineDto,
+    DiffLineKindDto, FileDiffDto, FileStatusDto, SessionChangesDto, SessionDetailDto,
+    SystemLevelDto, TodoItemDto, TodoStatusDto, TokenTotalsDto, ToolResultDto, TranscriptEntryDto,
+    TranscriptInfoDto, TranscriptPageDto,
 };
 pub use sessions::{
     DisplayStateDto, SessionClientDto, SessionDto, SessionList, SessionStateDto, SessionTicketDto,
@@ -236,6 +243,11 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(runs::run_output))
         .routes(routes!(sessions::list_sessions))
         .routes(routes!(sessions::get_session))
+        .routes(routes!(session_detail::session_detail))
+        .routes(routes!(session_detail::session_transcript))
+        .routes(routes!(session_detail::session_changes))
+        .routes(routes!(session_detail::session_file_diff))
+        .routes(routes!(session_detail::claim_session))
         .routes(routes!(sessions::list_ticket_sessions))
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events));

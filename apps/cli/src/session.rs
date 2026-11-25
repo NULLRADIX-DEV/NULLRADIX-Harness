@@ -1,7 +1,11 @@
 use std::process::ExitCode;
 
 use clap::Subcommand;
-use nullradix_api::{DisplayStateDto, SessionDto, SubagentStateDto};
+use nullradix_api::{
+    ChangeOriginDto, DiffLineKindDto, DisplayStateDto, FileDiffDto, FileStatusDto,
+    SessionChangesDto, SessionClientDto, SessionDetailDto, SessionDto, SubagentStateDto,
+    SystemLevelDto, TodoStatusDto, TranscriptEntryDto,
+};
 use nullradix_client::Client;
 use nullradix_domain::Timestamp;
 use uuid::Uuid;
@@ -29,10 +33,43 @@ pub(crate) enum SessionCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Show one session with its subagents and tickets
+    /// Show one session with its subagents, tickets and the figures of its transcript
     Show {
         /// Claude Code's session id
         session_id: String,
+        /// Print JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print what the session's transcript holds, one line per entry
+    #[command(after_help = "Example:\n  nullradix session transcript 0123abcd --after 4096")]
+    Transcript {
+        /// Claude Code's session id
+        session_id: String,
+        /// Byte offset to start after, from a previous cursor
+        #[arg(long, default_value_t = 0)]
+        after: u64,
+        /// Entries of one page; without it every page is read
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Print JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
+    /// List the files the session changed, from git or else its transcript
+    Changes {
+        /// Claude Code's session id
+        session_id: String,
+        /// Print JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the diff of one file the session changed
+    Diff {
+        /// Claude Code's session id
+        session_id: String,
+        /// Path relative to the checkout, as `session changes` lists it
+        path: String,
         /// Print JSON instead of text
         #[arg(long)]
         json: bool,
@@ -68,17 +105,261 @@ pub(crate) fn run(command: SessionCommand, client: &Client) -> anyhow::Result<Ex
             }
         }
         SessionCommand::Show { session_id, json } => {
-            let session = client.get_session(&session_id)?;
+            let detail = client.session_detail(&session_id)?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&session)?);
+                println!("{}", serde_json::to_string_pretty(&detail)?);
             } else {
-                for line in show_lines(&session) {
-                    println!("{line}");
-                }
+                print_lines(&detail_lines(&detail));
+            }
+        }
+        SessionCommand::Transcript {
+            session_id,
+            after,
+            limit,
+            json,
+        } => transcript(client, &session_id, after, limit, json)?,
+        SessionCommand::Changes { session_id, json } => {
+            let changes = client.session_changes(&session_id)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&changes)?);
+            } else {
+                print_lines(&change_lines(&changes));
+            }
+        }
+        SessionCommand::Diff {
+            session_id,
+            path,
+            json,
+        } => {
+            let diff = client.session_diff(&session_id, &path)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&diff)?);
+            } else {
+                print_lines(&diff_lines(&diff));
             }
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn print_lines(lines: &[String]) {
+    for line in lines {
+        println!("{line}");
+    }
+}
+
+/// One page with a limit, else every page until the cursor stops.
+fn transcript(
+    client: &Client,
+    id: &str,
+    after: u64,
+    limit: Option<u32>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let mut cursor = after;
+    let mut entries = Vec::new();
+    loop {
+        let page = client.session_transcript(id, cursor, limit)?;
+        if !page.available {
+            if json {
+                println!("{}", serde_json::to_string_pretty(&page)?);
+            } else {
+                println!("The transcript is not available.");
+            }
+            return Ok(());
+        }
+        let done = limit.is_some() || page.entries.is_empty() || page.cursor <= cursor;
+        cursor = page.cursor;
+        if json && limit.is_some() {
+            println!("{}", serde_json::to_string_pretty(&page)?);
+            return Ok(());
+        }
+        merge(&mut entries, page.entries);
+        if done {
+            break;
+        }
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+    } else {
+        print_lines(&transcript_lines(&entries));
+        if limit.is_some() {
+            println!("Next page: --after {cursor}");
+        }
+    }
+    Ok(())
+}
+
+fn entry_id(entry: &TranscriptEntryDto) -> &str {
+    match entry {
+        TranscriptEntryDto::Prompt { id, .. }
+        | TranscriptEntryDto::Text { id, .. }
+        | TranscriptEntryDto::Thinking { id, .. }
+        | TranscriptEntryDto::Tool { id, .. }
+        | TranscriptEntryDto::System { id, .. } => id,
+    }
+}
+
+/// Adds a page; an entry with a known id replaces the earlier one, as pages promise.
+fn merge(entries: &mut Vec<TranscriptEntryDto>, page: Vec<TranscriptEntryDto>) {
+    for entry in page {
+        match entries
+            .iter()
+            .position(|known| entry_id(known) == entry_id(&entry))
+        {
+            Some(index) => entries[index] = entry,
+            None => entries.push(entry),
+        }
+    }
+}
+
+fn first_line(text: &str) -> &str {
+    text.trim().lines().next().unwrap_or_default()
+}
+
+fn transcript_lines(entries: &[TranscriptEntryDto]) -> Vec<String> {
+    if entries.is_empty() {
+        return vec![String::from("No entries.")];
+    }
+    entries
+        .iter()
+        .map(|entry| match entry {
+            TranscriptEntryDto::Prompt { text, .. } => format!("prompt   {}", first_line(text)),
+            TranscriptEntryDto::Text { text, .. } => format!("answer   {}", first_line(text)),
+            TranscriptEntryDto::Thinking { duration_ms, .. } => match duration_ms {
+                Some(millis) => format!("thinking {millis} ms"),
+                None => String::from("thinking"),
+            },
+            TranscriptEntryDto::Tool {
+                summary, result, ..
+            } => {
+                let state = match result {
+                    None => " (running)",
+                    Some(result) if result.is_error => " (failed)",
+                    Some(_) => "",
+                };
+                format!("tool     {summary}{state}")
+            }
+            TranscriptEntryDto::System { text, level, .. } => {
+                let level = match level {
+                    SystemLevelDto::Info => "info",
+                    SystemLevelDto::Warning => "warning",
+                    SystemLevelDto::Error => "error",
+                };
+                format!("{level:<8} {}", first_line(text))
+            }
+        })
+        .collect()
+}
+
+fn client_label(client: SessionClientDto) -> &'static str {
+    match client {
+        SessionClientDto::Nullradix => "nullradix",
+        SessionClientDto::ClaudeCode => "claude-code",
+        SessionClientDto::ClaudeDesktop => "claude-desktop",
+        SessionClientDto::Unknown => "unknown",
+    }
+}
+
+/// The session as `show_lines` prints it plus the figures of its transcript.
+fn detail_lines(detail: &SessionDetailDto) -> Vec<String> {
+    let mut lines = show_lines(&detail.session);
+    let mut facts = vec![format!("Client:     {}", client_label(detail.client))];
+    if let Some(branch) = &detail.branch {
+        facts.push(format!("Branch:     {branch}"));
+    }
+    if let Some(version) = &detail.claude_version {
+        facts.push(format!("Claude:     {version}"));
+    }
+    let tokens = &detail.tokens;
+    facts.push(format!(
+        "Tokens:     {} in, {} out, {} cache read, {} cache write",
+        tokens.input, tokens.output, tokens.cache_read, tokens.cache_write
+    ));
+    if let Some(cost) = detail.cost_usd {
+        facts.push(format!("Cost:       ${cost:.2}"));
+    }
+    if let Some(context) = &detail.context {
+        let limit = context
+            .limit_tokens
+            .map_or_else(String::new, |limit| format!(" of {limit}"));
+        facts.push(format!("Context:    {}{limit} tokens", context.used_tokens));
+    }
+    facts.push(
+        match (&detail.transcript.path, detail.transcript.size_bytes) {
+            (Some(path), Some(size)) if detail.transcript.available => {
+                format!("Transcript: {path} ({size} bytes)")
+            }
+            _ => String::from("Transcript: not available"),
+        },
+    );
+    if !detail.todos.is_empty() {
+        facts.push(String::from("Todos:"));
+        for todo in &detail.todos {
+            let mark = match todo.status {
+                TodoStatusDto::Pending => ' ',
+                TodoStatusDto::InProgress => '>',
+                TodoStatusDto::Completed => 'x',
+            };
+            facts.push(format!("  [{mark}] {}", todo.content));
+        }
+    }
+    // the figures go before the subagents, which end the list
+    let at = lines
+        .iter()
+        .position(|line| line == "Subagents:")
+        .unwrap_or(lines.len());
+    lines.splice(at..at, facts);
+    lines
+}
+
+fn change_lines(changes: &SessionChangesDto) -> Vec<String> {
+    let mut lines = vec![match changes.origin {
+        ChangeOriginDto::Git => format!(
+            "Changes from git against {}",
+            changes.base.as_deref().unwrap_or("HEAD")
+        ),
+        ChangeOriginDto::Transcript => String::from("Changes from the transcript"),
+        ChangeOriginDto::None => String::from("No source of changes."),
+    }];
+    if let Some(note) = &changes.note {
+        lines.push(note.clone());
+    }
+    for file in &changes.files {
+        let status = match file.status {
+            FileStatusDto::Added => 'A',
+            FileStatusDto::Modified => 'M',
+            FileStatusDto::Deleted => 'D',
+            FileStatusDto::Renamed => 'R',
+        };
+        lines.push(format!(
+            "{status} {} (+{} -{})",
+            file.path, file.added, file.removed
+        ));
+    }
+    if changes.files.is_empty() && changes.origin != ChangeOriginDto::None {
+        lines.push(String::from("No changed files."));
+    }
+    lines
+}
+
+fn diff_lines(diff: &FileDiffDto) -> Vec<String> {
+    let mut lines = vec![format!("--- {}", diff.path)];
+    for hunk in &diff.hunks {
+        lines.push(hunk.header.clone());
+        for line in &hunk.lines {
+            let sign = match line.kind {
+                DiffLineKindDto::Add => '+',
+                DiffLineKindDto::Remove => '-',
+                DiffLineKindDto::Context => ' ',
+            };
+            lines.push(format!("{sign}{}", line.text));
+        }
+    }
+    if diff.truncated {
+        lines.push(String::from("(cut after 5000 lines)"));
+    }
+    lines
 }
 
 fn state_label(state: DisplayStateDto) -> &'static str {
@@ -202,7 +483,10 @@ fn show_lines(session: &SessionDto) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
-    use nullradix_api::{SessionClientDto, SessionStateDto, SubagentDto};
+    use nullradix_api::{
+        ChangedFileDto, DiffHunkDto, DiffLineDto, SessionStateDto, SubagentDto, TodoItemDto,
+        TokenTotalsDto, ToolResultDto, TranscriptInfoDto,
+    };
 
     use super::*;
 
@@ -226,6 +510,18 @@ mod tests {
         ));
         assert!(Cli::try_parse_from(["session", "list", "--repository", "x"]).is_err());
         assert!(Cli::try_parse_from(["session", "show"]).is_err());
+        let cli = Cli::try_parse_from(["session", "transcript", "abc", "--after", "12"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            SessionCommand::Transcript {
+                after: 12,
+                limit: None,
+                ..
+            }
+        ));
+        let cli = Cli::try_parse_from(["session", "diff", "abc", "src/a.rs"]).unwrap();
+        assert!(matches!(cli.command, SessionCommand::Diff { path, .. } if path == "src/a.rs"));
+        assert!(Cli::try_parse_from(["session", "diff", "abc"]).is_err());
     }
 
     #[test]
@@ -278,6 +574,120 @@ mod tests {
             ]
         );
         assert_eq!(list_lines(&[]), ["No sessions."]);
+    }
+
+    fn detail() -> SessionDetailDto {
+        SessionDetailDto {
+            session: session(),
+            client: SessionClientDto::ClaudeDesktop,
+            transcript: TranscriptInfoDto {
+                available: true,
+                path: Some(String::from("/t/s.jsonl")),
+                size_bytes: Some(10),
+            },
+            branch: Some(String::from("feature/x")),
+            claude_version: None,
+            tokens: TokenTotalsDto {
+                input: 1,
+                output: 2,
+                cache_read: 3,
+                cache_write: 4,
+            },
+            cost_usd: Some(0.421),
+            duration_ms: None,
+            context: None,
+            todos: vec![TodoItemDto {
+                content: String::from("Write tests"),
+                status: TodoStatusDto::InProgress,
+            }],
+        }
+    }
+
+    #[test]
+    fn the_detail_adds_the_transcript_figures_before_the_subagents() {
+        let lines = detail_lines(&detail());
+        let at = |text: &str| lines.iter().position(|line| line == text).unwrap();
+        assert!(at("Client:     claude-desktop") < at("Subagents:"));
+        assert!(lines.contains(&String::from("Cost:       $0.42")));
+        assert!(lines.contains(&String::from("Transcript: /t/s.jsonl (10 bytes)")));
+        assert!(lines.contains(&String::from("  [>] Write tests")));
+        assert!(lines.contains(&String::from("Branch:     feature/x")));
+    }
+
+    #[test]
+    fn transcript_pages_replace_entries_with_known_ids() {
+        let tool = |result: Option<ToolResultDto>| TranscriptEntryDto::Tool {
+            id: String::from("t1"),
+            at: String::new(),
+            name: String::from("Bash"),
+            summary: String::from("Bash: ls"),
+            input: serde_json::json!({ "command": "ls" }),
+            result,
+        };
+        let mut entries = Vec::new();
+        merge(&mut entries, vec![tool(None)]);
+        assert_eq!(transcript_lines(&entries), ["tool     Bash: ls (running)"]);
+        let failed = ToolResultDto {
+            text: String::from("no"),
+            is_error: true,
+            truncated: false,
+        };
+        merge(
+            &mut entries,
+            vec![
+                tool(Some(failed)),
+                TranscriptEntryDto::Prompt {
+                    id: String::from("p"),
+                    at: String::new(),
+                    text: String::from("Fix it\nplease"),
+                },
+            ],
+        );
+        assert_eq!(
+            transcript_lines(&entries),
+            ["tool     Bash: ls (failed)", "prompt   Fix it"]
+        );
+        assert_eq!(transcript_lines(&[]), ["No entries."]);
+    }
+
+    #[test]
+    fn changes_and_diffs_read_like_git() {
+        let changes = SessionChangesDto {
+            origin: ChangeOriginDto::Git,
+            base: Some(String::from("main")),
+            note: None,
+            files: vec![ChangedFileDto {
+                path: String::from("src/a.rs"),
+                status: FileStatusDto::Modified,
+                added: 2,
+                removed: 1,
+            }],
+        };
+        assert_eq!(
+            change_lines(&changes),
+            ["Changes from git against main", "M src/a.rs (+2 -1)"]
+        );
+        let diff = FileDiffDto {
+            path: String::from("src/a.rs"),
+            hunks: vec![DiffHunkDto {
+                header: String::from("@@ -1,1 +1,1 @@"),
+                lines: vec![
+                    DiffLineDto {
+                        kind: DiffLineKindDto::Remove,
+                        text: String::from("a"),
+                    },
+                    DiffLineDto {
+                        kind: DiffLineKindDto::Add,
+                        text: String::from("b"),
+                    },
+                ],
+            }],
+            truncated: false,
+        };
+        assert_eq!(
+            diff_lines(&diff),
+            ["--- src/a.rs", "@@ -1,1 +1,1 @@", "-a", "+b"]
+        );
     }
 
     #[test]

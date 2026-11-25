@@ -1269,6 +1269,7 @@ dependencies = [
  "nullradix-app",
  "nullradix-domain",
  "nullradix-os",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

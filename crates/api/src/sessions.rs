@@ -213,7 +213,7 @@ pub(crate) struct SessionsQuery {
 #[into_params(parameter_in = Path, rename_all = "camelCase")]
 pub(crate) struct SessionPath {
     /// Claude Code's session id.
-    session_id: String,
+    pub(crate) session_id: String,
 }
 
 fn list(lines: Vec<SessionLine>) -> SessionList {

@@ -6,14 +6,20 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    DisplayState, HookEvent, Id, Repository, Runner, Session, SessionRef, SessionView, Ticket,
-    TicketKey, TicketStatus, Timestamp, Version, path_within, session_prune_before, ticket_names,
+    DisplayState, HookEvent, HookKind, Id, Repository, Runner, Session, SessionRef, SessionView,
+    Ticket, TicketKey, TicketStatus, Timestamp, Version, path_within, session_prune_before,
+    ticket_names,
 };
 use parking_lot::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::repositories::RunnerService;
+use crate::session_detail::{
+    ChangeRequest, DEFAULT_PAGE_LIMIT, DiffRequest, FileDiff, MAX_PAGE_LIMIT, SessionChanges,
+    SessionDetail, TranscriptInfo, TranscriptPage, TranscriptRead, TranscriptSource,
+    change_not_found, check_change_path, check_transcript_path, resolve_client,
+};
 use crate::tickets;
 use crate::{AppError, Change, ChangeSignal, Clock, ErrorKind, IdGenerator};
 
@@ -122,6 +128,15 @@ pub fn session_id_invalid() -> AppError {
     )
 }
 
+/// What a hook event did to its session.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Received {
+    /// False when the event was seen before.
+    pub new: bool,
+    /// The name Claude Code should show, on session start and when a prompt named the session.
+    pub title: Option<String>,
+}
+
 /// Filters of a session list as the API receives them.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SessionQuery<'a> {
@@ -173,13 +188,13 @@ impl SessionService {
         }
     }
 
-    /// Records the hook event and applies it to its session in one write; true when it was new.
-    pub async fn receive(self: &Arc<Self>, event: &HookEvent) -> Result<bool, AppError> {
+    /// Records the hook event and applies it to its session in one write.
+    pub async fn receive(self: &Arc<Self>, event: &HookEvent) -> Result<Received, AppError> {
         let known = self.known(event.cwd());
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
         if !write.record_hook(event, now).await? {
-            return Ok(false);
+            return Ok(Received::default());
         }
         let id = event.session();
         let current = write.session(id).await?;
@@ -203,6 +218,7 @@ impl SessionService {
             (None, _) => None,
         };
         let session = next.unwrap_or(base);
+        let title = session_title(event.kind(), current.as_ref(), &session);
         if self.link_tickets(write.as_mut(), event, &session).await? && change.is_none() {
             change = Some(write.touch(id, now).await?);
         }
@@ -216,7 +232,7 @@ impl SessionService {
         {
             tracing::warn!(%error, cwd = event.cwd(), "cannot place the session in its repository");
         }
-        Ok(true)
+        Ok(Received { new: true, title })
     }
 
     /// Links the tickets the hook names, else those whose worktree holds the cwd, as legacy.
@@ -396,6 +412,114 @@ impl SessionService {
         Ok(line(stored, self.clock.now()))
     }
 
+    /// The session with the figures of its transcript; a missing transcript is no error.
+    pub async fn detail(&self, id: &str) -> Result<SessionDetail, AppError> {
+        let line = self.get(id).await?;
+        let source = transcript_source(&line);
+        let summary = match (line.session.record().runner, &source) {
+            (Some(runner), Some(source)) => self.runners.transcript_facts(runner, source).await?,
+            _ => None,
+        };
+        let client = resolve_client(&line, summary.as_ref().map(|summary| &summary.facts));
+        let transcript = TranscriptInfo {
+            available: summary.is_some(),
+            path: summary
+                .as_ref()
+                .and(source.map(|source| source.path.replace('\\', "/"))),
+            size_bytes: summary.as_ref().map(|summary| summary.size_bytes),
+        };
+        Ok(SessionDetail {
+            line,
+            client,
+            transcript,
+            facts: summary.map_or_default(|summary| summary.facts),
+        })
+    }
+
+    /// Entries of the transcript after byte `after`; unavailable without a readable file.
+    pub async fn transcript(
+        &self,
+        id: &str,
+        after: u64,
+        limit: Option<u32>,
+    ) -> Result<TranscriptPage, AppError> {
+        let line = self.get(id).await?;
+        let unavailable = TranscriptPage {
+            entries: Vec::new(),
+            cursor: after,
+            skipped: 0,
+            available: false,
+        };
+        let (Some(runner), Some(source)) = (line.session.record().runner, transcript_source(&line))
+        else {
+            return Ok(unavailable);
+        };
+        let read = TranscriptRead {
+            path: source.path,
+            after,
+            limit: limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT),
+        };
+        Ok(match self.runners.read_transcript(runner, &read).await? {
+            Some(chunk) => TranscriptPage {
+                entries: chunk.entries,
+                cursor: chunk.cursor,
+                skipped: chunk.skipped,
+                available: true,
+            },
+            None => unavailable,
+        })
+    }
+
+    /// Changed files: git when the session has its own branch, else the transcript.
+    pub async fn changes(&self, id: &str) -> Result<SessionChanges, AppError> {
+        let line = self.get(id).await?;
+        let Some(runner) = line.session.record().runner else {
+            return Ok(SessionChanges::none());
+        };
+        self.runners
+            .session_changes(runner, &change_request(&line))
+            .await
+    }
+
+    /// Diff of one changed file; paths outside the checkout are refused.
+    pub async fn file_diff(&self, id: &str, path: &str) -> Result<FileDiff, AppError> {
+        let line = self.get(id).await?;
+        check_change_path(path)?;
+        let Some(runner) = line.session.record().runner else {
+            return Err(change_not_found(path));
+        };
+        let request = DiffRequest {
+            changes: change_request(&line),
+            path: path.to_owned(),
+        };
+        self.runners.session_diff(runner, &request).await
+    }
+
+    /// Links the ticket to the session, as legacy `claim` did when a session took a ticket.
+    pub async fn claim(&self, id: &str, ticket: &str) -> Result<SessionLine, AppError> {
+        let session = SessionRef::parse(id).map_err(|_| session_id_invalid())?;
+        let key = TicketKey::parse(ticket).map_err(|error| tickets::invalid(&error))?;
+        let now = self.clock.now();
+        let mut write = self.repository.begin().await?;
+        if write.session(&session).await?.is_none() {
+            return Err(session_not_found(session.as_str()));
+        }
+        let ticket = write
+            .ticket(&key)
+            .await?
+            .ok_or_else(|| tickets::not_found(&key))?;
+        let change = if write.link(ticket, &session, now).await? {
+            Some(write.touch(&session, now).await?)
+        } else {
+            None
+        };
+        write.commit().await?;
+        if let Some(change) = &change {
+            self.signal.notify(change);
+        }
+        self.get(session.as_str()).await
+    }
+
     /// Forgets sessions that ended or went silent a week ago, as legacy did.
     pub async fn prune(&self) -> Result<u64, AppError> {
         let now = self.clock.now();
@@ -413,6 +537,38 @@ impl SessionService {
             .ticket_id(&key)
             .await?
             .ok_or_else(|| tickets::not_found(&key))
+    }
+}
+
+/// The recorded transcript when its path may be read; hooks are the only source.
+fn transcript_source(line: &SessionLine) -> Option<TranscriptSource> {
+    let record = line.session.record();
+    let path = record.transcript_path.as_deref()?;
+    if let Err(error) = check_transcript_path(path) {
+        tracing::warn!(%error, session = record.id.as_str(), "transcript path refused");
+        return None;
+    }
+    Some(TranscriptSource {
+        path: path.to_owned(),
+        cwd: record.cwd.clone(),
+    })
+}
+
+fn change_request(line: &SessionLine) -> ChangeRequest {
+    ChangeRequest {
+        cwd: line.session.record().cwd.clone(),
+        transcript: transcript_source(line).map(|source| source.path),
+    }
+}
+
+/// The label for Claude Code: at session start once titled, else when a prompt changed it.
+fn session_title(kind: HookKind, before: Option<&Session>, after: &Session) -> Option<String> {
+    after.record().title.as_ref()?;
+    let label = after.label();
+    match kind {
+        HookKind::SessionStart => Some(label),
+        HookKind::UserPrompt if before.map(Session::label).as_ref() != Some(&label) => Some(label),
+        _ => None,
     }
 }
 

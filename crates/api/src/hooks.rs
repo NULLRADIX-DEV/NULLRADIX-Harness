@@ -201,6 +201,9 @@ pub struct HookReplyDto {
     /// Variables for the environment of the session.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    /// Name Claude Code shows for the session, such as `SE-001: Fix the login`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_title: Option<String>,
 }
 
 impl From<HookReply> for HookReplyDto {
@@ -208,6 +211,7 @@ impl From<HookReply> for HookReplyDto {
         Self {
             additional_context: reply.additional_context,
             env: reply.env,
+            session_title: reply.session_title,
         }
     }
 }
@@ -311,14 +315,17 @@ mod tests {
     async fn token_holders_report_hooks_once_per_event_id() {
         let api = test_api().await;
         let id = uuid::Uuid::now_v7().to_string();
-        for _ in 0..2 {
+        let first = json!({ "additionalContext": null, "env": {}, "sessionTitle": "fix it" });
+        // a resend changes nothing, so it names nothing either
+        let again = json!({ "additionalContext": null, "env": {} });
+        for expected in [first, again] {
             let request = bearer(Request::post("/api/v1/hooks/user-prompt"), &api.token)
                 .header("content-type", "application/json")
                 .body(Body::from(event(&id).to_string()))
                 .unwrap();
             let (status, _, reply) = send(&api.router, request).await;
             assert_eq!(status, 200);
-            assert_eq!(reply, json!({ "additionalContext": null, "env": {} }));
+            assert_eq!(reply, expected);
         }
         let request = bearer(Request::get("/api/v1/hook-events"), &api.token)
             .body(Body::empty())

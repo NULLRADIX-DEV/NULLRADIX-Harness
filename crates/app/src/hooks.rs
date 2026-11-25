@@ -27,6 +27,8 @@ pub struct HookReply {
     pub additional_context: Option<String>,
     /// Variables for the environment of the session.
     pub env: BTreeMap<String, String>,
+    /// Name Claude Code shows for the session, such as `SE-001: Fix the login`.
+    pub session_title: Option<String>,
 }
 
 /// Names the session's later CLI calls read, as legacy exported them at session start.
@@ -73,9 +75,12 @@ impl HookService {
 
     /// Records the event; a resend of the same event changes nothing.
     pub async fn receive(&self, event: &HookEvent) -> Result<HookReply, AppError> {
-        let new = match &self.sessions {
-            Some(sessions) => sessions.receive(event).await?,
-            None => self.repository.record(event, self.clock.now()).await?,
+        let (new, session_title) = match &self.sessions {
+            Some(sessions) => {
+                let received = sessions.receive(event).await?;
+                (received.new, received.title)
+            }
+            None => (self.repository.record(event, self.clock.now()).await?, None),
         };
         if new {
             tracing::debug!(
@@ -84,7 +89,10 @@ impl HookService {
                 "hook event"
             );
         }
-        let mut reply = HookReply::default();
+        let mut reply = HookReply {
+            session_title,
+            ..HookReply::default()
+        };
         if event.kind() == HookKind::SessionStart {
             reply.env = self.session_env(event).await;
         }

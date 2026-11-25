@@ -126,6 +126,12 @@
     "stdout": ""
   },
   {
+    "field": "number",
+    "name": "the repository is found",
+    "reached": 1,
+    "wait": "/api/v1/sessions/s-1"
+  },
+  {
     "cli": [
       "hook",
       "user-prompt"
@@ -133,13 +139,7 @@
     "exitCode": 0,
     "name": "prompt",
     "stderr": "",
-    "stdout": ""
-  },
-  {
-    "field": "number",
-    "name": "the repository is found",
-    "reached": 1,
-    "wait": "/api/v1/sessions/s-1"
+    "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"sessionTitle\":\"SE-001: Fix the login form please now ...\"}}\n"
   },
   {
     "name": "running",
@@ -431,7 +431,7 @@
     "exitCode": 0,
     "name": "the ended session",
     "stderr": "",
-    "stdout": "SE-001: Fix the login form please now ... (s-1)\nState:      ended\nRuntime:    less than 1 min\nStarted:    <TIME>\nLast hook:  <TIME>\nEnded:      <TIME>\nFolder:     <WORK>/arches\nModel:      fake-opus\nTickets:    ARC-0001\nSubagents:\n  Explore agent-1 (ended)\n"
+    "stdout": "SE-001: Fix the login form please now ... (s-1)\nState:      ended\nRuntime:    less than 1 min\nStarted:    <TIME>\nLast hook:  <TIME>\nEnded:      <TIME>\nFolder:     <WORK>/arches\nModel:      fake-opus\nTickets:    ARC-0001\nClient:     claude-code\nTokens:     0 in, 0 out, 0 cache read, 0 cache write\nTranscript: not available\nSubagents:\n  Explore agent-1 (ended)\n"
   },
   {
     "cli": [

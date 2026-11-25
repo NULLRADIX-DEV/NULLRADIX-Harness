@@ -1,0 +1,497 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Write the notes"
+    ],
+    "exitCode": 0,
+    "name": "a ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Write the notes\n"
+  },
+  {
+    "file": "<WORK>/s-1.jsonl",
+    "lines": 6,
+    "name": "the transcript Claude Code wrote"
+  },
+  {
+    "cli": [
+      "hook",
+      "session-start"
+    ],
+    "exitCode": 0,
+    "name": "session start",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "field": "number",
+    "name": "the repository is found",
+    "reached": 1,
+    "wait": "/api/v1/sessions/s-1"
+  },
+  {
+    "cli": [
+      "hook",
+      "user-prompt"
+    ],
+    "exitCode": 0,
+    "name": "the first prompt names the session",
+    "stderr": "",
+    "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"sessionTitle\":\"SE-001: Write the notes file please\"}}\n"
+  },
+  {
+    "cli": [
+      "hook",
+      "user-prompt"
+    ],
+    "exitCode": 0,
+    "name": "a later prompt keeps the name",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "hook",
+      "stop"
+    ],
+    "exitCode": 0,
+    "name": "stop",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "name": "the detail",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/sessions/s-1/detail"
+    },
+    "response": {
+      "json": {
+        "branch": "main",
+        "claudeVersion": "2.1.0",
+        "client": "claude-code",
+        "context": {
+          "limitTokens": 200000,
+          "usedTokens": 350
+        },
+        "costUsd": null,
+        "durationMs": null,
+        "session": {
+          "client": "claude-code",
+          "cwd": "<WORK>/arches",
+          "displayState": "idle",
+          "endedAt": null,
+          "id": "s-1",
+          "label": "SE-001: Write the notes file please",
+          "lastEventAt": "<TIME>",
+          "listening": true,
+          "model": "fake-opus",
+          "number": 1,
+          "repositoryId": "<ID-5>",
+          "runName": null,
+          "runnerId": "<ID-6>",
+          "runtimeMs": "<DURATION>",
+          "startedAt": "<TIME>",
+          "state": "idle",
+          "subagents": [],
+          "tickets": [],
+          "title": "Write the notes file please",
+          "transcriptPath": "<WORK>/s-1.jsonl",
+          "version": 6
+        },
+        "todos": [],
+        "tokens": {
+          "cacheRead": 300,
+          "cacheWrite": 40,
+          "input": 10,
+          "output": 20
+        },
+        "transcript": {
+          "available": true,
+          "path": "<WORK>/s-1.jsonl",
+          "sizeBytes": 1345
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "session",
+      "show",
+      "s-1"
+    ],
+    "exitCode": 0,
+    "name": "show with the detail",
+    "stderr": "",
+    "stdout": "SE-001: Write the notes file please (s-1)\nState:      idle\nRuntime:    less than 1 min\nStarted:    <TIME>\nLast hook:  <TIME>\nFolder:     <WORK>/arches\nModel:      fake-opus\nClient:     claude-code\nBranch:     main\nClaude:     2.1.0\nTokens:     10 in, 20 out, 300 cache read, 40 cache write\nContext:    350 of 200000 tokens\nTranscript: <WORK>/s-1.jsonl (1345 bytes)\n"
+  },
+  {
+    "name": "the transcript",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/sessions/s-1/transcript"
+    },
+    "response": {
+      "json": {
+        "available": true,
+        "cursor": 1345,
+        "entries": [
+          {
+            "at": "<TIME>",
+            "id": "u-1",
+            "kind": "prompt",
+            "text": "Write the notes file please"
+          },
+          {
+            "at": "<TIME>",
+            "durationMs": 1500,
+            "id": "a-1:0",
+            "kind": "thinking",
+            "text": ""
+          },
+          {
+            "at": "<TIME>",
+            "id": "w-1",
+            "input": {
+              "content": "one\ntwo\n",
+              "file_path": "notes.txt"
+            },
+            "kind": "tool",
+            "name": "Write",
+            "result": {
+              "isError": false,
+              "text": "File created",
+              "truncated": false
+            },
+            "summary": "Write notes.txt (+2)"
+          },
+          {
+            "at": "<TIME>",
+            "id": "b-1",
+            "input": {
+              "command": "cat notes.txt"
+            },
+            "kind": "tool",
+            "name": "Bash",
+            "result": {
+              "isError": true,
+              "text": "Exit code 1",
+              "truncated": false
+            },
+            "summary": "Bash: cat notes.txt"
+          },
+          {
+            "at": "<TIME>",
+            "id": "a-3:0",
+            "kind": "text",
+            "text": "The notes are written."
+          }
+        ],
+        "skipped": 0
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the transcript after its end",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/sessions/s-1/transcript?after=100000&limit=10"
+    },
+    "response": {
+      "json": {
+        "available": true,
+        "cursor": 100000,
+        "entries": [],
+        "skipped": 0
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "session",
+      "transcript",
+      "s-1"
+    ],
+    "exitCode": 0,
+    "name": "the transcript in the CLI",
+    "stderr": "",
+    "stdout": "prompt   Write the notes file please\nthinking 1500 ms\ntool     Write notes.txt (+2)\ntool     Bash: cat notes.txt (failed)\nanswer   The notes are written.\n"
+  },
+  {
+    "cli": [
+      "session",
+      "changes",
+      "s-1"
+    ],
+    "exitCode": 0,
+    "name": "the changes",
+    "stderr": "",
+    "stdout": "Changes from the transcript\nChanges made through Bash are not included.\nA notes.txt (+2 -0)\n"
+  },
+  {
+    "cli": [
+      "session",
+      "diff",
+      "s-1",
+      "notes.txt"
+    ],
+    "exitCode": 0,
+    "name": "the diff",
+    "stderr": "",
+    "stdout": "--- notes.txt\n@@ -0,0 +1,2 @@\n+one\n+two\n"
+  },
+  {
+    "name": "a path outside the checkout",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/sessions/s-1/changes/file?path=..%2Fs-1.jsonl"
+    },
+    "response": {
+      "json": {
+        "code": "change-path-invalid",
+        "detail": "\"../s-1.jsonl\" is no path inside the checkout",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:change-path-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "session",
+      "diff",
+      "s-1",
+      "other.txt"
+    ],
+    "exitCode": 1,
+    "name": "a file that did not change",
+    "stderr": "error: the daemon refused the request: other.txt is not among the changes of the session (change-not-found)\n",
+    "stdout": ""
+  },
+  {
+    "name": "the session takes the ticket",
+    "request": {
+      "body": {
+        "ticketKey": "ARC-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/sessions/s-1/claim"
+    },
+    "response": {
+      "json": {
+        "client": "claude-code",
+        "cwd": "<WORK>/arches",
+        "displayState": "idle",
+        "endedAt": null,
+        "id": "s-1",
+        "label": "SE-001: Write the notes file please",
+        "lastEventAt": "<TIME>",
+        "listening": true,
+        "model": null,
+        "number": 1,
+        "repositoryId": "<ID-5>",
+        "runName": null,
+        "runnerId": "<ID-6>",
+        "runtimeMs": "<DURATION>",
+        "startedAt": "<TIME>",
+        "state": "idle",
+        "subagents": [],
+        "tickets": [
+          {
+            "key": "ARC-0001",
+            "status": "backlog",
+            "title": "Write the notes"
+          }
+        ],
+        "title": "Write the notes file please",
+        "transcriptPath": "<WORK>/s-1.jsonl",
+        "version": 6
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "hook",
+      "session-start"
+    ],
+    "exitCode": 0,
+    "name": "the next start hands back the name",
+    "stderr": "",
+    "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"sessionTitle\":\"SE-001: Write the notes file please\"}}\n"
+  },
+  {
+    "cli": [
+      "hook",
+      "session-start"
+    ],
+    "exitCode": 0,
+    "name": "a session without transcript",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "name": "its detail is empty",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/sessions/s-2/detail"
+    },
+    "response": {
+      "json": {
+        "branch": null,
+        "claudeVersion": null,
+        "client": "claude-code",
+        "context": null,
+        "costUsd": null,
+        "durationMs": null,
+        "session": {
+          "client": "claude-code",
+          "cwd": "<WORK>",
+          "displayState": "idle",
+          "endedAt": null,
+          "id": "s-2",
+          "label": "",
+          "lastEventAt": "<TIME>",
+          "listening": true,
+          "model": null,
+          "number": null,
+          "repositoryId": null,
+          "runName": null,
+          "runnerId": "<ID-6>",
+          "runtimeMs": "<DURATION>",
+          "startedAt": "<TIME>",
+          "state": "idle",
+          "subagents": [],
+          "tickets": [],
+          "title": null,
+          "transcriptPath": null,
+          "version": 2
+        },
+        "todos": [],
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "input": 0,
+          "output": 0
+        },
+        "transcript": {
+          "available": false,
+          "path": null,
+          "sizeBytes": null
+        }
+      },
+      "status": 200
+    }
+  }
+]

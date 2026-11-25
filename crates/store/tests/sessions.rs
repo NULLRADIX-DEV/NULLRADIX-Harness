@@ -602,3 +602,118 @@ async fn sessions_in_the_worktree_of_an_in_progress_ticket_are_linked_to_it() {
         .await;
     assert_eq!(keys(&f, "fresh").await, ["ARC-0002", "ARC-0005"]);
 }
+
+#[tokio::test]
+async fn claiming_links_the_ticket_once_and_refuses_unknowns() {
+    let f = fixture().await;
+    tickets_in_a_repository(&f, &["Login"]).await;
+    f.hook(
+        HookKind::SessionStart,
+        "s1",
+        "/elsewhere",
+        HookDetails::default(),
+    )
+    .await;
+    let before = f.store.changes_since(0, 1000).await.unwrap().len();
+    let line = f.sessions.claim("s1", "arc-1").await.unwrap();
+    assert_eq!(line.tickets.len(), 1);
+    assert_eq!(line.tickets[0].key.to_string(), "ARC-0001");
+    let after = f.store.changes_since(0, 1000).await.unwrap();
+    assert_eq!(after.len(), before + 1);
+    assert_eq!(after.last().unwrap().entity, Entity::Session);
+    f.sessions.claim("s1", "ARC-1").await.unwrap();
+    assert_eq!(
+        f.store.changes_since(0, 1000).await.unwrap().len(),
+        after.len()
+    );
+    let code = |error: nullradix_app::AppError| error.code().to_owned();
+    assert_eq!(
+        code(f.sessions.claim("nope", "ARC-1").await.unwrap_err()),
+        "session-not-found"
+    );
+    assert_eq!(
+        code(f.sessions.claim("s1", "ARC-9").await.unwrap_err()),
+        "ticket-not-found"
+    );
+    assert_eq!(
+        code(f.sessions.claim("s1", "nonsense").await.unwrap_err()),
+        "ticket-id-invalid"
+    );
+}
+
+#[tokio::test]
+async fn hooks_hand_back_the_session_title_when_it_is_new_or_the_session_starts() {
+    let f = fixture().await;
+    let title = |reply: nullradix_app::hooks::HookReply| reply.session_title;
+    let started = f.event(HookKind::SessionStart, "s1", "/x", HookDetails::default());
+    assert_eq!(title(f.hooks.receive(&started).await.unwrap()), None);
+    let prompt = |text: &str| HookDetails {
+        prompt: Some(text.to_owned()),
+        ..HookDetails::default()
+    };
+    let first = f.event(HookKind::UserPrompt, "s1", "/x", prompt("Fix the login"));
+    assert_eq!(
+        title(f.hooks.receive(&first).await.unwrap()).as_deref(),
+        Some("Fix the login")
+    );
+    assert_eq!(
+        title(f.hooks.receive(&first).await.unwrap()),
+        None,
+        "a resend"
+    );
+    let second = f.event(HookKind::UserPrompt, "s1", "/x", prompt("And the logout"));
+    assert_eq!(title(f.hooks.receive(&second).await.unwrap()), None);
+    let stop = f.event(HookKind::Stop, "s1", "/x", HookDetails::default());
+    assert_eq!(title(f.hooks.receive(&stop).await.unwrap()), None);
+    let resumed = f.event(HookKind::SessionStart, "s1", "/x", HookDetails::default());
+    assert_eq!(
+        title(f.hooks.receive(&resumed).await.unwrap()).as_deref(),
+        Some("Fix the login")
+    );
+}
+
+#[tokio::test]
+async fn without_a_readable_transcript_the_detail_is_empty_but_whole() {
+    let f = fixture().await;
+    let details = HookDetails {
+        transcript_path: Some(String::from("/home/a/.claude/projects/x/s1.jsonl")),
+        ..HookDetails::default()
+    };
+    f.hook(HookKind::SessionStart, "s1", "/elsewhere", details)
+        .await;
+    f.hook(
+        HookKind::SessionStart,
+        "s2",
+        "/elsewhere",
+        HookDetails {
+            transcript_path: Some(String::from("/etc/passwd")),
+            ..HookDetails::default()
+        },
+    )
+    .await;
+    for id in ["s1", "s2"] {
+        let detail = f.sessions.detail(id).await.unwrap();
+        assert!(!detail.transcript.available, "{id}");
+        assert_eq!(detail.transcript.path, None);
+        let page = f.sessions.transcript(id, 7, None).await.unwrap();
+        assert_eq!((page.available, page.cursor), (false, 7));
+        let changes = f.sessions.changes(id).await.unwrap();
+        assert_eq!(
+            changes,
+            nullradix_app::session_detail::SessionChanges::none()
+        );
+    }
+    let code = |error: nullradix_app::AppError| error.code().to_owned();
+    assert_eq!(
+        code(f.sessions.file_diff("s1", "src/a.rs").await.unwrap_err()),
+        "change-not-found"
+    );
+    assert_eq!(
+        code(f.sessions.file_diff("s1", "../a.rs").await.unwrap_err()),
+        "change-path-invalid"
+    );
+    assert_eq!(
+        code(f.sessions.detail("nope").await.unwrap_err()),
+        "session-not-found"
+    );
+}

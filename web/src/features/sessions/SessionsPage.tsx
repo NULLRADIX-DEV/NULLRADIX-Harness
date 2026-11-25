@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router';
 import {
   DEFAULT_STATES,
   STATES,
@@ -46,7 +47,9 @@ function SessionRow({ session, now }: { session: Session; now: number }) {
         <SessionStateBadge state={session.displayState} />
         <span className="mono session-runtime">{formatDuration(sessionRuntime(session, now))}</span>
         <span className="session-activity">
-          <span className="session-title">{sessionTitle(session)}</span>
+          <Link className="session-title" to={`/sessions/${encodeURIComponent(session.id)}`}>
+            {sessionTitle(session)}
+          </Link>
           <span className="session-meta muted">
             <span className="mono" title={session.id}>
               {short}

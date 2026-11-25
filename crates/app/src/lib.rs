@@ -15,6 +15,7 @@ pub mod projects;
 pub mod questions;
 pub mod repositories;
 pub mod runs;
+pub mod session_detail;
 pub mod sessions;
 pub mod tickets;
 pub mod worktrees;

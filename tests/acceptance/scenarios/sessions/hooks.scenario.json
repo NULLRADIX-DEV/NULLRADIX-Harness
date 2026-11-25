@@ -65,6 +65,10 @@
       }
     },
     {
+      "name": "the repository is found",
+      "wait": { "path": "/api/v1/sessions/s-1", "field": "number", "equals": 1 }
+    },
+    {
       "name": "prompt",
       "cli": {
         "args": ["hook", "user-prompt"],
@@ -74,10 +78,6 @@
           "prompt": "<system-reminder>context</system-reminder>Fix the login form please now and test it"
         }
       }
-    },
-    {
-      "name": "the repository is found",
-      "wait": { "path": "/api/v1/sessions/s-1", "field": "number", "equals": 1 }
     },
     {
       "name": "running",

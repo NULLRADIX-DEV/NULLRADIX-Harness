@@ -2,16 +2,22 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::repositories::Located;
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
+use nullradix_app::session_detail::{
+    ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
+    TranscriptSource, TranscriptSummary,
+};
 use nullradix_app::worktrees::{CreatedWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval};
 use nullradix_domain::{Id, Run};
 use nullradix_os::{spawn_detached, write_atomic};
 
 use crate::protocol::{RunFiles, SpecFile, read_output, read_report, supervisor_alive};
+use crate::transcript::{self, ScanCache};
 
 /// How the runner starts the supervisor: a program plus leading arguments, the run dir follows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +31,7 @@ pub struct SupervisorCommand {
 pub struct LocalRunner {
     runs: PathBuf,
     supervisor: SupervisorCommand,
+    scans: Arc<ScanCache>,
 }
 
 fn unavailable(error: &io::Error) -> AppError {
@@ -43,7 +50,11 @@ async fn blocking<T: Send + 'static>(
 impl LocalRunner {
     #[must_use]
     pub fn new(runs: PathBuf, supervisor: SupervisorCommand) -> Self {
-        Self { runs, supervisor }
+        Self {
+            runs,
+            supervisor,
+            scans: Arc::default(),
+        }
     }
 
     fn files(&self, run: Id<Run>) -> RunFiles {
@@ -141,6 +152,28 @@ impl RunnerPort for LocalRunner {
 
     async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError> {
         crate::cleanup::remove(request).await
+    }
+
+    async fn read_transcript(
+        &self,
+        request: &TranscriptRead,
+    ) -> Result<Option<TranscriptChunk>, AppError> {
+        transcript::read(request).await
+    }
+
+    async fn transcript_facts(
+        &self,
+        source: &TranscriptSource,
+    ) -> Result<Option<TranscriptSummary>, AppError> {
+        transcript::facts(&self.scans, source).await
+    }
+
+    async fn session_changes(&self, request: &ChangeRequest) -> Result<SessionChanges, AppError> {
+        transcript::changes(&self.scans, request).await
+    }
+
+    async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError> {
+        transcript::diff(&self.scans, request).await
     }
 }
 
