@@ -40,7 +40,10 @@ struct Fixture {
 }
 
 async fn fixture() -> Fixture {
-    let store = Arc::new(Store::in_memory().await.unwrap());
+    fixture_on(Arc::new(Store::in_memory().await.unwrap())).await
+}
+
+async fn fixture_on(store: Arc<Store>) -> Fixture {
     let signal = ChangeSignal::new();
     let runners = common::runners(&store, &signal).await;
     let clock = Arc::new(ManualClock(AtomicI64::new(START)));
@@ -342,6 +345,7 @@ async fn the_ticket_a_hook_names_is_linked_once() {
     f.hook(HookKind::UserPrompt, "s1", "/x", named()).await;
     f.hook(HookKind::SessionStart, "s2", "/x", HookDetails::default())
         .await;
+    assert_eq!(f.sessions.get("s2").await.unwrap().tickets, Vec::new());
     let line = f.sessions.get("s1").await.unwrap();
     assert_eq!(line.tickets.len(), 1);
     assert_eq!(line.tickets[0].key.to_string(), "ARC-0001");
@@ -393,4 +397,183 @@ async fn sessions_are_forgotten_a_week_after_their_end_or_last_hook() {
         f.sessions.get("fresh").await.unwrap().session.id().as_str(),
         "fresh"
     );
+}
+
+/// Ticket keys of the session, in key order.
+async fn keys(f: &Fixture, id: &str) -> Vec<String> {
+    f.sessions
+        .get(id)
+        .await
+        .unwrap()
+        .tickets
+        .into_iter()
+        .map(|ticket| ticket.key.to_string())
+        .collect()
+}
+
+/// Rows written beside the store, for worktree states no service in this test can reach.
+struct Raw(sqlx::SqlitePool);
+
+impl Raw {
+    async fn ticket(&self, number: i64) -> uuid::Uuid {
+        sqlx::query_scalar("SELECT id FROM tickets WHERE number = ?")
+            .bind(number)
+            .fetch_one(&self.0)
+            .await
+            .unwrap()
+    }
+
+    async fn status(&self, number: i64, status: &str) {
+        sqlx::query("UPDATE tickets SET status = ? WHERE number = ?")
+            .bind(status)
+            .bind(number)
+            .execute(&self.0)
+            .await
+            .unwrap();
+    }
+
+    async fn worktree(
+        &self,
+        f: &Fixture,
+        repository: uuid::Uuid,
+        path: &str,
+        desired: &str,
+        ticket: i64,
+        released: bool,
+    ) {
+        let id = uuid::Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO worktrees (id, repository_id, runner_id, branch, path, desired_state,
+                                    actual_state, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'present', 1, 1)",
+        )
+        .bind(id)
+        .bind(repository)
+        .bind(f.runners.local().id().as_uuid())
+        .bind(format!("branch-{id}"))
+        .bind(path)
+        .bind(desired)
+        .execute(&self.0)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO worktree_tickets (worktree_id, ticket_id, position, joined_at, released_at)
+             VALUES (?, ?, 0, 1, ?)",
+        )
+        .bind(id)
+        .bind(self.ticket(ticket).await)
+        .bind(released.then_some(2_i64))
+        .execute(&self.0)
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn sessions_in_the_worktree_of_an_in_progress_ticket_are_linked_to_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nullradix.db");
+    let f = fixture_on(Arc::new(Store::open(&path).await.unwrap())).await;
+    let url = format!("sqlite:{}", path.display().to_string().replace('\\', "/"));
+    let raw = Raw(sqlx::SqlitePool::connect(&url).await.unwrap());
+    let ids = Arc::new(UuidV7Generator);
+    let person = local_person(f.store.as_ref(), "anna", ids.as_ref(), f.clock.as_ref())
+        .await
+        .unwrap();
+    let projects = ProjectService::new(
+        f.store.clone(),
+        f.clock.clone(),
+        ids.clone(),
+        f.signal.clone(),
+    );
+    let boards = BoardService::new(
+        f.store.clone(),
+        f.store.clone(),
+        f.store.clone(),
+        f.runners.clone(),
+        f.clock.clone(),
+        ids.clone(),
+        f.signal.clone(),
+    );
+    let tickets = TicketService::new(
+        f.store.clone(),
+        f.store.clone(),
+        f.clock.clone(),
+        ids.clone(),
+        f.signal.clone(),
+    );
+    let project = projects.create("ARC", "Arches").await.unwrap();
+    let board = boards.create(project.id(), "Main", &person).await.unwrap();
+    let bound = boards
+        .set_repository(
+            project.id(),
+            board.board.id(),
+            f.runners.local().id(),
+            "/work/arches",
+            Version::INITIAL,
+        )
+        .await
+        .unwrap();
+    let repository = bound.board.repository().unwrap().as_uuid();
+    let options = WriteOptions {
+        by_person: true,
+        force: false,
+        allow_duplicate: true,
+    };
+    for title in ["Live", "Backlog", "Released", "Removed", "Second"] {
+        let input = NewTicket {
+            title: title.to_owned(),
+            ..NewTicket::default()
+        };
+        tickets
+            .create(project.id(), board.board.id(), &input, &person, options)
+            .await
+            .unwrap();
+    }
+    for number in [1, 3, 4, 5] {
+        raw.status(number, "in-progress").await;
+    }
+    raw.worktree(&f, repository, "/wt/T-1", "present", 1, false)
+        .await;
+    raw.worktree(&f, repository, "/wt/T-2", "present", 2, false)
+        .await;
+    raw.worktree(&f, repository, "/wt/T-3", "present", 3, true)
+        .await;
+    raw.worktree(&f, repository, "/wt/T-4", "absent", 4, false)
+        .await;
+
+    let none = HookDetails::default;
+    for (session, cwd) in [
+        ("inside", "/wt/T-1/src"),
+        ("sibling", "/wt/T-10"),
+        ("backlog", "/wt/T-2"),
+        ("released", "/wt/T-3"),
+        ("removed", "/wt/T-4"),
+        ("cased", "/WT/t-1"),
+    ] {
+        f.hook(HookKind::SessionStart, session, cwd, none()).await;
+    }
+    assert_eq!(keys(&f, "inside").await, ["ARC-0001"]);
+    for session in ["sibling", "backlog", "released", "removed"] {
+        assert_eq!(keys(&f, session).await, Vec::<String>::new(), "{session}");
+    }
+    let folded: Vec<String> = if cfg!(windows) {
+        vec![String::from("ARC-0001")]
+    } else {
+        Vec::new()
+    };
+    assert_eq!(keys(&f, "cased").await, folded);
+
+    raw.status(2, "in-progress").await;
+    f.hook(HookKind::UserPrompt, "backlog", "/wt/T-2", none())
+        .await;
+    assert_eq!(keys(&f, "backlog").await, ["ARC-0002"]);
+    raw.worktree(&f, repository, "/wt/T-2/inner", "present", 5, false)
+        .await;
+    f.hook(HookKind::Stop, "backlog", "/wt/T-2/inner", none())
+        .await;
+    assert_eq!(keys(&f, "backlog").await, ["ARC-0002"]);
+    f.hook(HookKind::SessionStart, "fresh", "/wt/T-2/inner", none())
+        .await;
+    assert_eq!(keys(&f, "fresh").await, ["ARC-0002", "ARC-0005"]);
 }

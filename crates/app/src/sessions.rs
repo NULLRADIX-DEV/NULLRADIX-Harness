@@ -211,8 +211,11 @@ impl SessionService {
         if let Some(change) = &change {
             self.signal.notify(change);
         }
-        if session.record().repository.is_none() {
-            self.locate_later(event.cwd()).await?;
+        // the event is stored; a failed lookup must not fail its hook
+        if session.record().repository.is_none()
+            && let Err(error) = self.locate_later(event.cwd()).await
+        {
+            tracing::warn!(%error, cwd = event.cwd(), "cannot place the session in its repository");
         }
         Ok(true)
     }

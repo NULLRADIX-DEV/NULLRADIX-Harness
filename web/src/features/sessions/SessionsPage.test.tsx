@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FakeEventSource } from '../../test/eventSource';
 import { fakeApi, json, problem } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
@@ -43,6 +43,47 @@ function sessionsServer(sessions: Session[]) {
 }
 
 describe('SessionsPage', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('turns a silent session stale while the page stays open', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const server = sessionsServer([session({ lastEventAt: Date.now() - 29 * MINUTE })]);
+    renderApp('/sessions');
+    const group = await screen.findByRole('region', { name: 'Not assigned' });
+    expect(within(group).getByText('Running')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(2 * MINUTE);
+    });
+    expect(screen.queryByText('SE-001: Fix the login')).not.toBeInTheDocument();
+    const filter = screen.getByRole('group', { name: 'Filter by state' });
+    await userEvent.click(within(filter).getByRole('button', { name: 'Stale' }));
+    expect(screen.getByText('SE-001: Fix the login')).toBeInTheDocument();
+    expect(screen.getByText('1 stale')).toBeInTheDocument();
+    expect(server.api.requests('GET /api/v1/sessions')).toHaveLength(1);
+  });
+
+  it('reloads when the change stream reports a ticket change', async () => {
+    const linked = (title: string) =>
+      session({ tickets: [{ key: 'ARC-0001', title, status: 'in-progress' }] });
+    const server = sessionsServer([linked('Login')]);
+    renderApp('/sessions');
+    expect(await screen.findByRole('region', { name: 'ARC-0001 Login' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(FakeEventSource.instances).not.toHaveLength(0);
+    });
+    server.update([linked('Sign in')]);
+    act(() => {
+      FakeEventSource.latest().emit(
+        'change',
+        { seq: 9, entity: 'ticket', entityId: session().id, op: 'update', at: 2 },
+        '9',
+      );
+    });
+    expect(await screen.findByRole('region', { name: 'ARC-0001 Sign in' })).toBeInTheDocument();
+  });
+
   it('groups sessions by ticket with state, runtime, activity and running subagents', async () => {
     const now = Date.now();
     sessionsServer([

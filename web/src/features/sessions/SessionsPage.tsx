@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { useNow } from '../../shared/lib/useNow';
 import {
   DEFAULT_STATES,
   STATES,
@@ -11,6 +10,7 @@ import {
   sessionRuntime,
   sessionTitle,
   summarize,
+  useLiveSessions,
   type SessionGroup,
 } from './format';
 import { sessionsQuery, type DisplayState, type Session } from './queries';
@@ -131,9 +131,9 @@ function StateFilter({
   );
 }
 
-function Sessions({ sessions }: { sessions: Session[] }) {
+function Sessions({ reported }: { reported: Session[] }) {
   const [filter, setFilter] = useState<ReadonlySet<DisplayState>>(DEFAULT_STATES);
-  const now = useNow(sessions.some((session) => session.listening));
+  const { sessions, now } = useLiveSessions(reported);
   const groups = useMemo(
     () =>
       groupByTicket(
@@ -171,7 +171,7 @@ export function SessionsPage() {
       <h1 className="page-title">Sessions</h1>
       {status === 'pending' && <p className="muted">Loading sessions...</p>}
       {status === 'error' && <p className="form-error">Could not load the sessions.</p>}
-      {status === 'success' && <Sessions sessions={data} />}
+      {status === 'success' && <Sessions reported={data} />}
     </div>
   );
 }

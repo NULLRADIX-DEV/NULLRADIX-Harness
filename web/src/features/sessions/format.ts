@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { useNow } from '../../shared/lib/useNow';
 import type { DisplayState, Session } from './queries';
 
 export const STATE_LABELS: Readonly<Record<DisplayState, string>> = {
@@ -93,4 +95,31 @@ export function sessionTitle(session: Session): string {
 // Runtime until the end, or until now while the session lasts.
 export function sessionRuntime(session: Session, now: number): number {
   return Math.max(0, (session.endedAt ?? now) - session.startedAt);
+}
+
+// Without a hook for this long a live session shows as stale, as the daemon decides.
+export const STALE_MS = 30 * 60_000;
+
+// The state as of `now`: the daemon computed it when read, so a page kept open recomputes it.
+export function withLiveState(session: Session, now: number): Session {
+  if (session.state === 'ended') return session;
+  const stale = now - session.lastEventAt > STALE_MS;
+  return {
+    ...session,
+    displayState: stale ? 'stale' : session.state,
+    listening: !stale,
+  };
+}
+
+// Sessions as of `now`; the clock ticks while any are shown, for states and "ago" texts.
+export function useLiveSessions(reported: readonly Session[] | undefined): {
+  sessions: Session[];
+  now: number;
+} {
+  const now = useNow((reported ?? []).length > 0);
+  const sessions = useMemo(
+    () => (reported ?? []).map((session) => withLiveState(session, now)),
+    [reported, now],
+  );
+  return { sessions, now };
 }

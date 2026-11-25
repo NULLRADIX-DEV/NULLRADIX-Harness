@@ -13,8 +13,10 @@ export const sessionKeys = {
   ticket: (key: string) => [...sessionKeys.all, 'ticket', key] as const,
 };
 
+// Sessions show the titles and states of their tickets, so ticket changes reload them too.
 export const sessionsLive: ChangeRegistry = {
   session: [sessionKeys.all],
+  ticket: [sessionKeys.all],
 };
 
 export function sessionsQuery() {

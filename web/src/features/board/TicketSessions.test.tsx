@@ -1,6 +1,6 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { boardServer } from '../../test/boardServer';
 import { json } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
@@ -14,6 +14,44 @@ async function openPanel() {
 }
 
 describe('TicketSessions', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('turns a silent session stale while the panel stays open', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const server = boardServer();
+    server.api.set(`GET /api/v1/tickets/${KEY}/sessions`, () =>
+      json(200, {
+        items: [
+          {
+            id: 's-2',
+            label: 'SE-004: Keep going',
+            cwd: '/repo',
+            state: 'running',
+            displayState: 'running',
+            listening: true,
+            startedAt: 0,
+            lastEventAt: Date.now() - 29 * 60_000,
+            runtimeMs: 0,
+            client: 'claude-code',
+            subagents: [],
+            tickets: [],
+            version: 2,
+          },
+        ],
+      }),
+    );
+    renderApp('/board');
+    const panel = await openPanel();
+    const sessions = await panel.findByRole('region', { name: 'Sessions' });
+    expect(within(sessions).getByText('Running')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(2 * 60_000);
+    });
+    expect(within(sessions).getByText('Stale')).toBeInTheDocument();
+  });
+
   it('lists the sessions that worked on the ticket', async () => {
     const server = boardServer();
     server.api.set(`GET /api/v1/tickets/${KEY}/sessions`, () =>
