@@ -97,6 +97,8 @@ pub fn unpack_zip(archive: &[u8], limits: Limits) -> Result<Vec<Entry>, ArchiveE
         });
     }
     let mut entries: Vec<Entry> = Vec::new();
+    // names are compared lowercased: case-insensitive disks would merge them
+    let mut seen = std::collections::HashSet::new();
     let mut total: u64 = 0;
     for index in 0..zip.len() {
         let mut file = zip.by_index(index).map_err(not_zip)?;
@@ -136,7 +138,7 @@ pub fn unpack_zip(archive: &[u8], limits: Limits) -> Result<Vec<Entry>, ArchiveE
                 max: limits.archive,
             });
         }
-        if entries.iter().any(|known| known.path == trimmed) {
+        if !seen.insert(trimmed.to_lowercase()) {
             return Err(unsafe_path(&name));
         }
         entries.push(Entry {
@@ -263,13 +265,22 @@ pub fn replace_dir(parent: &Path, name: &str, entries: &[Entry]) -> Result<(), A
         None
     };
     if let Err(error) = fs::rename(staging.path(), &target) {
-        if let Some(old) = &old {
-            fs::rename(old.path().join("previous"), &target)?;
+        if let Some(old) = old {
+            // the restore error would hide the cause; the old folder stays kept either way
+            let _ = restore_previous(old, &target);
         }
         return Err(error.into());
     }
     // the staging folder is now the theme; only the displaced old one is deleted on drop
     let _ = staging.keep();
+    Ok(())
+}
+
+/// Moves the displaced folder back; when that fails it is kept, not deleted with `old`.
+fn restore_previous(old: tempfile::TempDir, target: &Path) -> io::Result<()> {
+    let kept = old.keep();
+    fs::rename(kept.join("previous"), target)?;
+    let _ = fs::remove_dir_all(kept);
     Ok(())
 }
 
@@ -297,19 +308,27 @@ pub fn read_within(root: &Path, path: &[String], max: u64) -> io::Result<Option<
     let (Some(root), Some(target)) = (resolve(root)?, resolve(&file)?) else {
         return Ok(None);
     };
-    if !target.starts_with(&root) || !fs::metadata(&target)?.is_file() {
+    if !target.starts_with(&root) {
         return Ok(None);
     }
+    // the file may vanish between the checks, which is a miss, not a failure
+    let Some(metadata) = missing_as_none(fs::metadata(&target))? else {
+        return Ok(None);
+    };
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+    let Some(file) = missing_as_none(fs::File::open(&target))? else {
+        return Ok(None);
+    };
     let mut data = Vec::new();
-    fs::File::open(&target)?
-        .take(max + 1)
-        .read_to_end(&mut data)?;
+    file.take(max + 1).read_to_end(&mut data)?;
     Ok((data.len() as u64 <= max).then_some(data))
 }
 
-fn resolve(path: &Path) -> io::Result<Option<PathBuf>> {
-    match fs::canonicalize(path) {
-        Ok(path) => Ok(Some(path)),
+fn missing_as_none<T>(result: io::Result<T>) -> io::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
         Err(error)
             if matches!(
                 error.kind(),
@@ -320,6 +339,10 @@ fn resolve(path: &Path) -> io::Result<Option<PathBuf>> {
         }
         Err(error) => Err(error),
     }
+}
+
+fn resolve(path: &Path) -> io::Result<Option<PathBuf>> {
+    missing_as_none(fs::canonicalize(path))
 }
 
 #[cfg(test)]
@@ -359,6 +382,41 @@ mod tests {
         let bytes = pack_zip(&files).unwrap();
         assert_eq!(pack_zip(&files).unwrap(), bytes);
         assert_eq!(unpack_zip(&bytes, LIMITS).unwrap(), files);
+    }
+
+    #[test]
+    fn names_that_differ_only_by_case_are_duplicates() {
+        for (first, second) in [("theme.css", "Theme.css"), ("A/b.css", "a/B.CSS")] {
+            let bytes = raw_zip(&[(first, b"1"), (second, b"2")]);
+            let result = unpack_zip(&bytes, LIMITS);
+            assert!(
+                matches!(result, Err(ArchiveError::UnsafePath(_))),
+                "{first}: {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_restore_keeps_the_displaced_folder() {
+        let parent = tempfile::tempdir().unwrap();
+        let old = tempfile::tempdir_in(parent.path()).unwrap();
+        let old_path = old.path().to_path_buf();
+        fs::create_dir(old_path.join("previous")).unwrap();
+        fs::write(old_path.join("previous/a.css"), "1").unwrap();
+        // a full folder in the way makes the move back fail
+        let target = parent.path().join("night");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("x.css"), "2").unwrap();
+        assert!(restore_previous(old, &target).is_err());
+        assert!(old_path.join("previous/a.css").exists());
+    }
+
+    #[test]
+    fn a_vanished_file_is_a_miss() {
+        let gone = fs::metadata("definitely/not/here");
+        assert!(matches!(missing_as_none(gone), Ok(None)));
+        let denied: io::Result<()> = Err(io::ErrorKind::PermissionDenied.into());
+        assert!(missing_as_none(denied).is_err());
     }
 
     #[test]
@@ -561,13 +619,28 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    fn junction(target: &Path, at: &Path) -> io::Result<()> {
+        let status = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(at)
+            .arg(target)
+            .output()?
+            .status;
+        status
+            .success()
+            .then_some(())
+            .ok_or_else(|| io::Error::other("mklink failed"))
+    }
+
     /// Makes a link to `target`; `false` when the system does not allow it.
     fn link(target: &Path, at: &Path) -> bool {
         #[cfg(unix)]
         let made = std::os::unix::fs::symlink(target, at);
         #[cfg(windows)]
         let made = if target.is_dir() {
-            std::os::windows::fs::symlink_dir(target, at)
+            // a junction needs no special right, unlike a symbolic link
+            junction(target, at)
         } else {
             std::os::windows::fs::symlink_file(target, at)
         };
@@ -582,16 +655,16 @@ mod tests {
         let outside = parent.path().join("outside");
         fs::create_dir(&outside).unwrap();
         fs::write(outside.join("secret.txt"), "secret").unwrap();
-        if !link(&outside, &root.join("out"))
-            || !link(&outside.join("secret.txt"), &root.join("s.txt"))
-        {
-            return;
-        }
+        // a folder link always works (junction on Windows), so this cannot pass by skipping
+        assert!(link(&outside, &root.join("out")), "no folder link possible");
         assert_eq!(
             read_within(&root, &segments("out/secret.txt"), 16).unwrap(),
             None
         );
-        assert_eq!(read_within(&root, &segments("s.txt"), 16).unwrap(), None);
+        // file links may need rights the machine does not grant
+        if link(&outside.join("secret.txt"), &root.join("s.txt")) {
+            assert_eq!(read_within(&root, &segments("s.txt"), 16).unwrap(), None);
+        }
         assert!(
             read_within(&root, &segments("theme.css"), 16)
                 .unwrap()

@@ -337,6 +337,13 @@ fn routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
 }
 
+/// Pages and theme styles may load only same-origin or inline data.
+const APP_CSP: &str = concat!(
+    "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; ",
+    "img-src 'self' data:; font-src 'self' data:; ",
+    "style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self'"
+);
+
 pub fn router(state: ApiState) -> Router {
     let (router, _) = routes().split_for_parts();
     router
@@ -354,10 +361,7 @@ pub fn router(state: ApiState) -> Router {
                 .layer(security_header(header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
                 .layer(security_header(header::X_FRAME_OPTIONS, "DENY"))
                 .layer(security_header(header::REFERRER_POLICY, "no-referrer"))
-                .layer(security_header(
-                    header::CONTENT_SECURITY_POLICY,
-                    "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
-                ))
+                .layer(security_header(header::CONTENT_SECURITY_POLICY, APP_CSP))
                 .layer(middleware::from_fn(web::no_store_for_api))
                 .layer(middleware::from_fn_with_state(
                     state.allowed_hosts.clone(),

@@ -408,7 +408,21 @@ impl CustomizationService {
                 label(point, &name),
             ));
         }
-        let next = current.rebased(snapshot(&standard), now);
+        if current.record().kind == OverlayKind::New {
+            return Err(AppError::invalid(
+                "customization-rebase-new",
+                format!(
+                    "{} is a new customization and has no shipped file to follow",
+                    label(point, &name)
+                ),
+            ));
+        }
+        let base = snapshot(&standard);
+        if current.record().base.as_ref().map(|known| &known.hash) == Some(&base.hash) {
+            // already on the shipped file: no new version and no change entry
+            return Ok(evaluate(current, Some(&standard)));
+        }
+        let next = current.rebased(base, now);
         let change = write.update(&next, expected).await?;
         write.commit().await?;
         self.signal.notify(&change);
@@ -918,6 +932,49 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(stale.code(), "version-conflict");
+    }
+
+    #[tokio::test]
+    async fn rebasing_a_new_customization_is_refused() {
+        let fixture = fixture();
+        fixture
+            .service
+            .create(ExtensionPoint::Skill, "mine", Some(SKILL))
+            .await
+            .unwrap();
+        fixture.ship("skill", "mine", "now shipped");
+        let error = fixture
+            .service
+            .rebase(ExtensionPoint::Skill, "mine", Version::INITIAL)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "customization-rebase-new");
+        let line = fixture
+            .service
+            .get(ExtensionPoint::Skill, "mine")
+            .await
+            .unwrap();
+        assert_eq!(line.overlay.record().version, Version::INITIAL);
+        assert!(line.overlay.record().base.is_none());
+    }
+
+    #[tokio::test]
+    async fn rebasing_onto_an_unchanged_shipped_file_changes_nothing() {
+        let fixture = fixture();
+        fixture.ship("skill", "review", "v1");
+        fixture
+            .service
+            .create(ExtensionPoint::Skill, "review", Some(SKILL))
+            .await
+            .unwrap();
+        let before = fixture.memory.feed.lock().len();
+        let line = fixture
+            .service
+            .rebase(ExtensionPoint::Skill, "review", Version::INITIAL)
+            .await
+            .unwrap();
+        assert_eq!(line.overlay.record().version, Version::INITIAL);
+        assert_eq!(fixture.memory.feed.lock().len(), before);
     }
 
     #[tokio::test]

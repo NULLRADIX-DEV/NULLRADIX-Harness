@@ -132,6 +132,8 @@ pub struct ThemeService {
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     signal: ChangeSignal,
+    /// One install or removal at a time, so files and rows never disagree.
+    writes: tokio::sync::Mutex<()>,
 }
 
 impl std::fmt::Debug for ThemeService {
@@ -155,6 +157,7 @@ impl ThemeService {
             clock,
             ids,
             signal,
+            writes: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -181,6 +184,7 @@ impl ThemeService {
                 format!("{} is the name of a built-in theme", manifest.id()),
             ));
         }
+        let _writing = self.writes.lock().await;
         self.files.store(manifest.id(), files).await?;
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
@@ -218,6 +222,7 @@ impl ThemeService {
     /// Uninstalls the theme; when it was chosen the default takes over again.
     pub async fn remove(&self, id: &str, expected: Version) -> Result<(), AppError> {
         let theme = ThemeId::parse(id).map_err(|error| id_invalid(&error))?;
+        let _writing = self.writes.lock().await;
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
         let Some(change) = write.delete(&theme, expected, now).await? else {
@@ -243,6 +248,11 @@ impl ThemeService {
         let theme = ThemeId::parse(id).map_err(|_| file_not_found())?;
         let segments = asset_segments(path).map_err(|_| file_not_found())?;
         let segments: Vec<String> = segments.into_iter().map(str::to_owned).collect();
+        // files of a removed theme may linger on disk; they are not served
+        self.repository
+            .get(&theme)
+            .await?
+            .ok_or_else(file_not_found)?;
         let data = self
             .files
             .read(&theme, &segments)
@@ -409,6 +419,10 @@ pub(crate) mod tests {
         stored: Mutex<HashMap<String, Vec<PackageFile>>>,
         removals: Mutex<Vec<String>>,
         fail_remove: Mutex<bool>,
+        /// When set, `store` announces itself and waits to be released.
+        hold_store: Mutex<bool>,
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
     }
 
     pub(crate) fn archive(files: &[PackageFile]) -> Vec<u8> {
@@ -436,6 +450,11 @@ pub(crate) mod tests {
         }
 
         async fn store(&self, id: &ThemeId, files: Vec<PackageFile>) -> Result<(), AppError> {
+            let hold = *self.hold_store.lock();
+            if hold {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
             self.stored.lock().insert(id.to_string(), files);
             Ok(())
         }
@@ -488,6 +507,39 @@ pub(crate) mod tests {
 
     fn night_blue() -> Vec<u8> {
         archive(&package())
+    }
+
+    #[tokio::test]
+    async fn a_removal_waits_for_an_install_in_progress() {
+        let fixture = fixture();
+        fixture.service.install(night_blue()).await.unwrap();
+        *fixture.files.hold_store.lock() = true;
+        let mut files = package();
+        files[0] = file("manifest.json", &MANIFEST.replace("1.0.0", "1.1.0"));
+        let files_gate = &fixture.files;
+        let waited = async {
+            files_gate.entered.notified().await;
+            let removal = fixture.service.remove("night-blue", Version::INITIAL);
+            let attempt = tokio::time::timeout(std::time::Duration::from_millis(50), removal).await;
+            files_gate.release.notify_one();
+            attempt.is_err()
+        };
+        let (installed, waited) = tokio::join!(fixture.service.install(archive(&files)), waited);
+        installed.unwrap();
+        assert!(
+            waited,
+            "the removal ran while the install was storing files"
+        );
+        assert_eq!(fixture.service.list().await.unwrap().themes.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn files_of_a_theme_that_is_not_installed_are_not_served() {
+        let fixture = fixture();
+        fixture.service.install(night_blue()).await.unwrap();
+        fixture.memory.themes.lock().clear();
+        let missing = fixture.service.asset("night-blue", "theme.css").await;
+        assert!(missing.is_err());
     }
 
     #[tokio::test]

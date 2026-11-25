@@ -320,6 +320,11 @@ pub(crate) async fn theme_file(
             (header::CONTENT_TYPE, asset.content_type),
             // themes are replaced in place, so the browser asks again every time
             (header::CACHE_CONTROL, "no-cache"),
+            // an svg or html file must not run script on the app origin
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:",
+            ),
         ],
         asset.data,
     )
@@ -434,6 +439,7 @@ mod tests {
         status: u16,
         kind: Option<String>,
         cache: Option<String>,
+        csp: Option<String>,
         body: Vec<u8>,
     }
 
@@ -448,16 +454,18 @@ mod tests {
                 .get(name)
                 .map(|value| value.to_str().unwrap().to_owned())
         };
-        let (status, kind, cache) = (
+        let (status, kind, cache, csp) = (
             response.status().as_u16(),
             text(header::CONTENT_TYPE),
             text(header::CACHE_CONTROL),
+            text(header::CONTENT_SECURITY_POLICY),
         );
         let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         Reply {
             status,
             kind,
             cache,
+            csp,
             body: body.to_vec(),
         }
     }
@@ -502,6 +510,9 @@ mod tests {
         assert_eq!(css.status, 200);
         assert_eq!(css.kind.as_deref(), Some("text/css; charset=utf-8"));
         assert_eq!(css.cache.as_deref(), Some("no-cache"));
+        let csp = css.csp.unwrap();
+        assert!(csp.starts_with("sandbox; default-src 'none'"), "{csp}");
+        assert!(!csp.contains("frame-ancestors"), "{csp}");
         assert_eq!(css.body, b":root { --accent: #6c63ff }");
         let png = file(&api, "/api/v1/themes/night-blue/files/assets/preview.png").await;
         assert_eq!(

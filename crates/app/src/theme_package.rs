@@ -279,7 +279,8 @@ pub fn check_package(files: &[PackageFile], pack: bool) -> Result<ThemeManifest,
     let mut total: u64 = 0;
     for file in files {
         check_entry_path(&file.path).map_err(|error| package_error(&error))?;
-        if !seen.insert(file.path.as_str()) {
+        // lowercased: case-insensitive disks would merge `a.css` and `A.css`
+        if !seen.insert(file.path.to_lowercase()) {
             return Err(package_error(&PackageError::UnsafePath(file.path.clone())));
         }
         if pack && is_hidden(&file.path) {
@@ -469,6 +470,13 @@ pub(crate) mod tests {
     fn duplicate_entries_are_refused() {
         let mut files = package();
         files.push(file("theme.css", "b {}"));
+        assert!(check_package(&files, false).is_err());
+    }
+
+    #[test]
+    fn entries_that_differ_only_by_case_are_duplicates() {
+        let mut files = package();
+        files.push(file("Theme.css", "b {}"));
         assert!(check_package(&files, false).is_err());
     }
 

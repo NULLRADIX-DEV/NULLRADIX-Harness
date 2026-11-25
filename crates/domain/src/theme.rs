@@ -207,6 +207,43 @@ fn blank(text: &str) -> bool {
     text.trim().is_empty()
 }
 
+/// Longest name or author, as the store allows.
+const MAX_TEXT: usize = 1000;
+/// Longest theme or sdk version text, as the store allows.
+const MAX_VERSION: usize = 100;
+const PREVIEW_EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "webp", "svg"];
+
+fn check_length(text: Option<&str>, field: &str, max: usize, errors: &mut Vec<FieldError>) {
+    if text.is_some_and(|text| text.chars().count() > max) {
+        errors.push(FieldError::new(
+            field,
+            format!("{field} is longer than {max} characters"),
+        ));
+    }
+}
+
+fn check_start_color(color: Option<&str>, errors: &mut Vec<FieldError>) {
+    let Some(color) = color else { return };
+    let digits = color.strip_prefix('#').unwrap_or_default();
+    if !(3..=8).contains(&digits.len()) || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        errors.push(FieldError::new(
+            "startColor",
+            "startColor is a hex color such as #0c0c0e",
+        ));
+    }
+}
+
+fn check_preview(preview: Option<&str>, errors: &mut Vec<FieldError>) {
+    let Some(preview) = preview else { return };
+    let image = extension(preview).is_some_and(|ext| PREVIEW_EXTENSIONS.contains(&ext.as_str()));
+    if preview.ends_with('/') || check_entry_path(preview).is_err() || !image {
+        errors.push(FieldError::new(
+            "preview",
+            "preview is a relative path to a png, jpg, webp or svg file",
+        ));
+    }
+}
+
 impl ThemeManifest {
     /// Checks every field and reports all problems together, `earlier` ones first sorted in.
     pub fn build(draft: ManifestDraft, earlier: Vec<FieldError>) -> Result<Self, Vec<FieldError>> {
@@ -227,12 +264,18 @@ impl ThemeManifest {
                 "the version is not a semver version such as 1.2.3",
             ));
         }
+        check_length(name, "name", MAX_TEXT, &mut errors);
+        check_length(version, "version", MAX_VERSION, &mut errors);
         let author = required(draft.author.as_deref(), "author", &mut errors);
+        check_length(author, "author", MAX_TEXT, &mut errors);
         if author.is_some_and(blank) {
             errors.push(FieldError::new("author", "the author is empty"));
         }
         let sdk = required(draft.sdk_version.as_deref(), "sdkVersion", &mut errors);
+        check_length(sdk, "sdkVersion", MAX_VERSION, &mut errors);
         check_sdk_range(sdk, draft.claude_theme, &mut errors);
+        check_start_color(draft.start_color.as_deref(), &mut errors);
+        check_preview(draft.preview.as_deref(), &mut errors);
         let scheme =
             required(draft.color_scheme.as_deref(), "colorScheme", &mut errors).and_then(|text| {
                 text.parse::<ColorScheme>()
@@ -607,17 +650,37 @@ pub fn check_claude_files<'a>(
     Err(FieldError::new("claudeTheme", message))
 }
 
+/// Removes comments; a comment marker inside a quoted string is text.
 fn strip_comments(css: &str) -> String {
-    let mut rest = css;
     let mut plain = String::with_capacity(css.len());
-    while let Some(start) = rest.find("/*") {
-        plain.push_str(&rest[..start]);
-        match rest[start + 2..].find("*/") {
-            Some(end) => rest = &rest[start + 2 + end + 2..],
-            None => return plain,
+    let mut chars = css.chars().peekable();
+    let mut quote: Option<char> = None;
+    while let Some(letter) = chars.next() {
+        match quote {
+            Some(open) => {
+                plain.push(letter);
+                if letter == open || letter == '\n' {
+                    quote = None;
+                }
+            }
+            None if letter == '/' && chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut last = ' ';
+                for inner in chars.by_ref() {
+                    if last == '*' && inner == '/' {
+                        break;
+                    }
+                    last = inner;
+                }
+            }
+            None => {
+                if matches!(letter, '"' | '\'') {
+                    quote = Some(letter);
+                }
+                plain.push(letter);
+            }
         }
     }
-    plain.push_str(rest);
     plain
 }
 
@@ -649,12 +712,23 @@ fn url_values(css: &str) -> Vec<String> {
     values
 }
 
-/// Refuses `@import` and every `url()` that is not relative or a `data:` URL.
+/// Refuses escapes, `@import`, `image-set()` and every `url()` that is not relative or `data:`.
 pub fn check_theme_css(css: &str) -> Result<(), PackageError> {
+    if css.contains('\\') {
+        return Err(PackageError::ForbiddenCss(String::from(
+            "backslash escapes are not allowed",
+        )));
+    }
     let css = strip_comments(css);
-    if css.to_ascii_lowercase().contains("@import") {
+    let lower = css.to_ascii_lowercase();
+    if lower.contains("@import") {
         return Err(PackageError::ForbiddenCss(String::from(
             "@import is not allowed",
+        )));
+    }
+    if lower.contains("image-set(") {
+        return Err(PackageError::ForbiddenCss(String::from(
+            "image-set() is not allowed",
         )));
     }
     for value in url_values(&css) {
@@ -986,12 +1060,72 @@ mod tests {
             "a { background: URL( \"https://evil.test\" ) }",
             "a { background: url(a\\b.png) }",
             "a { background: url(file:x) }",
+            "a{content:\"/*\"} b{background:url(https://evil/x)} c{content:\"*/\"}",
+            "a { background: \\75 rl(https://evil/x) }",
+            "@\\69mport 'https://evil/x.css';",
+            "a { background: image-set(\"https://evil/x.png\" 1x) }",
+            "a { background: -webkit-image-set(\"https://evil/x.png\" 1x) }",
         ] {
             assert!(
                 matches!(check_theme_css(css), Err(PackageError::ForbiddenCss(_))),
                 "{css}"
             );
         }
+    }
+
+    #[test]
+    fn comment_markers_inside_strings_are_text() {
+        assert_eq!(strip_comments("a{content:\"/*\"}"), "a{content:\"/*\"}");
+        assert_eq!(strip_comments("a/* x */b"), "ab");
+        assert_eq!(strip_comments("a/* open"), "a");
+    }
+
+    #[test]
+    fn start_color_and_preview_are_checked() {
+        for color in ["red", "#12", "#123456789", "#12g", "url(x)", ""] {
+            let mut manifest = draft();
+            manifest.start_color = Some(color.to_owned());
+            assert_eq!(fields(manifest), ["startColor"], "{color}");
+        }
+        for color in ["#abc", "#0c0c0e", "#0C0C0EFF"] {
+            let mut manifest = draft();
+            manifest.start_color = Some(color.to_owned());
+            assert!(
+                ThemeManifest::build(manifest, Vec::new()).is_ok(),
+                "{color}"
+            );
+        }
+        for preview in ["../a.png", "/a.png", "a.exe", "a", "assets/", "a\\b.png"] {
+            let mut manifest = draft();
+            manifest.preview = Some(preview.to_owned());
+            assert_eq!(fields(manifest), ["preview"], "{preview}");
+        }
+        let mut manifest = draft();
+        manifest.preview = Some(String::from("assets/preview.PNG"));
+        assert!(ThemeManifest::build(manifest, Vec::new()).is_ok());
+    }
+
+    #[test]
+    fn long_texts_are_refused_before_the_store() {
+        let long = |count| "a".repeat(count);
+        let mut manifest = draft();
+        manifest.name = Some(long(1001));
+        manifest.author = Some(long(1001));
+        let mut found = fields(manifest);
+        found.dedup();
+        assert_eq!(found, ["name", "author"]);
+        let mut manifest = draft();
+        manifest.sdk_version = Some(format!("^1.0{}", ", <2.0".repeat(20)));
+        assert!(manifest.sdk_version.as_deref().is_some_and(|range| {
+            range.len() > 100 && semver::VersionReq::parse(range).is_ok()
+        }));
+        assert_eq!(fields(manifest), ["sdkVersion"]);
+        let mut manifest = draft();
+        manifest.version = Some(format!("1.0.0-{}", long(100)));
+        assert_eq!(fields(manifest), ["version"]);
+        let mut manifest = draft();
+        manifest.name = Some(long(1000));
+        assert!(ThemeManifest::build(manifest, Vec::new()).is_ok());
     }
 
     #[test]
