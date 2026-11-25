@@ -13,6 +13,7 @@ use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::tickets::TicketService;
+use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_domain::Actor;
@@ -102,6 +103,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         projects,
         boards: board.boards,
         tickets: board.tickets,
+        worktrees: board.worktrees,
         runners,
         person: board.person,
         runs,
@@ -147,6 +149,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
 struct BoardServices {
     boards: Arc<BoardService>,
     tickets: Arc<TicketService>,
+    worktrees: Arc<WorktreeService>,
     /// The person every token and browser session acts for.
     person: Arc<Actor>,
 }
@@ -176,9 +179,19 @@ async fn start_board(
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
+    let worktrees = Arc::new(WorktreeService::new(
+        Arc::clone(&tickets),
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        Arc::clone(runners),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
     Ok(BoardServices {
         boards,
         tickets,
+        worktrees,
         person: Arc::new(person),
     })
 }

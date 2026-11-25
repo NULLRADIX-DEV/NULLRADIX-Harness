@@ -6,12 +6,13 @@ use anyhow::Context;
 use clap::Subcommand;
 use nullradix_api::{
     AcceptTicket, ClaimTicket, ColumnDto, CreateTicket, MoveTicket, PriorityDto, ReleaseTicket,
-    TicketDetailDto, TicketDto, UpdateTicket,
+    StartTicket, StartedTicket, TicketDetailDto, TicketDto, UpdateTicket,
 };
 use nullradix_client::Client;
 use nullradix_domain::{Priority, TicketKey, TicketStatus, Timestamp};
 use uuid::Uuid;
 
+use crate::board::local_runner;
 use crate::project;
 use crate::selection::{BoardChoice, BoardOption};
 
@@ -61,6 +62,20 @@ pub(crate) enum TicketCommand {
         #[arg(long)]
         version: Option<i64>,
         /// Take it from another assignee and lift the locks
+        #[arg(long)]
+        force: bool,
+    },
+    /// Start a ticket in its own worktree of the current folder's repository, or join one
+    Start {
+        /// Ticket key such as ARC-7
+        key: String,
+        /// Join the worktree of this ticket; another target branch gives an own worktree
+        #[arg(long, conflicts_with = "join")]
+        join_ticket: Option<String>,
+        /// Join the first open worktree with the same target branch
+        #[arg(long)]
+        join: bool,
+        /// Lift the dependency and question locks
         #[arg(long)]
         force: bool,
     },
@@ -313,6 +328,12 @@ pub(crate) fn run(
             let name = ticket.assignee.clone().unwrap_or(agent);
             report(&ticket, &format!("claimed by {name}"));
         }
+        TicketCommand::Start {
+            key,
+            join_ticket,
+            join,
+            force,
+        } => start(client, &key, join_ticket.as_deref(), join, force)?,
         TicketCommand::Release { key, status } => {
             let ticket = client.release_ticket(&canonical(&key)?, &ReleaseTicket { status })?;
             report(&ticket, "released");
@@ -331,6 +352,50 @@ pub(crate) fn run(
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn start(
+    client: &Client,
+    key: &str,
+    join_ticket: Option<&str>,
+    join: bool,
+    force: bool,
+) -> anyhow::Result<()> {
+    let folder = std::env::current_dir().context("cannot read the current folder")?;
+    let input = StartTicket {
+        runner_id: local_runner(client)?.id,
+        cwd: folder.to_string_lossy().into_owned(),
+        join_ticket: join_ticket.map(canonical).transpose()?,
+        join,
+        force,
+    };
+    let started = client.start_ticket(&canonical(key)?, &input)?;
+    for warning in &started.warnings {
+        eprintln!("warning: {warning}");
+    }
+    for line in start_lines(&started) {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+fn start_lines(started: &StartedTicket) -> Vec<String> {
+    let how = if started.joined {
+        "joined"
+    } else {
+        "started on"
+    };
+    let mut lines = vec![format!(
+        "{} {how} {} in {}",
+        started.ticket.key, started.branch, started.worktree
+    )];
+    if let Some(created) = &started.target_created {
+        lines.push(format!(
+            "created target branch {} from {}",
+            created.branch, created.from
+        ));
+    }
+    lines
 }
 
 fn list(args: &ListArgs, client: &Client, choice: &BoardChoice) -> anyhow::Result<()> {

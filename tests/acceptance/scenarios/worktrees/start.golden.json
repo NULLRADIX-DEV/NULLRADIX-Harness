@@ -1,0 +1,607 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "main board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "empty board",
+    "request": {
+      "body": {
+        "name": "Empty"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-4>",
+        "name": "Empty",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git init",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "name": "first commit",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "init"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git commit",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-6>",
+        "label": "git commit",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-6>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "committed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-6>"
+  },
+  {
+    "name": "long paths on already, so every platform prints the same",
+    "request": {
+      "body": {
+        "args": [
+          "config",
+          "core.longpaths",
+          "true"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git config",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-7>",
+        "label": "git config",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-7>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "configured",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-7>"
+  },
+  {
+    "name": "init a repository without commits",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "other"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-8>",
+        "label": "git init",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-8>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized without commits",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-8>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the main board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-4>",
+      "<WORK>/other"
+    ],
+    "exitCode": 0,
+    "name": "bind the empty board",
+    "stderr": "",
+    "stdout": "board <ID-4> works in other at <WORK>/other\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Fix the Löwen login!"
+    ],
+    "exitCode": 0,
+    "name": "a ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Fix the Löwen login!\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Polish the login"
+    ],
+    "exitCode": 0,
+    "name": "a second ticket",
+    "stderr": "",
+    "stdout": "ARC-0002 created: Polish the login\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Test the login"
+    ],
+    "exitCode": 0,
+    "name": "a third ticket",
+    "stderr": "",
+    "stdout": "ARC-0003 created: Test the login\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Release notes",
+      "--target-branch",
+      "release"
+    ],
+    "exitCode": 0,
+    "name": "a ticket for the release branch",
+    "stderr": "",
+    "stdout": "ARC-0004 created: Release notes\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "start",
+      "arc-1"
+    ],
+    "exitCode": 0,
+    "name": "start in a new worktree",
+    "stderr": "",
+    "stdout": "ARC-0001 started on ticket/ARC-0001-fix-the-loewen-login in <WORK>/arches-worktrees/ARC-0001\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "start",
+      "ARC-2",
+      "--join-ticket",
+      "arc-1"
+    ],
+    "exitCode": 0,
+    "name": "join the first ticket",
+    "stderr": "",
+    "stdout": "ARC-0002 joined ticket/ARC-0001-fix-the-loewen-login in <WORK>/arches-worktrees/ARC-0001\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "start",
+      "ARC-3",
+      "--join"
+    ],
+    "exitCode": 0,
+    "name": "join the first open worktree",
+    "stderr": "",
+    "stdout": "ARC-0003 joined ticket/ARC-0001-fix-the-loewen-login in <WORK>/arches-worktrees/ARC-0001\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "start",
+      "ARC-4",
+      "--join-ticket",
+      "ARC-1"
+    ],
+    "exitCode": 0,
+    "name": "another target gets its own worktree and branch",
+    "stderr": "warning: ARC-0004 has another target branch than ARC-0001; it gets its own worktree\n",
+    "stdout": "ARC-0004 started on ticket/ARC-0004-release-notes in <WORK>/arches-worktrees/ARC-0004\ncreated target branch release from main\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "start",
+      "ARC-1"
+    ],
+    "exitCode": 1,
+    "name": "started already",
+    "stderr": "error: the daemon refused the request: ARC-0001 already runs on branch ticket/ARC-0001-fix-the-loewen-login (already-started)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Later",
+      "--board",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "a ticket waiting to start",
+    "stderr": "",
+    "stdout": "ARC-0005 created: Later\n"
+  },
+  {
+    "field": "items.0.local",
+    "name": "the local runner",
+    "reached": true,
+    "wait": "/api/v1/runners"
+  },
+  {
+    "name": "both join options",
+    "request": {
+      "body": {
+        "cwd": "<WORK>/arches",
+        "join": true,
+        "joinTicket": "ARC-0001",
+        "runnerId": "<ID-9>"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-0005/start"
+    },
+    "response": {
+      "json": {
+        "code": "input-invalid",
+        "detail": "join a given ticket or join automatically, not both",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:input-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "start",
+      "ARC-5"
+    ],
+    "exitCode": 1,
+    "name": "from a foreign repository",
+    "stderr": "error: the daemon refused the request: the board of ARC-0005 does not belong to the repository of this folder (board-repo-mismatch)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Nothing yet",
+      "--board",
+      "<ID-4>"
+    ],
+    "exitCode": 0,
+    "name": "a ticket of the empty repository",
+    "stderr": "",
+    "stdout": "ARC-0006 created: Nothing yet\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "start",
+      "ARC-6"
+    ],
+    "exitCode": 1,
+    "name": "no commit yet",
+    "stderr": "error: the daemon refused the request: create a first commit, a worktree cannot exist without one (no-commit)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "list"
+    ],
+    "exitCode": 0,
+    "name": "the tickets",
+    "stderr": "",
+    "stdout": "\nBacklog (1)\n  ARC-0005  Later  [planning]\n\nIn progress (4)\n  ARC-0001  Fix the Löwen login!  [planning]\n  ARC-0002  Polish the login  [planning]\n  ARC-0003  Test the login  [planning]\n  ARC-0004  Release notes  [planning]\n"
+  },
+  {
+    "name": "the joined ticket",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-0002"
+    },
+    "response": {
+      "json": {
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "joined",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "joined",
+            "to": "ticket/ARC-0001-fix-the-loewen-login"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "joined",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-fix-the-loewen-login",
+          "column": "in-progress",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-10>",
+          "key": "ARC-0002",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 2,
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "in-progress",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Polish the login",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "list the worktrees",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "core.abbrev=40",
+          "worktree",
+          "list"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git worktree list",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-11>",
+        "label": "git worktree list",
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-11>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "listed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-11>"
+  },
+  {
+    "cli": [
+      "run",
+      "logs",
+      "<ID-11>"
+    ],
+    "exitCode": 0,
+    "name": "the worktrees",
+    "stderr": "",
+    "stdout": "<WORK>/arches                    <COMMIT> [main]\n<WORK>/arches-worktrees/ARC-0001 <COMMIT> [ticket/ARC-0001-fix-the-loewen-login]\n<WORK>/arches-worktrees/ARC-0004 <COMMIT> [ticket/ARC-0004-release-notes]\n"
+  }
+]

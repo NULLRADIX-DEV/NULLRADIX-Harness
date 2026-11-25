@@ -1,11 +1,36 @@
 //! Worktree records: legacy `worktrees.json` with the tickets each worktree served.
 
+mod start;
+
 use async_trait::async_trait;
 use nullradix_domain::{
-    Id, Repository, Runner, Ticket, Timestamp, Worktree, WorktreeBranch, WorktreeTicket,
+    Id, Repository, Runner, Ticket, TicketKey, Timestamp, Worktree, WorktreeBranch, WorktreeError,
+    WorktreeTicket,
 };
 
+pub use start::{StartMode, Started, TargetCreated, WorktreeService};
+
 use crate::{AppError, Change};
+
+/// What the runner needs to add a ticket's worktree; paths are local to the runner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewWorktree {
+    /// Folder git runs in; without a target the branch starts at its HEAD.
+    pub cwd: String,
+    /// Main checkout, where a missing target branch is created.
+    pub root: String,
+    pub branch: String,
+    pub path: String,
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CreatedWorktree {
+    /// Where a missing target branch was created from, such as `origin/release` or `main`.
+    pub target_created_from: Option<String>,
+    /// Whether `core.longpaths` was just switched on in the repository.
+    pub long_paths_enabled: bool,
+}
 
 /// A worktree with every ticket it ever served, in join order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +108,70 @@ pub fn already_started(ticket: Id<Ticket>) -> AppError {
     )
 }
 
+/// The ticket already shows a branch.
+#[must_use]
+pub fn already_running(key: &TicketKey, branch: &str) -> AppError {
+    AppError::invalid(
+        "already-started",
+        format!("{key} already runs on branch {branch}"),
+    )
+}
+
+#[must_use]
+pub fn board_repo_mismatch(key: &TicketKey) -> AppError {
+    AppError::invalid(
+        "board-repo-mismatch",
+        format!("the board of {key} does not belong to the repository of this folder"),
+    )
+}
+
+#[must_use]
+pub fn host_not_started(key: &TicketKey) -> AppError {
+    AppError::invalid(
+        "host-not-started",
+        format!("{key} runs in no worktree of this repository"),
+    )
+}
+
+#[must_use]
+pub fn no_commit() -> AppError {
+    AppError::invalid(
+        "no-commit",
+        "create a first commit, a worktree cannot exist without one",
+    )
+}
+
+/// Git has the branch already.
+#[must_use]
+pub fn branch_taken(branch: &str) -> AppError {
+    AppError::invalid("branch-exists", format!("branch {branch} exists already"))
+}
+
+#[must_use]
+pub fn worktree_exists(path: &str) -> AppError {
+    AppError::invalid(
+        "worktree-exists",
+        format!("the folder {path} exists already"),
+    )
+}
+
+/// A git command failed; `detail` is its error output or exit code.
+#[must_use]
+pub fn git_failed(args: &[&str], detail: &str) -> AppError {
+    AppError::invalid(
+        "git-failed",
+        format!("git failed (git {}): {detail}", args.join(" ")),
+    )
+}
+
+#[must_use]
+pub fn invalid(error: &WorktreeError) -> AppError {
+    let text = match error {
+        WorktreeError::Branch(text) | WorktreeError::Path(text) => *text,
+    };
+    AppError::text(text, "input-invalid", error.to_string())
+}
+
 #[must_use]
 pub fn not_found(id: Id<Worktree>) -> AppError {
     AppError::not_found(
@@ -113,9 +202,17 @@ mod tests {
             (branch_exists(&branch), "branch-exists"),
             (already_started(ticket), "already-started"),
             (link_only_clears(), "input-invalid"),
+            (no_commit(), "no-commit"),
+            (branch_taken("b"), "branch-exists"),
+            (worktree_exists("/w"), "worktree-exists"),
+            (git_failed(&["status"], "boom"), "git-failed"),
         ] {
             assert_eq!((error.kind(), error.code()), (ErrorKind::Invalid, code));
         }
+        assert_eq!(
+            git_failed(&["worktree", "add"], "fatal: x").message(),
+            "git failed (git worktree add): fatal: x"
+        );
         let missing = not_found(Id::from_uuid(uuid::Uuid::from_u128(2)));
         assert_eq!(missing.kind(), ErrorKind::NotFound);
     }

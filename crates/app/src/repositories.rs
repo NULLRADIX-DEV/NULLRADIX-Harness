@@ -9,6 +9,7 @@ use nullradix_domain::{
 };
 
 use crate::runs::RunnerPort;
+use crate::worktrees::{CreatedWorktree, NewWorktree};
 use crate::{AppError, Change, ChangeSignal, Clock, ErrorKind, IdGenerator};
 
 /// Name of the runner on the daemon's own machine.
@@ -164,15 +165,51 @@ impl RunnerService {
         self.checkouts.list().await
     }
 
-    /// The repository `path` on `runner` belongs to.
-    pub async fn locate(&self, runner: Id<Runner>, path: &str) -> Result<Located, AppError> {
+    /// The port driving `runner`; only the local runner is connected.
+    async fn port(&self, runner: Id<Runner>) -> Result<&dyn RunnerPort, AppError> {
         if runner != self.local.id() {
             return Err(match self.runners.get(runner).await? {
                 Some(_) => runner_unreachable(runner),
                 None => runner_not_found(runner),
             });
         }
-        self.port.locate(path).await
+        Ok(self.port.as_ref())
+    }
+
+    /// The repository `path` on `runner` belongs to.
+    pub async fn locate(&self, runner: Id<Runner>, path: &str) -> Result<Located, AppError> {
+        self.port(runner).await?.locate(path).await
+    }
+
+    /// Where `path` on `runner` is, with the repository recorded for that checkout, if any.
+    pub(crate) async fn recorded(
+        &self,
+        runner: Id<Runner>,
+        path: &str,
+    ) -> Result<(Located, Option<Repository>), AppError> {
+        let located = self.locate(runner, path).await?;
+        let key = CheckoutPath::parse(&located.key).map_err(|error| invalid(&error))?;
+        let found = self.checkouts.find(runner, &key).await?;
+        Ok((located, found.map(|(repository, _)| repository)))
+    }
+
+    pub(crate) async fn create_worktree(
+        &self,
+        runner: Id<Runner>,
+        request: &NewWorktree,
+    ) -> Result<CreatedWorktree, AppError> {
+        self.port(runner).await?.create_worktree(request).await
+    }
+
+    pub(crate) async fn folders_exist(
+        &self,
+        runner: Id<Runner>,
+        paths: &[String],
+    ) -> Result<Vec<bool>, AppError> {
+        if paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.port(runner).await?.folders_exist(paths).await
     }
 
     /// Key of the checkout `path` is in, or `None` when it is in no repository.

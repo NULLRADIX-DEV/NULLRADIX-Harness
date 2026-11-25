@@ -9,6 +9,8 @@ static UUID: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").ok()
 });
 static SECRET: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{64}\b").ok());
+/// A full git object name, as `git -c core.abbrev=40` prints commits.
+static COMMIT: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{40}\b").ok());
 static PID: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\bpid \d+").ok());
 /// The rest of a path behind a placeholder, so Windows and Unix record the same separators.
 static PATH_TAIL: LazyLock<Option<Regex>> =
@@ -89,6 +91,9 @@ impl Normalizer {
         }
         if let Some(secret) = SECRET.as_ref() {
             text = secret.replace_all(&text, "<SECRET>").into_owned();
+        }
+        if let Some(commit) = COMMIT.as_ref() {
+            text = commit.replace_all(&text, "<COMMIT>").into_owned();
         }
         if let Some(pid) = PID.as_ref() {
             text = pid.replace_all(&text, "pid <PID>").into_owned();
@@ -197,6 +202,10 @@ mod tests {
         // literals match whole words only, secrets whole words of exactly 64 digits
         assert_eq!(normalizer.text("at 127.0.0.19"), "at 127.0.0.19");
         assert_eq!(normalizer.text(&"b".repeat(128)), "b".repeat(128));
+        assert_eq!(
+            normalizer.text(&format!("x {} [main]", "c".repeat(40))),
+            "x <COMMIT> [main]"
+        );
         if home.to_string_lossy().contains('\\') {
             let escaped = format!("{}\\\\data", home.to_string_lossy().replace('\\', "\\\\"));
             assert_eq!(normalizer.text(&escaped), "<HOME>/data");

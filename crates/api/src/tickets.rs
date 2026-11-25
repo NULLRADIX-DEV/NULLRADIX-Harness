@@ -619,7 +619,7 @@ pub(crate) struct DeleteTicketQuery {
 #[into_params(parameter_in = Path, rename_all = "camelCase")]
 pub(crate) struct TicketPath {
     /// Ticket key such as `ARC-0007`; case and padding do not matter.
-    ticket_key: String,
+    pub(crate) ticket_key: String,
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
