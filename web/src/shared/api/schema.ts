@@ -260,6 +260,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dispatcher": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_dispatcher"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["update_dispatcher"];
+        trace?: never;
+    };
     "/api/v1/dispatcher/config": {
         parameters: {
             query?: never;
@@ -270,6 +286,38 @@ export interface paths {
         get: operations["get_dispatcher_config"];
         put: operations["update_dispatcher_config"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatcher/passes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["run_pass"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatcher/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pause_dispatcher"];
         delete?: never;
         options?: never;
         head?: never;
@@ -319,6 +367,22 @@ export interface paths {
         put: operations["set_prompt"];
         post?: never;
         delete: operations["reset_prompt"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatcher/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resume_dispatcher"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1898,6 +1962,55 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
+        /** @enum {string} */
+        DispatcherPhaseDto: "off" | "idle" | "running" | "paused" | "outside-window";
+        /** @description A run of the dispatcher that has not ended. */
+        DispatcherRunDto: {
+            effort?: string | null;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["RunKindDto"];
+            model?: string | null;
+            profile: string;
+            /**
+             * Format: int64
+             * @description Unix milliseconds.
+             */
+            startedAt?: number | null;
+            /** @description Ticket or question key. */
+            subject?: string | null;
+        };
+        DispatcherStatusDto: {
+            /** Format: int32 */
+            active: number;
+            agentPrefix: string;
+            /** Format: uuid */
+            boardId?: string | null;
+            enabled: boolean;
+            lastErrors: string[];
+            /** Format: int64 */
+            lastPassAt?: number | null;
+            message: string;
+            /** Format: int64 */
+            nextPassAt?: number | null;
+            /**
+             * Format: int64
+             * @description Unix milliseconds the pause ends.
+             */
+            pausedUntil?: number | null;
+            /** Format: int32 */
+            planning: number;
+            runs: components["schemas"]["DispatcherRunDto"][];
+            state: components["schemas"]["DispatcherPhaseDto"];
+            tickets: components["schemas"]["TicketReadinessDto"][];
+            /** Format: int64 */
+            version: number;
+            /**
+             * Format: int64
+             * @description Tickets worked on at the same time at most.
+             */
+            wip: number;
+        };
         /**
          * @description The state, or `stale` after 30 minutes without a hook.
          * @enum {string}
@@ -1915,7 +2028,7 @@ export interface components {
             source: components["schemas"]["SourceDto"];
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account" | "theme" | "setting" | "customization" | "dispatcher-config";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account" | "theme" | "setting" | "customization" | "dispatcher-config" | "dispatcher-state";
         /** @enum {string} */
         ExtensionPointDto: "skill" | "output-style";
         /** @description A marked session; its state is the live one while the session still exists. */
@@ -2316,6 +2429,33 @@ export interface components {
          * @enum {string}
          */
         OverlayStateDto: "active" | "fallback" | "disabled";
+        /** @description What a pass did. */
+        PassReportDto: {
+            /**
+             * Format: int64
+             * @description Unix milliseconds the pass began.
+             */
+            at: number;
+            errors: string[];
+            /** @description Why nothing new could start, in words. */
+            idle?: string | null;
+            /** @description Ready tickets that wait for a free place. */
+            queued: string[];
+            released: string[];
+            started: string[];
+        };
+        PauseDispatcher: {
+            /**
+             * Format: int32
+             * @description Pause for this many minutes, 1 to 1440.
+             */
+            minutes?: number | null;
+            /**
+             * Format: int64
+             * @description Pause until this moment in Unix milliseconds; it must lie in the future.
+             */
+            until?: number | null;
+        };
         /** @description A placeholder a template may use. */
         PlaceholderDto: {
             /** @description What goes there. */
@@ -2934,6 +3074,10 @@ export interface components {
             /** @description Filled into the login page of the browser. */
             email?: string | null;
         };
+        StartPass: {
+            /** Format: uuid */
+            boardId?: string | null;
+        };
         /** @description A command to run on the daemon's machine; only token holders may start runs. */
         StartRun: {
             args?: string[];
@@ -3152,6 +3296,12 @@ export interface components {
         TicketList: {
             items: components["schemas"]["TicketDto"][];
         };
+        /** @description A planned ticket and why the dispatcher does or does not take it. */
+        TicketReadinessDto: {
+            key: string;
+            reason: string;
+            title: string;
+        };
         /** @enum {string} */
         TicketStatusDto: "backlog" | "in-planning" | "planned" | "in-progress" | "blocked" | "done" | "not-needed";
         /** @description Local time window in which new runs may start; `to` before `from` wraps past midnight. */
@@ -3294,6 +3444,10 @@ export interface components {
              * @description Version the change is based on; a newer stored version fails with `version-conflict`.
              */
             version: number;
+        };
+        UpdateDispatcher: {
+            /** @description Start new tickets, or not, whatever the configuration says. */
+            enabled: boolean;
         };
         UpdateDispatcherConfig: {
             config: components["schemas"]["DispatcherConfigDto"];
@@ -4533,6 +4687,92 @@ export interface operations {
             };
         };
     };
+    get_dispatcher: {
+        parameters: {
+            query?: {
+                /** @description Shows the readiness of the tickets of this board only. */
+                boardId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatcherStatusDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown board */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_dispatcher: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDispatcher"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatcherStatusDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     get_dispatcher_config: {
         parameters: {
             query?: never;
@@ -4607,6 +4847,94 @@ export interface operations {
                 };
             };
             /** @description Invalid fields, listed in `errors` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    run_pass: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartPass"];
+            };
+        };
+        responses: {
+            /** @description What the pass did */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PassReportDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown board */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    pause_dispatcher: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PauseDispatcher"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatcherStatusDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4830,6 +5158,33 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resume_dispatcher: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatcherStatusDto"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -129,7 +129,7 @@ impl Normalizer {
 
     fn object(&mut self, fields: &mut Map<String, Value>) {
         for (key, field) in fields.iter_mut() {
-            let moment = key == "at" || key.ends_with("At");
+            let moment = key == "at" || key.ends_with("At") || key.ends_with("Until");
             if moment && field.is_number() {
                 *field = Value::from("<TIME>");
             } else if key == "runtimeMs" && field.is_number() {

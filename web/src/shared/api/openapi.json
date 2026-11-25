@@ -1457,6 +1457,110 @@
         }
       }
     },
+    "/api/v1/dispatcher": {
+      "get": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "get_dispatcher",
+        "parameters": [
+          {
+            "name": "boardId",
+            "in": "query",
+            "description": "Shows the readiness of the tickets of this board only.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatcherStatusDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown board",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "update_dispatcher",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDispatcher"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatcherStatusDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/dispatcher/config": {
       "get": {
         "tags": [
@@ -1539,6 +1643,111 @@
           },
           "422": {
             "description": "Invalid fields, listed in `errors`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dispatcher/passes": {
+      "post": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "run_pass",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartPass"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the pass did",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PassReportDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown board",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dispatcher/pause": {
+      "post": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "pause_dispatcher",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PauseDispatcher"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatcherStatusDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1813,6 +2022,34 @@
             }
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dispatcher/resume": {
+      "post": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "resume_dispatcher",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatcherStatusDto"
+                }
+              }
+            }
+          },
+          "401": {
             "content": {
               "application/json": {
                 "schema": {
@@ -9580,6 +9817,160 @@
           }
         }
       },
+      "DispatcherPhaseDto": {
+        "type": "string",
+        "enum": [
+          "off",
+          "idle",
+          "running",
+          "paused",
+          "outside-window"
+        ]
+      },
+      "DispatcherRunDto": {
+        "type": "object",
+        "description": "A run of the dispatcher that has not ended.",
+        "required": [
+          "id",
+          "kind",
+          "profile"
+        ],
+        "properties": {
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RunKindDto"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unix milliseconds."
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Ticket or question key."
+          }
+        }
+      },
+      "DispatcherStatusDto": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "state",
+          "message",
+          "wip",
+          "active",
+          "planning",
+          "runs",
+          "tickets",
+          "lastErrors",
+          "agentPrefix",
+          "version"
+        ],
+        "properties": {
+          "active": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "agentPrefix": {
+            "type": "string"
+          },
+          "boardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "lastErrors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "lastPassAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "message": {
+            "type": "string"
+          },
+          "nextPassAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "pausedUntil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unix milliseconds the pause ends."
+          },
+          "planning": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DispatcherRunDto"
+            }
+          },
+          "state": {
+            "$ref": "#/components/schemas/DispatcherPhaseDto"
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketReadinessDto"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "wip": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Tickets worked on at the same time at most."
+          }
+        }
+      },
       "DisplayStateDto": {
         "type": "string",
         "description": "The state, or `stale` after 30 minutes without a hook.",
@@ -9645,7 +10036,8 @@
           "theme",
           "setting",
           "customization",
-          "dispatcher-config"
+          "dispatcher-config",
+          "dispatcher-state"
         ]
       },
       "ExtensionPointDto": {
@@ -10905,6 +11297,78 @@
           "fallback",
           "disabled"
         ]
+      },
+      "PassReportDto": {
+        "type": "object",
+        "description": "What a pass did.",
+        "required": [
+          "at",
+          "started",
+          "queued",
+          "released",
+          "errors"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds the pass began."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "idle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why nothing new could start, in words."
+          },
+          "queued": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ready tickets that wait for a free place."
+          },
+          "released": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "started": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PauseDispatcher": {
+        "type": "object",
+        "properties": {
+          "minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Pause for this many minutes, 1 to 1440.",
+            "minimum": 0
+          },
+          "until": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Pause until this moment in Unix milliseconds; it must lie in the future."
+          }
+        }
       },
       "PlaceholderDto": {
         "type": "object",
@@ -12897,6 +13361,18 @@
         },
         "additionalProperties": false
       },
+      "StartPass": {
+        "type": "object",
+        "properties": {
+          "boardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "StartRun": {
         "type": "object",
         "description": "A command to run on the daemon's machine; only token holders may start runs.",
@@ -13655,6 +14131,26 @@
           }
         }
       },
+      "TicketReadinessDto": {
+        "type": "object",
+        "description": "A planned ticket and why the dispatcher does or does not take it.",
+        "required": [
+          "key",
+          "title",
+          "reason"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "TicketStatusDto": {
         "type": "string",
         "enum": [
@@ -14127,6 +14623,18 @@
           }
         },
         "additionalProperties": false
+      },
+      "UpdateDispatcher": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Start new tickets, or not, whatever the configuration says."
+          }
+        }
       },
       "UpdateDispatcherConfig": {
         "type": "object",

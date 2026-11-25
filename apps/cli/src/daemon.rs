@@ -11,7 +11,11 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::{CustomizationService, NoStandards};
+use nullradix_app::dispatch::assemble::{DispatcherDeps, assemble};
+use nullradix_app::dispatch::control::DispatcherService;
+use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
+use nullradix_app::dispatch::scheduler::{PASS_INTERVAL, spawn_scheduler};
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
@@ -30,10 +34,10 @@ use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
-use nullradix_domain::{Actor, ConfigDir};
+use nullradix_domain::{Actor, ConfigDir, Timestamp};
 use nullradix_runner::{
     CurlTokenEndpoint, CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalLoginRenewal,
-    LocalLoginRunner, LocalRunner, SupervisorCommand, TranscriptRoots,
+    LocalLoginRunner, LocalRunner, LocalSetup, SupervisorCommand, TranscriptRoots,
 };
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -142,12 +146,26 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
+    let dispatcher = start_dispatcher(
+        &store,
+        &signal,
+        &shutdown,
+        DispatcherParts {
+            config: dispatcher_config.clone(),
+            runners: runners.clone(),
+            runs: runs.clone(),
+            dispatch: dispatch_runs.clone(),
+            prompts: dispatcher_prompts.clone(),
+            board: &board,
+        },
+    );
     let state = ApiState {
         auth,
         projects,
         accounts: account_services.accounts,
         dispatcher_config,
         dispatcher_prompts,
+        dispatcher: dispatcher.clone(),
         usage: account_services.usage,
         logins: account_services.logins.clone(),
         boards: board.boards,
@@ -203,6 +221,66 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     served?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+/// Local time as the machine tells it, read afresh because daylight saving moves it.
+struct OsLocalTime;
+
+#[async_trait::async_trait]
+impl LocalTime for OsLocalTime {
+    async fn minute_of_day(&self, at: Timestamp) -> u32 {
+        let offset = task::spawn_blocking(nullradix_os::local_utc_offset_minutes)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(0);
+        minute_with_offset(at, offset)
+    }
+}
+
+/// What the dispatcher needs from the other services.
+struct DispatcherParts<'a> {
+    config: Arc<DispatcherConfigService>,
+    runners: Arc<RunnerService>,
+    runs: Arc<RunService>,
+    dispatch: Arc<DispatchRuns>,
+    prompts: Arc<DispatcherPromptService>,
+    board: &'a BoardServices,
+}
+
+/// The dispatcher and its beat: a pass every minute until the daemon stops.
+fn start_dispatcher(
+    store: &Store,
+    signal: &ChangeSignal,
+    shutdown: &CancellationToken,
+    parts: DispatcherParts<'_>,
+) -> Arc<DispatcherService> {
+    let dispatcher = assemble(DispatcherDeps {
+        config: parts.config,
+        states: Arc::new(store.clone()),
+        log: Arc::new(store.clone()),
+        setup: Arc::new(LocalSetup),
+        actors: Arc::new(store.clone()),
+        boards: Arc::new(store.clone()),
+        runners: parts.runners,
+        runs: parts.runs,
+        dispatch: parts.dispatch,
+        prompts: parts.prompts,
+        tickets: parts.board.tickets.clone(),
+        comments: parts.board.comments.clone(),
+        worktrees: parts.board.worktrees.clone(),
+        clock: Arc::new(SystemClock),
+        ids: Arc::new(UuidV7Generator),
+        signal: signal.clone(),
+        local_time: Arc::new(OsLocalTime),
+        interval: Some(PASS_INTERVAL),
+    });
+    spawn_scheduler(
+        dispatcher.pass.clone(),
+        PASS_INTERVAL,
+        shutdown.clone().cancelled_owned(),
+    );
+    dispatcher.service
 }
 
 fn dispatcher_config_service(store: &Store, signal: &ChangeSignal) -> Arc<DispatcherConfigService> {
