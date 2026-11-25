@@ -4,11 +4,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Actor, ActorKind, ActorName, Board, BoardError, Id, NOTE_TITLE_MAX, Note, NoteDraft, NoteError,
-    NoteState, Project, Ticket, TicketKey, TicketRef, Version, check_note_labels, drop_reason,
-    normalize_labels, note_number, note_title, similar_notes, utf16_prefix,
+    Actor, Board, Id, NOTE_TITLE_MAX, Note, NoteDraft, NoteError, NoteState, Project, Ticket,
+    TicketKey, TicketRef, Version, check_note_labels, drop_reason, normalize_labels, note_number,
+    note_title, similar_notes, utf16_prefix,
 };
 
+use crate::authors;
+pub use crate::authors::Author;
 use crate::boards::{self, ActorRepository};
 use crate::projects::ProjectRepository;
 use crate::tickets::{
@@ -84,14 +86,6 @@ pub struct Promotion {
     pub labels: Option<Vec<String>>,
 }
 
-/// Who writes: a person in the browser or an agent with a token, under an optional name.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Writer<'a> {
-    pub by_person: bool,
-    /// Name to write under, such as `claude`; the acting person when left out or blank.
-    pub name: Option<&'a str>,
-}
-
 /// A promoted note and the ticket made from it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromotedNote {
@@ -132,13 +126,6 @@ pub fn states(text: Option<&str>) -> Result<Vec<NoteState>, AppError> {
 
 fn number(text: &str) -> Result<i64, AppError> {
     note_number(text).map_err(|error| invalid(&error))
-}
-
-fn author_invalid(error: &BoardError) -> AppError {
-    let text = match error {
-        BoardError::ActorName(text) | BoardError::Name(text) => *text,
-    };
-    AppError::text(text, "author-empty", error.to_string())
 }
 
 fn promoted_key(note: &Note) -> String {
@@ -280,7 +267,7 @@ impl NoteService {
         project: Id<Project>,
         board: Id<Board>,
         input: &NewNote,
-        writer: Writer<'_>,
+        writer: Author<'_>,
         person: &Actor,
     ) -> Result<NoteRow, AppError> {
         let title = note_title(&input.title).map_err(|error| invalid(&error))?;
@@ -416,7 +403,7 @@ impl NoteService {
         &self,
         number: &str,
         promotion: &Promotion,
-        writer: Writer<'_>,
+        writer: Author<'_>,
         person: &Actor,
     ) -> Result<PromotedNote, AppError> {
         let number = self::number(number)?;
@@ -501,25 +488,21 @@ impl NoteService {
         })
     }
 
-    /// The named writer, as a person or a session by who writes; else the acting person.
-    async fn writer(&self, writer: Writer<'_>, person: &Actor) -> Result<Actor, AppError> {
-        let Some(name) = writer.name.filter(|name| !name.trim().is_empty()) else {
-            return Ok(person.clone());
-        };
-        let name = ActorName::parse(name).map_err(|error| author_invalid(&error))?;
-        let kind = if writer.by_person {
-            ActorKind::Human
-        } else {
-            ActorKind::Session
-        };
-        let candidate = Actor::new(self.ids.next(), kind, name, self.clock.now());
-        self.actors.ensure(&candidate).await
+    async fn writer(&self, author: Author<'_>, person: &Actor) -> Result<Actor, AppError> {
+        authors::resolve(
+            self.actors.as_ref(),
+            self.ids.as_ref(),
+            self.clock.as_ref(),
+            author,
+            person,
+        )
+        .await
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use nullradix_domain::{NoteDraft, ProjectKey, TextError, Timestamp};
+    use nullradix_domain::{NoteDraft, ProjectKey, Timestamp};
     use uuid::Uuid;
 
     use super::*;
@@ -567,10 +550,6 @@ mod tests {
         for (error, code) in cases {
             assert_eq!(invalid(&error).code(), code);
         }
-        assert_eq!(
-            author_invalid(&BoardError::ActorName(TextError::TooLong(100))).code(),
-            "value-too-long"
-        );
         assert_eq!(
             not_found(4).to_string(),
             "note-not-found: note 4 does not exist"

@@ -6,6 +6,7 @@ use nullradix_client::Client;
 use nullradix_domain::Timestamp;
 use uuid::Uuid;
 
+use crate::comment::agent_session;
 use crate::selection::BoardChoice;
 use crate::ticket::canonical;
 
@@ -163,6 +164,7 @@ pub(crate) fn run(
                 priority: args.priority,
                 labels: (!args.labels.is_empty()).then_some(args.labels),
                 by: args.by,
+                session: agent_session(),
             };
             let promoted = client.promote_note(&args.number, &input)?;
             print(
@@ -218,6 +220,7 @@ fn add(args: AddArgs, client: &Client, choice: &BoardChoice) -> anyhow::Result<(
         source: args.from,
         labels: args.labels,
         author: args.author,
+        session: agent_session(),
         force: args.force,
     };
     let note = client.add_note(project, board, &input)?;

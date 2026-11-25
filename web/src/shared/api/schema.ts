@@ -853,6 +853,8 @@ export interface components {
             force?: boolean;
             /** @description Entries may hold several labels split by commas. */
             labels?: string[];
+            /** @description Agent session of the caller; a named author is then a session, else a human. */
+            session?: string | null;
             /** @description Key of the ticket it was found at; it must belong to the board's project. */
             source?: string | null;
             title: string;
@@ -1113,6 +1115,8 @@ export interface components {
             /** @description Replaces the note's labels. */
             labels?: string[] | null;
             priority?: components["schemas"]["PriorityDto"] | null;
+            /** @description Agent session of the caller; a named creator is then a session, else a human. */
+            session?: string | null;
             status?: components["schemas"]["TicketStatusDto"] | null;
             /** @description The note's title when left out. */
             title?: string | null;

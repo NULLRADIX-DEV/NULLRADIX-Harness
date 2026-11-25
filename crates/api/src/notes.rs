@@ -2,7 +2,7 @@ use axum::Json;
 use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::auth::Principal;
-use nullradix_app::notes::{NewNote, NoteRow, PromotedNote as Promoted, Promotion, Writer};
+use nullradix_app::notes::{Author, NewNote, NoteRow, PromotedNote as Promoted, Promotion};
 use nullradix_domain::{Id, NoteState};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -103,6 +103,9 @@ pub struct CreateNote {
     pub labels: Vec<String>,
     /// Name to note it under, such as `claude`; the acting person when left out.
     pub author: Option<String>,
+    /// Agent session of the caller; a named author is then a session, else a human.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
     /// Adds it even when a similar open or promoted note exists.
     #[serde(default)]
     pub force: bool,
@@ -132,6 +135,9 @@ pub struct PromoteNote {
     pub labels: Option<Vec<String>>,
     /// Name to create the ticket under, such as `claude`; the acting person when left out.
     pub by: Option<String>,
+    /// Agent session of the caller; a named creator is then a session, else a human.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -184,10 +190,16 @@ pub(crate) struct NoteQuery {
     source: Option<String>,
 }
 
-fn writer<'a>(principal: &Principal, name: Option<&'a str>) -> Writer<'a> {
-    Writer {
+/// A browser session writes as the person; a token under the given name and session.
+fn author<'a>(
+    principal: &Principal,
+    name: Option<&'a str>,
+    session: Option<&'a str>,
+) -> Author<'a> {
+    Author {
         by_person: matches!(principal, Principal::Session { .. }),
         name,
+        session,
     }
 }
 
@@ -258,7 +270,11 @@ pub(crate) async fn add_note(
                 Id::from_uuid(path.project_id),
                 Id::from_uuid(path.board_id),
                 &note,
-                writer(&principal, input.author.as_deref()),
+                author(
+                    &principal,
+                    input.author.as_deref(),
+                    input.session.as_deref(),
+                ),
                 &state.person,
             )
             .await?,
@@ -346,7 +362,7 @@ pub(crate) async fn promote_note(
         .promote(
             &path.note_number,
             &promotion,
-            writer(&principal, input.by.as_deref()),
+            author(&principal, input.by.as_deref(), input.session.as_deref()),
             &state.person,
         )
         .await?;
@@ -530,6 +546,6 @@ mod tests {
             .unwrap();
         let (status, _, note) = send(&api.router, request).await;
         assert_eq!(status, 201);
-        assert_eq!(note["authorName"], "ben");
+        assert_eq!(note["authorName"], "tester");
     }
 }

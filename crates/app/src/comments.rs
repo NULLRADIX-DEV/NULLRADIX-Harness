@@ -4,10 +4,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Actor, ActorKind, ActorName, BoardError, Comment, CommentBody, CommentError, Id, Ticket,
-    TicketKey, Timestamp,
+    Actor, ActorKind, Comment, CommentBody, CommentError, Id, Ticket, TicketKey, Timestamp,
 };
 
+use crate::authors;
+pub use crate::authors::Author;
 use crate::boards::ActorRepository;
 use crate::tickets::{self, TicketRepository, load};
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
@@ -42,38 +43,10 @@ pub trait CommentRepository: Send + Sync {
     ) -> Result<Option<Change>, AppError>;
 }
 
-/// Who writes a comment: the person in the browser, or a caller with a token.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Author<'a> {
-    /// A browser session always writes as the person, undelivered.
-    pub by_person: bool,
-    /// Name to write under, such as `claude`; the acting person when left out or blank.
-    pub name: Option<&'a str>,
-    /// The agent session the caller runs in, as legacy read `NULLRADIX_SESSION`.
-    pub session: Option<&'a str>,
-}
-
-impl Author<'_> {
-    /// Written inside an agent session, so it counts as delivered to agents at once.
-    fn in_session(self) -> bool {
-        !self.by_person
-            && self
-                .session
-                .is_some_and(|session| !session.trim().is_empty())
-    }
-}
-
 #[must_use]
 pub fn invalid(error: &CommentError) -> AppError {
     let CommentError::Body(text) = error;
     AppError::text(*text, "comment-empty", error.to_string())
-}
-
-fn author_invalid(error: &BoardError) -> AppError {
-    let text = match error {
-        BoardError::ActorName(text) | BoardError::Name(text) => *text,
-    };
-    AppError::text(text, "author-empty", error.to_string())
 }
 
 pub struct CommentService {
@@ -125,7 +98,14 @@ impl CommentService {
             return Err(tickets::not_found(&key));
         }
         // the actor commits on its own, before the ticket write takes the connection
-        let actor = self.author(author, person).await?;
+        let actor = authors::resolve(
+            self.actors.as_ref(),
+            self.ids.as_ref(),
+            self.clock.as_ref(),
+            author,
+            person,
+        )
+        .await?;
         let mut write = self.tickets.begin().await?;
         let ticket = load(write.as_mut(), &key, None).await?;
         let now = self.clock.now();
@@ -177,22 +157,6 @@ impl CommentService {
         }
         Ok(())
     }
-
-    /// The named author, a session inside one and a human otherwise; else the acting person.
-    async fn author(&self, author: Author<'_>, person: &Actor) -> Result<Actor, AppError> {
-        let named = author.name.filter(|name| !name.trim().is_empty());
-        let (Some(name), false) = (named, author.by_person) else {
-            return Ok(person.clone());
-        };
-        let name = ActorName::parse(name).map_err(|error| author_invalid(&error))?;
-        let kind = if author.in_session() {
-            ActorKind::Session
-        } else {
-            ActorKind::Human
-        };
-        let candidate = Actor::new(self.ids.next(), kind, name, self.clock.now());
-        self.actors.ensure(&candidate).await
-    }
 }
 
 #[cfg(test)]
@@ -206,10 +170,6 @@ mod tests {
         assert_eq!(
             invalid(&CommentError::Body(TextError::Empty)).code(),
             "comment-empty"
-        );
-        assert_eq!(
-            author_invalid(&BoardError::ActorName(TextError::TooLong(100))).code(),
-            "value-too-long"
         );
     }
 }

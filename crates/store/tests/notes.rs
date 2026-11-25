@@ -5,13 +5,14 @@ mod common;
 use std::sync::Arc;
 
 use nullradix_app::boards::{BoardService, local_person};
-use nullradix_app::notes::{NewNote, NoteRow, NoteService, Promotion, Writer};
+use nullradix_app::comments::CommentService;
+use nullradix_app::notes::{Author, NewNote, NoteRow, NoteService, Promotion};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::tickets::{NewTicket, TicketService, WriteOptions};
 use nullradix_app::{
     AppError, ChangeFeed, ChangeOp, ChangeSignal, Entity, SystemClock, UuidV7Generator,
 };
-use nullradix_domain::{Actor, Board, Id, NoteState, Priority, TicketStatus, Version};
+use nullradix_domain::{Actor, ActorKind, Board, Id, NoteState, Priority, TicketStatus, Version};
 use nullradix_store::Store;
 
 struct Fixture {
@@ -23,9 +24,10 @@ struct Fixture {
     store: Arc<Store>,
 }
 
-const AGENT: Writer<'static> = Writer {
+const AGENT: Author<'static> = Author {
     by_person: false,
     name: None,
+    session: None,
 };
 
 async fn fixture() -> Fixture {
@@ -151,9 +153,10 @@ async fn adds_open_notes_with_numbers_labels_and_authors() {
             board.project(),
             board.id(),
             &input,
-            Writer {
+            Author {
                 by_person: false,
                 name: Some("claude"),
+                session: None,
             },
             &f.person,
         )
@@ -445,9 +448,10 @@ async fn promotion_makes_a_ticket_in_the_same_transaction() {
                 priority: Some(String::from("high")),
                 ..Promotion::default()
             },
-            Writer {
+            Author {
                 by_person: false,
                 name: Some("claude"),
+                session: None,
             },
             &f.person,
         )
@@ -635,4 +639,76 @@ async fn notes_keep_ticket_keys_after_the_tickets_are_deleted() {
         .await
         .unwrap();
     assert_eq!(code(f.notes.get("1").await), "note-not-found");
+}
+
+#[tokio::test]
+async fn comments_and_notes_share_one_named_author() {
+    let f = fixture().await;
+    let board = f.board("ARC").await;
+    let key = f.ticket(&board, "Origin").await;
+    let comments = CommentService::new(
+        f.store.clone(),
+        f.store.clone(),
+        f.store.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        ChangeSignal::new(),
+    );
+    let claude = Author {
+        by_person: false,
+        name: Some("claude"),
+        session: None,
+    };
+    let comment = comments
+        .add(&key, "Looked at it", claude, &f.person)
+        .await
+        .unwrap();
+    let note = f
+        .notes
+        .add(
+            board.project(),
+            board.id(),
+            &noted("Cache"),
+            claude,
+            &f.person,
+        )
+        .await
+        .unwrap();
+    assert_eq!(note.note.author, comment.comment.record().author);
+    assert_eq!(comment.author_kind, ActorKind::Human);
+    assert_eq!(note.author_name, "claude");
+    // inside a session the same name is a session actor; a browser writes as the person
+    let in_session = Author {
+        session: Some("s-1"),
+        ..claude
+    };
+    let sessioned = f
+        .notes
+        .add(
+            board.project(),
+            board.id(),
+            &noted("Search"),
+            in_session,
+            &f.person,
+        )
+        .await
+        .unwrap();
+    assert_ne!(sessioned.note.author, note.note.author);
+    let browser = Author {
+        by_person: true,
+        ..in_session
+    };
+    let typed = f
+        .notes
+        .add(
+            board.project(),
+            board.id(),
+            &noted("Login"),
+            browser,
+            &f.person,
+        )
+        .await
+        .unwrap();
+    assert_eq!(typed.note.author, f.person.id());
+    assert_eq!(typed.author_name, "anna");
 }

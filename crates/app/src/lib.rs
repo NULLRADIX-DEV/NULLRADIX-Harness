@@ -1,6 +1,7 @@
 //! Use cases and the ports they need.
 
 pub mod auth;
+mod authors;
 pub mod boards;
 mod changes;
 mod clock;

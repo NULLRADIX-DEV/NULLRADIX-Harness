@@ -44,11 +44,16 @@ fn session(value: Option<String>) -> Option<String> {
     value.filter(|session| !session.trim().is_empty())
 }
 
+/// The agent session this CLI runs in, as hooks export it.
+pub(crate) fn agent_session() -> Option<String> {
+    session(std::env::var("NULLRADIX_SESSION").ok())
+}
+
 pub(crate) fn run(args: CommentArgs, client: &Client) -> anyhow::Result<()> {
     let input = AddComment {
         body: body(args.text, args.body_file.as_deref())?,
         author: args.author,
-        session: session(std::env::var("NULLRADIX_SESSION").ok()),
+        session: agent_session(),
     };
     let comment = client.add_comment(&canonical(&args.key)?, &input)?;
     println!("Comment on {} saved.", comment.ticket_key);

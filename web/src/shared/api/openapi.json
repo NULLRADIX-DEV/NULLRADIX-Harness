@@ -4378,6 +4378,13 @@
             },
             "description": "Entries may hold several labels split by commas."
           },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a named author is then a session, else a human."
+          },
           "source": {
             "type": [
               "string",
@@ -5263,6 +5270,13 @@
                 "type": "null"
               }
             ]
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a named creator is then a session, else a human."
           },
           "status": {
             "oneOf": [
