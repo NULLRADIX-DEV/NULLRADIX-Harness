@@ -22,19 +22,22 @@ export type AccountStatus = components['schemas']['AccountStatusDto'];
 
 export const USAGE_REFRESH_MS = 120_000;
 export const USAGE_RETRY_MS = 15_000;
+export const LOGIN_POLL_MS = 2_000;
 
 // Short-lived failures are asked again soon, readings every two minutes.
 export function usageQuery() {
   return queryOptions({
     queryKey: [...accountKeys.all, 'usage'] as const,
     queryFn: async () => unwrap(await api.GET('/api/v1/accounts/usage')).items,
-    refetchInterval: (query) =>
-      query.state.data?.some((status) => {
+    refetchInterval: (query) => {
+      const statuses = query.state.data ?? [];
+      if (statuses.some((status) => status.login?.state === 'running')) return LOGIN_POLL_MS;
+      const transient = statuses.some((status) => {
         const reason = status.usage.reason;
         return reason === 'request-failed' || reason === 'token-expired';
-      })
-        ? USAGE_RETRY_MS
-        : USAGE_REFRESH_MS,
+      });
+      return transient ? USAGE_RETRY_MS : USAGE_REFRESH_MS;
+    },
   });
 }
 
@@ -114,6 +117,61 @@ export function useClearRunToken() {
           params: { path: { accountId: id }, query: { version } },
         }),
       ),
+    onSettled: invalidate,
+  });
+}
+
+export type LoginStatus = components['schemas']['LoginDto'];
+
+export function useStartLogin() {
+  const invalidate = useInvalidate(accountKeys.all);
+  return useMutation({
+    mutationFn: async ({ id, email }: { id: string; email?: string }) =>
+      unwrap(
+        await api.POST('/api/v1/accounts/{accountId}/login', {
+          params: { path: { accountId: id } },
+          body: email ? { email } : {},
+        }),
+      ),
+    onSettled: invalidate,
+  });
+}
+
+export function useCreateAccountLogin() {
+  const invalidate = useInvalidate(accountKeys.all);
+  return useMutation({
+    mutationFn: async (input: components['schemas']['CreateAccountLogin']) =>
+      unwrap(await api.POST('/api/v1/accounts/login', { body: input })),
+    onSettled: invalidate,
+  });
+}
+
+// The code is one-time and only travels to the daemon; nothing keeps it.
+export function useSendLoginCode() {
+  const invalidate = useInvalidate(accountKeys.all);
+  return useMutation({
+    mutationFn: async ({ id, code }: { id: string; code: string }) => {
+      unwrapEmpty(
+        await api.POST('/api/v1/accounts/{accountId}/login/code', {
+          params: { path: { accountId: id } },
+          body: { code },
+        }),
+      );
+    },
+    onSettled: invalidate,
+  });
+}
+
+export function useCancelLogin() {
+  const invalidate = useInvalidate(accountKeys.all);
+  return useMutation({
+    mutationFn: async (id: string) => {
+      unwrapEmpty(
+        await api.DELETE('/api/v1/accounts/{accountId}/login', {
+          params: { path: { accountId: id } },
+        }),
+      );
+    },
     onSettled: invalidate,
   });
 }

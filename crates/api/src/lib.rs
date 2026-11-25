@@ -11,6 +11,7 @@ mod health;
 mod hooks;
 mod host;
 mod inbox;
+mod login;
 mod notes;
 mod problem;
 mod projects;
@@ -41,6 +42,7 @@ use nullradix_app::comments::CommentService;
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
+use nullradix_app::login::LoginService;
 use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::QuestionService;
@@ -74,6 +76,9 @@ pub use hooks::{HookEventDto, HookEventList, HookKindDto, HookReplyDto, Recorded
 pub use host::AllowedHosts;
 pub use inbox::{
     InboxCounts, InboxItemDto, InboxItemTypeDto, InboxKindDto, InboxList, InboxOrder, InboxRefDto,
+};
+pub use login::{
+    AccountLoginDto, CreateAccountLogin, LoginCode, LoginDto, LoginStateDto, StartLogin,
 };
 pub use notes::{
     CreateNote, DropNote, NoteDto, NoteList, NoteStateDto, PromoteNote, PromotedNote, SeenNote,
@@ -157,6 +162,7 @@ pub struct ApiState {
     pub projects: Arc<ProjectService>,
     pub accounts: Arc<AccountService>,
     pub usage: Arc<UsageService>,
+    pub logins: Arc<LoginService>,
     pub boards: Arc<BoardService>,
     pub tickets: Arc<TicketService>,
     pub comments: Arc<CommentService>,
@@ -197,6 +203,13 @@ fn routes() -> OpenApiRouter<ApiState> {
         ))
         .routes(routes!(accounts::list_accounts, accounts::create_account))
         .routes(routes!(usage::account_usage))
+        .routes(routes!(login::create_account_login))
+        .routes(routes!(
+            login::get_login,
+            login::start_login,
+            login::cancel_login
+        ))
+        .routes(routes!(login::send_login_code))
         .routes(routes!(accounts::update_account, accounts::delete_account))
         .routes(routes!(accounts::set_run_token, accounts::clear_run_token))
         .routes(routes!(boards::list_all_boards))
@@ -564,6 +577,40 @@ pub(crate) mod tests {
         }
     }
 
+    /// A login that never ends by itself and accepts every code.
+    struct IdleLogin;
+
+    #[async_trait::async_trait]
+    impl nullradix_app::login::LoginRunner for IdleLogin {
+        async fn start(
+            &self,
+            _spec: &nullradix_app::login::LoginSpec,
+        ) -> Result<nullradix_app::login::LoginProcess, AppError> {
+            let (output_sender, output) = tokio::sync::mpsc::channel(1);
+            let (exit_sender, exit) = tokio::sync::oneshot::channel();
+            let (input, mut typed) = tokio::sync::mpsc::channel::<String>(4);
+            tokio::spawn(async move {
+                let _keep = (output_sender, exit_sender);
+                while typed.recv().await.is_some() {}
+            });
+            Ok(nullradix_app::login::LoginProcess {
+                output,
+                exit,
+                input,
+                kill: Box::new(|| {}),
+            })
+        }
+    }
+
+    fn test_logins(accounts: &Arc<AccountService>) -> Arc<LoginService> {
+        Arc::new(LoginService::new(
+            Arc::new(IdleLogin),
+            accounts.clone(),
+            Arc::new(FakeClaude),
+            Arc::new(SystemClock),
+        ))
+    }
+
     fn test_usage() -> Arc<UsageService> {
         Arc::new(UsageService::new(
             Arc::new(FakeClaude),
@@ -590,6 +637,10 @@ pub(crate) mod tests {
         (accounts, dir)
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "wires every service of the test daemon"
+    )]
     pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
@@ -644,6 +695,7 @@ pub(crate) mod tests {
             projects: projects.clone(),
             accounts: accounts.clone(),
             usage: test_usage(),
+            logins: test_logins(&accounts),
             boards: boards.clone(),
             tickets,
             comments,

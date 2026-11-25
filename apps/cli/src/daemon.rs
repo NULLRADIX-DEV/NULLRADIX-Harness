@@ -13,6 +13,7 @@ use nullradix_app::comments::CommentService;
 use nullradix_app::favorites::FavoriteService;
 use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
+use nullradix_app::login::LoginService;
 use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::QuestionService;
@@ -26,7 +27,8 @@ use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_domain::Actor;
 use nullradix_runner::{
-    CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalRunner, SupervisorCommand,
+    CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalLoginRunner, LocalRunner,
+    SupervisorCommand,
 };
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -111,19 +113,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    let accounts = Arc::new(AccountService::new(
-        Arc::new(store.clone()),
-        Arc::new(OsSecretStore::open(config)),
-        Arc::new(account_folders(config)),
-        Arc::new(SystemClock),
-        Arc::new(UuidV7Generator),
-        signal.clone(),
-    ));
-    let usage = Arc::new(UsageService::new(
-        Arc::new(claude_logins(config)),
-        Arc::new(CurlUsageApi::anthropic()),
-        Arc::new(SystemClock),
-    ));
+    let account_services = start_accounts(config, &store, &signal);
     let (runner, runners) = start_runners(config, &store, &signal).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let runs = start_runs(&store, runner, &signal).await?;
@@ -145,8 +135,9 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let state = ApiState {
         auth,
         projects,
-        accounts,
-        usage,
+        accounts: account_services.accounts,
+        usage: account_services.usage,
+        logins: account_services.logins.clone(),
         boards: board.boards,
         tickets: board.tickets,
         comments: board.comments,
@@ -187,6 +178,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
             Ok(())
         }
     };
+    account_services.logins.close();
     store.close().await;
     match task::spawn_blocking(move || discovery.remove()).await {
         Ok(Ok(())) => {}
@@ -196,6 +188,41 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     served?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+/// Accounts with their secrets, usage limits and logins.
+struct AccountServices {
+    accounts: Arc<AccountService>,
+    usage: Arc<UsageService>,
+    logins: Arc<LoginService>,
+}
+
+fn start_accounts(config: &Config, store: &Store, signal: &ChangeSignal) -> AccountServices {
+    let accounts = Arc::new(AccountService::new(
+        Arc::new(store.clone()),
+        Arc::new(OsSecretStore::open(config)),
+        Arc::new(account_folders(config)),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    let files = Arc::new(claude_logins(config));
+    let usage = Arc::new(UsageService::new(
+        files.clone(),
+        Arc::new(CurlUsageApi::anthropic()),
+        Arc::new(SystemClock),
+    ));
+    let logins = Arc::new(LoginService::new(
+        Arc::new(LocalLoginRunner::claude()),
+        accounts.clone(),
+        files,
+        Arc::new(SystemClock),
+    ));
+    AccountServices {
+        accounts,
+        usage,
+        logins,
+    }
 }
 
 /// New accounts get folders in the data folder; a home override also moves `~` there.

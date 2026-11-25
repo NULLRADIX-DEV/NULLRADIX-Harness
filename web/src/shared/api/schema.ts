@@ -20,6 +20,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounts/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_account_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounts/usage": {
         parameters: {
             query?: never;
@@ -50,6 +66,38 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["update_account"];
+        trace?: never;
+    };
+    "/api/v1/accounts/{accountId}/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_login"];
+        put?: never;
+        post: operations["start_login"];
+        delete: operations["cancel_login"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounts/{accountId}/login/code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["send_login_code"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/accounts/{accountId}/run-token": {
@@ -1088,6 +1136,11 @@ export interface components {
             accountsDir: string;
             items: components["schemas"]["AccountDto"][];
         };
+        /** @description A new account that is logged in right away. */
+        AccountLoginDto: {
+            account: components["schemas"]["AccountDto"];
+            login: components["schemas"]["LoginDto"];
+        };
         /** @description What is known about an account's Claude login and limits. */
         AccountStatusDto: {
             /** Format: uuid */
@@ -1096,6 +1149,7 @@ export interface components {
             /** @description The folder Claude Code uses for the account. */
             folder: string;
             loggedIn: boolean;
+            login?: components["schemas"]["LoginDto"] | null;
             slug: string;
             usage: components["schemas"]["UsageDto"];
         };
@@ -1291,6 +1345,11 @@ export interface components {
             /** @description An existing Claude folder to take over, such as `~/.mcacc/work`; else a new one is made. */
             configDir?: string | null;
             name: string;
+        };
+        CreateAccountLogin: {
+            email?: string | null;
+            /** @description Without a name the account is named after its email once it is logged in. */
+            name?: string | null;
         };
         CreateBoard: {
             name: string;
@@ -1621,6 +1680,23 @@ export interface components {
             key: string;
             type: components["schemas"]["InboxItemTypeDto"];
         };
+        /** @description The code the browser shows after logging in. */
+        LoginCode: {
+            /** Format: password */
+            code: string;
+        };
+        /** @description How a `claude auth login` of an account stands. */
+        LoginDto: {
+            /** @description The end of what Claude Code printed; the reason when the login failed. */
+            output: string;
+            /** Format: int64 */
+            startedAt: number;
+            state: components["schemas"]["LoginStateDto"];
+            /** @description The login page, for when no browser opened. */
+            url?: string | null;
+        };
+        /** @enum {string} */
+        LoginStateDto: "running" | "done" | "failed" | "cancelled";
         MarkFavorite: {
             /** @description Replaces the note; left out keeps it. Cut to 2000 characters. */
             note?: string | null;
@@ -2079,6 +2155,10 @@ export interface components {
             ticketKey?: string | null;
             title: string;
         };
+        StartLogin: {
+            /** @description Filled into the login page of the browser. */
+            email?: string | null;
+        };
         /** @description A command to run on the daemon's machine; only token holders may start runs. */
         StartRun: {
             args?: string[];
@@ -2487,6 +2567,46 @@ export interface operations {
             };
         };
     };
+    create_account_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAccountLogin"];
+            };
+        };
+        responses: {
+            /** @description The account is added and its login runs */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountLoginDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     account_usage: {
         parameters: {
             query?: {
@@ -2626,6 +2746,207 @@ export interface operations {
                 };
             };
             /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Account id. */
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such account, or it had no login yet */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    start_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Account id. */
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartLogin"];
+            };
+        };
+        responses: {
+            /** @description The login runs; a running one is ended first */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    cancel_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Account id. */
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The login is ended, or there was none */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    send_login_code: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Account id. */
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginCode"];
+            };
+        };
+        responses: {
+            /** @description The code went to the running login */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No login runs for the account */
             409: {
                 headers: {
                     [name: string]: unknown;

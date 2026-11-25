@@ -12,6 +12,7 @@ pub mod favorites;
 pub mod hooks;
 mod ids;
 pub mod inbox;
+pub mod login;
 pub mod notes;
 pub mod projects;
 pub mod questions;

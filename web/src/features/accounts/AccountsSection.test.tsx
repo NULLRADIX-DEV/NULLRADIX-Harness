@@ -418,3 +418,141 @@ describe('AccountsSection usage', () => {
     expect(max.queryByLabelText('Usage of Max')).not.toBeInTheDocument();
   });
 });
+
+// In-memory login of the account Max; the usage route carries its state.
+function loginServer(initial: AccountStatus['login'] = null) {
+  let login = initial;
+  const server = accountsServer();
+  server.api.set('GET /api/v1/accounts/usage', () =>
+    json(200, { items: [status({ login, loggedIn: login?.state === 'done' })] }),
+  );
+  server.api.set(`POST /api/v1/accounts/${MAX_ID}/login`, () => {
+    login = { state: 'running', startedAt: 1, url: null, output: '' };
+    return json(202, login);
+  });
+  server.api.set(`POST /api/v1/accounts/${MAX_ID}/login/code`, () => {
+    login = { state: 'done', startedAt: 1, url: null, output: '' };
+    return new Response(null, { status: 204 });
+  });
+  server.api.set(`DELETE /api/v1/accounts/${MAX_ID}/login`, () => {
+    login = { state: 'cancelled', startedAt: 1, url: null, output: '' };
+    return new Response(null, { status: 204 });
+  });
+  return server;
+}
+
+describe('AccountsSection login', () => {
+  it('starts a login, takes the code of the browser and finishes', async () => {
+    const { api } = loginServer();
+    renderApp('/settings');
+    const max = await row('Max');
+    await userEvent.click(await max.findByRole('button', { name: 'Log in Max with Claude' }));
+    const box = within(await max.findByRole('group', { name: 'Login of Max' }));
+    expect(box.getByText(/Claude then shows a code/)).toBeInTheDocument();
+    const [start] = api.requests(`POST /api/v1/accounts/${MAX_ID}/login`);
+    expect(await start?.clone().json()).toEqual({});
+
+    const input = box.getByRole('textbox', { name: 'Code from the browser' });
+    expect(box.getByRole('button', { name: 'Send code' })).toBeDisabled();
+    await userEvent.type(input, ' fake-code ');
+    await userEvent.click(box.getByRole('button', { name: 'Send code' }));
+    await waitFor(() => {
+      expect(max.queryByRole('group', { name: 'Login of Max' })).not.toBeInTheDocument();
+    });
+    const [code] = api.requests(`POST /api/v1/accounts/${MAX_ID}/login/code`);
+    expect(await code?.clone().json()).toEqual({ code: 'fake-code' });
+    expect(document.body.textContent).not.toContain('fake-code');
+    expect(await max.findByRole('button', { name: 'Log in Max with Claude' })).toHaveTextContent(
+      'Log in again',
+    );
+  });
+
+  it('links the login page and cancels a running login', async () => {
+    const { api } = loginServer({
+      state: 'running',
+      startedAt: 1,
+      url: 'https://claude.ai/oauth/authorize?x=1',
+      output: '',
+    });
+    renderApp('/settings');
+    const max = await row('Max');
+    const box = within(await max.findByRole('group', { name: 'Login of Max' }));
+    expect(box.getByRole('link', { name: 'Open the login page' })).toHaveAttribute(
+      'href',
+      'https://claude.ai/oauth/authorize?x=1',
+    );
+    await userEvent.click(box.getByRole('button', { name: 'Cancel login' }));
+    await waitFor(() => {
+      expect(api.requests(`DELETE /api/v1/accounts/${MAX_ID}/login`)).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(max.queryByRole('group', { name: 'Login of Max' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows why a login failed and offers to try again', async () => {
+    const { api } = loginServer({
+      state: 'failed',
+      startedAt: 1,
+      url: 'https://claude.ai/login',
+      output:
+        'Opening browser to sign in...\nvisit https://claude.ai/login\nPaste code here if prompted > \nerror: the code was not accepted\n',
+    });
+    renderApp('/settings');
+    const max = await row('Max');
+    const box = within(await max.findByRole('group', { name: 'Login of Max' }));
+    expect(box.getByText('The login failed.')).toBeInTheDocument();
+    expect(box.getByText('error: the code was not accepted')).toBeInTheDocument();
+    expect(box.queryByText(/Opening browser/)).not.toBeInTheDocument();
+    await userEvent.click(box.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => {
+      expect(api.requests(`POST /api/v1/accounts/${MAX_ID}/login`)).toHaveLength(1);
+    });
+    expect(await max.findByRole('group', { name: 'Login of Max' })).toBeInTheDocument();
+  });
+
+  it('shows what the daemon says when the login cannot start', async () => {
+    const { api } = loginServer();
+    api.set(`POST /api/v1/accounts/${MAX_ID}/login`, () =>
+      problem(422, 'account-invalid', 'not an email address'),
+    );
+    renderApp('/settings');
+    const max = await row('Max');
+    await userEvent.click(await max.findByRole('button', { name: 'Log in Max with Claude' }));
+    expect(await max.findByRole('alert')).toHaveTextContent('not an email address');
+  });
+
+  it('adds an account and logs it in with only an email', async () => {
+    const { api } = accountsServer([defaultAccount()]);
+    api.set('POST /api/v1/accounts/login', () =>
+      json(202, {
+        account: account({ name: 'me@example.com', slug: 'me-example-com' }),
+        login: { state: 'running', startedAt: 1, url: null, output: '' },
+      }),
+    );
+    renderApp('/settings');
+    await row('Default');
+    const form = within(screen.getByRole('form', { name: 'New account' }));
+    await userEvent.type(form.getByRole('textbox', { name: 'Email' }), ' me@example.com ');
+    await userEvent.click(form.getByRole('button', { name: 'Add and log in with Claude' }));
+    await waitFor(() => {
+      expect(api.requests('POST /api/v1/accounts/login')).toHaveLength(1);
+    });
+    const [request] = api.requests('POST /api/v1/accounts/login');
+    expect(await request?.clone().json()).toEqual({ email: 'me@example.com' });
+    expect(form.getByRole('textbox', { name: 'Email' })).toHaveValue('');
+  });
+
+  it('keeps a plain add independent of the email', async () => {
+    const { api } = accountsServer([defaultAccount()]);
+    renderApp('/settings');
+    await row('Default');
+    const form = within(screen.getByRole('form', { name: 'New account' }));
+    expect(form.getByRole('button', { name: 'Add account' })).toBeDisabled();
+    await userEvent.type(form.getByRole('textbox', { name: 'Name' }), 'Work');
+    await userEvent.click(form.getByRole('button', { name: 'Add account' }));
+    await waitFor(() => {
+      expect(api.requests('POST /api/v1/accounts')).toHaveLength(1);
+    });
+  });
+});

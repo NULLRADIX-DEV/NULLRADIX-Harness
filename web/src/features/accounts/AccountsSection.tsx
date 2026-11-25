@@ -8,10 +8,15 @@ import {
   useClearRunToken,
   useCreateAccount,
   useDeleteAccount,
+  useSendLoginCode,
   useSetRunToken,
+  useStartLogin,
+  useCancelLogin,
+  useCreateAccountLogin,
   useUpdateAccount,
   type Account,
   type AccountStatus,
+  type LoginStatus,
 } from './queries';
 import './accounts.css';
 
@@ -30,19 +35,33 @@ const MESSAGES = {
 
 function AddAccountForm() {
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [dir, setDir] = useState('');
   const create = useCreateAccount();
+  const createWithLogin = useCreateAccountLogin();
+  const busy = create.isPending || createWithLogin.isPending;
+
+  function reset() {
+    setName('');
+    setEmail('');
+    setDir('');
+  }
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     create.mutate(
       { name, ...(dir.trim() === '' ? {} : { configDir: dir.trim() }) },
+      { onSuccess: reset },
+    );
+  }
+
+  function addAndLogIn() {
+    createWithLogin.mutate(
       {
-        onSuccess: () => {
-          setName('');
-          setDir('');
-        },
+        ...(name.trim() === '' ? {} : { name }),
+        ...(email.trim() === '' ? {} : { email: email.trim() }),
       },
+      { onSuccess: reset },
     );
   }
 
@@ -60,14 +79,30 @@ function AddAccountForm() {
             }}
           />
         </label>
-        <button
-          type="submit"
-          className="btn primary"
-          disabled={create.isPending || name.trim() === ''}
-        >
+        <label className="field account-name-field">
+          <span>Email</span>
+          <input
+            type="email"
+            value={email}
+            placeholder="me@example.com"
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => {
+              setEmail(event.target.value);
+            }}
+          />
+        </label>
+        <button type="submit" className="btn" disabled={busy || name.trim() === ''}>
           Add account
         </button>
+        <button type="button" className="btn primary" disabled={busy} onClick={addAndLogIn}>
+          Add and log in with Claude
+        </button>
       </div>
+      <p className="field-hint muted">
+        The email is optional and fills the login page. Without a name, the account is named after
+        the email once it is logged in.
+      </p>
       <details className="account-more">
         <summary>Use an existing Claude folder</summary>
         <label className="field">
@@ -89,6 +124,9 @@ function AddAccountForm() {
         </p>
       </details>
       <FormError message={problemMessage(create.error, MESSAGES, 'Could not add the account.')} />
+      <FormError
+        message={problemMessage(createWithLogin.error, MESSAGES, 'Could not add the account.')}
+      />
     </form>
   );
 }
@@ -382,6 +420,136 @@ function Meter({
   );
 }
 
+// What Claude Code printed on a failed login, without the page, the prompt and the progress lines.
+export function failureText(output: string): string {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^.*Paste code here if prompted >\s*/, ''))
+    .filter(
+      (line) =>
+        line.trim() !== '' && !/https?:\/\//.test(line) && !line.startsWith('Opening browser'),
+    )
+    .slice(-6)
+    .join('\n');
+}
+
+function LoginBox({
+  account,
+  login,
+  loggedIn,
+}: {
+  account: Account;
+  login: LoginStatus | null | undefined;
+  loggedIn: boolean;
+}) {
+  const [code, setCode] = useState('');
+  const start = useStartLogin();
+  const send = useSendLoginCode();
+  const cancel = useCancelLogin();
+  if (!login || login.state === 'done' || login.state === 'cancelled') {
+    return (
+      <div className="account-login">
+        <button
+          type="button"
+          className="btn"
+          disabled={start.isPending || !account.enabled}
+          aria-label={`Log in ${account.name} with Claude`}
+          onClick={() => {
+            start.mutate({ id: account.id });
+          }}
+        >
+          {loggedIn ? 'Log in again' : 'Log in with Claude'}
+        </button>
+        <FormError message={problemMessage(start.error, MESSAGES, 'Could not start the login.')} />
+      </div>
+    );
+  }
+
+  if (login.state === 'failed') {
+    const reason = failureText(login.output);
+    return (
+      <div className="account-login" role="group" aria-label={`Login of ${account.name}`}>
+        <p className="form-error">The login failed.</p>
+        {reason !== '' && <pre className="account-login-output">{reason}</pre>}
+        <button
+          type="button"
+          className="btn"
+          disabled={start.isPending}
+          onClick={() => {
+            start.mutate({ id: account.id });
+          }}
+        >
+          Try again
+        </button>
+        <FormError message={problemMessage(start.error, MESSAGES, 'Could not start the login.')} />
+      </div>
+    );
+  }
+
+  function submit(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    send.mutate(
+      { id: account.id, code: code.trim() },
+      {
+        onSuccess: () => {
+          setCode('');
+        },
+      },
+    );
+  }
+
+  return (
+    <form
+      className="account-login"
+      role="group"
+      aria-label={`Login of ${account.name}`}
+      onSubmit={submit}
+    >
+      <p>
+        Log in with this account in the browser. Claude then shows a code: paste it here and send
+        it.
+      </p>
+      {login.url && (
+        <p className="field-hint muted">
+          No window opened?{' '}
+          <a href={login.url} target="_blank" rel="noreferrer">
+            Open the login page
+          </a>
+        </p>
+      )}
+      <div className="form-row">
+        <label className="field account-token-field">
+          <span className="visually-hidden">Code from the browser</span>
+          <input
+            value={code}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="Code from the browser"
+            aria-label="Code from the browser"
+            onChange={(event) => {
+              setCode(event.target.value);
+            }}
+          />
+        </label>
+        <button type="submit" className="btn" disabled={send.isPending || code.trim() === ''}>
+          Send code
+        </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={cancel.isPending}
+          onClick={() => {
+            cancel.mutate(account.id);
+          }}
+        >
+          Cancel login
+        </button>
+      </div>
+      <FormError message={problemMessage(send.error, MESSAGES, 'Could not send the code.')} />
+    </form>
+  );
+}
+
 // Login, plan and limits of an account; without numbers the reason says why.
 function UsageLine({ account, status }: { account: Account; status: AccountStatus | undefined }) {
   if (!status) return null;
@@ -460,6 +628,7 @@ function AccountRow({
       </div>
       {account.configDir && <p className="account-dir mono muted">{account.configDir}</p>}
       <UsageLine account={account} status={status} />
+      <LoginBox account={account} login={status?.login} loggedIn={status?.loggedIn ?? false} />
       {mode === 'rename' && <RenameForm account={account} onDone={back} />}
       {mode === 'remove' && (
         <RemoveConfirm account={account} accountsDir={accountsDir} onDone={back} />

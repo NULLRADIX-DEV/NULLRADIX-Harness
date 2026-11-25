@@ -2,17 +2,18 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, AcceptTicket, AccountDto, AccountList, AccountStatusList, AddComment,
-    AddQuestionComment, AddStep, AnswerQuestion, BoardDeleted, BoardDto, BoardList, ChangeStep,
-    ClaimPlanning, ClaimSession, ClaimTicket, CommentDto, CommentList, CreateAccount, CreateBoard,
-    CreateNote, CreateProject, CreateQuestion, CreateTicket, DecideQuestion, DropNote, FavoriteDto,
-    FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto,
-    HookEventList, HookKindDto, HookReplyDto, InboxList, MarkFavorite, MoveStep, MoveTicket,
-    NextPlanning, NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList,
-    PromoteNote, PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList, ReleaseTicket,
-    RenameBoard, RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SeenNote,
+    API_PREFIX, API_VERSION, AcceptTicket, AccountDto, AccountList, AccountLoginDto,
+    AccountStatusList, AddComment, AddQuestionComment, AddStep, AnswerQuestion, BoardDeleted,
+    BoardDto, BoardList, ChangeStep, ClaimPlanning, ClaimSession, ClaimTicket, CommentDto,
+    CommentList, CreateAccount, CreateAccountLogin, CreateBoard, CreateNote, CreateProject,
+    CreateQuestion, CreateTicket, DecideQuestion, DropNote, FavoriteDto, FavoriteList, FileDiffDto,
+    FinishTicket, FinishedTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto,
+    HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite, MoveStep, MoveTicket, NextPlanning,
+    NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList, PromoteNote,
+    PromotedNote, QuestionCommentDto, QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard,
+    RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SeenNote,
     SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository, SetRunToken,
-    StartRun, StartTicket, StartedTicket, TicketDetailDto, TicketDto, TicketList,
+    StartLogin, StartRun, StartTicket, StartedTicket, TicketDetailDto, TicketDto, TicketList,
     TranscriptPageDto, UpdateAccount, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
@@ -211,6 +212,41 @@ impl Client {
             .call()
             .map_err(|source| self.unreachable(source))?;
         decode(&mut response, 200)
+    }
+
+    pub fn create_account_login(
+        &self,
+        input: &CreateAccountLogin,
+    ) -> Result<AccountLoginDto, ClientError> {
+        self.post_json("/accounts/login", input, 202)
+    }
+
+    pub fn start_login(&self, id: Uuid, input: &StartLogin) -> Result<LoginDto, ClientError> {
+        self.post_json(&format!("/accounts/{id}/login"), input, 202)
+    }
+
+    pub fn get_login(&self, id: Uuid) -> Result<LoginDto, ClientError> {
+        self.get_json(&format!("/accounts/{id}/login"))
+    }
+
+    pub fn cancel_login(&self, id: Uuid) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .delete(&self.url(&format!("/accounts/{id}/login")))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    pub fn send_login_code(&self, id: Uuid, input: &LoginCode) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/accounts/{id}/login/code")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
     }
 
     pub fn list_all_boards(&self) -> Result<BoardList, ClientError> {
@@ -1045,6 +1081,24 @@ mod tests {
         (runner, Arc::new(runners))
     }
 
+    /// Claude Code is not installed, so a login ends at once with the reason.
+    fn login_service(
+        accounts: &Arc<nullradix_app::accounts::AccountService>,
+    ) -> Arc<nullradix_app::login::LoginService> {
+        Arc::new(nullradix_app::login::LoginService::new(
+            Arc::new(nullradix_runner::LocalLoginRunner::with_launcher(
+                String::from("nullradix-no-such-claude"),
+                Vec::new(),
+            )),
+            accounts.clone(),
+            Arc::new(nullradix_runner::LocalClaudeLogins::new(
+                Some(std::env::temp_dir().join("nullradix-client-tests-home")),
+                None,
+            )),
+            Arc::new(SystemClock),
+        ))
+    }
+
     fn usage_service() -> Arc<nullradix_app::usage::UsageService> {
         Arc::new(nullradix_app::usage::UsageService::new(
             Arc::new(nullradix_runner::LocalClaudeLogins::new(
@@ -1156,8 +1210,9 @@ mod tests {
         ApiState {
             auth,
             projects,
-            accounts,
+            accounts: accounts.clone(),
             usage: usage_service(),
+            logins: login_service(&accounts),
             boards,
             tickets,
             comments,
@@ -1361,6 +1416,39 @@ mod tests {
                 Some(nullradix_api::UsageReasonDto::NoLogin)
             );
         }
+    }
+
+    #[test]
+    fn logs_accounts_in_and_reports_a_claude_that_cannot_start() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        let started = client
+            .create_account_login(&CreateAccountLogin {
+                name: Some(String::from("Max")),
+                email: Some(String::from("max@example.com")),
+            })
+            .unwrap();
+        assert_eq!(started.account.slug, "max");
+        assert_eq!(started.login.state, nullradix_api::LoginStateDto::Failed);
+        assert!(started.login.output.contains("could not be started"));
+        let shown = client.get_login(started.account.id).unwrap();
+        assert_eq!(shown, started.login);
+        let again = client
+            .start_login(started.account.id, &StartLogin::default())
+            .unwrap();
+        assert_eq!(again.state, nullradix_api::LoginStateDto::Failed);
+        let refused = client
+            .send_login_code(
+                started.account.id,
+                &LoginCode {
+                    code: String::from("abc"),
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(refused, ClientError::Refused { status: 409, .. }));
+        client.cancel_login(started.account.id).unwrap();
+        let ghost = client.get_login(uuid::Uuid::from_u128(9)).unwrap_err();
+        assert!(matches!(ghost, ClientError::Refused { status: 404, .. }));
     }
     #[test]
     fn typed_note_numbers_stay_one_path_segment() {

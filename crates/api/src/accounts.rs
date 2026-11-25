@@ -145,7 +145,7 @@ pub(crate) struct DeleteAccountQuery {
 #[into_params(parameter_in = Path, rename_all = "camelCase")]
 pub(crate) struct AccountPath {
     /// Account id.
-    account_id: Uuid,
+    pub(crate) account_id: Uuid,
 }
 
 #[utoipa::path(

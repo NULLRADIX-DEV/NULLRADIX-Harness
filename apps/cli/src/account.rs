@@ -1,14 +1,18 @@
 use std::io::{self, BufRead, IsTerminal};
 use std::process::ExitCode;
 use std::str::FromStr;
+use std::time::Duration;
 
 use anyhow::{Context, bail};
 use clap::{Args, Subcommand};
 use nullradix_api::{
-    AccountDto, AccountStatusDto, CreateAccount, SetRunToken, UpdateAccount, UsageReasonDto,
-    UsageWindowDto,
+    AccountDto, AccountStatusDto, CreateAccount, CreateAccountLogin, LoginCode, LoginDto,
+    LoginStateDto, SetRunToken, StartLogin, UpdateAccount, UsageReasonDto, UsageWindowDto,
 };
 use nullradix_client::Client;
+
+/// How often a running login is looked at.
+const LOGIN_POLL: Duration = Duration::from_secs(1);
 
 #[derive(Subcommand)]
 pub(crate) enum AccountCommand {
@@ -34,6 +38,23 @@ pub(crate) enum AccountCommand {
         /// Existing Claude folder to take over, such as ~/.mcacc/work
         #[arg(long)]
         dir: Option<String>,
+        /// Log the account in with Claude right away
+        #[arg(long, conflicts_with = "dir")]
+        login: bool,
+        /// Email the login page of the browser starts with
+        #[arg(long, requires = "login")]
+        email: Option<String>,
+    },
+    /// Log an account in with `claude auth login`, which opens the browser
+    Login {
+        /// Account id, as `nullradix account list` shows it
+        account: String,
+        /// Email the login page of the browser starts with
+        #[arg(long)]
+        email: Option<String>,
+        /// Start the login and return, without following it
+        #[arg(long)]
+        no_wait: bool,
     },
     /// Change name, fallback switch or limits of an account
     Set(SetArgs),
@@ -125,12 +146,23 @@ impl LimitArg {
 pub(crate) fn run(command: AccountCommand, client: &Client) -> anyhow::Result<ExitCode> {
     match command {
         AccountCommand::List { json } => list(client, json)?,
-        AccountCommand::Add { name, dir } => {
-            let account = client.create_account(&CreateAccount {
-                name,
-                config_dir: dir,
-            })?;
-            println!("added {} ({})", account.slug, account.name);
+        AccountCommand::Add {
+            name,
+            dir,
+            login,
+            email,
+        } => add(client, name, dir, login, email)?,
+        AccountCommand::Login {
+            account,
+            email,
+            no_wait,
+        } => {
+            let found = find(client, &account)?;
+            let started = client.start_login(found.id, &StartLogin { email })?;
+            println!("login started for {account}");
+            if !no_wait {
+                follow_login(client, &found, started)?;
+            }
         }
         AccountCommand::Usage { fresh, json } => usage(client, fresh, json)?,
         AccountCommand::Set(args) => set(client, args)?,
@@ -214,6 +246,82 @@ fn change(client: &Client, account: &AccountDto, update: &UpdateAccount) -> anyh
     let changed = client.update_account(account.id, update)?;
     println!("updated {}", describe(&changed));
     Ok(())
+}
+
+fn add(
+    client: &Client,
+    name: String,
+    dir: Option<String>,
+    login: bool,
+    email: Option<String>,
+) -> anyhow::Result<()> {
+    if !login {
+        let account = client.create_account(&CreateAccount {
+            name,
+            config_dir: dir,
+        })?;
+        println!("added {} ({})", account.slug, account.name);
+        return Ok(());
+    }
+    let started = client.create_account_login(&CreateAccountLogin {
+        name: Some(name),
+        email,
+    })?;
+    println!("added {} ({})", started.account.slug, started.account.name);
+    follow_login(client, &started.account, started.login)
+}
+
+/// Waits for a login, shows its page and forwards the code that a person pastes.
+fn follow_login(client: &Client, account: &AccountDto, first: LoginDto) -> anyhow::Result<()> {
+    let typed = std::io::stdin().is_terminal().then(|| {
+        let (sender, receiver) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for line in io::stdin().lock().lines().map_while(Result::ok) {
+                if sender.send(line).is_err() {
+                    return;
+                }
+            }
+        });
+        receiver
+    });
+    if typed.is_some() {
+        eprintln!("If Claude asks for a code, paste it here and press Enter.");
+    }
+    let mut shown_url = false;
+    let mut login = first;
+    loop {
+        if let Some(url) = login.url.as_deref().filter(|_| !shown_url) {
+            eprintln!("If no browser opened, visit {url}");
+            shown_url = true;
+        }
+        match login.state {
+            LoginStateDto::Running => {}
+            LoginStateDto::Done => {
+                println!("{} is logged in", account.slug);
+                return Ok(());
+            }
+            LoginStateDto::Failed => bail!("the login failed:\n{}", failure(&login.output)),
+            LoginStateDto::Cancelled => bail!("the login was cancelled"),
+        }
+        match typed.as_ref().map(|lines| lines.recv_timeout(LOGIN_POLL)) {
+            Some(Ok(line)) if !line.trim().is_empty() => {
+                client.send_login_code(account.id, &LoginCode { code: line })?;
+            }
+            Some(Ok(_)) => {}
+            Some(Err(_)) | None => std::thread::sleep(LOGIN_POLL),
+        }
+        login = client.get_login(account.id)?;
+    }
+}
+
+/// The last lines of what Claude Code printed, without the login page and the prompts.
+fn failure(output: &str) -> String {
+    let lines: Vec<&str> = output
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.contains("https://"))
+        .collect();
+    let start = lines.len().saturating_sub(6);
+    lines[start..].join("\n")
 }
 
 fn usage(client: &Client, fresh: bool, json: bool) -> anyhow::Result<()> {
@@ -355,6 +463,7 @@ mod tests {
             logged_in: true,
             email: Some(String::from("max@example.com")),
             folder: String::from("/a"),
+            login: None,
             usage: nullradix_api::UsageDto {
                 available: reason.is_none(),
                 reason,

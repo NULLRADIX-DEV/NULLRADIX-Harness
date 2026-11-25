@@ -37,6 +37,7 @@ const SCRUBBED: &[&str] = &[
     "FAKE_CLAUDE_MODE",
     "FAKE_CLAUDE_REPLY",
     "FAKE_CLAUDE_REPLY_FILE",
+    "NULLRADIX_CLAUDE",
 ];
 
 /// The programs under test, found in the target directory above the test binary.
@@ -137,6 +138,11 @@ impl Daemon {
         binaries: &Binaries,
         env: &BTreeMap<String, String>,
     ) -> anyhow::Result<Self> {
+        // logins of accounts run the fake Claude unless a scenario names another command
+        let mut env = env.clone();
+        env.entry(String::from("NULLRADIX_CLAUDE"))
+            .or_insert_with(|| binaries.fake_claude.to_string_lossy().into_owned());
+        let env = &env;
         let home = tempfile::Builder::new()
             .prefix("nullradix-acceptance")
             .tempdir()?;

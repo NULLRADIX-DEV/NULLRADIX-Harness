@@ -101,6 +101,54 @@
         }
       }
     },
+    "/api/v1/accounts/login": {
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "create_account_login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccountLogin"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "The account is added and its login runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountLoginDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/accounts/usage": {
       "get": {
         "tags": [
@@ -287,6 +335,254 @@
           },
           "409": {
             "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountId}/login": {
+      "get": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "get_login",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account, or it had no login yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "start_login",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartLogin"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "The login runs; a running one is ended first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "cancel_login",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The login is ended, or there was none"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountId}/login/code": {
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "send_login_code",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginCode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The code went to the running login"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No login runs for the account",
             "content": {
               "application/json": {
                 "schema": {
@@ -5928,6 +6224,22 @@
           }
         }
       },
+      "AccountLoginDto": {
+        "type": "object",
+        "description": "A new account that is logged in right away.",
+        "required": [
+          "account",
+          "login"
+        ],
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountDto"
+          },
+          "login": {
+            "$ref": "#/components/schemas/LoginDto"
+          }
+        }
+      },
       "AccountStatusDto": {
         "type": "object",
         "description": "What is known about an account's Claude login and limits.",
@@ -5955,6 +6267,17 @@
           },
           "loggedIn": {
             "type": "boolean"
+          },
+          "login": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LoginDto",
+                "description": "The latest `claude auth login` of the account, while the daemon remembers it."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "slug": {
             "type": "string"
@@ -6567,6 +6890,25 @@
           },
           "name": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateAccountLogin": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Without a name the account is named after its email once it is logged in."
           }
         },
         "additionalProperties": false
@@ -7661,6 +8003,58 @@
           }
         },
         "additionalProperties": false
+      },
+      "LoginCode": {
+        "type": "object",
+        "description": "The code the browser shows after logging in.",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "format": "password"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LoginDto": {
+        "type": "object",
+        "description": "How a `claude auth login` of an account stands.",
+        "required": [
+          "state",
+          "startedAt",
+          "output"
+        ],
+        "properties": {
+          "output": {
+            "type": "string",
+            "description": "The end of what Claude Code printed; the reason when the login failed."
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/LoginStateDto"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The login page, for when no browser opened."
+          }
+        }
+      },
+      "LoginStateDto": {
+        "type": "string",
+        "enum": [
+          "running",
+          "done",
+          "failed",
+          "cancelled"
+        ]
       },
       "MarkFavorite": {
         "type": "object",
@@ -9178,6 +9572,19 @@
             "type": "string"
           }
         }
+      },
+      "StartLogin": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Filled into the login page of the browser."
+          }
+        },
+        "additionalProperties": false
       },
       "StartRun": {
         "type": "object",

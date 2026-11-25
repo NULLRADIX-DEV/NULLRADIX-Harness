@@ -1,10 +1,12 @@
 use axum::Json;
 use axum::extract::State;
+use nullradix_app::login::LoginStatus;
 use nullradix_app::usage::{AccountStatus, AccountUsage, UsageReason, UsageWindow};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::login::LoginDto;
 use crate::{ApiError, ApiQuery, ApiState, Problem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -85,6 +87,8 @@ pub struct AccountStatusDto {
     /// The folder Claude Code uses for the account.
     pub folder: String,
     pub usage: UsageDto,
+    /// The latest `claude auth login` of the account, while the daemon remembers it.
+    pub login: Option<LoginDto>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -93,7 +97,7 @@ pub struct AccountStatusList {
 }
 
 impl AccountStatusDto {
-    fn new(status: AccountStatus, slug: String) -> Self {
+    fn new(status: AccountStatus, slug: String, login: Option<LoginStatus>) -> Self {
         Self {
             account_id: status.account.as_uuid(),
             slug,
@@ -101,6 +105,7 @@ impl AccountStatusDto {
             email: status.email,
             folder: status.folder,
             usage: status.usage.into(),
+            login: login.map(Into::into),
         }
     }
 }
@@ -133,7 +138,10 @@ pub(crate) async fn account_usage(
     let items = statuses
         .into_iter()
         .zip(&accounts)
-        .map(|(status, account)| AccountStatusDto::new(status, account.slug().to_string()))
+        .map(|(status, account)| {
+            let login = state.logins.status(account.id());
+            AccountStatusDto::new(status, account.slug().to_string(), login)
+        })
         .collect();
     Ok(Json(AccountStatusList { items }))
 }
@@ -197,6 +205,24 @@ mod tests {
         assert_eq!(json["items"][0]["usage"]["reason"], "disabled");
     }
 
+    #[tokio::test]
+    async fn a_running_login_shows_next_to_the_limits() {
+        let api = test_api().await;
+        let default = api.accounts.find("default").await.unwrap();
+        let (_, before) = get(&api, "/api/v1/accounts/usage").await;
+        assert_eq!(before["items"][0]["login"], serde_json::Value::Null);
+        let request = bearer(
+            Request::post(format!("/api/v1/accounts/{}/login", default.id())),
+            &api.token,
+        )
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+        let (status, _, _) = send(&api.router, request).await;
+        assert_eq!(status, 202);
+        let (_, after) = get(&api, "/api/v1/accounts/usage").await;
+        assert_eq!(after["items"][0]["login"]["state"], "running");
+    }
     #[tokio::test]
     async fn refuses_a_bad_flag() {
         let api = test_api().await;

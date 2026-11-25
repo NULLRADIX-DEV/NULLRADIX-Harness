@@ -12,6 +12,10 @@ use serde_json::{Value, json};
 const PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 fn main() -> ExitCode {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.starts_with(&[String::from("auth"), String::from("login")]) {
+        return auth_login(&args);
+    }
     let mut prompt = String::new();
     let _ = io::stdin().read_to_string(&mut prompt);
     let mode = env::var("FAKE_CLAUDE_MODE").unwrap_or_else(|_| String::from("ok"));
@@ -192,4 +196,34 @@ fn escape() -> ExitCode {
         let _ = nix::unistd::setsid();
     }
     sleep_forever()
+}
+
+/// `claude auth login`: shows the login page, waits for a code and writes the account identity.
+fn auth_login(args: &[String]) -> ExitCode {
+    write(b"Opening browser to sign in...\n");
+    write(b"If the browser did not open, visit: https://claude.ai/oauth/authorize?client=fake-claude\n");
+    write(b"Paste code here if prompted > ");
+    let mut code = String::new();
+    let _ = io::stdin().read_line(&mut code);
+    if code.trim() != "fake-code" {
+        let _ = io::stderr().write_all(b"error: the code was not accepted\n");
+        return ExitCode::FAILURE;
+    }
+    let email = args
+        .iter()
+        .position(|arg| arg == "--email")
+        .and_then(|at| args.get(at + 1))
+        .map_or("fake@example.com", String::as_str);
+    let Some(dir) = env::var_os("CLAUDE_CONFIG_DIR") else {
+        let _ = io::stderr().write_all(b"error: no CLAUDE_CONFIG_DIR\n");
+        return ExitCode::FAILURE;
+    };
+    let identity = json!({ "oauthAccount": { "emailAddress": email } });
+    let file = std::path::Path::new(&dir).join(".claude.json");
+    if std::fs::write(&file, identity.to_string()).is_err() {
+        let _ = io::stderr().write_all(b"error: cannot write the identity\n");
+        return ExitCode::FAILURE;
+    }
+    write(b"\nLogin successful.\n");
+    ExitCode::SUCCESS
 }

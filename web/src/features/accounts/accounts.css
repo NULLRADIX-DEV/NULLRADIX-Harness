@@ -115,3 +115,30 @@
 .account-meter.over strong {
   color: var(--blocked-fg);
 }
+
+.account-login {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+}
+
+.account-login p {
+  margin: 0;
+}
+
+.account-login .form-row {
+  width: 100%;
+}
+
+.account-login-output {
+  margin: 0;
+  padding: 8px 10px;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--idle-bg);
+  font-size: 12px;
+  white-space: pre-wrap;
+}

@@ -3,7 +3,7 @@ use std::io;
 use std::path::Path;
 #[cfg(unix)]
 use std::process::Stdio;
-use std::process::{Child, ChildStderr, ChildStdout, Command, ExitStatus};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus};
 
 /// Whether a process with this id currently exists.
 #[must_use]
@@ -89,6 +89,10 @@ impl ProcessTree {
     #[must_use]
     pub fn id(&self) -> u32 {
         self.child.id()
+    }
+
+    pub fn take_stdin(&mut self) -> Option<ChildStdin> {
+        self.child.stdin.take()
     }
 
     pub fn take_stdout(&mut self) -> Option<ChildStdout> {
