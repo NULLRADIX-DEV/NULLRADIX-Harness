@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM note_sightings WHERE note_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "feabf3589e9ce2b215b028be8f988915e106f514e16d4a768bb4fbfd0ff1508a"
+}

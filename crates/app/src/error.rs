@@ -13,6 +13,16 @@ pub enum ErrorKind {
     Internal,
 }
 
+/// A note that describes the same finding as one being added.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SimilarNote {
+    pub number: i64,
+    pub title: String,
+    pub state: nullradix_domain::NoteState,
+    /// Key of the ticket it was promoted to.
+    pub ticket: Option<String>,
+}
+
 /// Failure of a use case with a stable machine-readable code.
 #[derive(Debug)]
 pub struct AppError {
@@ -21,6 +31,8 @@ pub struct AppError {
     message: String,
     /// Key of the entity that already exists, for duplicates.
     existing: Option<String>,
+    /// Notes that already describe the finding, for `note-similar`.
+    similar: Vec<SimilarNote>,
     source: Option<Box<dyn Error + Send + Sync>>,
 }
 
@@ -32,6 +44,7 @@ impl AppError {
             code,
             message: message.into(),
             existing: None,
+            similar: Vec::new(),
             source: None,
         }
     }
@@ -105,6 +118,17 @@ impl AppError {
     #[must_use]
     pub fn existing(&self) -> Option<&str> {
         self.existing.as_deref()
+    }
+
+    #[must_use]
+    pub fn with_similar(mut self, notes: Vec<SimilarNote>) -> Self {
+        self.similar = notes;
+        self
+    }
+
+    #[must_use]
+    pub fn similar(&self) -> &[SimilarNote] {
+        &self.similar
     }
 
     #[must_use]

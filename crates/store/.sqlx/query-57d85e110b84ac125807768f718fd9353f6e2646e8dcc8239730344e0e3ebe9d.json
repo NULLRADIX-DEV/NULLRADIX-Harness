@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.note_id AS \"note_id: Uuid\", s.ticket_id AS \"ticket_id?: Uuid\",\n                  s.ticket_key, s.seen_at\n           FROM note_sightings s\n           JOIN notes n ON n.id = s.note_id\n           WHERE (?1 IS NULL OR n.board_id = ?1) AND (?2 IS NULL OR n.rid = ?2)\n           ORDER BY s.note_id, s.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "note_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "note_sightings",
+            "name": "note_id"
+          }
+        }
+      },
+      {
+        "name": "ticket_id?: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "note_sightings",
+            "name": "ticket_id"
+          }
+        }
+      },
+      {
+        "name": "ticket_key",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "note_sightings",
+            "name": "ticket_key"
+          }
+        }
+      },
+      {
+        "name": "seen_at",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "note_sightings",
+            "name": "seen_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "57d85e110b84ac125807768f718fd9353f6e2646e8dcc8239730344e0e3ebe9d"
+}

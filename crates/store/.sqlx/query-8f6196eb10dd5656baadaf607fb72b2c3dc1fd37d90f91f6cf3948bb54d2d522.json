@@ -1,0 +1,206 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT n.rid AS \"number!: i64\", n.id AS \"id: Uuid\", n.board_id AS \"board_id: Uuid\",\n                  n.author_id AS \"author_id: Uuid\", a.name AS author_name, n.title, n.body,\n                  n.source_ticket_id AS \"source_ticket_id?: Uuid\", n.source_ticket_key,\n                  n.state, n.promoted_ticket_id AS \"promoted_ticket_id?: Uuid\",\n                  n.promoted_ticket_key, n.reason, n.created_at, n.updated_at, n.version\n           FROM notes n\n           JOIN actors a ON a.id = n.author_id\n           WHERE (?1 IS NULL OR n.board_id = ?1) AND (?2 IS NULL OR n.rid = ?2)\n           ORDER BY n.rid",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "rid"
+          }
+        }
+      },
+      {
+        "name": "id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "board_id: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "board_id"
+          }
+        }
+      },
+      {
+        "name": "author_id: Uuid",
+        "ordinal": 3,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "author_id"
+          }
+        }
+      },
+      {
+        "name": "author_name",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "body",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "name": "source_ticket_id?: Uuid",
+        "ordinal": 7,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "source_ticket_id"
+          }
+        }
+      },
+      {
+        "name": "source_ticket_key",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "source_ticket_key"
+          }
+        }
+      },
+      {
+        "name": "state",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "name": "promoted_ticket_id?: Uuid",
+        "ordinal": 10,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "promoted_ticket_id"
+          }
+        }
+      },
+      {
+        "name": "promoted_ticket_key",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "promoted_ticket_key"
+          }
+        }
+      },
+      {
+        "name": "reason",
+        "ordinal": 12,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "reason"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 14,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 15,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "notes",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8f6196eb10dd5656baadaf607fb72b2c3dc1fd37d90f91f6cf3948bb54d2d522"
+}

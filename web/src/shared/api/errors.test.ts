@@ -38,6 +38,7 @@ describe('unwrap', () => {
     expect(() => unwrap(result)).toThrow(
       expect.objectContaining({ status: 404, code: 'ticket-not-found', detail: 'no such ticket' }),
     );
+    expect(() => unwrap(result)).toThrow(expect.objectContaining({ existing: null, similar: [] }));
   });
 
   it('keeps the key of an existing entity', () => {

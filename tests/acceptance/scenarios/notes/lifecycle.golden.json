@@ -1,0 +1,613 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "origin ticket",
+    "request": {
+      "body": {
+        "title": "Start worktrees"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "backlog",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-4>",
+        "key": "ARC-0001",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 1,
+        "plan": "",
+        "plannedAt": null,
+        "plannedBy": null,
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Start worktrees",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false,
+        "worktree": null
+      },
+      "location": "/api/v1/tickets/ARC-0001",
+      "status": 201
+    }
+  },
+  {
+    "name": "second ticket",
+    "request": {
+      "body": {
+        "title": "Merge worktrees"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/tickets"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "backlog",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-5>",
+        "key": "ARC-0002",
+        "labels": [],
+        "needsPlanning": true,
+        "number": 2,
+        "plan": "",
+        "plannedAt": null,
+        "plannedBy": null,
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "backlog",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Merge worktrees",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 1,
+        "waiting": false,
+        "worktree": null
+      },
+      "location": "/api/v1/tickets/ARC-0002",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "note",
+      "add",
+      "Dispatcher starts the worktree twice",
+      "--details",
+      "WorktreeManager creates the branch twice",
+      "--from",
+      "arc-1",
+      "--label",
+      "git",
+      "--author",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "add on the board of the origin",
+    "stderr": "",
+    "stdout": "Note 1 saved.\n"
+  },
+  {
+    "cli": [
+      "note",
+      "add",
+      "WorktreeManager: branch twice, dispatcher",
+      "--from",
+      "ARC-2"
+    ],
+    "exitCode": 1,
+    "name": "a known finding is refused",
+    "stderr": "error: the daemon refused the request: this finding probably exists already:\n  1  [open] Dispatcher starts the worktree twice\nthe same finding: nullradix note seen 1 --from ARC-0002\nsomething else after all: add it with --force (note-similar)\n",
+    "stdout": ""
+  },
+  {
+    "name": "the refusal names the candidates",
+    "request": {
+      "body": {
+        "title": "WorktreeManager: branch twice, dispatcher"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/notes"
+    },
+    "response": {
+      "json": {
+        "code": "note-similar",
+        "detail": "this finding probably exists already:\n  1  [open] Dispatcher starts the worktree twice\nthe same finding: nullradix note seen 1\nsomething else after all: add it with --force",
+        "similar": [
+          {
+            "number": 1,
+            "state": "open",
+            "ticketKey": null,
+            "title": "Dispatcher starts the worktree twice"
+          }
+        ],
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:note-similar"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "a title is one line",
+    "request": {
+      "body": {
+        "title": "first line\nsecond line"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/notes"
+    },
+    "response": {
+      "json": {
+        "code": "note-title-multiline",
+        "detail": "the note title is one line; details go into the body (--details)",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:note-title-multiline"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a title is needed",
+    "request": {
+      "body": {
+        "body": "only details",
+        "title": "  "
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/notes"
+    },
+    "response": {
+      "json": {
+        "code": "note-empty",
+        "detail": "the note needs a title: one sentence on what stands out",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:note-empty"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "note",
+      "seen",
+      "1",
+      "--from",
+      "ARC-1"
+    ],
+    "exitCode": 0,
+    "name": "seen at the origin only counts",
+    "stderr": "",
+    "stdout": "Note 1: seen 2 times.\n"
+  },
+  {
+    "cli": [
+      "note",
+      "seen",
+      "1",
+      "--from",
+      "arc-2"
+    ],
+    "exitCode": 0,
+    "name": "seen at another ticket",
+    "stderr": "",
+    "stdout": "Note 1: seen 3 times.\n"
+  },
+  {
+    "name": "another finding",
+    "request": {
+      "body": {
+        "labels": [
+          "perf, web"
+        ],
+        "title": "Login page is slow"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/notes"
+    },
+    "response": {
+      "json": {
+        "authorId": "<ID-3>",
+        "authorName": "tester",
+        "boardId": "<ID-2>",
+        "body": "",
+        "createdAt": "<TIME>",
+        "id": "<ID-6>",
+        "labels": [
+          "perf",
+          "web"
+        ],
+        "number": 2,
+        "reason": null,
+        "seenCount": 1,
+        "seenIn": [],
+        "source": null,
+        "state": "open",
+        "ticketKey": null,
+        "title": "Login page is slow",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/notes/2",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "note",
+      "add",
+      "WorktreeManager: branch twice, dispatcher",
+      "--board",
+      "<ID-2>",
+      "--force"
+    ],
+    "exitCode": 0,
+    "name": "force adds a similar one",
+    "stderr": "",
+    "stdout": "Note 3 saved.\n"
+  },
+  {
+    "cli": [
+      "note",
+      "list",
+      "--board",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "open notes",
+    "stderr": "",
+    "stdout": "  1  [open] Dispatcher starts the worktree twice [3x] (from ARC-0001)  git\n  2  [open] Login page is slow  perf,web\n  3  [open] WorktreeManager: branch twice, dispatcher\n"
+  },
+  {
+    "cli": [
+      "note",
+      "drop",
+      "3"
+    ],
+    "exitCode": 1,
+    "name": "drop needs a reason",
+    "stderr": "error: the daemon refused the request: dropping a note needs a reason (--reason) (reason-missing)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "note",
+      "drop",
+      "3",
+      "--reason",
+      "same as note 1"
+    ],
+    "exitCode": 0,
+    "name": "drop",
+    "stderr": "",
+    "stdout": "Note 3 dropped.\n"
+  },
+  {
+    "cli": [
+      "note",
+      "promote",
+      "1",
+      "--priority",
+      "high",
+      "--by",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "promote",
+    "stderr": "",
+    "stdout": "Note 1 -> ARC-0003 Dispatcher starts the worktree twice\n"
+  },
+  {
+    "name": "promoted notes are not seen again",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/notes/1/seen"
+    },
+    "response": {
+      "json": {
+        "code": "note-promoted",
+        "detail": "note 1 is already promoted to ARC-0003; comment there",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:note-promoted"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "promoted notes are not dropped",
+    "request": {
+      "body": {
+        "reason": "no"
+      },
+      "method": "POST",
+      "path": "/api/v1/notes/1/drop"
+    },
+    "response": {
+      "json": {
+        "code": "note-promoted",
+        "detail": "note 1 is already promoted to ARC-0003",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:note-promoted"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "dropped notes are not promoted",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/notes/3/promote"
+    },
+    "response": {
+      "json": {
+        "code": "note-not-open",
+        "detail": "note 3 is dropped",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:note-not-open"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "note",
+      "list",
+      "--board",
+      "<ID-2>",
+      "--state",
+      "all"
+    ],
+    "exitCode": 0,
+    "name": "all notes",
+    "stderr": "",
+    "stdout": "  1  [promoted] Dispatcher starts the worktree twice [3x] (from ARC-0001)  git\n  2  [open] Login page is slow  perf,web\n  3  [dropped] WorktreeManager: branch twice, dispatcher\n"
+  },
+  {
+    "cli": [
+      "note",
+      "list",
+      "--board",
+      "<ID-2>",
+      "--state",
+      "promoted",
+      "--md"
+    ],
+    "exitCode": 0,
+    "name": "promoted as markdown",
+    "stderr": "",
+    "stdout": "- **1** Dispatcher starts the worktree twice - promoted | seen 3 times | from ARC-0001 | -> ARC-0003 | git\n"
+  },
+  {
+    "name": "notes from the origin",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/notes?state=all&source=arc-1"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "authorId": "<ID-7>",
+            "authorName": "claude",
+            "boardId": "<ID-2>",
+            "body": "WorktreeManager creates the branch twice",
+            "createdAt": "<TIME>",
+            "id": "<ID-8>",
+            "labels": [
+              "git"
+            ],
+            "number": 1,
+            "reason": null,
+            "seenCount": 3,
+            "seenIn": [
+              "ARC-0002"
+            ],
+            "source": "ARC-0001",
+            "state": "promoted",
+            "ticketKey": "ARC-0003",
+            "title": "Dispatcher starts the worktree twice",
+            "updatedAt": "<TIME>",
+            "version": 4
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "dropped notes",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/notes?state=dropped"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "authorId": "<ID-3>",
+            "authorName": "tester",
+            "boardId": "<ID-2>",
+            "body": "",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "labels": [],
+            "number": 3,
+            "reason": "same as note 1",
+            "seenCount": 1,
+            "seenIn": [],
+            "source": null,
+            "state": "dropped",
+            "ticketKey": null,
+            "title": "WorktreeManager: branch twice, dispatcher",
+            "updatedAt": "<TIME>",
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "unknown state",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/notes?state=taken"
+    },
+    "response": {
+      "json": {
+        "code": "state-invalid",
+        "detail": "state taken is invalid; allowed: open, promoted, dropped, all",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:state-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "note",
+      "show",
+      "1"
+    ],
+    "exitCode": 0,
+    "name": "show",
+    "stderr": "",
+    "stdout": "Note 1  [promoted]  <TIME>  claude\nFrom: ARC-0001\nSeen: 3 times (also at ARC-0002)\nLabels: git\nTicket: ARC-0003\n\n# Dispatcher starts the worktree twice\n\nWorktreeManager creates the branch twice\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "show",
+      "ARC-3"
+    ],
+    "exitCode": 0,
+    "name": "the ticket made from it",
+    "stderr": "",
+    "stdout": "ARC-0003  Dispatcher starts the worktree twice\nStatus backlog | Priority high | version 1 | unassigned | needs planning | git\n\n## Description\nWorktreeManager creates the branch twice\n\n(note of <TIME>, seen at ARC-0001; seen 3 times in total, also at ARC-0002)\n"
+  },
+  {
+    "name": "missing note",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/notes/99"
+    },
+    "response": {
+      "json": {
+        "code": "note-not-found",
+        "detail": "note 99 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:note-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "note",
+      "show",
+      "twelve"
+    ],
+    "exitCode": 1,
+    "name": "no note number",
+    "stderr": "error: the daemon refused the request: twelve is no note number (note-id-invalid)\n",
+    "stdout": ""
+  }
+]

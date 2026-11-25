@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { boardsQuery } from '../boards/queries';
+import { NotesDialog } from '../notes/NotesDialog';
 import { BoardColumns } from './BoardColumns';
 import { BoardPicker } from './BoardPicker';
 import { pickBoard, readBoardChoice, saveBoardChoice } from './boardChoice';
@@ -29,6 +30,7 @@ export function BoardPage() {
   const [choice, setChoice] = useState(() => readBoardChoice(window.localStorage));
   const [searchParams, setSearchParams] = useSearchParams();
   const [creating, setCreating] = useState(false);
+  const [noting, setNoting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const board = boards.data ? pickBoard(boards.data, choice) : undefined;
   const openKey = searchParams.get(TICKET_PARAM);
@@ -66,7 +68,17 @@ export function BoardPage() {
         )}
         <button
           type="button"
-          className="btn primary db-board-new"
+          className="btn db-board-new"
+          disabled={!board}
+          onClick={() => {
+            setNoting(true);
+          }}
+        >
+          Notes
+        </button>
+        <button
+          type="button"
+          className="btn primary"
           disabled={!board}
           onClick={() => {
             setNotice(null);
@@ -94,6 +106,18 @@ export function BoardPage() {
           onCreated={(ticket) => {
             setCreating(false);
             setNotice(`${ticket.key} created.`);
+          }}
+        />
+      )}
+      {noting && board && (
+        <NotesDialog
+          board={board}
+          onClose={() => {
+            setNoting(false);
+          }}
+          onOpenTicket={(key) => {
+            setNoting(false);
+            openTicket(key);
           }}
         />
       )}

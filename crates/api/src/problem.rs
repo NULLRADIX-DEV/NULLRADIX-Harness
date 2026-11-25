@@ -3,9 +3,11 @@ use std::error::Error;
 use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use nullradix_app::{AppError, ErrorKind};
+use nullradix_app::{AppError, ErrorKind, SimilarNote};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+use crate::notes::NoteStateDto;
 
 /// RFC 9457 problem details with a stable `code` extension.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -19,6 +21,31 @@ pub struct Problem {
     /// Key of the entity that already exists, such as `ARC-0007` for a duplicate ticket.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub existing: Option<String>,
+    /// Notes that already describe the finding, for `note-similar`; most similar first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub similar: Vec<SimilarNoteDto>,
+}
+
+/// A note the similarity check found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SimilarNoteDto {
+    pub number: i64,
+    pub title: String,
+    pub state: NoteStateDto,
+    /// Key of the ticket it was promoted to.
+    pub ticket_key: Option<String>,
+}
+
+impl From<&SimilarNote> for SimilarNoteDto {
+    fn from(note: &SimilarNote) -> Self {
+        Self {
+            number: note.number,
+            title: note.title.clone(),
+            state: note.state.into(),
+            ticket_key: note.ticket.clone(),
+        }
+    }
 }
 
 /// Error response of a handler, rendered as `application/problem+json`.
@@ -51,6 +78,7 @@ impl IntoResponse for ApiError {
         }
         let mut problem = problem(status(error.kind()), error.code(), error.message());
         problem.existing = error.existing().map(str::to_owned);
+        problem.similar = error.similar().iter().map(SimilarNoteDto::from).collect();
         render(problem)
     }
 }
@@ -73,6 +101,7 @@ fn problem(status: StatusCode, code: &str, detail: &str) -> Problem {
         detail: detail.to_owned(),
         code: code.to_owned(),
         existing: None,
+        similar: Vec::new(),
     }
 }
 

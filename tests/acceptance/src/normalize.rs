@@ -205,6 +205,10 @@ mod tests {
             normalizer.text("running at 127.0.0.1:9 (pid 4242)"),
             "running at <ADDRESS> (pid <PID>)"
         );
+        assert_eq!(
+            normalizer.text("(note of 2026-11-25T03:00:00.123Z, seen at ARC-0001)"),
+            "(note of <TIME>, seen at ARC-0001)"
+        );
         // literals match whole words only, secrets whole words of exactly 64 digits
         assert_eq!(normalizer.text("at 127.0.0.19"), "at 127.0.0.19");
         assert_eq!(normalizer.text(&"b".repeat(128)), "b".repeat(128));

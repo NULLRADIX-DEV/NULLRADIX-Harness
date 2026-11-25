@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE notes SET title = ?, body = ?, source_ticket_id = ?, source_ticket_key = ?,\n                              state = ?, promoted_ticket_id = ?, promoted_ticket_key = ?,\n                              reason = ?, updated_at = ?, version = ?\n             WHERE id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "0e1c069ee6e9289bdb4a7d9054d9bdab1a0405cf4c51b54c1e70964fec8db11d"
+}

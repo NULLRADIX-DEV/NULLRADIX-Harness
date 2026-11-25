@@ -20,6 +20,7 @@ pub enum Entity {
     Repository,
     Worktree,
     Comment,
+    Note,
 }
 
 impl Entity {

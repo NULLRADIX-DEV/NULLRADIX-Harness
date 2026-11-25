@@ -8,6 +8,7 @@ pub mod comments;
 mod error;
 pub mod hooks;
 mod ids;
+pub mod notes;
 pub mod projects;
 pub mod repositories;
 pub mod runs;
@@ -16,5 +17,5 @@ pub mod worktrees;
 
 pub use changes::{Change, ChangeFeed, ChangeOp, ChangeSignal, Entity};
 pub use clock::{Clock, SystemClock};
-pub use error::{AppError, ErrorKind};
+pub use error::{AppError, ErrorKind, SimilarNote};
 pub use ids::{IdGenerator, UuidV7Generator};

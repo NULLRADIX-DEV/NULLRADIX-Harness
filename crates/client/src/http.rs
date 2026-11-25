@@ -3,11 +3,12 @@ use std::time::Duration;
 
 use nullradix_api::{
     API_PREFIX, API_VERSION, AcceptTicket, AddComment, AddStep, BoardDeleted, BoardDto, BoardList,
-    ChangeStep, ClaimPlanning, ClaimTicket, CommentDto, CommentList, CreateBoard, CreateProject,
-    CreateTicket, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto, HookEventList,
-    HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, Problem,
-    ProjectDto, ProjectList, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto,
-    RunList, RunOutput, RunnerList, SetBoardRepository, StartRun, StartTicket, StartedTicket,
+    ChangeStep, ClaimPlanning, ClaimTicket, CommentDto, CommentList, CreateBoard, CreateNote,
+    CreateProject, CreateTicket, DropNote, FinishTicket, FinishedTicket, Handoff, Health,
+    HookEventDto, HookEventList, HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning,
+    NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList, PromoteNote,
+    PromotedNote, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto, RunList,
+    RunOutput, RunnerList, SeenNote, SetBoardRepository, StartRun, StartTicket, StartedTicket,
     TicketDetailDto, TicketDto, TicketList, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
@@ -582,6 +583,73 @@ impl Client {
         self.get_json(&format!("/hook-events?limit={limit}"))
     }
 
+    /// Notes of a board; `query` holds pairs such as `("state", "all")`.
+    pub fn list_notes(
+        &self,
+        project: Uuid,
+        board: Uuid,
+        query: &[(&str, &str)],
+    ) -> Result<NoteList, ClientError> {
+        let mut request = self
+            .agent
+            .get(&self.url(&format!("/projects/{project}/boards/{board}/notes")))
+            .header("Authorization", &self.authorization()?);
+        for (name, value) in query {
+            request = request.query(*name, *value);
+        }
+        let mut response = request.call().map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn add_note(
+        &self,
+        project: Uuid,
+        board: Uuid,
+        input: &CreateNote,
+    ) -> Result<NoteDto, ClientError> {
+        self.post_json(
+            &format!("/projects/{project}/boards/{board}/notes"),
+            input,
+            201,
+        )
+    }
+
+    /// `number` goes into the path as typed; the daemon checks it.
+    pub fn get_note(&self, number: &str) -> Result<NoteDto, ClientError> {
+        self.get_json(&format!("/notes/{}", segment(number)))
+    }
+
+    pub fn seen_note(&self, number: &str, input: &SeenNote) -> Result<NoteDto, ClientError> {
+        self.post_json(&format!("/notes/{}/seen", segment(number)), input, 200)
+    }
+
+    pub fn promote_note(
+        &self,
+        number: &str,
+        input: &PromoteNote,
+    ) -> Result<PromotedNote, ClientError> {
+        self.post_json(&format!("/notes/{}/promote", segment(number)), input, 200)
+    }
+
+    pub fn drop_note(&self, number: &str, input: &DropNote) -> Result<NoteDto, ClientError> {
+        self.post_json(&format!("/notes/{}/drop", segment(number)), input, 200)
+    }
+
+    fn post_json<I: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        route: &str,
+        input: &I,
+        expected: u16,
+    ) -> Result<T, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(route))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, expected)
+    }
+
     fn get_json<T: DeserializeOwned>(&self, route: &str) -> Result<T, ClientError> {
         let mut response = self
             .agent
@@ -607,6 +675,19 @@ impl Client {
             source: Box::new(source),
         }
     }
+}
+
+/// A path segment that keeps a typed value from reaching another route.
+fn segment(text: &str) -> String {
+    text.bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
 }
 
 fn expect_empty(response: &mut Response<Body>, expected: u16) -> Result<(), ClientError> {
@@ -762,6 +843,7 @@ mod tests {
         )
         .await
         .unwrap();
+        let notes = note_service(&store, &tickets, &signal);
         ApiState {
             auth,
             projects,
@@ -769,6 +851,7 @@ mod tests {
             tickets,
             comments,
             worktrees,
+            notes,
             runners,
             person: Arc::new(person),
             runs,
@@ -780,6 +863,22 @@ mod tests {
             secure_cookies: false,
             web_dir: None,
         }
+    }
+
+    fn note_service(
+        store: &Arc<Store>,
+        tickets: &Arc<nullradix_app::tickets::TicketService>,
+        signal: &nullradix_app::ChangeSignal,
+    ) -> Arc<nullradix_app::notes::NoteService> {
+        Arc::new(nullradix_app::notes::NoteService::new(
+            store.clone(),
+            tickets.clone(),
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ))
     }
 
     fn spawn_daemon() -> TestDaemon {
@@ -839,6 +938,13 @@ mod tests {
         let stranger = Secret::parse(&"c".repeat(64)).unwrap();
         let refused = client.with_token(stranger).create_handoff().unwrap_err();
         assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
+    }
+
+    #[test]
+    fn typed_note_numbers_stay_one_path_segment() {
+        assert_eq!(segment("12"), "12");
+        assert_eq!(segment("1/drop"), "1%2Fdrop");
+        assert_eq!(segment("a b?"), "a%20b%3F");
     }
 
     #[test]

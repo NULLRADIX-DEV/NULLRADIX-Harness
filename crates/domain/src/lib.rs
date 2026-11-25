@@ -5,6 +5,7 @@ mod board_rules;
 mod comment;
 mod hook;
 mod id;
+mod note;
 mod project;
 mod repository;
 mod run;
@@ -24,6 +25,11 @@ pub use board_rules::{
 pub use comment::{Comment, CommentBody, CommentError, CommentRecord, SystemMarker};
 pub use hook::{HookDetails, HookError, HookEvent, HookKind, SessionRef};
 pub use id::{Id, ParseIdError};
+pub use note::{
+    NOTE_LABELS_MAX, NOTE_REASON_MAX, NOTE_SEEN_IN_MAX, NOTE_TITLE_MAX, Note, NoteDraft, NoteError,
+    NoteState, Sighting, TicketRef, check_note_labels, drop_reason, note_number, note_title,
+    similar_notes,
+};
 pub use project::{Project, ProjectError, ProjectKey, ProjectName};
 pub use repository::{
     CHECKOUT_PATH_MAX, Checkout, CheckoutPath, CheckoutRecord, REPOSITORY_NAME_MAX,

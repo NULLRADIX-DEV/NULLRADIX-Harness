@@ -8,6 +8,7 @@ mod daemon;
 mod hook;
 mod intake;
 mod logging;
+mod note;
 mod open;
 mod plan;
 mod project;
@@ -70,6 +71,9 @@ enum Command {
     /// Write plans and claim tickets for planning
     #[command(subcommand)]
     Plan(plan::PlanCommand),
+    /// Keep findings for later tickets: add, count, list, promote and drop notes
+    #[command(subcommand)]
+    Note(note::NoteCommand),
     /// Run commands on the daemon's machine
     #[command(subcommand)]
     Run(run::RunCommand),
@@ -141,6 +145,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Ticket(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             ticket::run(command, &client, &choice(profile, cli.home.as_deref())?)
+        }
+        Command::Note(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            note::run(command, &client, &choice(profile, cli.home.as_deref())?)
         }
         Command::Step(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

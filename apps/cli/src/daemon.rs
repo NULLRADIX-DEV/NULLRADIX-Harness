@@ -10,6 +10,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
 use nullradix_app::hooks::HookService;
+use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
@@ -106,6 +107,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         tickets: board.tickets,
         comments: board.comments,
         worktrees: board.worktrees,
+        notes: board.notes,
         runners,
         person: board.person,
         runs,
@@ -153,6 +155,7 @@ struct BoardServices {
     tickets: Arc<TicketService>,
     comments: Arc<CommentService>,
     worktrees: Arc<WorktreeService>,
+    notes: Arc<NoteService>,
     /// The person every token and browser session acts for.
     person: Arc<Actor>,
 }
@@ -199,11 +202,21 @@ async fn start_board(
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
+    let notes = Arc::new(NoteService::new(
+        Arc::new(store.clone()),
+        Arc::clone(&tickets),
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
     Ok(BoardServices {
         boards,
         tickets,
         comments,
         worktrees,
+        notes,
         person: Arc::new(person),
     })
 }
