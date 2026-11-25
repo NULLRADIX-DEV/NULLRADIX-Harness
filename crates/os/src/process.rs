@@ -128,7 +128,7 @@ impl ProcessTree {
 
     fn finish(&mut self) -> io::Result<ExitStatus> {
         if !self.reaped {
-            // stragglers die while the unreaped main process still reserves their group id
+            // stragglers die first; a group with live members keeps its id
             let _ = self.kill_rest();
         }
         let status = self.child.wait()?;
