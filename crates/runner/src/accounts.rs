@@ -31,6 +31,19 @@ impl LocalAccountFolders {
         self
     }
 
+    /// Config folders whose transcripts may be read: `base` and the folder of each account.
+    #[must_use]
+    pub fn transcript_roots(&self, base: Vec<PathBuf>, accounts: &[ConfigDir]) -> Vec<PathBuf> {
+        let mut roots = base;
+        for dir in accounts {
+            let path = self.expand(dir.as_str());
+            if path.is_absolute() && !roots.contains(&path) {
+                roots.push(path);
+            }
+        }
+        roots
+    }
+
     /// `~` and `~/...` stand for the home folder.
     fn expand(&self, typed: &str) -> PathBuf {
         expand_home(self.home.as_deref(), typed)
@@ -208,6 +221,28 @@ mod tests {
         assert!(nowhere.check(&tilde).await.is_err());
     }
 
+    #[test]
+    fn transcripts_may_be_read_from_every_account_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let folders = folders(temp.path());
+        let base = vec![temp.path().join("home/.claude")];
+        let accounts = [
+            typed(&temp.path().join("accounts/max")),
+            ConfigDir::parse("~/.mcacc/work").unwrap(),
+            typed(&temp.path().join("accounts/max")),
+            ConfigDir::parse("relative/dir").unwrap(),
+        ];
+        let roots = folders.transcript_roots(base.clone(), &accounts);
+        assert_eq!(
+            roots,
+            [
+                base[0].clone(),
+                temp.path().join("accounts/max"),
+                temp.path().join("home/.mcacc/work"),
+            ]
+        );
+        assert_eq!(folders.transcript_roots(base.clone(), &[]), base);
+    }
     #[test]
     fn keys_ignore_trailing_slashes() {
         let temp = tempfile::tempdir().unwrap();

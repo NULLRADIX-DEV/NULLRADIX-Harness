@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::{self, File, TryLockError};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
-use nullradix_domain::Actor;
+use nullradix_domain::{Actor, ConfigDir};
 use nullradix_runner::{
     CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalLoginRunner, LocalRunner,
     SupervisorCommand,
@@ -114,7 +114,8 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         signal.clone(),
     ));
     let account_services = start_accounts(config, &store, &signal);
-    let (runner, runners) = start_runners(config, &store, &signal).await?;
+    let roots = transcript_roots(config, &account_services.accounts).await?;
+    let (runner, runners) = start_runners(config, &store, &signal, roots).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let runs = start_runs(&store, runner, &signal).await?;
     let favorites = Arc::new(FavoriteService::new(
@@ -340,17 +341,35 @@ fn person_name() -> String {
         .unwrap_or_else(|| String::from("owner"))
 }
 
+/// Config folders whose transcripts may be read: Claude's own and one per account.
+async fn transcript_roots(
+    config: &Config,
+    accounts: &AccountService,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let dirs: Vec<ConfigDir> = accounts
+        .list()
+        .await
+        .context("cannot list the accounts")?
+        .iter()
+        .filter_map(|account| account.config_dir().cloned())
+        .collect();
+    Ok(account_folders(config).transcript_roots(nullradix_os::claude_config_dirs(), &dirs))
+}
+
 /// The runner on this machine, recorded as the local runner; runs start under this binary.
 async fn start_runners(
     config: &Config,
     store: &Store,
     signal: &ChangeSignal,
+    roots: Vec<PathBuf>,
 ) -> anyhow::Result<(Arc<LocalRunner>, Arc<RunnerService>)> {
     let supervisor = SupervisorCommand {
         program: std::env::current_exe().context("cannot locate the nullradix binary")?,
         args: vec![String::from("run-supervisor")],
     };
-    let runner = Arc::new(LocalRunner::new(config.paths.data.join("runs"), supervisor));
+    let runner = Arc::new(
+        LocalRunner::new(config.paths.data.join("runs"), supervisor).with_transcript_roots(roots),
+    );
     let runners = RunnerService::start(
         Arc::new(store.clone()),
         Arc::new(store.clone()),

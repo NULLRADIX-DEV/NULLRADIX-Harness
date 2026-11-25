@@ -187,6 +187,21 @@ pub struct ApiState {
     pub web_dir: Option<PathBuf>,
 }
 
+fn account_routes() -> OpenApiRouter<ApiState> {
+    OpenApiRouter::new()
+        .routes(routes!(accounts::list_accounts, accounts::create_account))
+        .routes(routes!(usage::account_usage))
+        .routes(routes!(login::create_account_login))
+        .routes(routes!(
+            login::get_login,
+            login::start_login,
+            login::cancel_login
+        ))
+        .routes(routes!(login::send_login_code))
+        .routes(routes!(accounts::update_account, accounts::delete_account))
+        .routes(routes!(accounts::set_run_token, accounts::clear_run_token))
+}
+
 fn routes() -> OpenApiRouter<ApiState> {
     let v1 = OpenApiRouter::new()
         .routes(routes!(health::health))
@@ -201,17 +216,6 @@ fn routes() -> OpenApiRouter<ApiState> {
             projects::rename_project,
             projects::delete_project
         ))
-        .routes(routes!(accounts::list_accounts, accounts::create_account))
-        .routes(routes!(usage::account_usage))
-        .routes(routes!(login::create_account_login))
-        .routes(routes!(
-            login::get_login,
-            login::start_login,
-            login::cancel_login
-        ))
-        .routes(routes!(login::send_login_code))
-        .routes(routes!(accounts::update_account, accounts::delete_account))
-        .routes(routes!(accounts::set_run_token, accounts::clear_run_token))
         .routes(routes!(boards::list_all_boards))
         .routes(routes!(boards::list_boards, boards::create_board))
         .routes(routes!(
@@ -284,7 +288,8 @@ fn routes() -> OpenApiRouter<ApiState> {
         ))
         .routes(routes!(sessions::list_ticket_sessions))
         .routes(routes!(hooks::receive_hook))
-        .routes(routes!(hooks::list_hook_events));
+        .routes(routes!(hooks::list_hook_events))
+        .merge(account_routes());
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
     doc.info.license = Some(
