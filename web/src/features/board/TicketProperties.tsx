@@ -96,6 +96,14 @@ export function TicketProperties({
           onSave={(text) => void actions.save({ labels: splitList(text) })}
         />
         <InlineField
+          label="Target branch"
+          value={ticket.targetBranch ?? ''}
+          placeholder="Default branch"
+          busy={busy}
+          onConflict={actions.conflict}
+          onSave={(text) => void actions.save({ targetBranch: orNull(text) })}
+        />
+        <InlineField
           label="Blocked reason"
           value={ticket.blockedReason ?? ''}
           placeholder="Not blocked"

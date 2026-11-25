@@ -7,6 +7,7 @@ import { loadProblem, ticketProblem } from './messages';
 import { TicketDependencies } from './TicketDependencies';
 import { TicketProperties } from './TicketProperties';
 import { TicketTabs } from './TicketTabs';
+import { TicketWork } from './TicketWork';
 import { useDraft } from './useDraft';
 import { useTicketActions, type TicketActions } from './useTicketActions';
 
@@ -187,6 +188,7 @@ function TicketView({
         </div>
         <div className="db-panel-side">
           <TicketDependencies ticket={ticket} onOpen={onOpen} />
+          <TicketWork ticket={ticket} />
           <DeleteTicket ticket={ticket} actions={actions} onDeleted={onClose} />
         </div>
       </div>

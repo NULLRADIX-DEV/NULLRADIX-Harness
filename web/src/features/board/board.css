@@ -602,6 +602,28 @@
   margin: 0;
 }
 
+.db-work-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.db-work-list > div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+}
+
+.db-work-list dt {
+  color: var(--muted);
+}
+
+.db-work-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .db-side-title {
   margin: 0;
   color: var(--muted);
