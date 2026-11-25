@@ -12,6 +12,7 @@ mod note;
 mod open;
 mod plan;
 mod project;
+mod question;
 mod run;
 mod selection;
 mod status;
@@ -65,6 +66,9 @@ enum Command {
     /// Create, list and show tickets
     #[command(subcommand)]
     Ticket(ticket::TicketCommand),
+    /// Ask a person, answer and comment on questions
+    #[command(subcommand)]
+    Question(question::QuestionCommand),
     /// Check, add, edit, remove and move the work steps of a ticket
     #[command(subcommand)]
     Step(step::StepCommand),
@@ -149,6 +153,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Note(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             note::run(command, &client, &choice(profile, cli.home.as_deref())?)
+        }
+        Command::Question(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            question::run(command, &client, &choice(profile, cli.home.as_deref())?)
         }
         Command::Step(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

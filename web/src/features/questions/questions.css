@@ -1,0 +1,169 @@
+/* Questions: list with state filter beside the open question, after legacy questions.css */
+.qx-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.4fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .qx-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.qx-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.qx-filter {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.qx-filter.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.qx-rows,
+.qx-options.readonly {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qx-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.qx-row.on {
+  border-color: var(--accent);
+}
+
+.qx-row-title {
+  font-weight: 600;
+}
+
+.qx-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.qx-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qx-title {
+  margin: 0;
+}
+
+.qx-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.qx-facts dt {
+  color: var(--muted);
+}
+
+.qx-facts dd {
+  margin: 0;
+}
+
+.qx-description {
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.qx-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qx-option {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.qx-option.on {
+  border-color: var(--accent);
+}
+
+.qx-option-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qx-option-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qx-option-text {
+  white-space: pre-wrap;
+}
+
+.qx-proscons {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9em;
+}
+
+.qx-pro {
+  color: var(--ok-fg);
+}
+
+.qx-con {
+  color: var(--danger);
+}
+
+.qx-decide,
+.qx-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.qx-decision p {
+  margin: 0;
+}
+
+.qx-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

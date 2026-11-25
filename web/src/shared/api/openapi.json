@@ -2054,6 +2054,586 @@
         }
       }
     },
+    "/api/v1/projects/{projectId}/questions": {
+      "get": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "list_questions",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "open, answered, discarded or all; all when left out.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ticket",
+            "in": "query",
+            "description": "Only questions about this ticket.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "description": "Only questions with this tag.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-insensitive text in key, title, description, occasion, tags or tickets.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "create_question",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateQuestion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the new question"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/questions/{questionKey}": {
+      "get": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "get_question",
+        "parameters": [
+          {
+            "name": "questionKey",
+            "in": "path",
+            "description": "Question key such as `ARC-Q0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/questions/{questionKey}/answer": {
+      "post": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "answer_question",
+        "parameters": [
+          {
+            "name": "questionKey",
+            "in": "path",
+            "description": "Question key such as `ARC-Q0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerQuestion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The question changed since it was read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not open, no person, or no single choice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/questions/{questionKey}/comments": {
+      "get": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "list_question_comments",
+        "parameters": [
+          {
+            "name": "questionKey",
+            "in": "path",
+            "description": "Question key such as `ARC-Q0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionCommentList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "add_question_comment",
+        "parameters": [
+          {
+            "name": "questionKey",
+            "in": "path",
+            "description": "Question key such as `ARC-Q0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddQuestionComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionCommentDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Empty body or an invalid author name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/questions/{questionKey}/discard": {
+      "post": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "discard_question",
+        "parameters": [
+          {
+            "name": "questionKey",
+            "in": "path",
+            "description": "Question key such as `ARC-Q0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideQuestion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Not open, no person, or no reason",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/questions/{questionKey}/reopen": {
+      "post": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "reopen_question",
+        "parameters": [
+          {
+            "name": "questionKey",
+            "in": "path",
+            "description": "Question key such as `ARC-Q0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideQuestion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Open already, or no person",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repositories": {
       "get": {
         "tags": [
@@ -3937,6 +4517,31 @@
         },
         "additionalProperties": false
       },
+      "AddQuestionComment": {
+        "type": "object",
+        "description": "A new comment on a question; leading and trailing whitespace is dropped.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": "string"
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "AddStep": {
         "type": "object",
         "description": "A new work step.",
@@ -3976,6 +4581,55 @@
             ],
             "format": "int64",
             "description": "Version of the ticket the change is based on."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnswerQuestion": {
+        "type": "object",
+        "description": "An answer: exactly one of `option` and `text`; only a person answers.",
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the person who decides; the acting person when left out."
+          },
+          "option": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An option of the newest round, such as `O2`."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; agents never decide."
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An own answer instead of an option."
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Version the answer is based on."
           }
         },
         "additionalProperties": false
@@ -4414,6 +5068,72 @@
         },
         "additionalProperties": false
       },
+      "CreateQuestion": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to ask under, such as `claude`; the acting person when left out."
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Questions or tickets the answer waits for."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occasion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it came up, such as `planning ARC-0007`."
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewOption"
+            },
+            "description": "Up to five options; the first round of the question."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keys of tickets of the project it is about; they wait until it is decided."
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateTicket": {
         "type": "object",
         "description": "A new ticket; left out fields take the defaults: backlog, normal, needs planning.",
@@ -4502,6 +5222,79 @@
         },
         "additionalProperties": false
       },
+      "DecideQuestion": {
+        "type": "object",
+        "description": "Discarding needs a reason; reopening takes none.",
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DecisionDto": {
+        "type": "object",
+        "required": [
+          "byName",
+          "at",
+          "autopilot"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "autopilot": {
+            "type": "boolean",
+            "description": "Taken over by the dispatcher's autopilot."
+          },
+          "byName": {
+            "type": "string"
+          },
+          "option": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Chosen option such as `O2`; none for an own answer or a discard."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Own answer instead of an option."
+          }
+        }
+      },
       "DropNote": {
         "type": "object",
         "properties": {
@@ -4523,7 +5316,8 @@
           "repository",
           "worktree",
           "comment",
-          "note"
+          "note",
+          "question"
         ]
       },
       "FinishTicket": {
@@ -4934,6 +5728,39 @@
         },
         "additionalProperties": false
       },
+      "NewOption": {
+        "type": "object",
+        "description": "A proposed answer; the question numbers it O1, O2 ...",
+        "required": [
+          "title",
+          "text"
+        ],
+        "properties": {
+          "cons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pros": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommended": {
+            "type": "boolean",
+            "description": "At most one option may be recommended."
+          },
+          "text": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "NextPlanning": {
         "type": "object",
         "properties": {
@@ -5101,6 +5928,61 @@
           "promoted",
           "dropped"
         ]
+      },
+      "OpenQuestionDto": {
+        "type": "object",
+        "description": "An open question that holds a ticket back.",
+        "required": [
+          "key",
+          "title"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Human key such as `ARC-Q0007`."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "OptionDto": {
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "text",
+          "pros",
+          "cons",
+          "recommended"
+        ],
+        "properties": {
+          "cons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "key": {
+            "type": "string",
+            "description": "Key to answer by, such as `O2`."
+          },
+          "pros": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommended": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
       },
       "OutputLineDto": {
         "type": "object",
@@ -5314,6 +6196,294 @@
           }
         }
       },
+      "QuestionCommentDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "questionKey",
+          "authorId",
+          "authorName",
+          "authorKind",
+          "body",
+          "createdAt"
+        ],
+        "properties": {
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorKind": {
+            "$ref": "#/components/schemas/ActorKindDto"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "questionKey": {
+            "type": "string"
+          }
+        }
+      },
+      "QuestionCommentList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestionCommentDto"
+            },
+            "description": "Oldest first."
+          }
+        }
+      },
+      "QuestionCounts": {
+        "type": "object",
+        "description": "Questions of the project in every state, before the filter.",
+        "required": [
+          "open",
+          "answered",
+          "discarded"
+        ],
+        "properties": {
+          "answered": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "discarded": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "open": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "QuestionDetailDto": {
+        "type": "object",
+        "required": [
+          "question",
+          "research",
+          "comments"
+        ],
+        "properties": {
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestionCommentDto"
+            },
+            "description": "Oldest first."
+          },
+          "question": {
+            "$ref": "#/components/schemas/QuestionDto"
+          },
+          "research": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResearchDto"
+            },
+            "description": "Rounds of options, oldest first."
+          }
+        }
+      },
+      "QuestionDto": {
+        "type": "object",
+        "required": [
+          "key",
+          "id",
+          "projectId",
+          "number",
+          "title",
+          "description",
+          "state",
+          "tags",
+          "tickets",
+          "dependsOn",
+          "waitingOn",
+          "ready",
+          "originName",
+          "originKind",
+          "researched",
+          "optionCount",
+          "createdById",
+          "createdAt",
+          "updatedAt",
+          "version"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdById": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "decision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DecisionDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Questions or tickets the answer waits for, in the order given."
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string",
+            "description": "Human key such as `ARC-Q0007`."
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "occasion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "optionCount": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Options of the newest round.",
+            "minimum": 0
+          },
+          "originKind": {
+            "$ref": "#/components/schemas/ActorKindDto"
+          },
+          "originName": {
+            "type": "string"
+          },
+          "originSession": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Open and waiting for nothing: a person can decide it now."
+          },
+          "researched": {
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/QuestionStateDto"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestionTicketDto"
+            },
+            "description": "Tickets the question is about; an open question holds them back."
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "waitingOn": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WaitingDto"
+            }
+          }
+        }
+      },
+      "QuestionList": {
+        "type": "object",
+        "required": [
+          "items",
+          "counts"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/QuestionCounts"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestionDto"
+            },
+            "description": "Ready questions first, oldest first within."
+          }
+        }
+      },
+      "QuestionStateDto": {
+        "type": "string",
+        "enum": [
+          "open",
+          "answered",
+          "discarded"
+        ]
+      },
+      "QuestionTicketDto": {
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "status"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatusDto"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "RecordedHookDto": {
         "type": "object",
         "required": [
@@ -5415,6 +6585,35 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RepositoryDto"
+            }
+          }
+        }
+      },
+      "ResearchDto": {
+        "type": "object",
+        "description": "One round of options; only the newest one may be chosen.",
+        "required": [
+          "id",
+          "context",
+          "options",
+          "createdAt"
+        ],
+        "properties": {
+          "context": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OptionDto"
             }
           }
         }
@@ -5903,7 +7102,8 @@
           "dependents",
           "unlocks",
           "stepsDone",
-          "stepsTotal"
+          "stepsTotal",
+          "openQuestions"
         ],
         "properties": {
           "acceptance": {
@@ -5994,6 +7194,13 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "openQuestions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpenQuestionDto"
+            },
+            "description": "Open questions about the ticket; they hold it back from in progress and done."
           },
           "plan": {
             "type": "string"
@@ -6267,6 +7474,22 @@
           }
         },
         "additionalProperties": false
+      },
+      "WaitingDto": {
+        "type": "object",
+        "description": "A dependency that is still open, with its question state or ticket status.",
+        "required": [
+          "key",
+          "state"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
       },
       "WritePlan": {
         "type": "object",

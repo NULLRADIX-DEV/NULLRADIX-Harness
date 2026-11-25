@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO question_tags (question_id, tag, position) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "2a68fb04ed83ca667789963331b98090fd5c485b11a808625cdd9480cf3c1fc6"
+}

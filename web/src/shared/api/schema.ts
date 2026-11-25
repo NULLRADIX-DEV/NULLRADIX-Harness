@@ -372,6 +372,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{projectId}/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_questions"];
+        put?: never;
+        post: operations["create_question"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/questions/{questionKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_question"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/questions/{questionKey}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answer_question"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/questions/{questionKey}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_question_comments"];
+        put?: never;
+        post: operations["add_question_comment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/questions/{questionKey}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["discard_question"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/questions/{questionKey}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reopen_question"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repositories": {
         parameters: {
             query?: never;
@@ -710,6 +806,12 @@ export interface components {
             /** @description Agent session of the caller: the comment counts as delivered and names a session author. */
             session?: string | null;
         };
+        /** @description A new comment on a question; leading and trailing whitespace is dropped. */
+        AddQuestionComment: {
+            author?: string | null;
+            body: string;
+            session?: string | null;
+        };
         /** @description A new work step. */
         AddStep: {
             /**
@@ -725,6 +827,23 @@ export interface components {
             /**
              * Format: int64
              * @description Version of the ticket the change is based on.
+             */
+            version?: number | null;
+        };
+        /** @description An answer: exactly one of `option` and `text`; only a person answers. */
+        AnswerQuestion: {
+            /** @description Name of the person who decides; the acting person when left out. */
+            author?: string | null;
+            /** @description An option of the newest round, such as `O2`. */
+            option?: string | null;
+            reason?: string | null;
+            /** @description Agent session of the caller; agents never decide. */
+            session?: string | null;
+            /** @description An own answer instead of an option. */
+            text?: string | null;
+            /**
+             * Format: int64
+             * @description Version the answer is based on.
              */
             version?: number | null;
         };
@@ -863,6 +982,23 @@ export interface components {
             key: string;
             name: string;
         };
+        CreateQuestion: {
+            /** @description Name to ask under, such as `claude`; the acting person when left out. */
+            author?: string | null;
+            /** @description Questions or tickets the answer waits for. */
+            dependsOn?: string[];
+            description?: string | null;
+            /** @description Why it came up, such as `planning ARC-0007`. */
+            occasion?: string | null;
+            /** @description Up to five options; the first round of the question. */
+            options?: components["schemas"]["NewOption"][];
+            /** @description Agent session of the caller. */
+            session?: string | null;
+            tags?: string[];
+            /** @description Keys of tickets of the project it is about; they wait until it is decided. */
+            tickets?: string[];
+            title: string;
+        };
         /** @description A new ticket; left out fields take the defaults: backlog, normal, needs planning. */
         CreateTicket: {
             acceptance?: string | null;
@@ -883,12 +1019,32 @@ export interface components {
             targetBranch?: string | null;
             title: string;
         };
+        /** @description Discarding needs a reason; reopening takes none. */
+        DecideQuestion: {
+            author?: string | null;
+            reason?: string | null;
+            session?: string | null;
+            /** Format: int64 */
+            version?: number | null;
+        };
+        DecisionDto: {
+            /** Format: int64 */
+            at: number;
+            /** @description Taken over by the dispatcher's autopilot. */
+            autopilot: boolean;
+            byName: string;
+            /** @description Chosen option such as `O2`; none for an own answer or a discard. */
+            option?: string | null;
+            reason?: string | null;
+            /** @description Own answer instead of an option. */
+            text?: string | null;
+        };
         DropNote: {
             /** @description Why nothing comes of it; required. */
             reason?: string;
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question";
         /** @description Finishes a ticket from a folder on a runner, as legacy `board done`; nothing is merged. */
         FinishTicket: {
             /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
@@ -1013,6 +1169,15 @@ export interface components {
              */
             version?: number | null;
         };
+        /** @description A proposed answer; the question numbers it O1, O2 ... */
+        NewOption: {
+            cons?: string[];
+            pros?: string[];
+            /** @description At most one option may be recommended. */
+            recommended?: boolean;
+            text: string;
+            title: string;
+        };
         NextPlanning: {
             ticket?: components["schemas"]["TicketDto"] | null;
         };
@@ -1067,6 +1232,21 @@ export interface components {
         };
         /** @enum {string} */
         NoteStateDto: "open" | "promoted" | "dropped";
+        /** @description An open question that holds a ticket back. */
+        OpenQuestionDto: {
+            /** @description Human key such as `ARC-Q0007`. */
+            key: string;
+            title: string;
+        };
+        OptionDto: {
+            cons: string[];
+            /** @description Key to answer by, such as `O2`. */
+            key: string;
+            pros: string[];
+            recommended: boolean;
+            text: string;
+            title: string;
+        };
         OutputLineDto: {
             /** Format: int64 */
             seq: number;
@@ -1125,6 +1305,90 @@ export interface components {
             note: components["schemas"]["NoteDto"];
             ticket: components["schemas"]["TicketDto"];
         };
+        QuestionCommentDto: {
+            /** Format: uuid */
+            authorId: string;
+            authorKind: components["schemas"]["ActorKindDto"];
+            authorName: string;
+            body: string;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: uuid */
+            id: string;
+            questionKey: string;
+        };
+        QuestionCommentList: {
+            /** @description Oldest first. */
+            items: components["schemas"]["QuestionCommentDto"][];
+        };
+        /** @description Questions of the project in every state, before the filter. */
+        QuestionCounts: {
+            /** Format: int32 */
+            answered: number;
+            /** Format: int32 */
+            discarded: number;
+            /** Format: int32 */
+            open: number;
+        };
+        QuestionDetailDto: {
+            /** @description Oldest first. */
+            comments: components["schemas"]["QuestionCommentDto"][];
+            question: components["schemas"]["QuestionDto"];
+            /** @description Rounds of options, oldest first. */
+            research: components["schemas"]["ResearchDto"][];
+        };
+        QuestionDto: {
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: uuid */
+            createdById: string;
+            decision?: components["schemas"]["DecisionDto"] | null;
+            /** @description Questions or tickets the answer waits for, in the order given. */
+            dependsOn: string[];
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /** @description Human key such as `ARC-Q0007`. */
+            key: string;
+            /** Format: int32 */
+            number: number;
+            occasion?: string | null;
+            /**
+             * Format: int32
+             * @description Options of the newest round.
+             */
+            optionCount: number;
+            originKind: components["schemas"]["ActorKindDto"];
+            originName: string;
+            originSession?: string | null;
+            /** Format: uuid */
+            projectId: string;
+            /** @description Open and waiting for nothing: a person can decide it now. */
+            ready: boolean;
+            researched: boolean;
+            state: components["schemas"]["QuestionStateDto"];
+            tags: string[];
+            /** @description Tickets the question is about; an open question holds them back. */
+            tickets: components["schemas"]["QuestionTicketDto"][];
+            title: string;
+            /** Format: int64 */
+            updatedAt: number;
+            /** Format: int64 */
+            version: number;
+            waitingOn: components["schemas"]["WaitingDto"][];
+        };
+        QuestionList: {
+            counts: components["schemas"]["QuestionCounts"];
+            /** @description Ready questions first, oldest first within. */
+            items: components["schemas"]["QuestionDto"][];
+        };
+        /** @enum {string} */
+        QuestionStateDto: "open" | "answered" | "discarded";
+        QuestionTicketDto: {
+            key: string;
+            status: components["schemas"]["TicketStatusDto"];
+            title: string;
+        };
         RecordedHookDto: {
             event: components["schemas"]["HookEventDto"];
             kind: components["schemas"]["HookKindDto"];
@@ -1156,6 +1420,15 @@ export interface components {
         };
         RepositoryList: {
             items: components["schemas"]["RepositoryDto"][];
+        };
+        /** @description One round of options; only the newest one may be chosen. */
+        ResearchDto: {
+            context: string;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: uuid */
+            id: string;
+            options: components["schemas"]["OptionDto"][];
         };
         /** @description A run as the API shows it; timestamps are Unix milliseconds. */
         RunDto: {
@@ -1322,6 +1595,8 @@ export interface components {
             needsPlanning: boolean;
             /** Format: int32 */
             number: number;
+            /** @description Open questions about the ticket; they hold it back from in progress and done. */
+            openQuestions: components["schemas"]["OpenQuestionDto"][];
             plan: string;
             /** Format: int64 */
             plannedAt?: number | null;
@@ -1393,6 +1668,11 @@ export interface components {
             version: number;
             /** @description Only null, which clears both branch and worktree; a value is refused. */
             worktree?: string | null;
+        };
+        /** @description A dependency that is still open, with its question state or ticket status. */
+        WaitingDto: {
+            key: string;
+            state: string;
         };
         /** @description A plan; at least one of plan, handbook and diagram. */
         WritePlan: {
@@ -2923,6 +3203,434 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_questions: {
+        parameters: {
+            query?: {
+                /** @description open, answered, discarded or all; all when left out. */
+                state?: string;
+                /** @description Only questions about this ticket. */
+                ticket?: string;
+                /** @description Only questions with this tag. */
+                tag?: string;
+                /** @description Case-insensitive text in key, title, description, occasion, tags or tickets. */
+                q?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_question: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project id. */
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateQuestion"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the new question */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_question: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Question key such as `ARC-Q0007`; case and padding do not matter. */
+                questionKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    answer_question: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Question key such as `ARC-Q0007`; case and padding do not matter. */
+                questionKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerQuestion"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The question changed since it was read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not open, no person, or no single choice */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_question_comments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Question key such as `ARC-Q0007`; case and padding do not matter. */
+                questionKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionCommentList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    add_question_comment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Question key such as `ARC-Q0007`; case and padding do not matter. */
+                questionKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddQuestionComment"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionCommentDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Empty body or an invalid author name */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    discard_question: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Question key such as `ARC-Q0007`; case and padding do not matter. */
+                questionKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideQuestion"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not open, no person, or no reason */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reopen_question: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Question key such as `ARC-Q0007`; case and padding do not matter. */
+                questionKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideQuestion"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Open already, or no person */
             422: {
                 headers: {
                     [name: string]: unknown;

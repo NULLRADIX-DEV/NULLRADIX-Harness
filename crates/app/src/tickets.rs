@@ -16,6 +16,7 @@ use nullradix_domain::{
 
 use crate::comments::{CommentLine, CommentWrite};
 use crate::projects::ProjectRepository;
+use crate::questions::{OpenQuestion, QuestionWrite, forget_ticket};
 use crate::worktrees::WorktreeWrite;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator, boards};
 
@@ -28,6 +29,8 @@ pub struct TicketRow {
     pub ticket: Ticket,
     pub created_by_name: String,
     pub steps: StepProgress,
+    /// Open questions about the ticket, by key; they hold it back from the work.
+    pub open_questions: Vec<OpenQuestion>,
 }
 
 /// How many steps a ticket has and how many of them are done.
@@ -85,7 +88,7 @@ pub struct TicketRead {
 
 /// One write; dropping it without [`TicketWrite::commit`] undoes everything.
 #[async_trait]
-pub trait TicketWrite: WorktreeWrite + CommentWrite + Send {
+pub trait TicketWrite: WorktreeWrite + CommentWrite + QuestionWrite + Send {
     /// The board with the key of its project.
     async fn board(&mut self, id: Id<Board>) -> Result<Option<(Board, ProjectKey)>, AppError>;
     /// Tickets on the board that are neither done nor not needed.
@@ -145,6 +148,7 @@ pub struct TicketView {
     /// Dependents that become ready once this ticket is done.
     pub unlocks: Vec<TicketKey>,
     pub steps: StepProgress,
+    pub open_questions: Vec<OpenQuestion>,
 }
 
 impl TicketView {
@@ -158,6 +162,7 @@ impl TicketView {
             depends_open,
             created_by_name: row.created_by_name,
             steps: row.steps,
+            open_questions: row.open_questions,
             ticket: row.ticket,
         }
     }
@@ -636,6 +641,7 @@ impl TicketService {
             ticket,
             created_by_name: actor.name().as_str().to_owned(),
             steps: progress(&steps),
+            open_questions: Vec::new(),
         };
         Ok((TicketView::new(row, &index), change))
     }
@@ -692,7 +698,7 @@ impl TicketService {
         let before = load(write.as_mut(), &key, Some(expected)).await?;
         let index = write.dependency_index().await?;
         let after = apply(write.as_mut(), &before, patch, status, priority, &index).await?;
-        check_change(&before, &after, &index, options)?;
+        check_change(write.as_mut(), &before, &after, &index, options).await?;
         let now = self.clock.now();
         if patch.clear_link {
             write.release_link(before.id(), now).await?;
@@ -735,7 +741,7 @@ impl TicketService {
             return Ok(self.get(&key.to_string()).await?.view);
         }
         let index = write.dependency_index().await?;
-        check_change(&before, &after, &index, options)?;
+        check_change(write.as_mut(), &before, &after, &index, options).await?;
         let now = self.clock.now();
         let revised = before.revised(after, now);
         let history = self.history(&before, &revised, actor, now, Some("moved"));
@@ -885,6 +891,10 @@ impl TicketService {
             if !open.is_empty() {
                 return Err(locked(&StatusLock::DependencyOpen(open)));
             }
+            let questions = open_question_keys(write.as_mut(), before.id()).await?;
+            if !questions.is_empty() {
+                return Err(locked(&StatusLock::QuestionOpen(questions)));
+            }
         }
         let mut after = record.clone();
         after.assignee = Some(name);
@@ -951,7 +961,7 @@ impl TicketService {
             .next_sort_order(record.board, TicketStatus::Done)
             .await?;
         let index = write.dependency_index().await?;
-        check_change(&before, &after, &index, options)?;
+        check_change(write.as_mut(), &before, &after, &index, options).await?;
         self.save(write, &before, after, actor, Some("accepted"))
             .await
     }
@@ -1080,7 +1090,9 @@ impl TicketService {
             })
             .await?
             .into_iter()
-            .filter(|view| planning_candidate(view.ticket.record(), now))
+            .filter(|view| {
+                view.open_questions.is_empty() && planning_candidate(view.ticket.record(), now)
+            })
             .collect();
         let Some(agent) = agent else {
             return Ok(candidates.into_iter().next());
@@ -1098,7 +1110,10 @@ impl TicketService {
                 && scope
                     .project
                     .is_none_or(|project| record.project == project);
-            if !in_scope || !planning_candidate(record, now) {
+            if !in_scope
+                || !planning_candidate(record, now)
+                || !write.open_questions(before.id()).await?.is_empty()
+            {
                 continue;
             }
             let mut after = before.record().clone();
@@ -1408,8 +1423,22 @@ fn optional(
     }
 }
 
+/// Keys of the open questions about the ticket.
+pub(crate) async fn open_question_keys(
+    write: &mut dyn TicketWrite,
+    ticket: Id<Ticket>,
+) -> Result<Vec<String>, AppError> {
+    Ok(write
+        .open_questions(ticket)
+        .await?
+        .iter()
+        .map(|question| question.key.to_string())
+        .collect())
+}
+
 /// The legacy status locks, checked only when the status changes.
-fn check_change(
+async fn check_change(
+    write: &mut dyn TicketWrite,
     before: &Ticket,
     after: &TicketRecord,
     index: &DependencyIndex,
@@ -1418,7 +1447,7 @@ fn check_change(
     let facts = StatusFacts {
         acceptance_blank: after.acceptance.trim().is_empty(),
         open_dependencies: index.open_dependencies(&after.depends_on),
-        open_questions: Vec::new(),
+        open_questions: open_question_keys(write, before.id()).await?,
     };
     let request = StatusRequest {
         by_person: options.by_person,
@@ -1467,6 +1496,7 @@ pub(crate) async fn remove(
         }
     }
     for ticket in tickets {
+        done.extend(forget_ticket(write, ticket, at).await?);
         // the worktree keeps the ticket in its list; only the live link ends
         if let Some(change) = write.release_link(ticket.id(), at).await? {
             done.push(change);

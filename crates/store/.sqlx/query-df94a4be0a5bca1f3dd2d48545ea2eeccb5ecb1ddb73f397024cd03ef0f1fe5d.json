@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO question_options (question_id, research_id, number, title, text, pros,\n                                               cons, recommended)\n                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "df94a4be0a5bca1f3dd2d48545ea2eeccb5ecb1ddb73f397024cd03ef0f1fe5d"
+}

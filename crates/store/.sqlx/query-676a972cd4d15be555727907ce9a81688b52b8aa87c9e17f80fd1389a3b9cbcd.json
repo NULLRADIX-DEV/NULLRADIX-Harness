@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE questions SET state = ?, decision_option = ?, decision_text = ?,\n                                  decision_reason = ?, decided_by = ?, decided_at = ?,\n                                  updated_at = ?, version = ?\n             WHERE id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "676a972cd4d15be555727907ce9a81688b52b8aa87c9e17f80fd1389a3b9cbcd"
+}

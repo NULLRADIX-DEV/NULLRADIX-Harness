@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO question_dependencies (question_id, depends_on_question_id,\n                                               depends_on_ticket_id, position)\n             VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "847f1199fc35e4fbec6910687ea987258b7473c1a7d46928034d1e0e4f39317d"
+}

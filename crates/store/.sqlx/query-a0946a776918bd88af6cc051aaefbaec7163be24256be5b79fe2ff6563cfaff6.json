@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE projects SET next_question_number = next_question_number + 1 WHERE id = ?\n               RETURNING next_question_number - 1 AS \"number!: i64\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a0946a776918bd88af6cc051aaefbaec7163be24256be5b79fe2ff6563cfaff6"
+}

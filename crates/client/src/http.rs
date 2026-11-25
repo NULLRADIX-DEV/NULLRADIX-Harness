@@ -2,14 +2,15 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use nullradix_api::{
-    API_PREFIX, API_VERSION, AcceptTicket, AddComment, AddStep, BoardDeleted, BoardDto, BoardList,
-    ChangeStep, ClaimPlanning, ClaimTicket, CommentDto, CommentList, CreateBoard, CreateNote,
-    CreateProject, CreateTicket, DropNote, FinishTicket, FinishedTicket, Handoff, Health,
-    HookEventDto, HookEventList, HookKindDto, HookReplyDto, MoveStep, MoveTicket, NextPlanning,
-    NextPlanningClaim, NoteDto, NoteList, Problem, ProjectDto, ProjectList, PromoteNote,
-    PromotedNote, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto, RunList,
-    RunOutput, RunnerList, SeenNote, SetBoardRepository, StartRun, StartTicket, StartedTicket,
-    TicketDetailDto, TicketDto, TicketList, UpdateTicket, WritePlan,
+    API_PREFIX, API_VERSION, AcceptTicket, AddComment, AddQuestionComment, AddStep, AnswerQuestion,
+    BoardDeleted, BoardDto, BoardList, ChangeStep, ClaimPlanning, ClaimTicket, CommentDto,
+    CommentList, CreateBoard, CreateNote, CreateProject, CreateQuestion, CreateTicket, DropNote,
+    FinishTicket, FinishedTicket, Handoff, Health, HookEventDto, HookEventList, HookKindDto,
+    HookReplyDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList,
+    Problem, ProjectDto, ProjectList, PromoteNote, PromotedNote, QuestionCommentDto,
+    QuestionDetailDto, QuestionList, ReleaseTicket, RenameBoard, RenameProject, RepositoryList,
+    RunDto, RunList, RunOutput, RunnerList, SeenNote, SetBoardRepository, StartRun, StartTicket,
+    StartedTicket, TicketDetailDto, TicketDto, TicketList, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -373,6 +374,70 @@ impl Client {
         let mut response = self
             .agent
             .post(&self.url(&format!("/tickets/{key}/comments")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    /// Questions of the project matching `query`, such as `("state", "open")`.
+    pub fn list_questions(
+        &self,
+        project: Uuid,
+        query: &[(&str, &str)],
+    ) -> Result<QuestionList, ClientError> {
+        let mut request = self
+            .agent
+            .get(&self.url(&format!("/projects/{project}/questions")))
+            .header("Authorization", &self.authorization()?);
+        for (name, value) in query {
+            request = request.query(*name, *value);
+        }
+        let mut response = request.call().map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn create_question(
+        &self,
+        project: Uuid,
+        input: &CreateQuestion,
+    ) -> Result<QuestionDetailDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/projects/{project}/questions")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    /// `key` must be a question key such as `ARC-Q0007`; it goes into the path as is.
+    pub fn get_question(&self, key: &str) -> Result<QuestionDetailDto, ClientError> {
+        self.get_json(&format!("/questions/{key}"))
+    }
+
+    pub fn answer_question(
+        &self,
+        key: &str,
+        input: &AnswerQuestion,
+    ) -> Result<QuestionDetailDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/questions/{key}/answer")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn add_question_comment(
+        &self,
+        key: &str,
+        input: &AddQuestionComment,
+    ) -> Result<QuestionCommentDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/questions/{key}/comments")))
             .header("Authorization", &self.authorization()?)
             .send_json(input)
             .map_err(|source| self.unreachable(source))?;
@@ -826,6 +891,15 @@ mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let questions = Arc::new(nullradix_app::questions::QuestionService::new(
+            store.clone(),
+            store.clone(),
+            store.clone(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
         let worktrees = Arc::new(nullradix_app::worktrees::WorktreeService::new(
             tickets.clone(),
             store.clone(),
@@ -850,6 +924,7 @@ mod tests {
             boards,
             tickets,
             comments,
+            questions,
             worktrees,
             notes,
             runners,

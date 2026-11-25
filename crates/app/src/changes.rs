@@ -21,6 +21,7 @@ pub enum Entity {
     Worktree,
     Comment,
     Note,
+    Question,
 }
 
 impl Entity {

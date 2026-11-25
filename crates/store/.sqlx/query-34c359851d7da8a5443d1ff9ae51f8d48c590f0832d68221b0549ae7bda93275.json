@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT d.question_id AS \"question_id: Uuid\",\n                  qp.key AS \"question_project?\", dq.number AS \"question_number?\",\n                  dq.state AS \"question_state?\", tp.key AS \"ticket_project?\",\n                  dt.number AS \"ticket_number?\", dt.status AS \"ticket_status?\"\n           FROM question_dependencies d\n           JOIN questions q ON q.id = d.question_id\n           LEFT JOIN questions dq ON dq.id = d.depends_on_question_id\n           LEFT JOIN projects qp ON qp.id = dq.project_id\n           LEFT JOIN tickets dt ON dt.id = d.depends_on_ticket_id\n           LEFT JOIN projects tp ON tp.id = dt.project_id\n           WHERE (?1 IS NULL OR q.project_id = ?1) AND (?2 IS NULL OR q.id = ?2)\n           ORDER BY d.question_id, d.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "question_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_dependencies",
+            "name": "question_id"
+          }
+        }
+      },
+      {
+        "name": "question_project?",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "question_number?",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "question_state?",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "questions",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "name": "ticket_project?",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "ticket_number?",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "ticket_status?",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "34c359851d7da8a5443d1ff9ae51f8d48c590f0832d68221b0549ae7bda93275"
+}

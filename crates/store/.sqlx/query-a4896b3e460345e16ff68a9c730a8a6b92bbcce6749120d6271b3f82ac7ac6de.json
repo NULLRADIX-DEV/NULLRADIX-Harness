@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT g.question_id AS \"question_id: Uuid\", g.tag\n           FROM question_tags g\n           JOIN questions q ON q.id = g.question_id\n           WHERE (?1 IS NULL OR q.project_id = ?1) AND (?2 IS NULL OR q.id = ?2)\n           ORDER BY g.question_id, g.position",
+  "describe": {
+    "columns": [
+      {
+        "name": "question_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_tags",
+            "name": "question_id"
+          }
+        }
+      },
+      {
+        "name": "tag",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "question_tags",
+            "name": "tag"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a4896b3e460345e16ff68a9c730a8a6b92bbcce6749120d6271b3f82ac7ac6de"
+}

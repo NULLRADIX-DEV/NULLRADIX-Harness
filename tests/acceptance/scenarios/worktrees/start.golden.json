@@ -532,6 +532,7 @@
           "labels": [],
           "needsPlanning": true,
           "number": 2,
+          "openQuestions": [],
           "plan": "",
           "plannedAt": null,
           "plannedBy": null,

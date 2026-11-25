@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Actor, ActorKind, Comment, CommentBody, CommentError, Id, Ticket, TicketKey, Timestamp,
+    Actor, ActorKind, Comment, CommentBody, CommentError, CommentOn, Id, Ticket, TicketKey,
+    Timestamp,
 };
 
 use crate::authors;
@@ -111,7 +112,7 @@ impl CommentService {
         let now = self.clock.now();
         let comment = Comment::new(
             self.ids.next(),
-            ticket.id(),
+            CommentOn::Ticket(ticket.id()),
             actor.id(),
             body,
             author.in_session(),

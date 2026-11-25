@@ -1,0 +1,159 @@
+{
+  "title": "A question with options holds its ticket back until a person answers it",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": { "key": "ARC", "name": "Arches" }
+      },
+      "save": { "project": "json.id" }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": { "name": "Main" }
+      },
+      "save": { "board": "json.id" }
+    },
+    {
+      "name": "the board to work on",
+      "cli": { "args": ["board", "use", "{{board}}"] }
+    },
+    {
+      "name": "ticket",
+      "cli": { "args": ["ticket", "create", "Login page", "--acceptance", "Users can log in"] }
+    },
+    {
+      "name": "ask with options on the board's project",
+      "cli": {
+        "args": [
+          "question",
+          "add",
+          "Which store?",
+          "--ticket",
+          "arc-1",
+          "--option",
+          "File: one JSON file",
+          "--option",
+          "Db: SQLite next to the daemon",
+          "--recommend",
+          "O2",
+          "--tag",
+          "storage",
+          "--occasion",
+          "planning ARC-0001",
+          "--author",
+          "claude"
+        ]
+      }
+    },
+    {
+      "name": "two recommended options are refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/questions",
+        "body": {
+          "title": "Which colour?",
+          "options": [
+            { "title": "Red", "text": "warm", "recommended": true },
+            { "title": "Blue", "text": "cold", "recommended": true }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an agent asks over http inside its session",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/questions",
+        "body": { "title": "Keep the old login?", "author": "claude", "session": "s-1" }
+      }
+    },
+    {
+      "name": "the ticket shows the open question",
+      "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1" }
+    },
+    {
+      "name": "the open question holds the ticket back",
+      "cli": { "args": ["ticket", "move", "ARC-1", "in-progress"] }
+    },
+    {
+      "name": "list the open questions",
+      "cli": { "args": ["question", "list"] }
+    },
+    {
+      "name": "an agent may not answer",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/questions/ARC-Q1/answer",
+        "body": { "option": "O2", "author": "claude", "session": "s-1" }
+      }
+    },
+    {
+      "name": "a session without a name is a session and may not answer",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/questions/ARC-Q1/answer",
+        "body": { "option": "O2", "session": "s-2" }
+      }
+    },
+    {
+      "name": "an unknown option is refused",
+      "cli": { "args": ["question", "answer", "ARC-Q1", "--option", "O3"] }
+    },
+    {
+      "name": "the person answers by option",
+      "cli": {
+        "args": ["question", "answer", "arc-q1", "--option", "O2", "--reason", "Fits the daemon"]
+      }
+    },
+    {
+      "name": "answering twice is refused",
+      "cli": { "args": ["question", "answer", "ARC-Q1", "--text", "Files after all"] }
+    },
+    {
+      "name": "the ticket moves now",
+      "cli": { "args": ["ticket", "move", "ARC-1", "in-progress"] }
+    },
+    {
+      "name": "comment",
+      "cli": { "args": ["question", "comment", "ARC-Q1", "Done with SQLite", "--author", "claude"] }
+    },
+    {
+      "name": "an empty comment is refused",
+      "cli": { "args": ["question", "comment", "ARC-Q1", " "] }
+    },
+    {
+      "name": "no open question is left",
+      "cli": { "args": ["question", "list"] }
+    },
+    {
+      "name": "list the answered ones",
+      "cli": { "args": ["question", "list", "--state", "answered", "--ticket", "ARC-1"] }
+    },
+    {
+      "name": "an unknown state is refused",
+      "cli": { "args": ["question", "list", "--state", "offen"] }
+    },
+    {
+      "name": "show",
+      "cli": { "args": ["question", "show", "ARC-Q1"] }
+    },
+    {
+      "name": "the detail over http",
+      "http": { "method": "GET", "path": "/api/v1/questions/ARC-Q1" }
+    },
+    {
+      "name": "the list with counts over http",
+      "http": { "method": "GET", "path": "/api/v1/projects/{{project}}/questions?state=all" }
+    },
+    {
+      "name": "the ticket history notes the answer",
+      "cli": { "args": ["ticket", "show", "ARC-1", "--history"] }
+    }
+  ]
+}

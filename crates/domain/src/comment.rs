@@ -1,8 +1,8 @@
-//! Comments on tickets: appended, never changed by people.
+//! Comments on tickets and questions: appended, never changed by people.
 
 use strum::{EnumIter, EnumString, IntoStaticStr};
 
-use crate::{Actor, Id, Run, TextError, Ticket, Timestamp, Version, required_text};
+use crate::{Actor, Id, Question, Run, TextError, Ticket, Timestamp, Version, required_text};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CommentError {
@@ -53,11 +53,18 @@ impl SystemMarker {
     }
 }
 
+/// What a comment belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommentOn {
+    Ticket(Id<Ticket>),
+    Question(Id<Question>),
+}
+
 /// Every stored field of a comment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommentRecord {
     pub id: Id<Comment>,
-    pub ticket: Id<Ticket>,
+    pub subject: CommentOn,
     pub author: Id<Actor>,
     pub body: CommentBody,
     pub system_marker: Option<SystemMarker>,
@@ -77,7 +84,7 @@ impl Comment {
     #[must_use]
     pub const fn new(
         id: Id<Self>,
-        ticket: Id<Ticket>,
+        subject: CommentOn,
         author: Id<Actor>,
         body: CommentBody,
         by_agent: bool,
@@ -85,7 +92,7 @@ impl Comment {
     ) -> Self {
         Self(CommentRecord {
             id,
-            ticket,
+            subject,
             author,
             body,
             system_marker: None,
@@ -145,7 +152,7 @@ mod tests {
     fn an_agent_comment_is_delivered_at_once_a_person_one_is_not() {
         let body = CommentBody::parse("x").unwrap();
         let now = Timestamp::from_millis(5);
-        let (id, ticket, author) = (id(1), id(2), id(3));
+        let (id, ticket, author) = (id(1), CommentOn::Ticket(id(2)), id(3));
         let by_agent = Comment::new(id, ticket, author, body.clone(), true, now);
         let by_person = Comment::new(id, ticket, author, body, false, now);
         assert_eq!(by_agent.record().delivered_at, Some(now));

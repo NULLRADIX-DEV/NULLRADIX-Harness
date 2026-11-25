@@ -14,6 +14,7 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::comments::CommentDto;
+use crate::questions::OpenQuestionDto;
 use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -168,6 +169,8 @@ pub struct TicketDto {
     pub unlocks: Vec<String>,
     pub steps_done: u32,
     pub steps_total: u32,
+    /// Open questions about the ticket; they hold it back from in progress and done.
+    pub open_questions: Vec<OpenQuestionDto>,
 }
 
 impl From<TicketView> for TicketDto {
@@ -214,6 +217,11 @@ impl From<TicketView> for TicketDto {
             unlocks: keys(&view.unlocks),
             steps_done: view.steps.done,
             steps_total: view.steps.total,
+            open_questions: view
+                .open_questions
+                .into_iter()
+                .map(OpenQuestionDto::from)
+                .collect(),
         }
     }
 }

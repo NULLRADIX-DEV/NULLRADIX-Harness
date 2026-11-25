@@ -1,0 +1,182 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT c.id AS \"id: Uuid\", c.ticket_id AS \"ticket_id!: Uuid\", p.key AS project_key,\n                  t.number, c.author_id AS \"author_id: Uuid\", a.name AS author_name,\n                  a.kind AS author_kind, c.body, c.system_marker, c.run_id AS \"run_id: Uuid\",\n                  c.delivered_to_agent_at, c.created_at, c.updated_at, c.version\n           FROM comments c\n           JOIN tickets t ON t.id = c.ticket_id\n           JOIN projects p ON p.id = t.project_id\n           JOIN actors a ON a.id = c.author_id\n           WHERE c.ticket_id = ?1 AND (?2 = 0 OR c.delivered_to_agent_at IS NULL)\n           ORDER BY c.created_at, c.rid",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "ticket_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "ticket_id"
+          }
+        }
+      },
+      {
+        "name": "project_key",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "projects",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "number",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tickets",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "author_id: Uuid",
+        "ordinal": 4,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "author_id"
+          }
+        }
+      },
+      {
+        "name": "author_name",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "author_kind",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "actors",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "body",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "name": "system_marker",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "system_marker"
+          }
+        }
+      },
+      {
+        "name": "run_id: Uuid",
+        "ordinal": 9,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "name": "delivered_to_agent_at",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "delivered_to_agent_at"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "comments",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e0e80457def99e532987289f6367da815d7b43dceb4e2c3b911466dbf82c2d28"
+}

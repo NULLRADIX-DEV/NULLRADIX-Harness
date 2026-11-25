@@ -27,7 +27,7 @@ pub(crate) struct CommentArgs {
     author: Option<String>,
 }
 
-fn body(text: Option<String>, file: Option<&Path>) -> anyhow::Result<String> {
+pub(crate) fn body(text: Option<String>, file: Option<&Path>) -> anyhow::Result<String> {
     match file {
         Some(path) if path == Path::new("-") => {
             io::read_to_string(io::stdin()).context("cannot read standard input")

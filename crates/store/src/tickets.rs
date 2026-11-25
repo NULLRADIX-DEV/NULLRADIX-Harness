@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use nullradix_app::questions::OpenQuestion;
 use nullradix_app::tickets::{
     HistoryLine, StepProgress, TicketRead, TicketRepository, TicketRow, TicketScope,
     TicketSnapshot, TicketWrite,
@@ -16,7 +17,7 @@ use uuid::Uuid;
 
 use crate::boards::missed;
 use crate::error::{database, missed_guard};
-use crate::{Store, StoreError, change_feed, comments};
+use crate::{Store, StoreError, change_feed, comments, questions};
 
 fn corrupt(what: &str) -> StoreError {
     StoreError::Corrupt(format!("invalid {what}"))
@@ -70,6 +71,7 @@ struct Lists {
     labels: HashMap<Uuid, Vec<String>>,
     depends_on: HashMap<Uuid, Vec<TicketKey>>,
     progress: HashMap<Uuid, StepProgress>,
+    open_questions: HashMap<Uuid, Vec<OpenQuestion>>,
 }
 
 impl Row {
@@ -113,6 +115,7 @@ impl Row {
         };
         Ok(TicketRow {
             steps: lists.progress.remove(&self.id).unwrap_or_default(),
+            open_questions: lists.open_questions.remove(&self.id).unwrap_or_default(),
             ticket: Ticket::restore(record),
             created_by_name: self.created_by_name,
         })
@@ -282,7 +285,9 @@ async fn ticket_rows(
     let mut lists = Lists {
         labels: labels(&mut *connection, at).await?,
         depends_on: dependencies(&mut *connection, at).await?,
-        progress: progress(connection, at).await?,
+        progress: progress(&mut *connection, at).await?,
+        open_questions: questions::open_by_ticket(connection, at.project, at.board, at.ticket)
+            .await?,
     };
     rows.into_iter()
         .map(|row| row.into_ticket_row(&mut lists))
@@ -884,7 +889,7 @@ async fn insert_lists(
     Ok(())
 }
 
-async fn insert_history(
+pub(crate) async fn insert_history(
     connection: &mut SqliteConnection,
     history: &[HistoryEntry],
 ) -> Result<(), AppError> {

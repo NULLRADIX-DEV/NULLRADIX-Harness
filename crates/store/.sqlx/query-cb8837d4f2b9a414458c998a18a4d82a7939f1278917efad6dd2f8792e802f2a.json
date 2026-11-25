@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT o.research_id AS \"research_id: Uuid\", o.number, o.title, o.text, o.pros,\n                  o.cons, o.recommended\n           FROM question_options o\n           JOIN questions q ON q.id = o.question_id\n           WHERE (?1 IS NULL OR q.project_id = ?1) AND (?2 IS NULL OR q.id = ?2)\n           ORDER BY o.number",
+  "describe": {
+    "columns": [
+      {
+        "name": "research_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_options",
+            "name": "research_id"
+          }
+        }
+      },
+      {
+        "name": "number",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "question_options",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "question_options",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "text",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "question_options",
+            "name": "text"
+          }
+        }
+      },
+      {
+        "name": "pros",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "question_options",
+            "name": "pros"
+          }
+        }
+      },
+      {
+        "name": "cons",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "question_options",
+            "name": "cons"
+          }
+        }
+      },
+      {
+        "name": "recommended",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "question_options",
+            "name": "recommended"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cb8837d4f2b9a414458c998a18a4d82a7939f1278917efad6dd2f8792e802f2a"
+}
