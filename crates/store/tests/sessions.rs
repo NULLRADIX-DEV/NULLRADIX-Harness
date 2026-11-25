@@ -434,6 +434,19 @@ async fn keys(f: &Fixture, id: &str) -> Vec<String> {
 struct Raw(sqlx::SqlitePool);
 
 impl Raw {
+    /// One extra connection to the same file that waits for the store's writer instead of failing.
+    async fn open(path: &std::path::Path) -> Self {
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(path)
+            .busy_timeout(std::time::Duration::from_mins(1));
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        Self(pool)
+    }
+
     async fn ticket(&self, number: i64) -> uuid::Uuid {
         sqlx::query_scalar("SELECT id FROM tickets WHERE number = ?")
             .bind(number)
@@ -551,8 +564,7 @@ async fn sessions_in_the_worktree_of_an_in_progress_ticket_are_linked_to_it() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("nullradix.db");
     let f = fixture_on(Arc::new(Store::open(&path).await.unwrap())).await;
-    let url = format!("sqlite:{}", path.display().to_string().replace('\\', "/"));
-    let raw = Raw(sqlx::SqlitePool::connect(&url).await.unwrap());
+    let raw = Raw::open(&path).await;
     let titles = ["Live", "Backlog", "Released", "Removed", "Second"];
     let repository = tickets_in_a_repository(&f, &titles).await;
     for number in [1, 3, 4, 5] {
@@ -589,10 +601,13 @@ async fn sessions_in_the_worktree_of_an_in_progress_ticket_are_linked_to_it() {
     };
     assert_eq!(keys(&f, "cased").await, folded);
 
+    // background lookups write through the store; let them finish before writing beside it
+    f.sessions.settled().await;
     raw.status(2, "in-progress").await;
     f.hook(HookKind::UserPrompt, "backlog", "/wt/T-2", none())
         .await;
     assert_eq!(keys(&f, "backlog").await, ["ARC-0002"]);
+    f.sessions.settled().await;
     raw.worktree(&f, repository, "/wt/T-2/inner", "present", 5, false)
         .await;
     f.hook(HookKind::Stop, "backlog", "/wt/T-2/inner", none())
