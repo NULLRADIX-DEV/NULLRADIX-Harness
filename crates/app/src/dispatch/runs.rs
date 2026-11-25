@@ -13,7 +13,7 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use super::invocation::{InvocationInput, build, effective_effort, effective_model};
-use super::stream::{DROPPED_LINE, Joined, LineJoiner, Pipe};
+use super::stream::{DROPPED_LINE, Joined, LineJoiner, MAX_JOINED_BYTES, Pipe};
 use super::transcript::{LineKind, TranscriptFormatter, TranscriptLine};
 use crate::AppError;
 use crate::accounts::AccountService;
@@ -272,6 +272,8 @@ impl DispatchRuns {
         limit: u32,
     ) -> Result<TranscriptPage, AppError> {
         let limit = limit.clamp(1, MAX_TRANSCRIPT_LINES);
+        // the permit covers the reads too, as they hold the most memory
+        let permit = FORMATTING.acquire().await.map_err(AppError::internal)?;
         let (run, progress) = self.runs.output(id, after, limit).await?;
         let mut lines = progress.lines;
         let drained = read_whole_lines(&mut lines, limit, |from| async move {
@@ -282,9 +284,9 @@ impl DispatchRuns {
         // a lost run has no report but will not write more either
         let ended = progress.report.is_some() || !run.status().is_active();
         let finished = ended && drained;
-        let _permit = FORMATTING.acquire().await.map_err(AppError::internal)?;
         // the lines can be huge, and parsing them must not hold the async runtime
         let (entries, last_seq) = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
             format_page(root.as_deref(), lines, after, finished, drained)
         })
         .await
@@ -341,13 +343,35 @@ where
 {
     let full = |read: usize| u32::try_from(read).is_ok_and(|read| read >= limit);
     let mut drained = !full(lines.len());
+    let mut open = [0_usize; 2];
+    for line in lines.iter() {
+        count_open(&mut open, line);
+    }
     while !drained && !has_line_end(lines) {
         let Some(last) = lines.last() else { break };
-        let more = read(last.seq).await?;
+        let mut more = read(last.seq).await?;
         drained = !full(more.len());
+        for line in &mut more {
+            let pipe = usize::from(line.stream == OutputStream::Stderr);
+            // past the cap the line is dropped anyway, so its text need not be kept
+            if open[pipe] > MAX_JOINED_BYTES {
+                line.text.clear();
+            }
+            count_open(&mut open, line);
+        }
         lines.extend(more);
     }
     Ok(drained)
+}
+
+/// Adds a piece to the bytes of the open line of its pipe; a line end starts over.
+fn count_open(open: &mut [usize; 2], line: &OutputLine) {
+    let pipe = usize::from(line.stream == OutputStream::Stderr);
+    open[pipe] = if line.continues {
+        open[pipe].saturating_add(line.text.len().max(1))
+    } else {
+        0
+    };
 }
 
 fn emit(
@@ -532,6 +556,46 @@ mod tests {
             (entries.len(), entries[0].line.text.as_str(), last),
             (1, "abc", 3)
         );
+    }
+
+    #[test]
+    fn a_line_end_needs_both_pipes_closed() {
+        let lines = [
+            piece(1, OutputStream::Stdout, "a", true),
+            piece(2, OutputStream::Stderr, "b", false),
+            piece(3, OutputStream::Stdout, "c", false),
+        ];
+        assert!(!has_line_end(&lines[..2]));
+        assert!(has_line_end(&lines));
+    }
+
+    #[tokio::test]
+    async fn pieces_past_the_cap_keep_no_text() {
+        let big = "x".repeat(MAX_JOINED_BYTES);
+        let all = vec![
+            piece(1, OutputStream::Stdout, &big, true),
+            piece(2, OutputStream::Stdout, "y", true),
+            piece(3, OutputStream::Stdout, "z", true),
+            piece(4, OutputStream::Stdout, "end", false),
+        ];
+        let source = all.clone();
+        let mut lines = vec![all[0].clone()];
+        read_whole_lines(&mut lines, 1, |from| {
+            let page: Vec<OutputLine> = source
+                .iter()
+                .filter(|line| line.seq > from)
+                .take(1)
+                .cloned()
+                .collect();
+            async move { Ok(page) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[1].text, "y");
+        assert!(lines[2].text.is_empty() && lines[3].text.is_empty());
+        let (entries, _) = format_page(None, lines, 0, true, true);
+        assert_eq!(entries[0].line.text, DROPPED_LINE);
     }
 
     #[test]
