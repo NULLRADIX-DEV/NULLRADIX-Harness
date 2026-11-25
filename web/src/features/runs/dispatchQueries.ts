@@ -94,9 +94,7 @@ export function useRunTranscript(runId: string, active: boolean): RunTranscriptS
         );
         if (stopped) return;
         after = page.lastSeq;
-        const full = page.lines.length >= TRANSCRIPT_PAGE;
-        // a run that ended before this page was read has nothing more to wait for
-        const done = page.finished || (!activeRef.current && !full);
+        const done = page.finished;
         setState((previous) => ({
           lines: previous.lines.concat(page.lines),
           finished: done,
@@ -107,7 +105,7 @@ export function useRunTranscript(runId: string, active: boolean): RunTranscriptS
           if (activeRef.current) void client.invalidateQueries({ queryKey: runKeys.all });
           return;
         }
-        timer = setTimeout(() => void poll(), full ? 0 : TRANSCRIPT_POLL_MS);
+        timer = setTimeout(() => void poll(), page.more ? 0 : TRANSCRIPT_POLL_MS);
       } catch (error) {
         if (stopped) return;
         if (error instanceof ApiProblemError && error.status < 500) {

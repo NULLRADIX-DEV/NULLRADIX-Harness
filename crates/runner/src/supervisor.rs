@@ -11,7 +11,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use nullradix_app::dispatch::stream::{ClaudeStream, Joined, LineJoiner, Pipe, images};
+use nullradix_app::dispatch::stream::{
+    ClaudeStream, DROPPED_LINE, Joined, LineJoiner, Pipe, images,
+};
 use nullradix_domain::{RunOutcome, Screenshot};
 use nullradix_os::{ProcessTree, write_atomic};
 
@@ -25,8 +27,6 @@ const TICK: Duration = Duration::from_millis(100);
 const MAX_LINE: u64 = 64 * 1024;
 /// Grandchildren may hold the pipes open after the child exits; stop waiting after this.
 const DRAIN: Duration = Duration::from_secs(10);
-/// Stands for a line over the join cap in the error text.
-const DROPPED_LINE: &str = "[an output line was too long and was dropped]";
 /// Screenshots kept per run, and the size of one.
 const MAX_SCREENSHOTS: usize = 100;
 const MAX_SCREENSHOT_BYTES: usize = 20 * 1024 * 1024;

@@ -21,11 +21,15 @@ interface Page {
   lines: TranscriptLine[];
   lastSeq: number;
   finished: boolean;
+  more?: boolean;
 }
 
 function pages(...served: Page[]): Handler {
   const queue = [...served];
-  return () => json(200, queue.shift() ?? { lines: [], lastSeq: 0, finished: false });
+  return () => {
+    const page = queue.shift() ?? { lines: [], lastSeq: 0, finished: false };
+    return json(200, { more: false, ...page });
+  };
 }
 
 const FINISHED_PAGE: Page = {
@@ -166,6 +170,20 @@ describe('ticket Runs tab', () => {
     expect(within(transcript).getByText('Second of line four')).toBeInTheDocument();
     expect(errors.mock.calls.flat().join(' ')).not.toContain('same key');
     errors.mockRestore();
+  });
+
+  it('keeps reading a finished run while the server says more follows', async () => {
+    const server = serve([dispatchRun()], {
+      [WORK_ID]: pages(
+        { lines: [line(1, 'raw', 'screenshot')], lastSeq: 1, finished: false, more: true },
+        { lines: [line(2, 'say', 'after the shot')], lastSeq: 2, finished: true },
+      ),
+    });
+    renderApp('/board');
+    const runs = await openRunsTab(/^Runs/);
+    expect(await runs.findByText('after the shot')).toBeInTheDocument();
+    const route = `GET /api/v1/runs/${WORK_ID}/transcript`;
+    expect(server.api.requests(route)).toHaveLength(2);
   });
 
   it('polls the transcript of an active run until it finished', async () => {

@@ -13495,7 +13495,8 @@
         "required": [
           "lines",
           "lastSeq",
-          "finished"
+          "finished",
+          "more"
         ],
         "properties": {
           "finished": {
@@ -13512,6 +13513,10 @@
             "items": {
               "$ref": "#/components/schemas/TranscriptLineDto"
             }
+          },
+          "more": {
+            "type": "boolean",
+            "description": "The read stopped at its limit; ask again at once."
           }
         }
       },

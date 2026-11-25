@@ -43,6 +43,9 @@ pub fn looks_like_context_overflow(text: &str) -> bool {
 /// Largest line joined from pieces; a screenshot of 20 MB is about 27 MB in base64.
 pub const MAX_JOINED_BYTES: usize = 32 * 1024 * 1024;
 
+/// What stands in for an output line that was too long to keep.
+pub const DROPPED_LINE: &str = "[an output line was too long and was dropped]";
+
 /// A line put together from the pieces the runner cut it into.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Joined {

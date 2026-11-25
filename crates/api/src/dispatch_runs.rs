@@ -397,6 +397,8 @@ pub struct TranscriptDto {
     pub last_seq: i64,
     /// The run ended and no output is left.
     pub finished: bool,
+    /// The read stopped at its limit; ask again at once.
+    pub more: bool,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -452,6 +454,7 @@ pub(crate) async fn run_transcript(
             .collect(),
         last_seq: page.last_seq,
         finished: page.finished,
+        more: page.more,
     }))
 }
 
@@ -791,8 +794,12 @@ mod tests {
         let (status, page) = get(&api, &format!("/api/v1/runs/{id}/transcript")).await;
         assert_eq!(status, 200);
         assert_eq!(
-            (page["lines"].clone(), page["finished"].clone()),
-            (json!([]), json!(true))
+            (
+                page["lines"].clone(),
+                page["finished"].clone(),
+                page["more"].clone()
+            ),
+            (json!([]), json!(true), json!(false))
         );
     }
 }

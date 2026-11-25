@@ -1,5 +1,6 @@
 //! Claude runs of the dispatcher: starting one from the configuration and reading what it left.
 
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -8,10 +9,11 @@ use nullradix_domain::{
     DeniedTool, DispatchRun, Id, Profile, QuestionKey, Run, RunKind, RunProfile, RunTrigger,
     TicketKey,
 };
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use super::invocation::{InvocationInput, build, effective_effort, effective_model};
-use super::stream::{Joined, LineJoiner, Pipe};
+use super::stream::{DROPPED_LINE, Joined, LineJoiner, Pipe};
 use super::transcript::{LineKind, TranscriptFormatter, TranscriptLine};
 use crate::AppError;
 use crate::accounts::AccountService;
@@ -22,6 +24,10 @@ use crate::tickets::{self, TicketRepository};
 
 /// Output lines read per transcript page at most.
 pub const MAX_TRANSCRIPT_LINES: u32 = 1000;
+
+/// Transcript pages formatted at once; each can hold a joined line of megabytes.
+const FORMAT_PERMITS: usize = 4;
+static FORMATTING: Semaphore = Semaphore::const_new(FORMAT_PERMITS);
 
 /// What the scheduler, or a person, asks for when a Claude run should start.
 #[derive(Debug, Clone)]
@@ -74,6 +80,8 @@ pub struct TranscriptPage {
     pub last_seq: i64,
     /// The run ended and no output is left.
     pub finished: bool,
+    /// The read stopped at its limit; ask again at once.
+    pub more: bool,
 }
 
 #[must_use]
@@ -265,15 +273,19 @@ impl DispatchRuns {
     ) -> Result<TranscriptPage, AppError> {
         let limit = limit.clamp(1, MAX_TRANSCRIPT_LINES);
         let (run, progress) = self.runs.output(id, after, limit).await?;
+        let mut lines = progress.lines;
+        let drained = read_whole_lines(&mut lines, limit, |from| async move {
+            Ok(self.runs.output(id, from, limit).await?.1.lines)
+        })
+        .await?;
         let root = run.dispatch().map(|dispatch| dispatch.cwd.clone());
         // a lost run has no report but will not write more either
         let ended = progress.report.is_some() || !run.status().is_active();
-        let drained = u32::try_from(progress.lines.len()).is_ok_and(|read| read < limit);
         let finished = ended && drained;
-        let lines = progress.lines;
+        let _permit = FORMATTING.acquire().await.map_err(AppError::internal)?;
         // the lines can be huge, and parsing them must not hold the async runtime
         let (entries, last_seq) = tokio::task::spawn_blocking(move || {
-            format_page(root.as_deref(), lines, after, finished)
+            format_page(root.as_deref(), lines, after, finished, drained)
         })
         .await
         .map_err(AppError::internal)?;
@@ -281,6 +293,7 @@ impl DispatchRuns {
             entries,
             last_seq,
             finished,
+            more: !drained,
         })
     }
 
@@ -307,7 +320,35 @@ impl DispatchRuns {
     }
 }
 
-const DROPPED_LINE: &str = "[an output line was too long and was dropped]";
+/// Whether pieces of two pipes leave a point where no line is half read.
+fn has_line_end(lines: &[OutputLine]) -> bool {
+    let mut open = [false; 2];
+    lines.iter().any(|line| {
+        open[usize::from(line.stream == OutputStream::Stderr)] = line.continues;
+        !open[0] && !open[1]
+    })
+}
+
+/// Reads on past the limit while the pieces hold no end of a line; true when the output is drained.
+async fn read_whole_lines<F, Fut>(
+    lines: &mut Vec<OutputLine>,
+    limit: u32,
+    mut read: F,
+) -> Result<bool, AppError>
+where
+    F: FnMut(i64) -> Fut,
+    Fut: Future<Output = Result<Vec<OutputLine>, AppError>>,
+{
+    let full = |read: usize| u32::try_from(read).is_ok_and(|read| read >= limit);
+    let mut drained = !full(lines.len());
+    while !drained && !has_line_end(lines) {
+        let Some(last) = lines.last() else { break };
+        let more = read(last.seq).await?;
+        drained = !full(more.len());
+        lines.extend(more);
+    }
+    Ok(drained)
+}
 
 fn emit(
     formatter: &mut TranscriptFormatter,
@@ -329,6 +370,7 @@ fn format_page(
     lines: Vec<OutputLine>,
     after: i64,
     finished: bool,
+    drained: bool,
 ) -> (Vec<TranscriptEntry>, i64) {
     let mut formatter = TranscriptFormatter::new(root);
     let mut joiners = [LineJoiner::default(), LineJoiner::default()];
@@ -352,8 +394,8 @@ fn format_page(
     if joiners.iter().all(LineJoiner::is_idle) {
         return (entries, last_seq);
     }
-    // more of a line may come on the next page, unless the output is over or no line ever ends
-    if !finished && safe.0 != after {
+    // more of a line may come on the next page, unless the output is over
+    if !finished && (safe.0 != after || drained) {
         entries.truncate(safe.1);
         return (entries, safe.0);
     }
@@ -430,7 +472,7 @@ mod tests {
             piece(2, OutputStream::Stderr, "boom", false),
             piece(3, OutputStream::Stdout, tail, false),
         ];
-        let (entries, last) = format_page(None, lines, 0, true);
+        let (entries, last) = format_page(None, lines, 0, true, true);
         let found: Vec<(i64, &str, &str)> = entries
             .iter()
             .map(|entry| {
@@ -453,13 +495,43 @@ mod tests {
                 piece(6, OutputStream::Stdout, "{\"type\":", true),
             ]
         };
-        let (entries, last) = format_page(None, lines(), 4, false);
+        let (entries, last) = format_page(None, lines(), 4, false, false);
         assert_eq!((entries.len(), last), (1, 5));
-        let (entries, last) = format_page(None, lines(), 4, true);
+        let (entries, last) = format_page(None, lines(), 4, true, true);
         assert_eq!((entries.len(), last), (2, 6));
-        // a page that holds no complete line cannot be asked for again
-        let (entries, last) = format_page(None, lines()[1..].to_vec(), 5, false);
-        assert_eq!((entries.len(), last), (1, 6));
+        // a page that holds only the start of a line gives nothing and keeps the cursor
+        let (entries, last) = format_page(None, lines()[1..].to_vec(), 5, false, true);
+        assert_eq!((entries.len(), last), (0, 5));
+    }
+
+    #[tokio::test]
+    async fn a_small_limit_reads_on_until_the_line_ends() {
+        let all = vec![
+            piece(1, OutputStream::Stdout, "a", true),
+            piece(2, OutputStream::Stdout, "b", true),
+            piece(3, OutputStream::Stdout, "c", false),
+            piece(4, OutputStream::Stdout, "next", false),
+        ];
+        let source = all.clone();
+        let mut lines = vec![all[0].clone()];
+        let drained = read_whole_lines(&mut lines, 1, |from| {
+            let page: Vec<OutputLine> = source
+                .iter()
+                .filter(|line| line.seq > from)
+                .take(1)
+                .cloned()
+                .collect();
+            async move { Ok(page) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(lines.len(), 3);
+        assert!(!drained);
+        let (entries, last) = format_page(None, lines, 0, false, drained);
+        assert_eq!(
+            (entries.len(), entries[0].line.text.as_str(), last),
+            (1, "abc", 3)
+        );
     }
 
     #[test]

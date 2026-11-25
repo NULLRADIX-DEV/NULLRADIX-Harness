@@ -3151,6 +3151,8 @@ export interface components {
              */
             lastSeq: number;
             lines: components["schemas"]["TranscriptLineDto"][];
+            /** @description The read stopped at its limit; ask again at once. */
+            more: boolean;
         };
         /** @description One transcript entry; a later page repeating an id replaces the entry. */
         TranscriptEntryDto: {
