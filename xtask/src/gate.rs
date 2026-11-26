@@ -99,6 +99,7 @@ fn linux_clippy(root: &Path) -> Outcome {
     }
     let installed = Command::new("rustup")
         .args(["target", "list", "--installed"])
+        .current_dir(root)
         .output()
         .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).contains(LINUX));
     if !installed {
@@ -200,10 +201,27 @@ fn step(name: &'static str, reports: &mut Vec<Report>, work: impl FnOnce() -> Ou
     });
 }
 
+/// Every step must see what CI sees, so uncommitted work fails the gate.
+fn clean_tree(root: &Path) -> Outcome {
+    match Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(root)
+        .output()
+    {
+        Ok(output) if output.status.success() && output.stdout.is_empty() => Outcome::Passed,
+        Ok(output) if output.status.success() => Outcome::Failed(
+            "uncommitted changes; commit them so the gate checks what CI checks".to_owned(),
+        ),
+        Ok(output) => Outcome::Failed(format!("git status exited with {}", output.status)),
+        Err(error) => Outcome::Failed(format!("could not start git: {error}")),
+    }
+}
+
 /// Runs every check CI runs, keeps going after a failure and prints one summary.
 pub(crate) fn gate(root: &Path, skip_web: bool) -> ExitCode {
     let mut reports = Vec::new();
     let npm = npm();
+    step("committed", &mut reports, || clean_tree(root));
     step("rustfmt", &mut reports, || {
         run(root, "cargo", &["fmt", "--all", "--check"])
     });
