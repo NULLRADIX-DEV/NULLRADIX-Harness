@@ -12,6 +12,7 @@ use nullradix_domain::{
 use parking_lot::Mutex;
 
 use crate::secrets::{SecretStore, SecretValue};
+use crate::usage::LoginRenewal;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
 #[async_trait]
@@ -201,6 +202,7 @@ pub struct AccountService {
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     signal: ChangeSignal,
+    renewal: Option<Arc<dyn LoginRenewal>>,
     /// One lock per account, so token and row changes of an account never interleave.
     locks: Mutex<HashMap<Id<Account>, Arc<tokio::sync::Mutex<()>>>>,
 }
@@ -233,8 +235,16 @@ impl AccountService {
             clock,
             ids,
             signal,
+            renewal: None,
             locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Lets removals wait for a login renewal of the folder and drop what it kept.
+    #[must_use]
+    pub fn with_renewal(mut self, renewal: Arc<dyn LoginRenewal>) -> Self {
+        self.renewal = Some(renewal);
+        self
     }
 
     /// Folder where new accounts get their own subfolders.
@@ -360,6 +370,10 @@ impl AccountService {
             return Err(dir_not_owned(dir, &self.folders.root()));
         }
         hook.removing(&current).await;
+        let _renewing = match &self.renewal {
+            Some(renewal) => Some(renewal.hold(current.config_dir()).await),
+            None => None,
+        };
         // the folder goes first: if it cannot go, the account stays whole
         if let Some(dir) = folder
             && self.folders.remove(dir).await.is_err()

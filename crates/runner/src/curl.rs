@@ -24,7 +24,7 @@ pub(crate) fn quoted(text: &str) -> Option<String> {
 pub(crate) async fn run(config: &str, limit: Duration) -> Result<String, String> {
     let mut command = tokio::process::Command::new("curl");
     command
-        .args(arguments(limit))
+        .args(arguments(limit, suppresses_connect_headers().await))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -58,18 +58,53 @@ pub(crate) async fn run(config: &str, limit: Duration) -> Result<String, String>
         .map_err(|_| String::from("curl did not finish in time"))?
 }
 
+/// Whether this curl knows `--suppress-connect-headers`, which came with 7.54; found once.
+async fn suppresses_connect_headers() -> bool {
+    static KNOWN: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
+    *KNOWN
+        .get_or_init(|| async {
+            let mut command = tokio::process::Command::new("curl");
+            command.arg("--version").kill_on_drop(true);
+            #[cfg(windows)]
+            {
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                command.creation_flags(CREATE_NO_WINDOW);
+            }
+            let output = tokio::time::timeout(PROCESS_GRACE, command.output()).await;
+            match output {
+                Ok(Ok(output)) => knows_connect_headers(&String::from_utf8_lossy(&output.stdout)),
+                _ => true,
+            }
+        })
+        .await
+}
+
+/// The first line of `curl --version` names the version; an unreadable one is taken as new.
+fn knows_connect_headers(version: &str) -> bool {
+    let number = version
+        .lines()
+        .next()
+        .and_then(|line| line.strip_prefix("curl "))
+        .and_then(|rest| rest.split_whitespace().next());
+    let mut parts = number
+        .into_iter()
+        .flat_map(|number| number.split('.'))
+        .map(str::parse::<u32>);
+    match (parts.next(), parts.next()) {
+        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) >= (7, 54),
+        _ => true,
+    }
+}
+
 /// `-q` must come first to take effect: no `.curlrc` may change the request.
-fn arguments(limit: Duration) -> Vec<String> {
-    let mut arguments: Vec<String> = [
-        "-q",
-        "--silent",
-        "--show-error",
-        "--include",
-        "--suppress-connect-headers",
-        "--max-time",
-    ]
-    .map(String::from)
-    .into();
+fn arguments(limit: Duration, suppress_connect_headers: bool) -> Vec<String> {
+    let mut arguments: Vec<String> = ["-q", "--silent", "--show-error", "--include"]
+        .map(String::from)
+        .into();
+    if suppress_connect_headers {
+        arguments.push(String::from("--suppress-connect-headers"));
+    }
+    arguments.extend(["--max-time"].map(String::from));
     arguments.push(limit.as_secs().to_string());
     arguments.extend(["--config", "-"].map(String::from));
     arguments
@@ -131,12 +166,8 @@ pub(crate) fn split_response(text: &str) -> Option<Response<'_>> {
             .parse()
             .ok()?;
         // an interim answer such as 100 Continue, or a proxy's CONNECT reply, comes first
-        let connect = status == 200
-            && head
-                .lines()
-                .next()
-                .is_some_and(|line| line.to_ascii_lowercase().contains("connection established"));
-        if (100..200).contains(&status) || connect {
+        let preamble = (200..300).contains(&status) && body.trim_start().starts_with("HTTP/");
+        if (100..200).contains(&status) || preamble {
             rest = body;
             continue;
         }
@@ -179,9 +210,32 @@ mod tests {
 
     #[test]
     fn curl_ignores_curlrc_and_hides_connect_headers() {
-        let arguments = arguments(Duration::from_secs(10));
+        let arguments = arguments(Duration::from_secs(10), true);
         assert_eq!(arguments[0], "-q");
         assert!(arguments.iter().any(|a| a == "--suppress-connect-headers"));
+    }
+
+    #[test]
+    fn an_old_curl_gets_no_flag_it_does_not_know() {
+        let without = arguments(Duration::from_secs(10), false);
+        assert!(!without.iter().any(|a| a == "--suppress-connect-headers"));
+        assert_eq!(without[0], "-q");
+        assert!(without.windows(2).any(|pair| pair == ["--max-time", "10"]));
+        assert!(!knows_connect_headers(
+            "curl 7.29.0 (x86_64-redhat-linux-gnu) libcurl/7.29.0"
+        ));
+        assert!(!knows_connect_headers("curl 7.53.1 (x)"));
+        assert!(knows_connect_headers("curl 7.54.0 (x)"));
+        assert!(knows_connect_headers("curl 8.4.0 (x)"));
+        assert!(knows_connect_headers("something else"));
+    }
+
+    #[test]
+    fn any_2xx_block_before_another_status_line_is_a_preamble() {
+        let text = "HTTP/1.1 204 No Content\r\n\r\nHTTP/2 400\r\n\r\n{\"error\":\"x\"}";
+        let response = split_response(text).unwrap();
+        assert_eq!(response.status, 400);
+        assert_eq!(response.body, "{\"error\":\"x\"}");
     }
 
     #[tokio::test]

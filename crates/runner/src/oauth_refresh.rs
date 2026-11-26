@@ -172,7 +172,13 @@ impl LocalLoginRenewal {
             all.remove(file).filter(|(old, _)| *old == digest)
         };
         if let Some((_, grant)) = pending {
-            return self.store(file, document, grant, refresh_token).await;
+            let stale = grant.expires_at <= now;
+            let stored = self.store(file, grant, refresh_token).await;
+            // a kept grant that is already over is renewed with its own refresh token
+            if stale && matches!(stored, Renewal::Renewed) {
+                return Box::pin(self.renew_file(file)).await;
+            }
+            return stored;
         }
         let reply = self
             .endpoint
@@ -204,25 +210,29 @@ impl LocalLoginRenewal {
             return Renewal::Failed;
         };
         self.refused.lock().remove(file);
-        self.store(file, document, grant, refresh_token).await
+        self.store(file, grant, refresh_token).await
     }
 
     /// The old refresh token is used up, so the new one must reach the file: on its latest state.
-    async fn store(&self, file: &Path, read: Value, grant: Grant, sent: &str) -> Renewal {
+    async fn store(&self, file: &Path, grant: Grant, sent: &str) -> Renewal {
         let expires = grant.expires_at;
         let mut latest = match read_document(file).await {
             Document::Found(latest) => latest,
-            _ => read,
+            Document::Missing => return Renewal::NeedsLogin,
+            Document::Unreadable => return self.keep(file, grant, sent),
         };
         let Some(fields) = latest
             .get_mut("claudeAiOauth")
             .and_then(Value::as_object_mut)
         else {
-            return Renewal::Failed;
+            return Renewal::NeedsLogin;
         };
-        // another login replaced the refresh token we spent: it wins
-        if text_of(&Value::Object(fields.clone()), "refreshToken") != Some(sent) {
-            return Renewal::Renewed;
+        match fields.get("refreshToken").and_then(Value::as_str) {
+            // logged out meanwhile
+            None => return Renewal::NeedsLogin,
+            // another login replaced the refresh token we spent: it wins
+            Some(token) if token != sent => return Renewal::Renewed,
+            Some(_) => {}
         }
         // Claude Code renewed meanwhile and holds a later expiry: leave its login alone
         if fields
@@ -247,13 +257,17 @@ impl LocalLoginRenewal {
         if matches!(written, Ok(Ok(()))) {
             Renewal::Renewed
         } else {
-            // the spent token is gone from the endpoint: keep the grant for the next try
-            self.pending
-                .lock()
-                .insert(file.to_path_buf(), (digest_of(sent), grant));
             tracing::warn!(file = %file.display(), "the renewed login could not be written");
-            Renewal::Failed
+            self.keep(file, grant, sent)
         }
+    }
+
+    /// The spent token is gone from the endpoint: keep the grant for the next try.
+    fn keep(&self, file: &Path, grant: Grant, sent: &str) -> Renewal {
+        self.pending
+            .lock()
+            .insert(file.to_path_buf(), (digest_of(sent), grant));
+        Renewal::Failed
     }
 }
 
@@ -267,6 +281,14 @@ impl LoginRenewal for LocalLoginRenewal {
         let lock = self.lock_of(&file);
         let _renewing = lock.lock().await;
         self.renew_file(&file).await
+    }
+
+    async fn hold(&self, dir: Option<&ConfigDir>) -> Box<dyn Send> {
+        let file = self.logins.credentials_file(dir);
+        let held = self.lock_of(&file).lock_owned().await;
+        self.pending.lock().remove(&file);
+        self.refused.lock().remove(&file);
+        Box::new(held)
     }
 }
 
@@ -368,7 +390,7 @@ impl Grant {
 mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
     use std::sync::mpsc;
     use std::thread;
 
@@ -383,6 +405,14 @@ mod tests {
     impl Clock for FixedClock {
         fn now(&self) -> nullradix_domain::Timestamp {
             nullradix_domain::Timestamp::from_millis(NOW)
+        }
+    }
+
+    struct MovingClock(Arc<AtomicI64>);
+
+    impl Clock for MovingClock {
+        fn now(&self) -> nullradix_domain::Timestamp {
+            nullradix_domain::Timestamp::from_millis(self.0.load(Ordering::SeqCst))
         }
     }
 
@@ -723,6 +753,80 @@ mod tests {
         assert_eq!(endpoint.bodies.lock()[1]["refresh_token"], "again");
     }
 
+    #[tokio::test]
+    async fn a_latest_file_that_cannot_be_read_keeps_the_grant_and_fails() {
+        let endpoint = Endpoint::new(vec![granted()]);
+        let rig = rig(endpoint.clone(), Some(EXPIRED));
+        let file = rig.file();
+        *endpoint.meanwhile.lock() = Some(Box::new(move || {
+            std::fs::write(file, r#"{"claudeAiOauth":{"acc"#).unwrap();
+        }));
+        assert_eq!(rig.renew().await, Renewal::Failed);
+        assert_eq!(rig.text(), r#"{"claudeAiOauth":{"acc"#);
+        std::fs::write(rig.file(), EXPIRED).unwrap();
+        assert_eq!(rig.renew().await, Renewal::Renewed);
+        assert_eq!(endpoint.asks(), 1);
+        assert_eq!(rig.json()["claudeAiOauth"]["refreshToken"], "new-refresh");
+    }
+
+    #[tokio::test]
+    async fn a_logout_meanwhile_needs_a_login_and_is_not_written_over() {
+        let endpoint = Endpoint::new(vec![granted()]);
+        let rig = rig(endpoint.clone(), Some(EXPIRED));
+        let file = rig.file();
+        let loggedout = r#"{"claudeAiOauth":{"accessToken":"x","expiresAt":1},"mcpOAuth":{}}"#;
+        *endpoint.meanwhile.lock() = Some(Box::new(move || {
+            std::fs::write(file, loggedout).unwrap();
+        }));
+        assert_eq!(rig.renew().await, Renewal::NeedsLogin);
+        assert_eq!(rig.text(), loggedout);
+    }
+
+    #[tokio::test]
+    async fn a_kept_grant_that_is_already_over_is_renewed_at_once() {
+        let second = answer(
+            200,
+            Some(json!({
+                "access_token": "second-access",
+                "refresh_token": "second-refresh",
+                "expires_in": 28_800,
+            })),
+        );
+        let endpoint = Endpoint::new(vec![granted(), second]);
+        let mut rig = rig(endpoint.clone(), Some(EXPIRED));
+        let clock = Arc::new(AtomicI64::new(NOW));
+        rig.renewal.clock = Arc::new(MovingClock(clock.clone()));
+        let failing = Arc::new(AtomicBool::new(true));
+        rig.renewal.write = Arc::new({
+            let failing = failing.clone();
+            move |path, bytes| {
+                if failing.swap(false, Ordering::SeqCst) {
+                    return Err(std::io::Error::other("disk full"));
+                }
+                nullradix_os::write_private(path, bytes)
+            }
+        });
+        assert_eq!(rig.renew().await, Renewal::Failed);
+        clock.store(NOW + 30_000_000, Ordering::SeqCst);
+        assert_eq!(rig.renew().await, Renewal::Renewed);
+        assert_eq!(endpoint.asks(), 2);
+        assert_eq!(endpoint.bodies.lock()[1]["refresh_token"], "new-refresh");
+        assert_eq!(rig.json()["claudeAiOauth"]["accessToken"], "second-access");
+    }
+
+    #[tokio::test]
+    async fn holding_a_folder_waits_for_a_renewal_and_drops_its_kept_grant() {
+        let endpoint = Endpoint::new(vec![granted()]);
+        let mut rig = rig(endpoint.clone(), Some(EXPIRED));
+        rig.renewal.write = Arc::new(|_, _| Err(std::io::Error::other("disk full")));
+        assert_eq!(rig.renew().await, Renewal::Failed);
+        assert!(rig.renewal.pending.lock().contains_key(&rig.file()));
+        let held = rig.renewal.hold(Some(&rig.dir)).await;
+        assert!(rig.renewal.pending.lock().is_empty());
+        let waiting = tokio::time::timeout(Duration::from_millis(50), rig.renew()).await;
+        assert!(waiting.is_err(), "renewal ran while the folder was held");
+        drop(held);
+    }
     #[tokio::test]
     async fn a_403_that_is_not_an_oauth_refusal_may_pass() {
         let endpoint = Endpoint::new(vec![

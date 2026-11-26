@@ -116,6 +116,10 @@ pub enum Renewal {
 #[async_trait]
 pub trait LoginRenewal: Send + Sync {
     async fn renew(&self, dir: Option<&ConfigDir>) -> Renewal;
+    /// Keeps renewals of the folder off until the guard drops, and forgets what it kept for it.
+    async fn hold(&self, _dir: Option<&ConfigDir>) -> Box<dyn Send> {
+        Box::new(())
+    }
 }
 
 /// What the usage endpoint answered.
