@@ -491,6 +491,8 @@ struct ScriptedGit {
     merge_entered: Notify,
     /// The next merge fails with this error.
     fail_merge: Mutex<Option<AppError>>,
+    /// Calls of `branch_tip` and `integrated`.
+    probes: std::sync::atomic::AtomicUsize,
 }
 
 #[async_trait]
@@ -500,6 +502,7 @@ impl MergeGit for ScriptedGit {
     }
 
     async fn branch_tip(&self, _root: &str, _branch: &str) -> Result<Option<String>, AppError> {
+        self.probes.fetch_add(1, Ordering::SeqCst);
         Ok((!self.gone.load(Ordering::SeqCst)).then(|| String::from("tip0001")))
     }
 
@@ -509,6 +512,7 @@ impl MergeGit for ScriptedGit {
         _branch: &str,
         _target: Option<&str>,
     ) -> Result<bool, AppError> {
+        self.probes.fetch_add(1, Ordering::SeqCst);
         Ok(self.integrated.load(Ordering::SeqCst))
     }
 
@@ -5994,6 +5998,79 @@ async fn catch_up_queues_a_finished_autopilot_ticket_nobody_queued() {
     let again = f.dispatcher.pass.run().await;
     assert!(again.merged.is_empty(), "{again:?}");
     assert!(f.jobs_of(&second).await.is_empty());
+}
+
+#[tokio::test]
+async fn catch_up_asks_git_nothing_while_the_branch_has_an_open_job() {
+    let f = fixture().await;
+    f.configure(|config| config.autopilot.enabled = true).await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.agent_changes(&key, "done", None).await;
+    let run = f.finish_run(&key).await;
+    f.runs
+        .settle_outcome(run, DispatchOutcome::Done)
+        .await
+        .unwrap();
+    // the conflict leaves the job open and standing still
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Conflict {
+            files: vec![String::from("a.txt")],
+        });
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.jobs_of(&key).await.len(), 1);
+    f.git.probes.store(0, Ordering::SeqCst);
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.git.probes.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn a_ticket_reopened_during_the_merge_keeps_its_branch_and_status() {
+    let f = fixture().await;
+    f.enable().await;
+    let first = f.ready("First", &["auto"]).await;
+    let second = f.ready("Second", &["auto"]).await;
+    f.worktrees
+        .start(&first, f.local, ROOT, StartMode::New, false, &f.person)
+        .await
+        .unwrap();
+    f.worktrees
+        .start(
+            &second,
+            f.local,
+            ROOT,
+            StartMode::JoinTicket(first.clone()),
+            false,
+            &f.person,
+        )
+        .await
+        .unwrap();
+    f.agent_changes(&second, "blocked", Some("Merge: an earlier problem"))
+        .await;
+    f.agent_changes(&first, "done", None).await;
+    let record = f.record(&first).await;
+    assert!(f.dispatcher.merges.queue(&record).await.unwrap());
+    // a person moves the blocked ticket back to work while git merges
+    let gate = Arc::new(Notify::new());
+    *f.git.hold_merge.lock().unwrap() = Some(gate.clone());
+    let pass = {
+        let pass = f.dispatcher.pass.clone();
+        tokio::spawn(async move { pass.run().await })
+    };
+    f.git.merge_entered.notified().await;
+    f.agent_changes(&second, TicketStatus::InProgress.as_str(), None)
+        .await;
+    gate.notify_one();
+    let report = pass.await.unwrap();
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.record(&first).await.branch, None);
+    let reopened = f.record(&second).await;
+    assert_eq!(reopened.status, TicketStatus::InProgress);
+    assert!(reopened.branch.is_some());
 }
 
 #[tokio::test]

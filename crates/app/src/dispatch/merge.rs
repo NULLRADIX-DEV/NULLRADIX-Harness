@@ -519,7 +519,10 @@ impl MergeAll {
             ..WriteOptions::default()
         };
         for detail in branch.on_branch() {
-            let record = detail.view.ticket.record();
+            let key = detail.view.ticket.record().key.to_string();
+            // the ticket may have moved on since the merge started
+            let fresh = self.parts.tickets.get(&key).await?;
+            let record = fresh.view.ticket.record();
             let blocked = record.status == TicketStatus::Blocked
                 && record
                     .blocked_reason
@@ -529,19 +532,9 @@ impl MergeAll {
             if !blocked {
                 continue;
             }
-            let key = record.key.to_string();
-            let version = self
-                .parts
-                .tickets
-                .get(&key)
-                .await?
-                .view
-                .ticket
-                .record()
-                .version;
             self.parts
                 .tickets
-                .update(&key, &patch, actor, version, options)
+                .update(&key, &patch, actor, record.version, options)
                 .await?;
         }
         Ok(())
@@ -662,6 +655,16 @@ impl PassStep for MergeCatchUp {
                 .as_ref()
                 .or(worktree.target_branch.as_ref())
                 .map(|target| target.as_str().to_owned());
+            // an open job has the branch in hand
+            if self
+                .queue
+                .repository()
+                .open_of(entry.worktree.id())
+                .await?
+                .is_some()
+            {
+                continue;
+            }
             // a branch that is gone or already in the target has nothing to catch up
             let branch = worktree.branch.as_str();
             if self.git.branch_tip(&root, branch).await?.is_none()

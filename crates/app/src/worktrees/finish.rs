@@ -1,7 +1,8 @@
 //! Finishing a ticket as legacy `board done` and `accept` did: readiness, then cleanup.
 
 use nullradix_domain::{
-    Actor, Id, Runner, Ticket, TicketStatus, Version, Worktree, WorktreePurpose, ready_to_merge,
+    Actor, Id, MERGE_REASON, Runner, Ticket, TicketStatus, Version, Worktree, WorktreePurpose,
+    ready_to_merge,
 };
 
 use super::start::Place;
@@ -252,7 +253,14 @@ impl WorktreeService {
                 Err(error) => return Err(error),
             };
             let record = detail.view.ticket.record();
-            if record.branch.as_deref() != Some(branch) {
+            let finished = record.status == TicketStatus::Done
+                || (record.status == TicketStatus::Blocked
+                    && record
+                        .blocked_reason
+                        .as_deref()
+                        .is_some_and(|reason| reason.starts_with(MERGE_REASON)));
+            // a ticket reopened during the merge keeps its branch
+            if record.branch.as_deref() != Some(branch) || !finished {
                 continue;
             }
             self.tickets
