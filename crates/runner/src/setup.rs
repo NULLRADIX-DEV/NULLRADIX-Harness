@@ -80,6 +80,7 @@ fn folder_in(root: &Path, relative: &str) -> Option<PathBuf> {
 }
 
 /// The configured Git Bash, which must exist when one is configured.
+#[cfg_attr(not(windows), allow(dead_code, reason = "only Windows runs Git Bash"))]
 fn configured_bash(git_bash: Option<&str>) -> Result<Option<&str>, String> {
     match git_bash {
         Some(path) if !Path::new(path).exists() => {
@@ -89,23 +90,24 @@ fn configured_bash(git_bash: Option<&str>) -> Result<Option<&str>, String> {
     }
 }
 
+#[cfg(windows)]
 fn shell(run: &str, git_bash: Option<&str>) -> Result<Command, String> {
-    if cfg!(windows) {
-        if let Some(bash) = configured_bash(git_bash)? {
-            let mut command = Command::new(bash);
-            command.arg("-c").arg(run);
-            return Ok(command);
-        }
-        let mut command = Command::new("cmd");
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command
-                .args(["/d", "/s", "/c"])
-                .raw_arg(format!("\"{run}\""));
-        }
+    use std::os::windows::process::CommandExt;
+    if let Some(bash) = configured_bash(git_bash)? {
+        let mut command = Command::new(bash);
+        command.arg("-c").arg(run);
         return Ok(command);
     }
+    let mut command = Command::new("cmd");
+    command
+        .args(["/d", "/s", "/c"])
+        .raw_arg(format!("\"{run}\""));
+    Ok(command)
+}
+
+#[cfg(not(windows))]
+#[allow(clippy::unnecessary_wraps, reason = "same shape as the Windows shell")]
+fn shell(run: &str, _git_bash: Option<&str>) -> Result<Command, String> {
     let mut command = Command::new("/bin/sh");
     command.arg("-c").arg(run);
     Ok(command)
