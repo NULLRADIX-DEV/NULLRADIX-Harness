@@ -14,7 +14,7 @@ use nullradix_app::usage::{ClaudeLogins, LoginRead};
 use nullradix_app::{AppError, ChangeSignal, ErrorKind, SystemClock, UuidV7Generator};
 use nullradix_domain::{Account, AccountSlug, ConfigDir};
 use nullradix_store::Store;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 
 struct Folders;
 
@@ -94,7 +94,8 @@ impl LoginRunner for Runner {
     }
 }
 
-struct Email(Mutex<Option<String>>);
+/// The email of the login, and a gate that holds the reading of it until a test opens it.
+struct Email(Mutex<Option<String>>, Mutex<Option<Arc<Notify>>>);
 
 #[async_trait]
 impl ClaudeLogins for Email {
@@ -103,6 +104,10 @@ impl ClaudeLogins for Email {
     }
 
     async fn email(&self, _dir: Option<&ConfigDir>) -> Option<String> {
+        let gate = self.1.lock().unwrap().clone();
+        if let Some(gate) = gate {
+            gate.notified().await;
+        }
         self.0.lock().unwrap().clone()
     }
 
@@ -129,7 +134,7 @@ async fn fixture_with(timeout: Option<Duration>) -> Fixture {
         ChangeSignal::new(),
     ));
     let runner = Arc::new(Runner::default());
-    let email = Arc::new(Email(Mutex::new(None)));
+    let email = Arc::new(Email(Mutex::new(None), Mutex::new(None)));
     let mut logins = LoginService::new(
         runner.clone(),
         accounts.clone(),
@@ -468,4 +473,36 @@ async fn stopping_a_login_that_is_not_running_returns_at_once() {
     tokio::time::timeout(Duration::from_millis(500), f.logins.stop(max.id()))
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn removing_an_account_whose_login_process_exited_does_not_wait() {
+    let f = fixture().await;
+    let gate = Arc::new(Notify::new());
+    *f.email.0.lock().unwrap() = Some(String::from("me@example.com"));
+    *f.email.1.lock().unwrap() = Some(gate.clone());
+    let (account, _) = f.logins.create_and_login(" ", None).await.unwrap();
+    let mut control = f.control(0);
+    drop(control.output);
+    control.exit.take().unwrap().send(Some(0)).unwrap();
+    // the watcher now reads the email for the new name, which needs the lock of the removal
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    let removal = tokio::time::timeout(
+        Duration::from_millis(1500),
+        f.accounts
+            .remove_with(account.id(), account.version(), false, &*f.logins),
+    );
+    let release = async {
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        gate.notify_one();
+    };
+    let (removed, ()) = tokio::join!(removal, release);
+    removed
+        .expect("the removal waited for the exited login")
+        .unwrap();
+    assert!(f.accounts.get(account.id()).await.is_err());
 }
