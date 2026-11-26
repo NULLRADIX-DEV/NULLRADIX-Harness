@@ -7,6 +7,7 @@ mod change_feed;
 mod comments;
 mod customizations;
 mod dispatcher_config;
+mod dispatcher_state;
 mod error;
 mod favorites;
 mod hooks;

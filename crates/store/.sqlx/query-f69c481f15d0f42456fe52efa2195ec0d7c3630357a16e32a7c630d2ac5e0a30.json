@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT enabled_override, paused_until, last_pass_at, last_pass, version\n             FROM dispatcher_state WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "enabled_override",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_state",
+            "name": "enabled_override"
+          }
+        }
+      },
+      {
+        "name": "paused_until",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_state",
+            "name": "paused_until"
+          }
+        }
+      },
+      {
+        "name": "last_pass_at",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_state",
+            "name": "last_pass_at"
+          }
+        }
+      },
+      {
+        "name": "last_pass",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_state",
+            "name": "last_pass"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_state",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "f69c481f15d0f42456fe52efa2195ec0d7c3630357a16e32a7c630d2ac5e0a30"
+}

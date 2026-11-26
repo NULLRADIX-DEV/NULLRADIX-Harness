@@ -43,6 +43,7 @@ pub enum EntityDto {
     Setting,
     Customization,
     DispatcherConfig,
+    DispatcherState,
 }
 
 impl From<Entity> for EntityDto {
@@ -66,6 +67,7 @@ impl From<Entity> for EntityDto {
             Entity::Setting => Self::Setting,
             Entity::Customization => Self::Customization,
             Entity::DispatcherConfig => Self::DispatcherConfig,
+            Entity::DispatcherState => Self::DispatcherState,
         }
     }
 }

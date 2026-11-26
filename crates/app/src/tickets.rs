@@ -912,11 +912,12 @@ impl TicketService {
         key: &str,
         status: Option<&str>,
         actor: &Actor,
+        expected: Option<Version>,
     ) -> Result<TicketView, AppError> {
         let status = optional_status(status)?;
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
-        let before = load(write.as_mut(), &key, None).await?;
+        let before = load(write.as_mut(), &key, expected).await?;
         let record = before.record();
         let mut after = record.clone();
         after.assignee = None;

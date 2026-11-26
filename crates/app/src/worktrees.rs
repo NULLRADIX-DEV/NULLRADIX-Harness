@@ -2,12 +2,13 @@
 
 mod finish;
 mod resume;
+mod setup;
 mod start;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Id, Repository, Runner, Ticket, TicketKey, Timestamp, Worktree, WorktreeBranch, WorktreeError,
-    WorktreeTicket,
+    Id, Repository, Runner, SetupState, Ticket, TicketKey, Timestamp, Worktree, WorktreeBranch,
+    WorktreeError, WorktreeTicket,
 };
 
 pub use finish::{Cleaned, DoneRequest, Finished};
@@ -178,6 +179,13 @@ pub trait WorktreeRepository: Send + Sync {
         repository: Id<Repository>,
         runner: Id<Runner>,
     ) -> Result<Vec<WorktreeEntry>, AppError>;
+    /// Records where the setup commands stand; `None` when it did already.
+    async fn set_setup(
+        &self,
+        worktree: Id<Worktree>,
+        state: SetupState,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
 }
 
 /// Another live worktree of the repository on that runner has the branch.

@@ -104,6 +104,31 @@ impl Comment {
         })
     }
 
+    /// A comment of the dispatcher that marks an event, delivered to agents at once.
+    #[must_use]
+    pub const fn system(
+        id: Id<Self>,
+        subject: CommentOn,
+        author: Id<Actor>,
+        body: CommentBody,
+        marker: SystemMarker,
+        run: Option<Id<Run>>,
+        now: Timestamp,
+    ) -> Self {
+        Self(CommentRecord {
+            id,
+            subject,
+            author,
+            body,
+            system_marker: Some(marker),
+            run,
+            delivered_at: Some(now),
+            created_at: now,
+            updated_at: now,
+            version: Version::INITIAL,
+        })
+    }
+
     #[must_use]
     pub const fn restore(record: CommentRecord) -> Self {
         Self(record)

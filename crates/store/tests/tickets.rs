@@ -1282,7 +1282,7 @@ async fn claims_take_free_tickets_and_release_gives_them_back() {
 
     let released = fx
         .tickets
-        .release("ARC-1", Some("planned"), &fx.person)
+        .release("ARC-1", Some("planned"), &fx.person, None)
         .await
         .unwrap();
     let record = released.ticket.record();
@@ -1293,6 +1293,32 @@ async fn claims_take_free_tickets_and_release_gives_them_back() {
     let history = fx.tickets.get("ARC-1").await.unwrap().history;
     let notes: Vec<Option<&str>> = history.iter().map(|line| line.note.as_deref()).collect();
     assert!(notes.contains(&Some("claimed")) && notes.contains(&Some("released")));
+}
+
+#[tokio::test]
+async fn a_release_on_a_stale_version_changes_nothing() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("Base"), AGENT).await.unwrap();
+    let claimed = fx
+        .tickets
+        .claim("ARC-1", "claude", None, &fx.person, None, false)
+        .await
+        .unwrap();
+    let stale = claimed.ticket.record().version;
+    fx.tickets
+        .claim("ARC-1", "other", Some("blocked"), &fx.person, None, true)
+        .await
+        .unwrap();
+    let refused = fx
+        .tickets
+        .release("ARC-1", Some("planned"), &fx.person, Some(stale))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code(), "version-conflict");
+    let record = fx.tickets.get("ARC-1").await.unwrap().view.ticket;
+    assert_eq!(record.record().assignee.as_deref(), Some("other"));
+    assert_eq!(record.record().status, TicketStatus::Blocked);
 }
 
 #[tokio::test]
@@ -1553,7 +1579,7 @@ async fn claims_and_plans_keep_versions_columns_and_history_like_legacy() {
     assert_eq!(order(&same), 2);
     let released = fx
         .tickets
-        .release("ARC-3", Some("in-progress"), &fx.person)
+        .release("ARC-3", Some("in-progress"), &fx.person, None)
         .await
         .unwrap();
     assert_eq!(order(&released), 2);

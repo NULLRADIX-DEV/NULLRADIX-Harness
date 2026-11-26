@@ -5,6 +5,7 @@ mod board;
 mod board_rules;
 mod comment;
 mod customization;
+mod dispatch_pass;
 mod dispatch_run;
 mod dispatcher_config;
 mod favorite;
@@ -41,6 +42,11 @@ pub use customization::{
     Base, BaseState, ExtensionPoint, Finding, FrontMatter, OVERLAY_CONTENT_MAX, OVERLAY_NAME_MAX,
     Overlay, OverlayError, OverlayKind, OverlayName, OverlayRecord, OverlayState, base_state,
     check_front_matter, overlay_content, overlay_state,
+};
+pub use dispatch_pass::{
+    DispatcherPhase, DispatcherState, DispatcherStateRecord, IdleReason, NotReady,
+    PROFILE_LABEL_PREFIX, ProfileChoice, ProfileReason, ReadinessFacts, RepositoryFact,
+    choose_profile, idle_reason, minutes_of_day, not_ready, phase, plan_estimate, plan_file_count,
 };
 pub use dispatch_run::{
     Abort, AbortCategory, DeniedTool, DispatchRun, ModelUsage, RunKind, RunProfile, RunResult,

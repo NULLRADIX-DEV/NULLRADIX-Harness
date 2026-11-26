@@ -11,7 +11,13 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::{CustomizationService, NoStandards};
+use nullradix_app::dispatch::assemble::{DispatcherDeps, assemble};
+use nullradix_app::dispatch::control::DispatcherService;
+use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
+use nullradix_app::dispatch::pass::DispatchPass;
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
+use nullradix_app::dispatch::scheduler::{PASS_INTERVAL, spawn_scheduler};
+use nullradix_app::dispatch::start::TicketStarter;
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
@@ -30,10 +36,10 @@ use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
-use nullradix_domain::{Actor, ConfigDir};
+use nullradix_domain::{Actor, ConfigDir, Timestamp};
 use nullradix_runner::{
     CurlTokenEndpoint, CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalLoginRenewal,
-    LocalLoginRunner, LocalRunner, SupervisorCommand, TranscriptRoots,
+    LocalLoginRunner, LocalRunner, LocalSetup, SupervisorCommand, TranscriptRoots,
 };
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -142,12 +148,26 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
+    let (dispatcher, dispatching) = start_dispatcher(
+        &store,
+        &signal,
+        &shutdown,
+        DispatcherParts {
+            config: dispatcher_config.clone(),
+            runners: runners.clone(),
+            runs: runs.clone(),
+            dispatch: dispatch_runs.clone(),
+            prompts: dispatcher_prompts.clone(),
+            board: &board,
+        },
+    );
     let state = ApiState {
         auth,
         projects,
         accounts: account_services.accounts,
         dispatcher_config,
         dispatcher_prompts,
+        dispatcher: dispatcher.clone(),
         usage: account_services.usage,
         logins: account_services.logins.clone(),
         boards: board.boards,
@@ -193,6 +213,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
             Ok(())
         }
     };
+    dispatching.stop().await;
     account_services.logins.close();
     store.close().await;
     match task::spawn_blocking(move || discovery.remove()).await {
@@ -203,6 +224,100 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     served?;
     tracing::info!("daemon stopped");
     Ok(())
+}
+
+/// Local time as the machine tells it, read afresh because daylight saving moves it.
+struct OsLocalTime;
+
+#[async_trait::async_trait]
+impl LocalTime for OsLocalTime {
+    async fn minute_of_day(&self, at: Timestamp) -> u32 {
+        let offset = task::spawn_blocking(nullradix_os::local_utc_offset_minutes)
+            .await
+            .ok()
+            .flatten();
+        if offset.is_none() {
+            tracing::warn!("cannot read the local time offset, the time window uses UTC");
+        }
+        minute_with_offset(at, offset.unwrap_or(0))
+    }
+}
+
+/// What the dispatcher needs from the other services.
+struct DispatcherParts<'a> {
+    config: Arc<DispatcherConfigService>,
+    runners: Arc<RunnerService>,
+    runs: Arc<RunService>,
+    dispatch: Arc<DispatchRuns>,
+    prompts: Arc<DispatcherPromptService>,
+    board: &'a BoardServices,
+}
+
+/// What runs for the dispatcher and must end before the store closes.
+struct Dispatching {
+    scheduler: task::JoinHandle<()>,
+    pass: Arc<DispatchPass>,
+    starter: Arc<TicketStarter>,
+}
+
+impl Dispatching {
+    /// Waits for the passes under way, then stops the setups and waits for them.
+    async fn stop(self) {
+        if tokio::time::timeout(SHUTDOWN_GRACE, self.scheduler)
+            .await
+            .is_err()
+        {
+            tracing::warn!("the dispatcher pass did not end in time");
+        }
+        // a pass that outlived its caller may still start setups
+        if tokio::time::timeout(SHUTDOWN_GRACE, self.pass.settle())
+            .await
+            .is_err()
+        {
+            tracing::warn!("a dispatcher pass did not end in time");
+        }
+        self.starter.shutdown(SHUTDOWN_GRACE).await;
+    }
+}
+
+/// The dispatcher and its beat: a pass every minute until the daemon stops.
+fn start_dispatcher(
+    store: &Store,
+    signal: &ChangeSignal,
+    shutdown: &CancellationToken,
+    parts: DispatcherParts<'_>,
+) -> (Arc<DispatcherService>, Dispatching) {
+    let dispatcher = assemble(DispatcherDeps {
+        config: parts.config,
+        states: Arc::new(store.clone()),
+        log: Arc::new(store.clone()),
+        setup: Arc::new(LocalSetup),
+        actors: Arc::new(store.clone()),
+        boards: Arc::new(store.clone()),
+        runners: parts.runners,
+        runs: parts.runs,
+        dispatch: parts.dispatch,
+        prompts: parts.prompts,
+        tickets: parts.board.tickets.clone(),
+        comments: parts.board.comments.clone(),
+        worktrees: parts.board.worktrees.clone(),
+        clock: Arc::new(SystemClock),
+        ids: Arc::new(UuidV7Generator),
+        signal: signal.clone(),
+        local_time: Arc::new(OsLocalTime),
+        interval: Some(PASS_INTERVAL),
+    });
+    let scheduler = spawn_scheduler(
+        dispatcher.pass.clone(),
+        PASS_INTERVAL,
+        shutdown.clone().cancelled_owned(),
+    );
+    let dispatching = Dispatching {
+        scheduler,
+        pass: dispatcher.pass,
+        starter: dispatcher.starter,
+    };
+    (dispatcher.service, dispatching)
 }
 
 fn dispatcher_config_service(store: &Store, signal: &ChangeSignal) -> Arc<DispatcherConfigService> {

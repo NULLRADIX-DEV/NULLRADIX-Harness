@@ -1,0 +1,551 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "name": "first commit",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "init"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git commit",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git commit",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "committed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "name": "long paths on already, so every platform prints the same",
+    "request": {
+      "body": {
+        "args": [
+          "config",
+          "core.longpaths",
+          "true"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git config",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-6>",
+        "label": "git config",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-6>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "configured",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-6>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Build the login",
+      "--board",
+      "<ID-2>",
+      "--label",
+      "auto",
+      "--acceptance",
+      "Login works",
+      "--planned"
+    ],
+    "exitCode": 0,
+    "name": "a ready ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Build the login\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Write the docs",
+      "--board",
+      "<ID-2>",
+      "--acceptance",
+      "Docs exist",
+      "--planned"
+    ],
+    "exitCode": 0,
+    "name": "a ticket without the opt-in label",
+    "stderr": "",
+    "stdout": "ARC-0002 created: Write the docs\n"
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-1",
+      "--plan",
+      "Build it",
+      "--handbook",
+      "cargo test"
+    ],
+    "exitCode": 0,
+    "name": "plan the first",
+    "stderr": "",
+    "stdout": "ARC-0001 planned (planned)\n"
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-2",
+      "--plan",
+      "Write it",
+      "--handbook",
+      "cargo test"
+    ],
+    "exitCode": 0,
+    "name": "plan the second",
+    "stderr": "",
+    "stdout": "ARC-0002 planned (planned)\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "status"
+    ],
+    "exitCode": 0,
+    "name": "the dispatcher is off",
+    "stderr": "",
+    "stdout": "off: The dispatcher is off\n0 of 1 places in use, 0 planning\n  ARC-0001 Build the login: ready\n  ARC-0002 Write the docs: label \"auto\" is missing\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass while off starts nothing",
+    "stderr": "",
+    "stdout": "idle: The dispatcher is off\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "enable"
+    ],
+    "exitCode": 0,
+    "name": "switch on",
+    "stderr": "",
+    "stdout": "idle: Idle\n0 of 1 places in use, 0 planning\n  ARC-0001 Build the login: ready\n  ARC-0002 Write the docs: label \"auto\" is missing\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass starts the ready ticket",
+    "stderr": "",
+    "stdout": "started: ARC-0001\n"
+  },
+  {
+    "field": "items.0.status",
+    "name": "the fake Claude ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+  },
+  {
+    "name": "the run started in the worktree of the ticket",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": null,
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "work",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-7>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": 0,
+            "finishedAt": "<TIME>",
+            "id": "<ID-8>",
+            "label": "work ARC-0001",
+            "result": null,
+            "startedAt": "<TIME>",
+            "status": "succeeded",
+            "version": 3
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "what the fake Claude saw",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-8>/output"
+    },
+    "response": {
+      "json": {
+        "finished": true,
+        "lines": [
+          {
+            "seq": 1,
+            "stream": "stdout",
+            "text": "cwd=<WORK>/arches-worktrees/ARC-0001"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the ticket is claimed and in progress",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-9>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-login, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "10 characters"
+          },
+          {
+            "actorId": "<ID-9>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-9>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-9>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-login"
+          },
+          {
+            "actorId": "<ID-9>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "Login works",
+          "assignee": "worker-ARC-0001",
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-build-the-login",
+          "column": "in-progress",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "cargo test",
+          "id": "<ID-11>",
+          "key": "ARC-0001",
+          "labels": [
+            "auto"
+          ],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Build it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "in-progress",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the login",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 5,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the state after the pass",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/dispatcher"
+    },
+    "response": {
+      "json": {
+        "active": 0,
+        "agentPrefix": "worker-",
+        "boardId": null,
+        "enabled": true,
+        "lastErrors": [],
+        "lastPassAt": "<TIME>",
+        "message": "Idle",
+        "nextPassAt": "<TIME>",
+        "pausedUntil": null,
+        "planning": 0,
+        "runs": [],
+        "state": "idle",
+        "tickets": [
+          {
+            "key": "ARC-0002",
+            "reason": "label \"auto\" is missing",
+            "title": "Write the docs"
+          }
+        ],
+        "version": 3,
+        "wip": 1
+      },
+      "status": 200
+    }
+  }
+]

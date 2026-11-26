@@ -6,11 +6,15 @@ import { healthKeys } from './queries';
 
 function health(apiVersion: number) {
   const body = JSON.stringify({ status: 'ok', version: '0.1.0', apiVersion });
-  return vi.fn(() =>
-    Promise.resolve(
-      new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }),
-    ),
-  );
+  return vi.fn((request: Request) => {
+    const found = new URL(request.url).pathname === '/api/v1/health';
+    return Promise.resolve(
+      new Response(found ? body : '{}', {
+        status: found ? 200 : 404,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+  });
 }
 
 function statusButton(): HTMLElement {

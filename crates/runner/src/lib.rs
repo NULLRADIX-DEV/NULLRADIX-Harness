@@ -13,6 +13,7 @@ mod local;
 mod login_process;
 mod oauth_refresh;
 mod protocol;
+mod setup;
 mod supervisor;
 mod transcript;
 mod usage_api;
@@ -25,6 +26,7 @@ pub use login_process::LocalLoginRunner;
 pub use oauth_refresh::{
     CLIENT_ID, CurlTokenEndpoint, LocalLoginRenewal, TOKEN_URL, TokenEndpoint, TokenReply,
 };
+pub use setup::LocalSetup;
 pub use supervisor::supervise;
 pub use transcript::TranscriptRoots;
 pub use usage_api::{CurlUsageApi, USAGE_URL};

@@ -1228,12 +1228,14 @@ dependencies = [
  "nullradix-domain",
  "parking_lot 0.13.0",
  "regex",
+ "serde",
  "serde_json",
  "serde_yaml_ng",
  "sha2",
  "strum",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -1337,6 +1339,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -1353,6 +1356,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "uuid",
 ]
 

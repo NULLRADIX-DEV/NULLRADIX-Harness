@@ -16,12 +16,16 @@ export type PromptPreview = components['schemas']['PromptPreviewDto'];
 export const dispatcherKeys = {
   all: ['dispatcher'] as const,
   config: () => [...dispatcherKeys.all, 'config'] as const,
+  status: () => [...dispatcherKeys.all, 'status'] as const,
   prompts: () => [...dispatcherKeys.all, 'prompts'] as const,
 };
 
 export const dispatcherLive: ChangeRegistry = {
   'dispatcher-config': [dispatcherKeys.all],
   account: [dispatcherKeys.all],
+  'dispatcher-state': [dispatcherKeys.status()],
+  run: [dispatcherKeys.status()],
+  ticket: [dispatcherKeys.status()],
 };
 
 export function dispatcherConfigQuery() {

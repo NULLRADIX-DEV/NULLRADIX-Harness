@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { boardsQuery } from '../boards/queries';
+import { DispatcherIndicator } from '../dispatcher/DispatcherIndicator';
 import { NotesDialog } from '../notes/NotesDialog';
 import { BoardColumns } from './BoardColumns';
 import { BoardPicker } from './BoardPicker';
@@ -84,9 +85,12 @@ export function BoardPage() {
         {board && boards.data && (
           <BoardPicker boards={boards.data} value={board.id} onChange={chooseBoard} />
         )}
+        <div className="db-board-dispatcher">
+          <DispatcherIndicator />
+        </div>
         <button
           type="button"
-          className="btn db-board-new"
+          className="btn"
           disabled={!board}
           onClick={() => {
             setNoting(true);

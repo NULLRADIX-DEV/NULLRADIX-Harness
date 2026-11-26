@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE dispatcher_state\n             SET enabled_override = ?, paused_until = ?, last_pass_at = ?, last_pass = ?,\n                 version = ?\n             WHERE id = 1 AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "2f0cf330985d4fee3206873b2fa0b0c336350cc06615932c5d91bcb505b29f38"
+}

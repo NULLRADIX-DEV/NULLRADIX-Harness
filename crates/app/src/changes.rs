@@ -30,6 +30,7 @@ pub enum Entity {
     Setting,
     Customization,
     DispatcherConfig,
+    DispatcherState,
 }
 
 impl Entity {
@@ -143,6 +144,7 @@ mod tests {
         assert_eq!("inbox-order".parse::<Entity>(), Ok(Entity::InboxOrder));
         assert_eq!(Entity::Account.as_str(), "account");
         assert_eq!(Entity::DispatcherConfig.as_str(), "dispatcher-config");
+        assert_eq!(Entity::DispatcherState.as_str(), "dispatcher-state");
         assert_eq!(
             "dispatcher-config".parse::<Entity>(),
             Ok(Entity::DispatcherConfig)

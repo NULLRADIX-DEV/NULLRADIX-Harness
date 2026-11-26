@@ -192,7 +192,7 @@
 }
 
 .prompt-kinds .btn[aria-pressed='true'] {
-  border-color: var(--accent);
+  border-color: var(--primary);
 }
 
 .prompt-editor {
@@ -257,4 +257,27 @@
   font-family: var(--font-mono, monospace);
   font-size: 12px;
   white-space: pre-wrap;
+}
+
+.dispatcher-indicator {
+  position: relative;
+}
+
+.dispatcher-state.is-running {
+  border-color: var(--primary);
+}
+
+.dispatcher-menu {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  padding: 6px;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
 }

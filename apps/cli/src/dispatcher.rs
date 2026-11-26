@@ -11,6 +11,22 @@ use serde_json::Value;
 
 #[derive(Subcommand)]
 pub(crate) enum DispatcherCommand {
+    /// Show what the dispatcher does and which planned tickets are ready
+    Status,
+    /// Run one pass now
+    Run,
+    /// Stop starting new tickets for a while
+    Pause {
+        /// Minutes to pause, 1 to 1440
+        #[arg(long, default_value_t = 60)]
+        minutes: u32,
+    },
+    /// Lift the pause
+    Resume,
+    /// Start new tickets, whatever the configuration says
+    Enable,
+    /// Stop starting new tickets, whatever the configuration says
+    Disable,
     /// Show and change the dispatcher configuration
     #[command(subcommand)]
     Config(ConfigCommand),
@@ -46,6 +62,25 @@ pub(crate) struct SetArgs {
 
 pub(crate) fn run(command: DispatcherCommand, client: &Client) -> anyhow::Result<ExitCode> {
     match command {
+        DispatcherCommand::Status => print!("{}", describe_status(&client.dispatcher_status()?)),
+        DispatcherCommand::Run => print!("{}", describe_pass(&client.run_dispatcher_pass()?)),
+        DispatcherCommand::Pause { minutes } => {
+            let status = client.pause_dispatcher(&nullradix_api::PauseDispatcher {
+                minutes: Some(minutes),
+                until: None,
+            })?;
+            print!("{}", describe_status(&status));
+        }
+        DispatcherCommand::Resume => print!("{}", describe_status(&client.resume_dispatcher()?)),
+        DispatcherCommand::Enable => {
+            print!("{}", describe_status(&client.set_dispatcher_enabled(true)?));
+        }
+        DispatcherCommand::Disable => {
+            print!(
+                "{}",
+                describe_status(&client.set_dispatcher_enabled(false)?)
+            );
+        }
         DispatcherCommand::Config(ConfigCommand::Show { json }) => {
             let view = client.dispatcher_config()?;
             if json {
@@ -117,6 +152,58 @@ fn merge(target: &mut Value, patch: Value) {
         }
         (target, patch) => *target = patch,
     }
+}
+
+fn describe_pass(report: &nullradix_api::PassReportDto) -> String {
+    let mut out = String::new();
+    if let Some(idle) = &report.idle {
+        let _ = writeln!(out, "idle: {idle}");
+    }
+    for (title, keys) in [
+        ("started", &report.started),
+        ("waiting for a place", &report.queued),
+        ("given back", &report.released),
+    ] {
+        if !keys.is_empty() {
+            let _ = writeln!(out, "{title}: {}", keys.join(", "));
+        }
+    }
+    for error in &report.errors {
+        let _ = writeln!(out, "error: {error}");
+    }
+    if out.is_empty() {
+        out.push_str(
+            "nothing to do
+",
+        );
+    }
+    out
+}
+
+fn describe_status(status: &nullradix_api::DispatcherStatusDto) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "{}: {}", status.state_word(), status.message);
+    let _ = writeln!(
+        out,
+        "{} of {} places in use, {} planning",
+        status.active, status.wip, status.planning
+    );
+    for run in &status.runs {
+        let _ = writeln!(
+            out,
+            "  running {} {} [{}]",
+            shown(run.subject.as_deref()),
+            run.id,
+            run.profile
+        );
+    }
+    for ticket in &status.tickets {
+        let _ = writeln!(out, "  {} {}: {}", ticket.key, ticket.title, ticket.reason);
+    }
+    for error in &status.last_errors {
+        let _ = writeln!(out, "  error: {error}");
+    }
+    out
 }
 
 fn shown(text: Option<&str>) -> &str {

@@ -7,17 +7,18 @@ use nullradix_api::{
     BoardDto, BoardList, ChangeStep, ChooseTheme, ClaimPlanning, ClaimSession, ClaimTicket,
     CommentDto, CommentList, CreateAccount, CreateAccountLogin, CreateBoard, CreateCustomization,
     CreateNote, CreateProject, CreateQuestion, CreateTicket, CustomizationDto, CustomizationList,
-    DecideQuestion, DispatcherConfigView, DropNote, EffectiveDto, ExtensionPointDto, FavoriteDto,
-    FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health, HookEventDto,
-    HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto, MarkFavorite,
-    MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList, PreviewPrompt,
-    Problem, ProjectDto, ProjectList, PromoteNote, PromotedNote, PromptDetail, PromptKindDto,
-    PromptListDto, PromptPreviewDto, QuestionCommentDto, QuestionDetailDto, QuestionList,
-    RebaseCustomization, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto,
-    RunList, RunOutput, RunnerList, SaveThemeSettings, SeenNote, SessionChangesDto,
-    SessionDetailDto, SessionDto, SessionList, SetBoardRepository, SetPrompt, SetRunToken,
-    StartLogin, StartRun, StartTicket, StartedTicket, ThemeDto, ThemeListDto, ThemeSettingsDto,
-    TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization,
+    DecideQuestion, DispatcherConfigView, DispatcherStatusDto, DropNote, EffectiveDto,
+    ExtensionPointDto, FavoriteDto, FavoriteList, FileDiffDto, FinishTicket, FinishedTicket,
+    Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode,
+    LoginDto, MarkFavorite, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto,
+    NoteList, PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto, ProjectList,
+    PromoteNote, PromotedNote, PromptDetail, PromptKindDto, PromptListDto, PromptPreviewDto,
+    QuestionCommentDto, QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket,
+    RenameBoard, RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList,
+    SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList,
+    SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
+    ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList,
+    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
     UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
@@ -161,6 +162,39 @@ impl Client {
     /// Login and limits of every account; `fresh` asks Anthropic again.
     pub fn account_usage(&self, fresh: bool) -> Result<AccountStatusList, ClientError> {
         self.get_json(&format!("/accounts/usage?fresh={fresh}"))
+    }
+
+    pub fn dispatcher_status(&self) -> Result<DispatcherStatusDto, ClientError> {
+        self.get_json("/dispatcher")
+    }
+
+    pub fn set_dispatcher_enabled(
+        &self,
+        enabled: bool,
+    ) -> Result<DispatcherStatusDto, ClientError> {
+        let mut response = self
+            .agent
+            .patch(&self.url("/dispatcher"))
+            .header("Authorization", &self.authorization()?)
+            .send_json(UpdateDispatcher { enabled })
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    pub fn pause_dispatcher(
+        &self,
+        input: &PauseDispatcher,
+    ) -> Result<DispatcherStatusDto, ClientError> {
+        self.post_json("/dispatcher/pause", input, 200)
+    }
+
+    pub fn resume_dispatcher(&self) -> Result<DispatcherStatusDto, ClientError> {
+        self.post_json("/dispatcher/resume", &serde_json::json!({}), 200)
+    }
+
+    /// Runs one pass now and returns the state after it.
+    pub fn run_dispatcher_pass(&self) -> Result<PassReportDto, ClientError> {
+        self.post_json("/dispatcher/passes", &serde_json::json!({}), 200)
     }
 
     pub fn dispatcher_config(&self) -> Result<DispatcherConfigView, ClientError> {
@@ -1511,17 +1545,42 @@ mod tests {
         .unwrap();
         let notes = note_service(&store, &tickets, &signal);
         let dispatcher_config = dispatcher_service(&store, &signal);
+        let prompts = Arc::new(
+            nullradix_app::dispatcher_prompts::DispatcherPromptService::new(
+                dispatcher_config.clone(),
+                tickets.clone(),
+                questions.clone(),
+            ),
+        );
+        let dispatcher = nullradix_app::dispatch::assemble::assemble(
+            nullradix_app::dispatch::assemble::DispatcherDeps {
+                config: dispatcher_config.clone(),
+                states: store.clone(),
+                log: store.clone(),
+                setup: Arc::new(nullradix_runner::LocalSetup),
+                actors: store.clone(),
+                boards: store.clone(),
+                runners: runners.clone(),
+                runs: runs.clone(),
+                dispatch: dispatch_runs.clone(),
+                prompts: prompts.clone(),
+                tickets: tickets.clone(),
+                comments: comments.clone(),
+                worktrees: worktrees.clone(),
+                clock: Arc::new(SystemClock),
+                ids: Arc::new(UuidV7Generator),
+                signal: signal.clone(),
+                local_time: Arc::new(nullradix_app::dispatch::local_time::UtcTime),
+                interval: None,
+            },
+        )
+        .service;
         ApiState {
             auth,
             projects,
             accounts: accounts.clone(),
-            dispatcher_prompts: Arc::new(
-                nullradix_app::dispatcher_prompts::DispatcherPromptService::new(
-                    dispatcher_config.clone(),
-                    tickets.clone(),
-                    questions.clone(),
-                ),
-            ),
+            dispatcher_prompts: prompts,
+            dispatcher,
             dispatcher_config,
             usage: usage_service(),
             logins: login_service(&accounts),

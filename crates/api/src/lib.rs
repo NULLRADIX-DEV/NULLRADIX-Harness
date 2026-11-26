@@ -7,6 +7,7 @@ mod comments;
 mod customizations;
 mod dispatch_runs;
 mod dispatcher_config;
+mod dispatcher_control;
 mod dispatcher_prompts;
 mod events;
 mod extract;
@@ -45,6 +46,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::CustomizationService;
+use nullradix_app::dispatch::control::DispatcherService;
 use nullradix_app::dispatch::runs::DispatchRuns;
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::dispatcher_prompts::DispatcherPromptService;
@@ -93,6 +95,10 @@ pub use dispatcher_config::{
     DispatcherConfigView, JoinWorktreesDto, MergeStrategyDto, PlanningSettingsDto, ProfileDto,
     PromptTemplatesDto, ResearchSettingsDto, RuleConditionDto, RuleDto, TimeWindowDto,
     UpdateDispatcherConfig, WorktreeSetupStepDto,
+};
+pub use dispatcher_control::{
+    DispatcherPhaseDto, DispatcherRunDto, DispatcherStatusDto, PassReportDto, PauseDispatcher,
+    TicketReadinessDto, UpdateDispatcher,
 };
 pub use dispatcher_prompts::{
     PlaceholderDto, PreviewPrompt, PromptDetail, PromptDto, PromptKindDto, PromptListDto,
@@ -198,6 +204,7 @@ pub struct ApiState {
     pub accounts: Arc<AccountService>,
     pub dispatcher_config: Arc<DispatcherConfigService>,
     pub dispatcher_prompts: Arc<DispatcherPromptService>,
+    pub dispatcher: Arc<DispatcherService>,
     pub usage: Arc<UsageService>,
     pub logins: Arc<LoginService>,
     pub boards: Arc<BoardService>,
@@ -291,6 +298,13 @@ fn dispatcher_routes() -> OpenApiRouter<ApiState> {
         ))
         .routes(routes!(dispatcher_prompts::preview_prompt))
         .routes(routes!(dispatch_runs::start_dispatch_run))
+        .routes(routes!(
+            dispatcher_control::get_dispatcher,
+            dispatcher_control::update_dispatcher
+        ))
+        .routes(routes!(dispatcher_control::pause_dispatcher))
+        .routes(routes!(dispatcher_control::resume_dispatcher))
+        .routes(routes!(dispatcher_control::run_pass))
 }
 
 fn routes() -> OpenApiRouter<ApiState> {
@@ -830,16 +844,41 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let prompts = Arc::new(DispatcherPromptService::new(
+            dispatcher_config.clone(),
+            tickets.clone(),
+            questions.clone(),
+        ));
+        let dispatcher = nullradix_app::dispatch::assemble::assemble(
+            nullradix_app::dispatch::assemble::DispatcherDeps {
+                config: dispatcher_config.clone(),
+                states: store.clone(),
+                log: store.clone(),
+                setup: Arc::new(nullradix_runner::LocalSetup),
+                actors: store.clone(),
+                boards: store.clone(),
+                runners: runners.clone(),
+                runs: runs.clone(),
+                dispatch: dispatch_runs.clone(),
+                prompts: prompts.clone(),
+                tickets: tickets.clone(),
+                comments: comments.clone(),
+                worktrees: worktrees.clone(),
+                clock: Arc::new(SystemClock),
+                ids: Arc::new(UuidV7Generator),
+                signal: signal.clone(),
+                local_time: Arc::new(nullradix_app::dispatch::local_time::UtcTime),
+                interval: None,
+            },
+        )
+        .service;
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
             accounts: accounts.clone(),
             dispatcher_config: dispatcher_config.clone(),
-            dispatcher_prompts: Arc::new(DispatcherPromptService::new(
-                dispatcher_config,
-                tickets.clone(),
-                questions.clone(),
-            )),
+            dispatcher_prompts: prompts,
+            dispatcher,
             usage: test_usage(),
             logins: logins.clone(),
             boards: boards.clone(),
