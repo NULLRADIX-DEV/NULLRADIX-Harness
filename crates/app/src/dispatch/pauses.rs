@@ -163,12 +163,13 @@ impl DispatchPauses {
     async fn when(&self, at: Timestamp) -> String {
         let now = self.clock.now();
         let minute = self.local.minute_of_day(at).await;
-        let today = self.local.minute_of_day(now).await;
+        let day = local_day(at, self.local.offset_minutes(at).await);
+        let today = local_day(now, self.local.offset_minutes(now).await);
         let clock = clock_text(minute);
-        if local_day(at, minute) == local_day(now, today) {
+        if day == today {
             clock
         } else {
-            format!("{} {clock}", day_text(local_day(at, minute)))
+            format!("{} {clock}", day_text(day))
         }
     }
 
@@ -360,9 +361,27 @@ impl DispatchPauses {
                 what.counting()
             ),
         };
-        let toast = match (&own_pause, own_text) {
-            (Some((slug, _)), Some(text)) => format!("usage limit {slug} - pause until {text}"),
-            _ => format!("usage limit - pause until {}", self.when(until).await),
+        // the account's own end is the one that matters only next to other accounts
+        let shown = if let (Some(text), true) = (&own_text, multi) {
+            text.clone()
+        } else {
+            let holding = match held {
+                Some(Some(at)) => at,
+                // a person changed it meanwhile: theirs is the one that holds
+                Some(None) => self
+                    .state
+                    .get()
+                    .await?
+                    .record()
+                    .paused_until
+                    .unwrap_or(until),
+                None => until,
+            };
+            self.when(holding).await
+        };
+        let toast = match &own_pause {
+            Some((slug, _)) => format!("usage limit {slug} - pause until {shown}"),
+            None => format!("usage limit - pause until {shown}"),
         };
         Ok(Posted { body, toast })
     }
@@ -392,10 +411,16 @@ impl DispatchPauses {
             what.back(),
             what.counting()
         );
-        Ok(Posted {
-            body,
-            toast: format!("Claude Code not found - pause {minutes} min"),
-        })
+        let toast = match applied {
+            Some(at) if at > until => {
+                format!(
+                    "Claude Code not found - paused until {}",
+                    self.when(at).await
+                )
+            }
+            _ => format!("Claude Code not found - pause {minutes} min"),
+        };
+        Ok(Posted { body, toast })
     }
 }
 

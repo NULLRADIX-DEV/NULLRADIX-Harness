@@ -8,12 +8,10 @@ use nullradix_domain::{
     StatsRun, Timestamp, calculate_stats, local_day_of, parse_stats_kind, wants_config,
 };
 
-use super::local_time::{LocalTime, minute_with_offset};
+use super::local_time::LocalTime;
 use crate::boards::{self, BoardRepository};
 use crate::dispatcher_config::DispatcherConfigService;
 use crate::{AppError, Clock};
-
-const DAY_MINUTES: i64 = 24 * 60;
 
 /// Which runs to read.
 #[derive(Debug, Clone, Copy)]
@@ -76,16 +74,6 @@ fn refused(error: &StatsError) -> AppError {
     AppError::invalid(code, error.to_string())
 }
 
-/// Minutes the local clock is ahead of UTC at `now`, from -12 to +14 hours.
-async fn offset_minutes(local: &dyn LocalTime, now: Timestamp) -> i32 {
-    let ahead = i64::from(local.minute_of_day(now).await) - i64::from(minute_with_offset(now, 0));
-    let mut offset = ahead.rem_euclid(DAY_MINUTES);
-    if offset > 14 * 60 {
-        offset -= DAY_MINUTES;
-    }
-    i32::try_from(offset).unwrap_or(0)
-}
-
 impl DispatchStatsService {
     #[must_use]
     pub fn new(
@@ -113,7 +101,7 @@ impl DispatchStatsService {
             return Err(boards::not_found(id));
         }
         let now = self.clock.now();
-        let offset = offset_minutes(self.local.as_ref(), now).await;
+        let offset = self.local.offset_minutes(now).await;
         let today = local_day_of(now, offset);
         let end = StatsRange::resolve(request.from, request.to, today, None)
             .map_err(|error| refused(&error))?

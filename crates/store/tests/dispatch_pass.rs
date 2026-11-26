@@ -24,7 +24,7 @@ use nullradix_app::dispatch::detached::{
     DetachedCreate, DetachedCreated, DetachedPurpose, DetachedRemove, DetachedRemoved,
     DetachedWorktreePort, detached_path, detached_subject,
 };
-use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
+use nullradix_app::dispatch::local_time::LocalTime;
 use nullradix_app::dispatch::merge_git::{
     BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier,
 };
@@ -92,8 +92,8 @@ impl Clock for FakeClock {
 
 #[async_trait]
 impl LocalTime for FakeClock {
-    async fn minute_of_day(&self, at: Timestamp) -> u32 {
-        minute_with_offset(at, self.1.load(Ordering::SeqCst))
+    async fn offset_minutes(&self, _at: Timestamp) -> i32 {
+        self.1.load(Ordering::SeqCst)
     }
 }
 
@@ -3633,6 +3633,16 @@ impl Fixture {
             .collect()
     }
 
+    fn notice_texts(&self) -> Vec<String> {
+        self.notices
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|notice| notice.text.clone())
+            .collect()
+    }
+
     async fn account_of(&self, key: &str) -> uuid::Uuid {
         self.latest_run(key)
             .await
@@ -3872,6 +3882,88 @@ async fn a_pause_never_shortens_a_longer_pause_a_person_set() {
     );
     let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
     assert!(!body.contains("changed by hand"), "{body}");
+}
+
+#[tokio::test]
+async fn the_shown_pause_date_follows_the_real_utc_offset() {
+    // (offset in minutes, minutes to wait first, the pause as shown)
+    let cases = [
+        (-600, 0, "2027-01-15 22:00"),
+        (14 * 60, 0, "2027-01-16 22:00"),
+        (-300, 0, "2027-01-16 03:00"),
+        (600, 14 * 60, "2027-01-17 00:00"),
+        (0, 0, "2027-01-16 08:00"),
+    ];
+    for (offset, wait, shown) in cases {
+        let f = fixture().await;
+        f.clock.1.store(offset, Ordering::SeqCst);
+        f.advance(wait);
+        f.enable().await;
+        let key = f.start_tickets(1).await.remove(0);
+        f.stop_starting().await;
+        let account = f.accounts.find("default").await.unwrap();
+        f.limits.set(account.id(), 95, 10, Fixture::resets_in(30));
+        f.end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+            .await;
+        f.dispatcher.pass.run().await;
+        let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
+        let expected = format!("nothing new until {shown}.");
+        assert!(body.contains(&expected), "offset {offset}: {body}");
+    }
+}
+
+#[tokio::test]
+async fn a_limit_notice_names_the_longer_pause_that_holds() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    f.dispatcher
+        .service
+        .pause(nullradix_app::dispatch::control::PauseFor::Minutes(20 * 60))
+        .await
+        .unwrap();
+    f.end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+        .await;
+    f.dispatcher.pass.run().await;
+    let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
+    assert!(
+        body.contains("nothing new until 2027-01-16 04:00."),
+        "{body}"
+    );
+    assert_eq!(
+        f.notice_texts(),
+        ["usage limit default - pause until 2027-01-16 04:00"]
+    );
+}
+
+#[tokio::test]
+async fn a_missing_claude_notice_names_the_longer_pause_that_holds() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    f.dispatcher
+        .service
+        .pause(nullradix_app::dispatch::control::PauseFor::Minutes(20 * 60))
+        .await
+        .unwrap();
+    let missing = abort_of(
+        AbortCategory::StartFailed,
+        "claude could not be started: not found",
+    );
+    f.end_run(&key, RunOutcome::Failed, Some(127), Some(missing))
+        .await;
+    f.dispatcher.pass.run().await;
+    let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
+    assert!(
+        body.contains("nothing new until 2027-01-16 04:00, as paused by hand."),
+        "{body}"
+    );
+    assert_eq!(
+        f.notice_texts(),
+        ["Claude Code not found - paused until 2027-01-16 04:00"]
+    );
 }
 
 #[tokio::test]

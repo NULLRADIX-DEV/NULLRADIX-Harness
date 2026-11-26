@@ -15,7 +15,7 @@ use nullradix_app::customizations::{CustomizationService, NoStandards};
 use nullradix_app::dispatch::accounts::AccountPauses;
 use nullradix_app::dispatch::assemble::{DispatcherDeps, assemble};
 use nullradix_app::dispatch::control::DispatcherService;
-use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
+use nullradix_app::dispatch::local_time::LocalTime;
 use nullradix_app::dispatch::pass::DispatchPass;
 use nullradix_app::dispatch::review_decide::ReviewDecisions;
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
@@ -259,7 +259,7 @@ struct OsLocalTime;
 
 #[async_trait::async_trait]
 impl LocalTime for OsLocalTime {
-    async fn minute_of_day(&self, at: Timestamp) -> u32 {
+    async fn offset_minutes(&self, _at: Timestamp) -> i32 {
         let offset = task::spawn_blocking(nullradix_os::local_utc_offset_minutes)
             .await
             .ok()
@@ -267,7 +267,7 @@ impl LocalTime for OsLocalTime {
         if offset.is_none() {
             tracing::warn!("cannot read the local time offset, the time window uses UTC");
         }
-        minute_with_offset(at, offset.unwrap_or(0))
+        offset.unwrap_or(0)
     }
 }
 
