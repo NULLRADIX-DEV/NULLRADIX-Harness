@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use anyhow::Context;
 use clap::Subcommand;
@@ -443,7 +444,9 @@ pub(crate) fn run(
             );
         }
         TicketCommand::Merge { key, version } => {
-            let retried = client.retry_merge(&canonical(&key)?, &RetryMerge { version })?;
+            let retried = client
+                .with_timeout(MERGE_TIMEOUT)
+                .retry_merge(&canonical(&key)?, &RetryMerge { version })?;
             println!("{}", retried.text);
         }
         TicketCommand::Return {
@@ -691,6 +694,9 @@ fn create(args: CreateArgs, client: &Client, choice: &BoardChoice) -> anyhow::Re
     }
     Ok(())
 }
+
+/// A merge can take git minutes, and a caller that gives up must not see it fail.
+const MERGE_TIMEOUT: Duration = Duration::from_secs(600);
 
 const COLUMNS: [(ColumnDto, &str); 8] = [
     (ColumnDto::Backlog, "Backlog"),

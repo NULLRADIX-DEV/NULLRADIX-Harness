@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use nullradix_domain::{
-    Actor, MERGE_REASON, MergeJob, MergePhase, RunKind, SystemMarker, TicketRecord, TicketStatus,
-    Version,
+    Actor, Id, MERGE_REASON, MergeJob, MergePhase, RunKind, SystemMarker, TicketRecord,
+    TicketStatus, Version, Worktree,
 };
 
 use super::merge_jobs::MergeQueue;
@@ -81,17 +81,24 @@ impl MergeRetry {
         Self { parts }
     }
 
-    /// Queues the merge of the ticket again and runs it; a repeat changes nothing.
+    /// Queues the merge again and runs it on its own task, so a caller that leaves cancels nothing.
     pub async fn retry(
-        &self,
+        self: &Arc<Self>,
         key: &str,
         actor: &Actor,
         expected: Option<Version>,
     ) -> Result<MergeRetried, AppError> {
-        self.parts
-            .pass
-            .exclusive(|| self.retry_now(key, actor, expected))
-            .await
+        let this = Arc::clone(self);
+        let key = key.to_owned();
+        let actor = actor.clone();
+        tokio::spawn(async move {
+            this.parts
+                .pass
+                .exclusive(|| this.retry_now(&key, &actor, expected))
+                .await
+        })
+        .await
+        .map_err(AppError::internal)?
     }
 
     async fn retry_now(
@@ -116,12 +123,20 @@ impl MergeRetry {
         let worktree = entry.worktree.id();
         let open = self.parts.queue.repository().open_of(worktree).await?;
         if !blocked && open.as_ref().is_some_and(MergeJob::pristine) {
-            return self.report(&text, &[]).await;
+            return self.run_and_report(&text, worktree).await;
         }
+        let live: Vec<String> = entry
+            .tickets
+            .iter()
+            .filter(|link| link.live())
+            .map(|link| link.key.to_string())
+            .collect();
         let session = self.parts.runs.active().await?.iter().any(|run| {
             run.dispatch().is_some_and(|dispatch| {
                 dispatch.kind == RunKind::Merge
-                    && dispatch.subject_key.as_deref() == Some(text.as_str())
+                    && dispatch.subject_key.as_deref().is_some_and(|subject| {
+                        subject == text || live.iter().any(|key| key == subject)
+                    })
             })
         });
         if session {
@@ -182,8 +197,23 @@ impl MergeRetry {
             .comments
             .add_system(&record.key, &body, Some(SystemMarker::Merge), None, author)
             .await?;
+        self.run_and_report(&text, worktree).await
+    }
+
+    /// Runs the merge step and reports the errors of this worktree's job only.
+    async fn run_and_report(
+        &self,
+        key: &str,
+        worktree: Id<Worktree>,
+    ) -> Result<MergeRetried, AppError> {
         let report = self.parts.pass.run_step(PassPhase::MergeAll).await;
-        self.report(&text, &report.errors).await
+        let own = format!("merge {worktree}:");
+        let errors: Vec<String> = report
+            .errors
+            .into_iter()
+            .filter(|error| error.starts_with(&own) || error.starts_with("merge-all:"))
+            .collect();
+        self.report(key, &errors).await
     }
 
     /// Reads what the merge of the ticket is now.

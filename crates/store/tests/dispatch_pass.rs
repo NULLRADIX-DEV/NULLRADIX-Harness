@@ -498,6 +498,8 @@ struct ScriptedGit {
     merge_entered: Notify,
     /// The next merge fails with this error.
     fail_merge: Mutex<Option<AppError>>,
+    /// Every merge of this branch fails.
+    fail_branch: Mutex<Option<String>>,
     /// Calls of `branch_tip` and `integrated`.
     probes: std::sync::atomic::AtomicUsize,
 }
@@ -534,6 +536,9 @@ impl MergeGit for ScriptedGit {
 
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
         self.requests.lock().unwrap().push(request.clone());
+        if self.fail_branch.lock().unwrap().as_deref() == Some(request.branch.as_str()) {
+            return Err(AppError::conflict("git-failed", "branch locked"));
+        }
         if let Some(error) = self.fail_merge.lock().unwrap().take() {
             return Err(error);
         }
@@ -6901,7 +6906,7 @@ async fn a_retry_of_a_branch_the_target_holds_finishes_without_merging() {
 }
 
 #[tokio::test]
-async fn a_retry_that_is_repeated_changes_nothing() {
+async fn a_retry_that_is_repeated_queues_nothing_twice_but_tries_the_step() {
     use nullradix_app::dispatch::merge_retry::RetryOutcome;
     let f = fixture().await;
     let key = f.refused_ticket().await;
@@ -6922,7 +6927,8 @@ async fn a_retry_that_is_repeated_changes_nothing() {
         .iter()
         .map(|job| job.job.record().version)
         .collect();
-    // the version the caller saw is stale by now, a repeat still answers
+    // the version the caller saw is stale by now, a repeat still answers with the last error
+    *f.git.fail_merge.lock().unwrap() = Some(AppError::conflict("git-failed", "locked"));
     let again = f
         .dispatcher
         .retries
@@ -6930,6 +6936,7 @@ async fn a_retry_that_is_repeated_changes_nothing() {
         .await
         .unwrap();
     assert_eq!(again.outcome, RetryOutcome::Pending);
+    assert!(again.text.contains("locked"), "{}", again.text);
     assert_eq!(f.comment_count(&key).await, comments);
     let after: Vec<_> = f
         .jobs_of(&key)
@@ -6938,10 +6945,16 @@ async fn a_retry_that_is_repeated_changes_nothing() {
         .map(|job| job.job.record().version)
         .collect();
     assert_eq!(after, versions);
-    assert_eq!(f.git.requests.lock().unwrap().len(), 2);
-    // the next pass merges it
-    let report = f.dispatcher.pass.run().await;
-    assert_eq!(report.merged, vec![key.clone()], "{report:?}");
+    assert_eq!(f.git.requests.lock().unwrap().len(), 3);
+    // with nothing in the way the repeat merges it
+    let merged = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(merged.outcome, RetryOutcome::Merged, "{}", merged.text);
+    assert_eq!(f.jobs_of(&key).await.len(), 2);
 }
 
 #[tokio::test]
@@ -7036,4 +7049,149 @@ async fn a_retry_waits_for_the_pass_that_is_under_way() {
     assert_eq!(retried.text, format!("{key} merged into main (abc1234)."));
     assert_eq!(f.record(&key).await.status, TicketStatus::Done);
     assert_eq!(f.git.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_caller_that_goes_away_does_not_cancel_the_merge() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    let gate = Arc::new(Notify::new());
+    *f.git.hold_merge.lock().unwrap() = Some(gate.clone());
+    let service = f.dispatcher.retries.clone();
+    let person = f.person.clone();
+    let name = key.clone();
+    let retry = tokio::spawn(async move { service.retry(&name, &person, None).await });
+    f.git.merge_entered.notified().await;
+    // the caller gives up while git is merging
+    retry.abort();
+    let _ = retry.await;
+    gate.notify_one();
+    f.dispatcher.pass.exclusive(|| async {}).await;
+    let after = f.record(&key).await;
+    assert_eq!((after.status, after.branch), (TicketStatus::Done, None));
+    let phases: Vec<_> = f
+        .jobs_of(&key)
+        .await
+        .iter()
+        .map(|job| job.job.record().phase)
+        .collect();
+    assert_eq!(
+        phases,
+        [
+            nullradix_domain::MergePhase::Merged,
+            nullradix_domain::MergePhase::Failed
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_retry_reports_no_error_of_an_unrelated_job() {
+    use nullradix_app::dispatch::merge_retry::RetryOutcome;
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    let other = f.finished_ticket().await;
+    let branch = f.record(&other).await.branch.unwrap();
+    *f.git.fail_branch.lock().unwrap() = Some(branch);
+    let report = f.dispatcher.pass.run().await;
+    assert!(!report.errors.is_empty(), "{report:?}");
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Conflict {
+            files: vec![String::from("a.rs")],
+        });
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.outcome, RetryOutcome::Pending);
+    assert!(!retried.text.contains("merge not run"), "{}", retried.text);
+    assert!(!retried.text.contains("locked"), "{}", retried.text);
+}
+
+#[tokio::test]
+async fn a_retry_is_refused_while_a_merge_session_runs_for_a_sibling() {
+    let f = fixture().await;
+    f.configure(|config| {
+        config.wip = 3;
+        config.join_worktrees = nullradix_domain::JoinWorktrees::SameSpec;
+    })
+    .await;
+    let key = f.refused_ticket().await;
+    let sibling = f.ready("Same folder", &["auto"]).await;
+    f.worktrees
+        .start(
+            &sibling,
+            f.local,
+            ROOT,
+            StartMode::AutoJoin,
+            false,
+            &f.person,
+        )
+        .await
+        .unwrap();
+    f.config.sync_hash().await.unwrap();
+    let hash = f.config.get().await.unwrap().hash;
+    let dispatch = nullradix_domain::DispatchRun {
+        kind: nullradix_domain::RunKind::Merge,
+        trigger: nullradix_domain::RunTrigger::Dispatcher,
+        subject_key: Some(sibling.clone()),
+        profile: nullradix_domain::RunProfile {
+            id: None,
+            name: String::from("medium"),
+            model: None,
+            effort: None,
+            max_turns: 10,
+            timeout_minutes: 10,
+        },
+        account: None,
+        config_hash: hash,
+        agent: None,
+        cwd: String::new(),
+        args: Vec::new(),
+        prompt: String::new(),
+    };
+    let spec = nullradix_app::runs::RunSpec {
+        program: String::from("claude"),
+        args: Vec::new(),
+        cwd: std::path::PathBuf::from(ROOT),
+        timeout: None,
+        env: nullradix_app::runs::RunEnv::default(),
+        stdin: None,
+        claude: true,
+    };
+    f.runs
+        .start_planned(f.runs.next_id(), "merge session", &spec, Some(dispatch))
+        .await
+        .unwrap();
+    let error = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "merge-not-possible");
+    assert!(error.message().contains("session"), "{}", error.message());
+}
+
+#[tokio::test]
+async fn a_failed_step_of_a_retry_reaches_the_dispatcher_log() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    *f.git.fail_merge.lock().unwrap() = Some(AppError::conflict("git-failed", "index held"));
+    f.dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    let lines = nullradix_app::dispatch::log::DispatcherLogRepository::recent(f.store.as_ref(), 20)
+        .await
+        .unwrap();
+    assert!(
+        lines.iter().any(|line| line.message.contains("index held")),
+        "{lines:?}"
+    );
 }

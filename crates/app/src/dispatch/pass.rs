@@ -351,6 +351,9 @@ impl DispatchPass {
                 .errors
                 .push(format!("{}: {}", phase.name(), error.message()));
         }
+        for error in &report.errors {
+            self.log.error(error, None).await;
+        }
         report
     }
 
