@@ -15,7 +15,12 @@ pub enum PauseKind {
 /// Takes runs that ended on the usage limit or because Claude was missing.
 #[async_trait]
 pub trait PauseHook: Send + Sync {
-    /// `Some` settles the run with that outcome and counts no attempt; `None` counts one.
+    /// Whether too many limit pauses came in a row, so the run counts as an attempt.
+    async fn limit_exhausted(&self, _run: &Run, _ticket: &TicketRecord) -> Result<bool, AppError> {
+        Ok(false)
+    }
+
+    /// `Some` settles the run with that outcome, uncounted; `None` releases it uncounted.
     async fn paused(
         &self,
         run: &Run,

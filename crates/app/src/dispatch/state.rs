@@ -161,6 +161,47 @@ impl DispatcherStateService {
         .await
     }
 
+    /// Pauses until `until` unless the pause changed since `seen`; never shortens a running pause.
+    pub async fn pause_unless_changed(
+        &self,
+        until: Timestamp,
+        seen: Option<Timestamp>,
+    ) -> Result<Option<Timestamp>, AppError> {
+        let now = self.clock.now();
+        let latest = now
+            .checked_add(Duration::from_secs(u64::from(MAX_PAUSE_MINUTES) * 60))
+            .ok_or_else(pause_too_long)?;
+        let until = until.min(latest);
+        if until <= now {
+            return Err(pause_in_the_past());
+        }
+        let held = std::sync::Mutex::new(None);
+        self.change(|state| {
+            let current = state.record().paused_until;
+            if current != seen {
+                *held
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                return state.clone();
+            }
+            let target = current
+                .filter(|at| *at > now)
+                .map_or(until, |at| at.max(until));
+            *held
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(target);
+            if current == Some(target) {
+                state.clone()
+            } else {
+                state.paused(target)
+            }
+        })
+        .await?;
+        Ok(held
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
+    }
+
     pub async fn resume(&self) -> Result<DispatcherState, AppError> {
         self.change(|state| {
             if state.record().paused_until.is_some() {

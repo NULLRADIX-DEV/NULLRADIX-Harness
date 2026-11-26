@@ -19,6 +19,7 @@ mod ids;
 pub mod inbox;
 pub mod login;
 pub mod notes;
+pub mod notifier;
 pub mod projects;
 pub mod questions;
 pub mod repositories;

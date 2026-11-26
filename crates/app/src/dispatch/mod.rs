@@ -12,6 +12,7 @@ pub mod log;
 pub mod outcome;
 pub mod pass;
 pub mod pause;
+pub mod pauses;
 pub mod runs;
 pub mod scheduler;
 pub mod setup;

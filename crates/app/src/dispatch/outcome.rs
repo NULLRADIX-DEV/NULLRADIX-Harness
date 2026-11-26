@@ -61,7 +61,7 @@ pub fn decide(
     open_questions: &[QuestionKey],
 ) -> Decision {
     let abort = run.result().and_then(|result| result.abort.as_ref());
-    // Claude that was not found ran and exited; a run that never spawned was counted by its start
+    // Claude that was not found ran and exited; a run that never spawned only waits
     if abort.is_some_and(|abort| abort.category == AbortCategory::StartFailed)
         && run.exit_code().is_none()
     {

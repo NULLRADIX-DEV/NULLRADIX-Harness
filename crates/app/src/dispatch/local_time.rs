@@ -19,6 +19,37 @@ pub fn minute_with_offset(at: Timestamp, offset_minutes: i32) -> u32 {
     u32::try_from(minutes.rem_euclid(DAY_MINUTES)).unwrap_or(0)
 }
 
+/// The local day number since 1970-01-01 of a moment, from its local minute of the day.
+#[must_use]
+pub fn local_day(at: Timestamp, minute_of_day: u32) -> i64 {
+    let minutes = at.as_millis().div_euclid(MINUTE_MS);
+    let mut offset = (i64::from(minute_of_day) - minutes).rem_euclid(DAY_MINUTES);
+    // offsets run from UTC-12 to UTC+14
+    if offset > 14 * 60 {
+        offset -= DAY_MINUTES;
+    }
+    (minutes + offset).div_euclid(DAY_MINUTES)
+}
+
+/// A day number as `YYYY-MM-DD`.
+#[must_use]
+pub fn day_text(day: i64) -> String {
+    let shifted = day + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let of_era = shifted.rem_euclid(146_097);
+    let year_of_era = (of_era - of_era / 1460 + of_era / 36_524 - of_era / 146_096) / 365;
+    let day_of_year = of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day_of_month = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day_of_month:02}")
+}
+
 /// UTC as local time, for tests and machines whose offset is unknown.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UtcTime;
@@ -36,6 +67,26 @@ mod tests {
 
     fn at(hours: i64, minutes: i64) -> Timestamp {
         Timestamp::from_millis((hours * 60 + minutes) * MINUTE_MS)
+    }
+
+    #[test]
+    fn the_local_day_follows_the_offset() {
+        // 2026-11-26 23:30 UTC
+        let moment = Timestamp::from_millis(1_795_735_800_000);
+        assert_eq!(
+            day_text(local_day(moment, minute_with_offset(moment, 0))),
+            "2026-11-26"
+        );
+        assert_eq!(
+            day_text(local_day(moment, minute_with_offset(moment, 60))),
+            "2026-11-27"
+        );
+        assert_eq!(
+            day_text(local_day(moment, minute_with_offset(moment, -300))),
+            "2026-11-26"
+        );
+        assert_eq!(day_text(0), "1970-01-01");
+        assert_eq!(day_text(11_016), "2000-02-29");
     }
 
     #[test]

@@ -14,6 +14,7 @@ use super::evaluate::EvaluateRuns;
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, DispatcherLogRepository};
 use super::pass::{DispatchPass, PassPhase};
+use super::pauses::{DispatchPauses, PauseParts};
 use super::runs::DispatchRuns;
 use super::setup::WorktreeSetupPort;
 use super::stale::ReleaseStale;
@@ -25,6 +26,7 @@ use crate::boards::{ActorRepository, BoardRepository};
 use crate::comments::CommentService;
 use crate::dispatcher_config::DispatcherConfigService;
 use crate::dispatcher_prompts::DispatcherPromptService;
+use crate::notifier::Notifier;
 use crate::repositories::RunnerService;
 use crate::runs::RunService;
 use crate::tickets::TicketService;
@@ -54,6 +56,7 @@ pub struct DispatcherDeps {
     pub ids: Arc<dyn IdGenerator>,
     pub signal: ChangeSignal,
     pub local_time: Arc<dyn LocalTime>,
+    pub notifier: Arc<dyn Notifier>,
     /// Time between scheduled passes; none when no scheduler runs.
     pub interval: Option<Duration>,
 }
@@ -99,8 +102,8 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         deps.signal,
     ));
     let accounts = Arc::new(AccountPicker::new(PickerParts {
-        accounts: deps.accounts,
-        limits: deps.limits,
+        accounts: deps.accounts.clone(),
+        limits: deps.limits.clone(),
         pauses: pauses.clone(),
         samples: deps.samples,
         runs: deps.runs.clone(),
@@ -112,11 +115,10 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         deps.boards.clone(),
         deps.runners.clone(),
     ));
-    let aborts = Arc::new(AbortAttempts::new(
-        deps.tickets.clone(),
-        deps.comments.clone(),
-        log.clone(),
-    ));
+    let aborts = Arc::new(
+        AbortAttempts::new(deps.tickets.clone(), deps.comments.clone(), log.clone())
+            .with_notifier(deps.notifier.clone()),
+    );
     let starter = TicketStarter::new(StarterParts {
         candidates: candidates.clone(),
         tickets: deps.tickets.clone(),
@@ -131,6 +133,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         actors: deps.actors,
         log: log.clone(),
         aborts: aborts.clone(),
+        notifier: deps.notifier.clone(),
         clock: deps.clock.clone(),
         ids: deps.ids,
     });
@@ -150,8 +153,23 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
             log.clone(),
             aborts.clone(),
         )
-        .with_accounts(accounts.clone()),
+        .with_accounts(accounts.clone())
+        .with_notifier(deps.notifier.clone()),
     );
+    evaluate.set_pause_hook(Arc::new(DispatchPauses::new(PauseParts {
+        tickets: deps.tickets.clone(),
+        comments: deps.comments.clone(),
+        runs: deps.runs.clone(),
+        accounts: deps.accounts.clone(),
+        pauses: pauses.clone(),
+        limits: deps.limits.clone(),
+        state: state.clone(),
+        starter: starter.clone(),
+        local: deps.local_time.clone(),
+        clock: deps.clock.clone(),
+        log: log.clone(),
+        notifier: deps.notifier.clone(),
+    })));
     pass.set_step(PassPhase::Evaluate, evaluate.clone());
     pass.set_step(
         PassPhase::ReleaseStale,

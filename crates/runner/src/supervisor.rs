@@ -189,6 +189,12 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
     });
     let mut tree = match ProcessTree::spawn(&mut command) {
         Ok(tree) => tree,
+        Err(error) if spec.claude && error.kind() == io::ErrorKind::NotFound => {
+            return Ok(with_claude(failure(
+                Some(127),
+                &launch::not_found(&spec.program),
+            )));
+        }
         Err(error) => {
             // the same words on every platform, where the system message differs
             let reason = match error.kind() {
@@ -835,6 +841,19 @@ next",
         };
         fs::write(dir.join("spec.json"), serde_json::to_vec(&spec).unwrap()).unwrap();
         RunFiles::at(dir)
+    }
+
+    #[test]
+    fn a_missing_claude_is_reported_the_same_on_every_system() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = claude_spec(dir.path(), "nullradix-no-such-claude", &[]);
+        supervise(files.dir()).unwrap();
+        let report = result(&files);
+        assert_eq!(report.exit_code, Some(127));
+        assert_eq!(
+            report.error.as_deref(),
+            Some("claude-not-found: nullradix-no-such-claude does not exist")
+        );
     }
 
     /// A Claude run output kept in a file the shell prints, as JSON quoting in cmd is a trap.

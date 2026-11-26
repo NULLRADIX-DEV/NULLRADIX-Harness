@@ -14,6 +14,9 @@ static COMMIT: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b[0-9a-f
 /// A moment as the CLI prints it, such as `2026-11-25T10:00:00.000Z`.
 static MOMENT: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\b").ok());
+/// A local clock time in a pause comment, which follows the wall clock.
+static CLOCK: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"(until|from) (\d{4}-\d{2}-\d{2} )?\d{2}:\d{2}").ok());
 static PID: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\bpid \d+").ok());
 /// The rest of a path behind a placeholder, so Windows and Unix record the same separators.
 static PATH_TAIL: LazyLock<Option<Regex>> =
@@ -107,6 +110,9 @@ impl Normalizer {
         }
         if let Some(moment) = MOMENT.as_ref() {
             text = moment.replace_all(&text, "<TIME>").into_owned();
+        }
+        if let Some(clock) = CLOCK.as_ref() {
+            text = clock.replace_all(&text, "$1 <CLOCK>").into_owned();
         }
         if let Some(pid) = PID.as_ref() {
             text = pid.replace_all(&text, "pid <PID>").into_owned();

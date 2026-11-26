@@ -18,6 +18,7 @@ use super::pass::{PassContext, PassReport, PassStep};
 use super::pause::{NoPauseHook, PauseHook, PauseKind};
 use super::start::TicketStarter;
 use crate::comments::CommentService;
+use crate::notifier::{NoNotifier, Notice, NoticeKind, Notifier};
 use crate::runs::{RunFilter, RunService};
 use crate::tickets::{TicketDetail, TicketPatch, TicketService, WriteOptions};
 use crate::{AppError, ErrorKind};
@@ -63,6 +64,7 @@ pub struct EvaluateRuns {
     gate: Arc<dyn DoneGate>,
     accounts: Option<Arc<AccountPicker>>,
     pauses: RwLock<Arc<dyn PauseHook>>,
+    notifier: Arc<dyn Notifier>,
 }
 
 impl std::fmt::Debug for EvaluateRuns {
@@ -97,12 +99,31 @@ impl EvaluateRuns {
             gate: Arc::new(NoDoneGate),
             accounts: None,
             pauses: RwLock::new(Arc::new(NoPauseHook)),
+            notifier: Arc::new(NoNotifier),
         }
     }
 
     /// Replaces what happens to runs that ended on the usage limit or without Claude.
     pub fn set_pause_hook(&self, pauses: Arc<dyn PauseHook>) {
         *self.pauses.write() = pauses;
+    }
+
+    /// Shows the notices of questions and blocked tickets.
+    #[must_use]
+    pub fn with_notifier(mut self, notifier: Arc<dyn Notifier>) -> Self {
+        self.notifier = notifier;
+        self
+    }
+
+    async fn toast(&self, notice: Notice) {
+        if let Err(error) = self.notifier.notify(&notice).await {
+            self.log
+                .error(
+                    &format!("cannot show a notice: {}", error.message()),
+                    notice.ticket.as_deref(),
+                )
+                .await;
+        }
     }
 
     /// Replaces what follows a finished ticket.
@@ -177,6 +198,21 @@ impl EvaluateRuns {
                 self.gate.finished(&accepted, run, config).await?
             }
             Decision::Done => self.gate.finished(record, run, config).await?,
+            Decision::Blocked(reason) => {
+                let reason = if reason.trim().is_empty() {
+                    "Blocked"
+                } else {
+                    reason.as_str()
+                };
+                self.toast(Notice::blocked(
+                    config.autopilot_applies(&record.labels),
+                    key,
+                    record.title.as_str(),
+                    reason,
+                ))
+                .await;
+                DispatchOutcome::Blocked
+            }
             other => other.outcome().unwrap_or(DispatchOutcome::Other),
         };
         Ok(Settled::Yes(outcome))
@@ -186,7 +222,7 @@ impl EvaluateRuns {
         self.pauses.read().clone()
     }
 
-    /// A run that never spawned is an environment fault: no attempt, the pause hook or a wait.
+    /// A run that never spawned does not show that Claude is missing: no attempt, no pause, a wait.
     async fn start_failed(
         &self,
         run: &Run,
@@ -194,9 +230,6 @@ impl EvaluateRuns {
         config: &DispatcherConfig,
     ) -> Result<Settled, AppError> {
         let kind = PauseKind::ClaudeMissing;
-        if let Some(outcome) = self.pause_hook().paused(run, record, kind, config).await? {
-            return Ok(Settled::Yes(outcome));
-        }
         // its start gave the claim back already, and a newer one may be there now
         self.wait_out(run, record, kind, config, false, true).await
     }
@@ -271,6 +304,14 @@ impl EvaluateRuns {
             Some(AbortCategory::StartFailed) => Some(PauseKind::ClaudeMissing),
             _ => None,
         };
+        let kind = match kind {
+            Some(PauseKind::UsageLimit)
+                if self.pause_hook().limit_exhausted(run, record).await? =>
+            {
+                None
+            }
+            other => other,
+        };
         if let Some(kind) = kind.filter(|_| !counted) {
             if let Some(outcome) = self.pause_hook().paused(run, record, kind, config).await? {
                 return Ok(Settled::Yes(outcome));
@@ -318,6 +359,14 @@ impl EvaluateRuns {
                     actor,
                 )
                 .await?;
+            let waiting: Vec<String> = questions.iter().map(ToString::to_string).collect();
+            self.toast(Notice {
+                kind: NoticeKind::Question,
+                ticket: Some(key.to_string()),
+                title: record.title.as_str().to_owned(),
+                text: format!("waiting for {}", waiting.join(", ")),
+            })
+            .await;
         }
         // the comment moved the ticket on; only a ticket still with the agent is given back
         let fresh = self.tickets.get(&key.to_string()).await?;
@@ -385,7 +434,7 @@ impl EvaluateRuns {
 }
 
 /// The agent the run worked under; runs from before it was kept use the configured name.
-fn agent_of(run: &Run, key: &str, config: &DispatcherConfig) -> String {
+pub(super) fn agent_of(run: &Run, key: &str, config: &DispatcherConfig) -> String {
     run.dispatch()
         .and_then(|dispatch| dispatch.agent.clone())
         .unwrap_or_else(|| config.work_agent(key))
