@@ -19,6 +19,7 @@ mod hooks;
 mod host;
 mod inbox;
 mod login;
+mod merge;
 mod notes;
 mod problem;
 mod projects;
@@ -131,6 +132,7 @@ pub use inbox::{
 pub use login::{
     AccountLoginDto, CreateAccountLogin, LoginCode, LoginDto, LoginStateDto, StartLogin,
 };
+pub use merge::{MergeJobDto, MergeJobList, MergePhaseDto};
 pub use notes::{
     CreateNote, DropNote, NoteDto, NoteList, NoteStateDto, PromoteNote, PromotedNote, SeenNote,
 };
@@ -240,6 +242,7 @@ pub struct ApiState {
     pub reviews: Arc<ReviewService>,
     /// Accept and return of a held review.
     pub decisions: Arc<ReviewDecisions>,
+    pub merges: Arc<nullradix_app::dispatch::merge_jobs::MergeQueue>,
     pub notes: Arc<NoteService>,
     pub inbox: Arc<InboxService>,
     pub runners: Arc<RunnerService>,
@@ -328,6 +331,7 @@ fn run_routes() -> OpenApiRouter<ApiState> {
 
 fn review_routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::new()
+        .routes(routes!(merge::list_merges))
         .routes(routes!(review::get_review))
         .routes(routes!(review::get_review_diff))
         .routes(routes!(review::get_review_file))
@@ -950,6 +954,9 @@ pub(crate) mod tests {
                 tickets: tickets.clone(),
                 comments: comments.clone(),
                 worktrees: worktrees.clone(),
+                worktree_repository: store.clone(),
+                merge_jobs: store.clone(),
+                merge_git: Arc::new(nullradix_runner::LocalMergeGit),
                 reviews: reviews.clone(),
                 clock: Arc::new(SystemClock),
                 ids: Arc::new(UuidV7Generator),
@@ -984,6 +991,7 @@ pub(crate) mod tests {
             worktrees,
             reviews,
             decisions: assembled.decisions.clone(),
+            merges: assembled.merges.clone(),
             notes,
             inbox: Arc::new(InboxService::new(
                 store.clone(),

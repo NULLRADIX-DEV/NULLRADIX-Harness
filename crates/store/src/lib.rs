@@ -16,6 +16,7 @@ mod error;
 mod favorites;
 mod hooks;
 mod inbox;
+mod merge_jobs;
 mod notes;
 mod projects;
 mod questions;

@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT 1 FROM merge_jobs\n             WHERE worktree_id = ? AND phase IN ('pending', 'waiting', 'conflict_session')",
+  "describe": {
+    "columns": [
+      {
+        "name": "1",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a0980767d0884f512c447a9d2ea396a4415b766fe4ac7c68e16f43b0cfca54b3"
+}

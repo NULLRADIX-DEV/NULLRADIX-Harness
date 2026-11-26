@@ -107,7 +107,7 @@ pub(crate) async fn create(request: &NewWorktree) -> Result<CreatedWorktree, App
 }
 
 /// Creates a missing target branch locally and says from where; never fetches or pushes.
-async fn ensure_target(root: &Path, name: &str) -> Result<Option<String>, AppError> {
+pub(crate) async fn ensure_target(root: &Path, name: &str) -> Result<Option<String>, AppError> {
     if has_ref(root, &format!("refs/heads/{name}")).await? {
         return Ok(None);
     }

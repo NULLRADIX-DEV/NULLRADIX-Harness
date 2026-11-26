@@ -1,0 +1,984 @@
+//! Merges a ticket branch into its target with git on this machine, as legacy `BranchMerger` did.
+
+use std::path::{Path, PathBuf};
+
+use async_trait::async_trait;
+use nullradix_app::AppError;
+use nullradix_app::dispatch::merge_git::{
+    BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier,
+};
+use nullradix_app::review::check_branch;
+use nullradix_domain::{MergeStrategy, SQUASH_LIST_MAX};
+
+use crate::git::local_key;
+use crate::worktree::{LONG_PATHS, attempt, ensure_target, exists, git, output};
+
+/// Trailer of a squash commit: `Harness-Squashed: <branch> <full tip of the branch>`.
+const SQUASH_TRAILER: &str = "Harness-Squashed";
+
+/// Git states in which nothing is merged; a file in the git dir shows them.
+const BUSY: [(&str, &str); 5] = [
+    ("MERGE_HEAD", "a merge"),
+    ("rebase-merge", "a rebase"),
+    ("rebase-apply", "a rebase"),
+    ("CHERRY_PICK_HEAD", "a cherry-pick"),
+    ("REVERT_HEAD", "a revert"),
+];
+
+/// Merges with the git of this machine.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LocalMergeGit;
+
+fn invalid(name: &str) -> AppError {
+    AppError::invalid(
+        "merge-branch-invalid",
+        format!("\"{name}\" is not a branch name a merge can use"),
+    )
+}
+
+/// A name git reads as a branch and never as an option or a range.
+fn checked(name: &str) -> Result<(), AppError> {
+    check_branch(name).map_err(|_| invalid(name))
+}
+
+/// What a git call answered, also when it failed.
+struct Run {
+    ok: bool,
+    out: String,
+    err: String,
+}
+
+async fn run(cwd: &Path, args: &[&str]) -> Result<Run, AppError> {
+    let output = output(cwd, args).await?;
+    Ok(Run {
+        ok: output.status.success(),
+        out: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        err: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+    })
+}
+
+fn refs(branch: &str) -> String {
+    format!("refs/heads/{branch}")
+}
+
+async fn tip_of(cwd: &Path, branch: &str) -> Result<Option<String>, AppError> {
+    let reference = format!("{}^{{commit}}", refs(branch));
+    let found = attempt(cwd, &["rev-parse", "--verify", "--quiet", &reference]).await?;
+    Ok(found.filter(|tip| !tip.is_empty()))
+}
+
+/// The folder that has the branch checked out, as git names it.
+async fn checked_out_at(root: &Path, branch: &str) -> Result<Option<String>, AppError> {
+    let listed = git(root, &["worktree", "list", "--porcelain"]).await?;
+    let wanted = format!("branch {}", refs(branch));
+    let mut current: Option<&str> = None;
+    for line in listed.split('\n') {
+        let line = line.trim_end_matches('\r');
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current = Some(path);
+        } else if line == wanted {
+            return Ok(current.map(str::to_owned));
+        } else if line.is_empty() {
+            current = None;
+        }
+    }
+    Ok(None)
+}
+
+/// `<parent of root>/<root name>-worktrees/_merge/<target, "/" as "-">`.
+fn merge_worktree_path(root: &Path, target: &str) -> String {
+    let parent = root.parent().unwrap_or_else(|| Path::new(""));
+    let base = root
+        .file_name()
+        .map_or_default(|name| name.to_string_lossy().into_owned());
+    let path: PathBuf = parent
+        .join(format!("{base}-worktrees"))
+        .join("_merge")
+        .join(target.replace('/', "-"));
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn same_folder(left: &str, right: &str) -> bool {
+    local_key(Path::new(left)) == local_key(Path::new(right))
+}
+
+/// Where the merge happens; a merge worktree opened for it is closed afterwards.
+struct Place {
+    path: String,
+    into: String,
+    opened: bool,
+}
+
+/// Why the merge has no place, or the place.
+enum Placed {
+    Place(Place),
+    Refused(String),
+}
+
+async fn place_of(root: &Path, target: Option<&str>) -> Result<Placed, AppError> {
+    let Some(target) = target else {
+        let current = git(root, &["branch", "--show-current"]).await?;
+        if current.is_empty() {
+            return Ok(Placed::Refused(String::from(
+                "the main checkout is on no branch (detached HEAD)",
+            )));
+        }
+        return Ok(Placed::Place(Place {
+            path: slashed(root),
+            into: current,
+            opened: false,
+        }));
+    };
+    let at = match checked_out_at(root, target).await? {
+        Some(path) if exists(PathBuf::from(&path)).await? => Some(path),
+        // a listed folder that is gone counts as not checked out; prune clears it
+        _ => None,
+    };
+    let own = merge_worktree_path(root, target);
+    let main = slashed(root);
+    match at {
+        Some(at) if !same_folder(&at, &main) && !same_folder(&at, &own) => {
+            Ok(Placed::Place(Place {
+                path: at,
+                into: target.to_owned(),
+                opened: false,
+            }))
+        }
+        Some(at) if same_folder(&at, &main) => Ok(Placed::Place(Place {
+            path: main,
+            into: target.to_owned(),
+            opened: false,
+        })),
+        _ => open_merge_worktree(root, target, &own).await,
+    }
+}
+
+fn slashed(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+/// Reuses the merge worktree of the target, refuses a foreign folder, else adds it.
+async fn open_merge_worktree(root: &Path, target: &str, path: &str) -> Result<Placed, AppError> {
+    let place = |opened| {
+        Placed::Place(Place {
+            path: path.to_owned(),
+            into: target.to_owned(),
+            opened,
+        })
+    };
+    if exists(PathBuf::from(path)).await? {
+        let ours = checked_out_at(root, target)
+            .await?
+            .is_some_and(|at| same_folder(&at, path));
+        if ours {
+            return Ok(place(true));
+        }
+        return Err(AppError::invalid(
+            "merge-worktree-foreign",
+            format!(
+                "the folder {path} exists already and is no worktree of branch {target}; check \
+                 it and clean it up by hand"
+            ),
+        ));
+    }
+    git(root, &["worktree", "prune"]).await?;
+    let mut args: Vec<&str> = LONG_PATHS.to_vec();
+    args.extend(["worktree", "add", path, target]);
+    git(root, &args).await?;
+    Ok(place(true))
+}
+
+/// Names a git action that is under way in the folder, if any.
+async fn running(cwd: &Path) -> Result<Option<&'static str>, AppError> {
+    for (file, what) in BUSY {
+        let Some(found) = attempt(cwd, &["rev-parse", "--git-path", file]).await? else {
+            continue;
+        };
+        let path = PathBuf::from(&found);
+        let full = if path.is_absolute() {
+            path
+        } else {
+            cwd.join(path)
+        };
+        if exists(full).await? {
+            return Ok(Some(what));
+        }
+    }
+    Ok(None)
+}
+
+async fn short_head(cwd: &Path) -> Result<String, AppError> {
+    git(cwd, &["rev-parse", "--short", "HEAD"]).await
+}
+
+/// Whether a commit of `target` carries the squash trailer for the current tip of the branch.
+async fn squashed_into(
+    cwd: &Path,
+    branch: &str,
+    tip: &str,
+    target: &str,
+) -> Result<bool, AppError> {
+    let grep = format!("--grep={SQUASH_TRAILER}: {branch} {tip}");
+    let found = attempt(
+        cwd,
+        &[
+            "log",
+            "-1",
+            "--format=%H",
+            "--fixed-strings",
+            &grep,
+            target,
+            "--",
+        ],
+    )
+    .await?;
+    Ok(found.is_some_and(|hash| !hash.is_empty()))
+}
+
+async fn is_ancestor(cwd: &Path, ancestor: &str, of: &str) -> Result<bool, AppError> {
+    Ok(attempt(cwd, &["merge-base", "--is-ancestor", ancestor, of])
+        .await?
+        .is_some())
+}
+
+/// Merge or squash in `cwd`; the folder is left as it was unless the merge went through.
+async fn merge_in(cwd: &Path, request: &MergeRequest, tip: &str) -> Result<MergeStep, AppError> {
+    if let Some(what) = running(cwd).await? {
+        return Ok(MergeStep::Refused(format!(
+            "{what} is under way in {}; nothing is merged",
+            cwd.display()
+        )));
+    }
+    if squashed_into(cwd, &request.branch, tip, "HEAD").await? {
+        return Ok(MergeStep::Merged(short_head(cwd).await?));
+    }
+    match request.strategy {
+        MergeStrategy::Squash => squash(cwd, request, tip).await,
+        MergeStrategy::Merge => {
+            let reference = refs(&request.branch);
+            let args = [
+                "-c",
+                "core.quotePath=false",
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                "-m",
+                &request.message,
+                &reference,
+            ];
+            let tried = run(cwd, &args).await?;
+            if tried.ok {
+                return Ok(MergeStep::Merged(short_head(cwd).await?));
+            }
+            // nothing ran before, so a MERGE_HEAD now comes from this call
+            let started = attempt(cwd, &["rev-parse", "--verify", "--quiet", "MERGE_HEAD"])
+                .await?
+                .is_some();
+            after_failure(cwd, &tried, started, MergeStrategy::Merge).await
+        }
+    }
+}
+
+enum MergeStep {
+    Merged(String),
+    Conflict(Vec<String>),
+    Refused(String),
+}
+
+async fn squash(cwd: &Path, request: &MergeRequest, tip: &str) -> Result<MergeStep, AppError> {
+    let reference = refs(&request.branch);
+    if is_ancestor(cwd, &reference, "HEAD").await? {
+        return Ok(MergeStep::Merged(short_head(cwd).await?));
+    }
+    // a squash would take staged changes into its commit
+    if attempt(cwd, &["diff", "--cached", "--quiet"])
+        .await?
+        .is_none()
+    {
+        return Ok(MergeStep::Refused(String::from(
+            "changes are staged in the checkout; a squash would take them along, commit them or \
+             unstage them",
+        )));
+    }
+    let paragraphs = squash_message(cwd, request, tip).await?;
+    let pending_before = squash_pending(cwd).await?;
+    let tried = run(
+        cwd,
+        &[
+            "-c",
+            "core.quotePath=false",
+            "merge",
+            "--squash",
+            &reference,
+        ],
+    )
+    .await?;
+    if tried.ok {
+        let mut commit = vec!["commit", "-q", "--allow-empty", "--no-verify"];
+        for paragraph in &paragraphs {
+            commit.extend(["-m", paragraph.as_str()]);
+        }
+        let done = run(cwd, &commit).await?;
+        if done.ok {
+            return Ok(MergeStep::Merged(short_head(cwd).await?));
+        }
+        abort(cwd, MergeStrategy::Squash).await?;
+        let detail = [done.err, done.out]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Ok(MergeStep::Refused(format!(
+            "the squash commit failed: {detail}"
+        )));
+    }
+    let unmerged = attempt(cwd, &["ls-files", "-u"]).await?;
+    let started = (!pending_before && squash_pending(cwd).await?)
+        || unmerged.is_some_and(|files| !files.is_empty());
+    after_failure(cwd, &tried, started, MergeStrategy::Squash).await
+}
+
+/// Subject, the commits it sums up (oldest first, capped) and the trailer.
+async fn squash_message(
+    cwd: &Path,
+    request: &MergeRequest,
+    tip: &str,
+) -> Result<Vec<String>, AppError> {
+    let range = format!("HEAD..{}", refs(&request.branch));
+    let listed = git(cwd, &["log", "--reverse", "--format=- %s", &range, "--"]).await?;
+    let subjects: Vec<&str> = listed.split('\n').filter(|line| !line.is_empty()).collect();
+    let mut shown: Vec<String> = subjects
+        .iter()
+        .take(SQUASH_LIST_MAX)
+        .map(|line| (*line).to_owned())
+        .collect();
+    if subjects.len() > shown.len() {
+        shown.push(format!(
+            "(... and {} more commits)",
+            subjects.len() - shown.len()
+        ));
+    }
+    let mut paragraphs = vec![request.message.clone()];
+    if !shown.is_empty() {
+        paragraphs.push(shown.join("\n"));
+    }
+    paragraphs.push(format!("{SQUASH_TRAILER}: {} {tip}", request.branch));
+    Ok(paragraphs)
+}
+
+async fn squash_pending(cwd: &Path) -> Result<bool, AppError> {
+    let Some(found) = attempt(cwd, &["rev-parse", "--git-path", "SQUASH_MSG"]).await? else {
+        return Ok(false);
+    };
+    let path = PathBuf::from(&found);
+    let full = if path.is_absolute() {
+        path
+    } else {
+        cwd.join(path)
+    };
+    exists(full).await
+}
+
+/// Lists the conflicted files, undoes our own attempt and tells conflict from refusal.
+async fn after_failure(
+    cwd: &Path,
+    tried: &Run,
+    started: bool,
+    strategy: MergeStrategy,
+) -> Result<MergeStep, AppError> {
+    let listed = run(
+        cwd,
+        &[
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "--name-only",
+            "--diff-filter=U",
+        ],
+    )
+    .await?;
+    let conflicted: Vec<String> = if listed.ok {
+        listed
+            .out
+            .split('\n')
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if started {
+        abort(cwd, strategy).await?;
+    }
+    if started || !conflicted.is_empty() {
+        return Ok(MergeStep::Conflict(conflicted));
+    }
+    let message = [tried.err.clone(), tried.out.clone()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(MergeStep::Refused(if message.is_empty() {
+        String::from("git refused the merge")
+    } else {
+        message
+    }))
+}
+
+/// Undoes our own merge; when that fails the folder needs a person (`merge-abort-failed`).
+async fn abort(cwd: &Path, strategy: MergeStrategy) -> Result<(), AppError> {
+    let command: &[&str] = match strategy {
+        MergeStrategy::Squash => &["reset", "-q", "--merge"],
+        MergeStrategy::Merge => &["merge", "--abort"],
+    };
+    let aborted = run(cwd, command).await?;
+    if aborted.ok {
+        return Ok(());
+    }
+    let why = if aborted.err.is_empty() {
+        aborted.out
+    } else {
+        aborted.err
+    };
+    let manual = command
+        .iter()
+        .filter(|argument| **argument != "-q")
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+    Err(AppError::invalid(
+        "merge-abort-failed",
+        format!(
+            "the folder {} is still in the merge state: {why}; clean it up by hand (git {manual})",
+            cwd.display()
+        ),
+    ))
+}
+
+async fn close(root: &Path, path: &str) -> Option<String> {
+    // without force: changes left behind stay
+    match run(root, &["worktree", "remove", path]).await {
+        Ok(closed) if closed.ok => None,
+        Ok(closed) => Some(format!("merge worktree {path} stays: {}", closed.err)),
+        Err(error) => Some(error.message().to_owned()),
+    }
+}
+
+#[async_trait]
+impl MergeGit for LocalMergeGit {
+    async fn ensure_target(&self, root: &str, target: &str) -> Result<Option<String>, AppError> {
+        checked(target)?;
+        ensure_target(Path::new(root), target).await
+    }
+
+    async fn branch_tip(&self, root: &str, branch: &str) -> Result<Option<String>, AppError> {
+        checked(branch)?;
+        tip_of(Path::new(root), branch).await
+    }
+
+    async fn integrated(
+        &self,
+        root: &str,
+        branch: &str,
+        target: Option<&str>,
+    ) -> Result<bool, AppError> {
+        checked(branch)?;
+        let root = Path::new(root);
+        let Some(tip) = tip_of(root, branch).await? else {
+            return Ok(false);
+        };
+        let into = match target {
+            Some(target) => {
+                checked(target)?;
+                refs(target)
+            }
+            None => String::from("HEAD"),
+        };
+        Ok(is_ancestor(root, &tip, &into).await?
+            || squashed_into(root, branch, &tip, &into).await?)
+    }
+
+    async fn merged_earlier(
+        &self,
+        root: &str,
+        branch: &str,
+        target: Option<&str>,
+    ) -> Result<Option<MergedEarlier>, AppError> {
+        checked(branch)?;
+        let root = Path::new(root);
+        if tip_of(root, branch).await?.is_some() {
+            return Ok(None);
+        }
+        let into = match target {
+            Some(target) => {
+                checked(target)?;
+                target.to_owned()
+            }
+            None => git(root, &["branch", "--show-current"]).await?,
+        };
+        if into.is_empty() {
+            return Ok(None);
+        }
+        let format =
+            format!("--format=%h%x1f%p%x1f%s%x1f%(trailers:key={SQUASH_TRAILER},valueonly)%x1e");
+        let by_subject = format!("--grep=({branch})");
+        let by_trailer = format!("--grep={SQUASH_TRAILER}: {branch} ");
+        let into_ref = refs(&into);
+        let found = attempt(
+            root,
+            &[
+                "log",
+                &format,
+                "--fixed-strings",
+                &by_subject,
+                &by_trailer,
+                &into_ref,
+                "--",
+            ],
+        )
+        .await?;
+        let Some(found) = found else {
+            return Ok(None);
+        };
+        for record in found.split('\u{1e}') {
+            let fields: Vec<&str> = record.trim_start().split('\u{1f}').collect();
+            let hash = fields.first().copied().unwrap_or_default();
+            if hash.is_empty() {
+                continue;
+            }
+            let parents = fields.get(1).copied().unwrap_or_default();
+            let subject = fields.get(2).copied().unwrap_or_default();
+            let trailers = fields.get(3).copied().unwrap_or_default();
+            // a revert or a mention of the branch is no merge
+            let is_merge = parents.split_whitespace().count() >= 2
+                && subject.ends_with(&format!("({branch})"));
+            let is_squash = trailers
+                .lines()
+                .any(|value| value.trim_start().starts_with(&format!("{branch} ")));
+            if is_merge || is_squash {
+                return Ok(Some(MergedEarlier {
+                    into,
+                    commit: hash.to_owned(),
+                }));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
+        checked(&request.branch)?;
+        if let Some(target) = &request.target {
+            checked(target)?;
+        }
+        let root = Path::new(&request.root);
+        let Some(tip) = tip_of(root, &request.branch).await? else {
+            return Ok(MergeOutcome::Refused {
+                reason: format!("branch {} does not exist", request.branch),
+            });
+        };
+        let place = match place_of(root, request.target.as_deref()).await? {
+            Placed::Place(place) => place,
+            Placed::Refused(reason) => return Ok(MergeOutcome::Refused { reason }),
+        };
+        let stepped = merge_in(Path::new(&place.path), request, &tip).await;
+        let warning = if place.opened {
+            close(root, &place.path).await
+        } else {
+            None
+        };
+        Ok(match stepped? {
+            MergeStep::Merged(commit) => MergeOutcome::Merged {
+                into: place.into,
+                commit,
+                tip,
+                warning,
+            },
+            MergeStep::Conflict(files) => MergeOutcome::Conflict { files },
+            MergeStep::Refused(reason) => MergeOutcome::Refused { reason },
+        })
+    }
+
+    async fn delete_merged(&self, request: &DeleteBranch) -> Result<BranchDeletion, AppError> {
+        checked(&request.branch)?;
+        checked(&request.into)?;
+        let root = Path::new(&request.root);
+        let branch = &request.branch;
+        let Some(current) = tip_of(root, branch).await? else {
+            return Ok(BranchDeletion::Deleted);
+        };
+        let kept = |why: String| {
+            Ok(BranchDeletion::Kept(format!(
+                "branch {branch} stays: {why}"
+            )))
+        };
+        if current != request.tip {
+            return kept(String::from("it has new commits since the merge"));
+        }
+        let into = refs(&request.into);
+        let merged = is_ancestor(root, &request.tip, &into).await?
+            || squashed_into(root, branch, &request.tip, &into).await?;
+        if !merged {
+            return kept(format!("it is not in {} yet", request.into));
+        }
+        let reference = refs(branch);
+        let held = attempt(
+            root,
+            &["for-each-ref", "--format=%(worktreepath)", &reference],
+        )
+        .await?;
+        if let Some(path) = held.filter(|path| !path.is_empty()) {
+            return kept(format!("it is checked out in {path}"));
+        }
+        // the old value makes a commit that lands after the check keep the branch
+        let deleted = run(root, &["update-ref", "-d", &reference, &request.tip]).await?;
+        if !deleted.ok {
+            let why = if deleted.err.is_empty() {
+                String::from("it has new commits since the merge")
+            } else {
+                deleted.err
+            };
+            return kept(why);
+        }
+        attempt(
+            root,
+            &["config", "--remove-section", &format!("branch.{branch}")],
+        )
+        .await?;
+        Ok(BranchDeletion::Deleted)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::process::{Command, Stdio};
+
+    use super::*;
+    use crate::worktree::has_ref;
+
+    fn git_sync(dir: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(dir)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    fn commit(dir: &Path, file: &str, text: &str, message: &str) {
+        fs::write(dir.join(file), text).unwrap();
+        git_sync(dir, &["add", file]);
+        git_sync(dir, &["commit", "-q", "-m", message]);
+    }
+
+    /// A repository on main with one commit and a ticket branch with one more.
+    fn repository() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("arches");
+        fs::create_dir_all(&root).unwrap();
+        git_sync(&root, &["init", "-q", "-b", "main"]);
+        commit(&root, "a.txt", "base\n", "init");
+        git_sync(&root, &["branch", "ticket/x"]);
+        git_sync(&root, &["checkout", "-q", "ticket/x"]);
+        commit(&root, "b.txt", "ticket\n", "on the ticket");
+        git_sync(&root, &["checkout", "-q", "main"]);
+        (dir, root)
+    }
+
+    fn request(root: &Path, target: Option<&str>, strategy: MergeStrategy) -> MergeRequest {
+        MergeRequest {
+            root: slashed(root),
+            branch: String::from("ticket/x"),
+            target: target.map(str::to_owned),
+            message: String::from("Merge ARC-0001 \"Title\" (ticket/x)"),
+            strategy,
+        }
+    }
+
+    async fn merged(request: &MergeRequest) -> (String, String, String) {
+        match LocalMergeGit.merge(request).await.unwrap() {
+            MergeOutcome::Merged {
+                into, commit, tip, ..
+            } => (into, commit, tip),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn conflicting(root: &Path) {
+        git_sync(root, &["checkout", "-q", "ticket/x"]);
+        commit(root, "a.txt", "ticket\n", "ticket line");
+        git_sync(root, &["checkout", "-q", "main"]);
+        commit(root, "a.txt", "main\n", "main line");
+    }
+
+    #[tokio::test]
+    async fn merges_with_a_merge_commit_into_the_checked_out_branch() {
+        let (_dir, root) = repository();
+        let wanted = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
+        let (into, commit, tip) = merged(&request(&root, None, MergeStrategy::Merge)).await;
+        assert_eq!((into.as_str(), tip.as_str()), ("main", wanted.as_str()));
+        assert_eq!(commit, git_sync(&root, &["rev-parse", "--short", "HEAD"]));
+        assert_eq!(
+            git_sync(&root, &["log", "-1", "--format=%s"]),
+            "Merge ARC-0001 \"Title\" (ticket/x)"
+        );
+        assert_eq!(git_sync(&root, &["rev-parse", "HEAD^2"]), wanted);
+        assert!(root.join("b.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn a_squash_is_one_commit_with_the_trailer_and_the_commit_list() {
+        let (_dir, root) = repository();
+        let before = git_sync(&root, &["rev-parse", "HEAD"]);
+        let (_, _, tip) = merged(&request(&root, None, MergeStrategy::Squash)).await;
+        assert_eq!(git_sync(&root, &["rev-parse", "HEAD^"]), before);
+        let body = git_sync(&root, &["log", "-1", "--format=%B"]);
+        assert!(body.starts_with("Merge ARC-0001"), "{body}");
+        assert!(body.contains("- on the ticket"), "{body}");
+        assert!(
+            body.contains(&format!("Harness-Squashed: ticket/x {tip}")),
+            "{body}"
+        );
+        // the same branch again adds nothing
+        let again = merged(&request(&root, None, MergeStrategy::Squash)).await;
+        assert_eq!(again.2, tip);
+        assert_eq!(git_sync(&root, &["rev-parse", "HEAD^"]), before);
+    }
+
+    #[tokio::test]
+    async fn a_conflict_is_undone_and_names_its_files() {
+        let (_dir, root) = repository();
+        conflicting(&root);
+        for strategy in [MergeStrategy::Merge, MergeStrategy::Squash] {
+            let head = git_sync(&root, &["rev-parse", "HEAD"]);
+            let outcome = LocalMergeGit
+                .merge(&request(&root, None, strategy))
+                .await
+                .unwrap();
+            assert_eq!(
+                outcome,
+                MergeOutcome::Conflict {
+                    files: vec![String::from("a.txt")]
+                }
+            );
+            assert_eq!(git_sync(&root, &["rev-parse", "HEAD"]), head);
+            assert_eq!(git_sync(&root, &["status", "--porcelain"]), "");
+            assert!(!root.join(".git/MERGE_HEAD").exists());
+            assert!(!root.join(".git/SQUASH_MSG").exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_merge_that_someone_else_started_is_left_alone() {
+        let (_dir, root) = repository();
+        conflicting(&root);
+        let started = Command::new("git")
+            .args(["merge", "ticket/x"])
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(!started.status.success());
+        let outcome = LocalMergeGit
+            .merge(&request(&root, None, MergeStrategy::Merge))
+            .await
+            .unwrap();
+        assert!(
+            matches!(&outcome, MergeOutcome::Refused { reason } if reason.contains("a merge")),
+            "{outcome:?}"
+        );
+        assert!(root.join(".git/MERGE_HEAD").exists());
+    }
+
+    #[tokio::test]
+    async fn a_target_that_is_not_checked_out_merges_in_its_own_worktree() {
+        let (dir, root) = repository();
+        git_sync(&root, &["branch", "release", "main"]);
+        let (into, _, _) = merged(&request(&root, Some("release"), MergeStrategy::Merge)).await;
+        assert_eq!(into, "release");
+        assert!(!root.join("b.txt").exists());
+        assert_eq!(git_sync(&root, &["show", "release:b.txt"]), "ticket");
+        // the merge worktree is closed again
+        assert!(!dir.path().join("arches-worktrees/_merge/release").exists());
+        assert_eq!(
+            git_sync(&root, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            "main"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_foreign_folder_at_the_merge_worktree_is_refused() {
+        let (dir, root) = repository();
+        git_sync(&root, &["branch", "release", "main"]);
+        fs::create_dir_all(dir.path().join("arches-worktrees/_merge/release")).unwrap();
+        let error = LocalMergeGit
+            .merge(&request(&root, Some("release"), MergeStrategy::Merge))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "merge-worktree-foreign");
+    }
+
+    #[tokio::test]
+    async fn a_detached_main_checkout_without_a_target_is_refused() {
+        let (_dir, root) = repository();
+        git_sync(&root, &["checkout", "-q", "--detach"]);
+        let outcome = LocalMergeGit
+            .merge(&request(&root, None, MergeStrategy::Merge))
+            .await
+            .unwrap();
+        assert!(
+            matches!(outcome, MergeOutcome::Refused { .. }),
+            "{outcome:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unsafe_branch_name_never_reaches_git() {
+        let (_dir, root) = repository();
+        let mut bad = request(&root, None, MergeStrategy::Merge);
+        bad.branch = String::from("--upload-pack=x");
+        assert_eq!(
+            LocalMergeGit.merge(&bad).await.unwrap_err().code(),
+            "merge-branch-invalid"
+        );
+        let target = request(&root, Some("-d"), MergeStrategy::Merge);
+        assert_eq!(
+            LocalMergeGit.merge(&target).await.unwrap_err().code(),
+            "merge-branch-invalid"
+        );
+    }
+
+    fn delete(root: &Path, tip: &str) -> DeleteBranch {
+        DeleteBranch {
+            root: slashed(root),
+            branch: String::from("ticket/x"),
+            tip: tip.to_owned(),
+            into: String::from("main"),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_branch_stays_when_it_moved_after_the_merge() {
+        let (_dir, root) = repository();
+        let (_, _, tip) = merged(&request(&root, None, MergeStrategy::Merge)).await;
+        git_sync(&root, &["checkout", "-q", "ticket/x"]);
+        commit(&root, "c.txt", "late\n", "late commit");
+        git_sync(&root, &["checkout", "-q", "main"]);
+        let kept = LocalMergeGit
+            .delete_merged(&delete(&root, &tip))
+            .await
+            .unwrap();
+        assert!(matches!(kept, BranchDeletion::Kept(_)), "{kept:?}");
+        assert!(has_ref(&root, "refs/heads/ticket/x").await.unwrap());
+        // at its new tip it is not merged either
+        let late = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
+        let unmerged = LocalMergeGit
+            .delete_merged(&delete(&root, &late))
+            .await
+            .unwrap();
+        assert!(
+            matches!(&unmerged, BranchDeletion::Kept(why) if why.contains("not in main")),
+            "{unmerged:?}"
+        );
+        assert!(has_ref(&root, "refs/heads/ticket/x").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_merged_branch_is_deleted_unless_it_is_checked_out() {
+        let (_dir, root) = repository();
+        let (_, _, tip) = merged(&request(&root, None, MergeStrategy::Merge)).await;
+        let folder = root.parent().unwrap().join("arches-worktrees/x");
+        git_sync(&root, &["worktree", "add", &slashed(&folder), "ticket/x"]);
+        let kept = LocalMergeGit
+            .delete_merged(&delete(&root, &tip))
+            .await
+            .unwrap();
+        assert!(
+            matches!(&kept, BranchDeletion::Kept(why) if why.contains("checked out")),
+            "{kept:?}"
+        );
+        git_sync(&root, &["worktree", "remove", &slashed(&folder)]);
+        let gone = LocalMergeGit
+            .delete_merged(&delete(&root, &tip))
+            .await
+            .unwrap();
+        assert_eq!(gone, BranchDeletion::Deleted);
+        assert!(!has_ref(&root, "refs/heads/ticket/x").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_squashed_branch_counts_as_merged_for_the_delete() {
+        let (_dir, root) = repository();
+        let (_, _, tip) = merged(&request(&root, None, MergeStrategy::Squash)).await;
+        assert!(
+            LocalMergeGit
+                .integrated(&slashed(&root), "ticket/x", None)
+                .await
+                .unwrap()
+        );
+        let gone = LocalMergeGit
+            .delete_merged(&delete(&root, &tip))
+            .await
+            .unwrap();
+        assert_eq!(gone, BranchDeletion::Deleted);
+    }
+
+    #[tokio::test]
+    async fn merged_earlier_needs_a_merge_commit_or_the_trailer() {
+        let (_dir, root) = repository();
+        let path = slashed(&root);
+        assert_eq!(
+            LocalMergeGit
+                .merged_earlier(&path, "ticket/x", None)
+                .await
+                .unwrap(),
+            None,
+            "the branch exists"
+        );
+        let (_, commit, _) = merged(&request(&root, None, MergeStrategy::Merge)).await;
+        git_sync(&root, &["branch", "-D", "ticket/x"]);
+        let found = LocalMergeGit
+            .merged_earlier(&path, "ticket/x", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (found.into.as_str(), found.commit.as_str()),
+            ("main", commit.as_str())
+        );
+        // a commit that only mentions the branch is no merge
+        let (_other_dir, other) = repository();
+        git_sync(
+            &other,
+            &["commit", "-q", "--allow-empty", "-m", "see (ticket/x)"],
+        );
+        git_sync(&other, &["branch", "-D", "ticket/x"]);
+        assert_eq!(
+            LocalMergeGit
+                .merged_earlier(&slashed(&other), "ticket/x", None)
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn merged_earlier_finds_a_squash_by_its_trailer() {
+        let (_dir, root) = repository();
+        merged(&request(&root, None, MergeStrategy::Squash)).await;
+        git_sync(&root, &["branch", "-D", "ticket/x"]);
+        let found = LocalMergeGit
+            .merged_earlier(&slashed(&root), "ticket/x", None)
+            .await
+            .unwrap();
+        assert!(found.is_some());
+    }
+}

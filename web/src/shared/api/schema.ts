@@ -1429,6 +1429,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/merges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_merges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticketKey}/move": {
         parameters: {
             query?: never;
@@ -2659,6 +2675,36 @@ export interface components {
         Me: {
             kind: components["schemas"]["PrincipalKind"];
         };
+        /** @description The merge of a worktree's branch into its target. */
+        MergeJobDto: {
+            branch: string;
+            /** @description A merge conflict was found and undone. */
+            conflictSeen: boolean;
+            /** Format: int64 */
+            finishedAt?: number | null;
+            /** Format: uuid */
+            id: string;
+            mergedCommit?: string | null;
+            mergedInto?: string | null;
+            phase: components["schemas"]["MergePhaseDto"];
+            /** @description Why the merge failed, or the files it conflicts in. */
+            problem?: string | null;
+            /**
+             * Format: int64
+             * @description Unix milliseconds the merge was queued.
+             */
+            queuedAt: number;
+            strategy: components["schemas"]["MergeStrategyDto"];
+            /** @description None: the branch the main checkout has checked out. */
+            targetBranch?: string | null;
+            /** Format: int64 */
+            version: number;
+        };
+        MergeJobList: {
+            items: components["schemas"]["MergeJobDto"][];
+        };
+        /** @enum {string} */
+        MergePhaseDto: "pending" | "waiting" | "conflict-session" | "merged" | "failed" | "cancelled";
         /** @enum {string} */
         MergeStrategyDto: "merge" | "squash";
         ModelUsageDto: {
@@ -2809,6 +2855,8 @@ export interface components {
             errors: string[];
             /** @description Why nothing new could start, in words. */
             idle?: string | null;
+            /** @description Tickets whose branch went into its target. */
+            merged: string[];
             /** @description Ready tickets that wait for a free place. */
             queued: string[];
             released: string[];
@@ -10136,6 +10184,54 @@ export interface operations {
             };
             /** @description The runner is not connected */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_merges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeJobList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A malformed ticket key */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

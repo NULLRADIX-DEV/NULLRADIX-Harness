@@ -192,3 +192,73 @@ impl WorktreeService {
         Ok(())
     }
 }
+
+impl WorktreeService {
+    /// Legacy `remove_merged` for the folder: `None` once it is gone, else why it stays.
+    pub(crate) async fn remove_merged_folder(
+        &self,
+        entry: &super::WorktreeEntry,
+    ) -> Result<Option<String>, AppError> {
+        let worktree = &entry.worktree;
+        if worktree.removed() {
+            return Ok(None);
+        }
+        let record = worktree.record();
+        let Some(root) = self.runners.root(record.runner, record.repository).await? else {
+            return Ok(Some(String::from(
+                "the repository has no checkout on its runner",
+            )));
+        };
+        let _turn = self.lock_worktree(worktree.id()).await;
+        if !self.claim(worktree.id()).await? {
+            return Ok(None);
+        }
+        let request = RemoveWorktree {
+            root: root.clone(),
+            path: worktree.path().as_str().to_owned(),
+            cwd: root,
+        };
+        let removal = match self.runners.remove_worktree(record.runner, &request).await {
+            Ok(removal) => removal,
+            Err(error) => WorktreeRemoval::Kept(error.message().to_owned()),
+        };
+        self.record_removal(worktree.id(), &removal).await?;
+        Ok(match removal {
+            WorktreeRemoval::Kept(reason) => Some(reason),
+            WorktreeRemoval::Removed | WorktreeRemoval::Missing => None,
+        })
+    }
+
+    /// Clears branch and worktree on every ticket that still shows this worktree's branch.
+    pub(crate) async fn clear_merged_links(
+        &self,
+        entry: &super::WorktreeEntry,
+        actor: &Actor,
+    ) -> Result<(), AppError> {
+        let branch = entry.worktree.branch().as_str();
+        let patch = crate::tickets::TicketPatch {
+            clear_link: true,
+            ..crate::tickets::TicketPatch::default()
+        };
+        let options = WriteOptions {
+            force: true,
+            ..WriteOptions::default()
+        };
+        for link in entry.tickets.iter().filter(|link| link.live()) {
+            let key = link.key.to_string();
+            let detail = match self.tickets.get(&key).await {
+                Ok(detail) => detail,
+                Err(error) if error.kind() == crate::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            let record = detail.view.ticket.record();
+            if record.branch.as_deref() != Some(branch) {
+                continue;
+            }
+            self.tickets
+                .update(&key, &patch, actor, record.version, options)
+                .await?;
+        }
+        Ok(())
+    }
+}

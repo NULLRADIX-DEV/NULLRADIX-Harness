@@ -14,6 +14,9 @@ use super::detached::DetachedWorktreePort;
 use super::evaluate::EvaluateRuns;
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, DispatcherLogRepository};
+use super::merge::{MergeAll, MergeCatchUp, MergeParts};
+use super::merge_git::MergeGit;
+use super::merge_jobs::{MergeGate, MergeJobRepository, MergeQueue, QueueOnAccept};
 use super::pass::{DispatchPass, PassPhase};
 use super::pauses::{DispatchPauses, PauseParts};
 use super::research::{ResearchOrphans, ResearchParts, ResearchRuns, StartResearch};
@@ -37,7 +40,7 @@ use crate::repositories::RunnerService;
 use crate::review::ReviewService;
 use crate::runs::RunService;
 use crate::tickets::TicketService;
-use crate::worktrees::WorktreeService;
+use crate::worktrees::{WorktreeRepository, WorktreeService};
 use crate::{ChangeSignal, Clock, IdGenerator};
 
 /// What the dispatcher is built from.
@@ -62,6 +65,9 @@ pub struct DispatcherDeps {
     pub tickets: Arc<TicketService>,
     pub comments: Arc<CommentService>,
     pub worktrees: Arc<WorktreeService>,
+    pub worktree_repository: Arc<dyn WorktreeRepository>,
+    pub merge_jobs: Arc<dyn MergeJobRepository>,
+    pub merge_git: Arc<dyn MergeGit>,
     pub reviews: Arc<ReviewService>,
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn IdGenerator>,
@@ -83,6 +89,8 @@ pub struct Dispatcher {
     pub research: Arc<ResearchRuns>,
     /// Accept and return of a held review, serialized with the pass.
     pub decisions: Arc<ReviewDecisions>,
+    /// Queues merges and lists the jobs of a ticket.
+    pub merges: Arc<MergeQueue>,
 }
 
 impl std::fmt::Debug for Dispatcher {
@@ -113,7 +121,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         deps.accounts.clone(),
         state.clone(),
         deps.clock.clone(),
-        deps.signal,
+        deps.signal.clone(),
     ));
     let accounts = Arc::new(AccountPicker::new(PickerParts {
         accounts: deps.accounts.clone(),
@@ -149,7 +157,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         aborts: aborts.clone(),
         notifier: deps.notifier.clone(),
         clock: deps.clock.clone(),
-        ids: deps.ids,
+        ids: deps.ids.clone(),
     });
     let pass = DispatchPass::new(
         deps.config.clone(),
@@ -179,6 +187,14 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         clock: deps.clock.clone(),
         notifier: deps.notifier.clone(),
     });
+    let merges = Arc::new(MergeQueue::new(
+        deps.merge_jobs,
+        deps.worktree_repository.clone(),
+        deps.config.clone(),
+        deps.clock.clone(),
+        deps.ids.clone(),
+        deps.signal.clone(),
+    ));
     let evaluate = Arc::new(
         EvaluateRuns::new(
             deps.tickets.clone(),
@@ -190,16 +206,19 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         )
         .with_accounts(accounts.clone())
         .with_notifier(deps.notifier.clone())
-        .with_gate(Arc::new(
-            ReviewGate::new(
-                deps.reviews.clone(),
-                deps.tickets.clone(),
-                deps.comments.clone(),
-                deps.runs.clone(),
-                starter.clone(),
-            )
-            .with_notifier(deps.notifier.clone()),
-        ))
+        .with_gate(Arc::new(MergeGate::new(
+            Arc::new(
+                ReviewGate::new(
+                    deps.reviews.clone(),
+                    deps.tickets.clone(),
+                    deps.comments.clone(),
+                    deps.runs.clone(),
+                    starter.clone(),
+                )
+                .with_notifier(deps.notifier.clone()),
+            ),
+            merges.clone(),
+        )))
         .with_research(research.clone()),
     );
     evaluate.set_pause_hook(Arc::new(DispatchPauses::new(PauseParts {
@@ -242,15 +261,48 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         PassPhase::StartResearch,
         Arc::new(StartResearch(research.clone())),
     );
-    let decisions = Arc::new(ReviewDecisions::new(DecisionParts {
-        pass: pass.clone(),
-        tickets: deps.tickets.clone(),
-        comments: deps.comments.clone(),
-        worktrees: deps.worktrees,
-        reviews: deps.reviews,
-        runs: deps.runs.clone(),
-        starter: starter.clone(),
-    }));
+    pass.set_step(
+        PassPhase::MergeCatchUp,
+        Arc::new(MergeCatchUp::new(
+            merges.clone(),
+            deps.tickets.clone(),
+            deps.worktree_repository.clone(),
+            deps.runners.clone(),
+            deps.runs.clone(),
+            deps.merge_git.clone(),
+        )),
+    );
+    pass.set_step(
+        PassPhase::MergeAll,
+        Arc::new(
+            MergeAll::new(MergeParts {
+                queue: merges.clone(),
+                worktrees: deps.worktree_repository.clone(),
+                worktree_service: deps.worktrees.clone(),
+                tickets: deps.tickets.clone(),
+                comments: deps.comments.clone(),
+                runners: deps.runners.clone(),
+                git: deps.merge_git,
+                starter: starter.clone(),
+                log: log.clone(),
+                clock: deps.clock.clone(),
+                signal: deps.signal.clone(),
+            })
+            .with_notifier(deps.notifier.clone()),
+        ),
+    );
+    let decisions = Arc::new(
+        ReviewDecisions::new(DecisionParts {
+            pass: pass.clone(),
+            tickets: deps.tickets.clone(),
+            comments: deps.comments.clone(),
+            worktrees: deps.worktrees,
+            reviews: deps.reviews,
+            runs: deps.runs.clone(),
+            starter: starter.clone(),
+        })
+        .with_hook(Arc::new(QueueOnAccept(merges.clone()))),
+    );
     let service = Arc::new(DispatcherService::new(ControlParts {
         research: research.clone(),
         config: deps.config,
@@ -274,5 +326,6 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         evaluate,
         research,
         decisions,
+        merges,
     }
 }
