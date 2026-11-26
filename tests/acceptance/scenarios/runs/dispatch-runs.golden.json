@@ -773,12 +773,15 @@
           "Edit(./plan.json)",
           "Bash(nullradix ticket show:*)",
           "Bash(nullradix ticket list:*)",
-          "Bash(nullradix plan write:*)",
-          "Bash(nullradix comment:*)",
+          "Bash(nullradix plan import:*)",
+          "Bash(nullradix ticket comment:*)",
           "Bash(nullradix note list:*)",
+          "Bash(nullradix question show:*)",
+          "Bash(nullradix question list:*)",
           "Bash(nullradix question add:*)",
           "Bash(git log:*)",
-          "Bash(git show:*)"
+          "Bash(git show:*)",
+          "Bash(git diff:*)"
         ],
         "createdAt": "<TIME>",
         "cwd": "<WORK>",

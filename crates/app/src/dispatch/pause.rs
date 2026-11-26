@@ -39,6 +39,17 @@ pub trait PauseHook: Send + Sync {
     ) -> Result<Option<String>, AppError> {
         Ok(None)
     }
+
+    /// The comment of a plan run paused like a ticket run; `None` when no hook pauses.
+    async fn paused_plan(
+        &self,
+        _run: &Run,
+        _ticket: &TicketRecord,
+        _kind: PauseKind,
+        _config: &DispatcherConfig,
+    ) -> Result<Option<String>, AppError> {
+        Ok(None)
+    }
 }
 
 /// Pauses nothing yet, so these runs count as aborted attempts.

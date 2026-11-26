@@ -1122,3 +1122,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.db-planning {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}

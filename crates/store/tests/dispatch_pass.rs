@@ -22,7 +22,7 @@ use nullradix_app::dispatch::accounts::{
 use nullradix_app::dispatch::assemble::{Dispatcher, DispatcherDeps, assemble};
 use nullradix_app::dispatch::detached::{
     DetachedCreate, DetachedCreated, DetachedPurpose, DetachedRemove, DetachedRemoved,
-    DetachedWorktreePort, detached_path,
+    DetachedWorktreePort, detached_path, detached_subject,
 };
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
 use nullradix_app::dispatch::merge_git::{
@@ -329,8 +329,15 @@ impl DetachedWorktreePort for Detached {
         Ok(DetachedRemoved::Removed)
     }
 
-    async fn list(&self, _root: &str, _purpose: DetachedPurpose) -> Result<Vec<String>, AppError> {
-        let mut folders: Vec<String> = self.folders.lock().unwrap().iter().cloned().collect();
+    async fn list(&self, _root: &str, purpose: DetachedPurpose) -> Result<Vec<String>, AppError> {
+        let mut folders: Vec<String> = self
+            .folders
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|path| detached_subject(purpose, path).is_some())
+            .cloned()
+            .collect();
         folders.sort();
         Ok(folders)
     }
@@ -5618,6 +5625,84 @@ impl Fixture {
     }
 }
 
+const AGENT_P1: &str = "planner-ARC-0001";
+
+impl Fixture {
+    /// A backlog ticket that needs planning.
+    async fn unplanned(&self, title: &str, priority: Option<&str>) -> String {
+        let input = NewTicket {
+            title: title.to_owned(),
+            priority: priority.map(str::to_owned),
+            ..NewTicket::default()
+        };
+        self.tickets
+            .create(
+                self.board.project(),
+                self.board.id(),
+                &input,
+                &self.person,
+                FORCE,
+            )
+            .await
+            .unwrap()
+            .ticket
+            .key()
+            .to_string()
+    }
+
+    async fn plan_runs(&self, key: &str) -> Vec<Run> {
+        let filter = RunFilter {
+            subject_key: Some(key.to_owned()),
+            kind: Some(nullradix_domain::RunKind::Plan),
+            ..RunFilter::default()
+        };
+        nullradix_app::runs::RunRepository::find(self.store.as_ref(), &filter, 20)
+            .await
+            .unwrap()
+    }
+
+    async fn plan_error(&self, key: &str) -> &'static str {
+        self.dispatcher
+            .service
+            .start_planning(key)
+            .await
+            .unwrap_err()
+            .code()
+    }
+
+    /// The planning agent saves its plan with `plan import`.
+    async fn write_plan(&self, key: &str, agent: &str) {
+        let author = Author {
+            by_person: false,
+            name: Some(agent),
+            session: Some("s-plan"),
+        };
+        let actor = self.comments.author(author, &self.person).await.unwrap();
+        let input = nullradix_app::tickets::PlanInput {
+            plan: Some(String::from("Do it in two steps.")),
+            handbook: Some(String::from("cargo test")),
+            ..nullradix_app::tickets::PlanInput::default()
+        };
+        self.tickets.plan(key, &input, &actor).await.unwrap();
+    }
+
+    async fn plan_tracked(&self, key: &str) -> Option<nullradix_app::dispatch::tracking::Tracked> {
+        use nullradix_app::dispatch::tracking::{AutoRunRepository, TrackKind};
+        let id = self.record(key).await.id.as_uuid();
+        AutoRunRepository::get(self.store.as_ref(), TrackKind::Planning, id)
+            .await
+            .unwrap()
+    }
+
+    async fn auto_planning(&self, wip: i64) {
+        self.configure(|config| {
+            config.planning.auto = true;
+            config.planning.wip = wip;
+        })
+        .await;
+    }
+}
+
 #[tokio::test]
 async fn a_finished_ticket_without_review_is_merged_and_cleaned_up_in_the_same_pass() {
     let f = fixture().await;
@@ -6113,4 +6198,571 @@ async fn a_folder_that_cannot_be_cleaned_up_blocks_and_any_other_failure_is_trie
         record.blocked_reason.as_deref(),
         Some("Merge: the folder is still in the merge state")
     );
+}
+
+#[tokio::test]
+async fn a_person_starts_the_planning_of_a_ticket_in_a_detached_worktree() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    assert_eq!(key, "ARC-0001");
+    // by hand it runs whatever the switch says, and it takes no place of the ticket limit
+    let run = f.dispatcher.service.start_planning("arc-1").await.unwrap();
+    let dispatch = run.dispatch().unwrap();
+    assert_eq!(dispatch.kind, nullradix_domain::RunKind::Plan);
+    assert_eq!(dispatch.trigger, nullradix_domain::RunTrigger::Manual);
+    assert_eq!(dispatch.subject_key.as_deref(), Some("ARC-0001"));
+    assert_eq!(dispatch.agent.as_deref(), Some(AGENT_P1));
+    let folder = format!("{ROOT}-worktrees/plan-ARC-0001");
+    assert_eq!(dispatch.cwd.replace('\\', "/"), folder);
+    let created = f.detached.created.lock().unwrap().clone();
+    assert_eq!(created.len(), 1);
+    assert_eq!(created[0].root, ROOT);
+    assert_eq!(created[0].at, "HEAD");
+    assert_eq!(created[0].purpose, DetachedPurpose::Plan);
+    let spec = f.machine.specs.lock().unwrap()[0].clone();
+    let prompt = spec.stdin.unwrap();
+    assert!(prompt.contains("ARC-0001") && prompt.contains("Plan me"));
+    assert!(prompt.contains(&format!(
+        "plan import ARC-0001 --file plan.json --author {AGENT_P1}"
+    )));
+    let at = |flag: &str| spec.args.iter().position(|arg| arg == flag).unwrap();
+    assert!(at("--disallowedTools") < at("--allowedTools"));
+    for tool in [
+        "Write(./plan.json)",
+        "Bash(nullradix plan import:*)",
+        "Bash(nullradix question list:*)",
+    ] {
+        assert!(spec.args.iter().any(|arg| arg == tool), "{tool}");
+    }
+    assert!(!spec.args.iter().any(|arg| arg == "Bash(*)"));
+    // the ticket is claimed for the agent while the run goes
+    let claim = f.record(&key).await.planning_claim.unwrap();
+    assert_eq!(claim.0, AGENT_P1);
+    let tracked = f.plan_tracked(&key).await.unwrap();
+    assert_eq!(tracked.count, 1);
+    assert_eq!(tracked.auto_at, None);
+    let status = f.dispatcher.service.status(None).await.unwrap();
+    assert_eq!(status.active, 0);
+    assert_eq!(status.planning, 1);
+}
+
+#[tokio::test]
+async fn a_planning_is_refused_for_the_reasons_legacy_gave() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    assert_eq!(f.plan_error("ARC-0099").await, "ticket-not-found");
+    assert_eq!(f.plan_error("ARC-Q1").await, "ticket-id-invalid");
+    // a ticket that is done
+    let done = f.unplanned("Done already", None).await;
+    let version = f.record(&done).await.version;
+    let patch = TicketPatch {
+        status: Some(String::from("done")),
+        acceptance: Some(String::from("Seen.")),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&done, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    assert_eq!(f.plan_error(&done).await, "plan-not-possible");
+    // a ticket that waits on a question
+    let asked = f.unplanned("Asks", None).await;
+    let input = NewQuestion {
+        title: String::from("Which?"),
+        tickets: vec![asked.clone()],
+        ..NewQuestion::default()
+    };
+    f.questions
+        .create(f.board.project(), &input, Author::default(), &f.person)
+        .await
+        .unwrap();
+    assert_eq!(f.plan_error(&asked).await, "plan-waiting-question");
+    // another agent holds the planning claim
+    let claimed = f.unplanned("Claimed", None).await;
+    f.tickets
+        .claim_planning(&claimed, "someone-else", &f.person)
+        .await
+        .unwrap();
+    assert_eq!(f.plan_error(&claimed).await, "plan-claimed");
+    assert!(f.plan_runs(&claimed).await.is_empty());
+    // a folder in the way stays, the start fails and the claim goes back
+    f.detached.busy.store(true, Ordering::SeqCst);
+    assert_eq!(f.plan_error(&key).await, "plan-worktree-busy");
+    f.detached.busy.store(false, Ordering::SeqCst);
+    assert_eq!(f.record(&key).await.planning_claim, None);
+    assert!(f.machine.specs.lock().unwrap().is_empty());
+    // a pause holds it back
+    f.dispatcher
+        .service
+        .pause(nullradix_app::dispatch::control::PauseFor::Minutes(30))
+        .await
+        .unwrap();
+    assert_eq!(f.plan_error(&key).await, "dispatch-paused");
+    f.dispatcher.service.resume().await.unwrap();
+    // a second start of a ticket that is being planned
+    f.dispatcher.service.start_planning(&key).await.unwrap();
+    assert_eq!(f.plan_error(&key).await, "plan-running");
+    assert_eq!(f.plan_runs(&key).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_ticket_that_is_worked_on_or_on_a_board_without_a_repository_is_refused() {
+    let f = fixture().await;
+    let key = f.unplanned("Worked on", None).await;
+    let version = f.record(&key).await.version;
+    let patch = TicketPatch {
+        status: Some(String::from("in-progress")),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    assert_eq!(f.plan_error(&key).await, "plan-not-possible");
+    // a board of another project has no repository
+    let bare = f.bare_board_ticket().await;
+    assert_eq!(f.plan_error(&bare).await, "plan-no-repo");
+    assert!(f.claim_of(&bare).await.is_none());
+}
+
+#[tokio::test]
+async fn a_failed_planning_start_removes_its_worktree_and_claim_again() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    f.machine.fail_start.store(true, Ordering::SeqCst);
+    assert_eq!(f.plan_error(&key).await, "claude-missing");
+    let removed = f.detached.removed.lock().unwrap().clone();
+    assert_eq!(removed, [format!("{ROOT}-worktrees/plan-ARC-0001")]);
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    assert!(f.claim_of(&key).await.is_none());
+    assert_eq!(f.plan_tracked(&key).await, None);
+}
+
+#[tokio::test]
+async fn two_starts_of_one_ticket_make_one_planning_run() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    let gate = Arc::new(Notify::new());
+    *f.machine.hold_start.lock().unwrap() = Some(gate.clone());
+    let first = {
+        let service = f.dispatcher.service.clone();
+        let key = key.clone();
+        tokio::spawn(async move { service.start_planning(&key).await })
+    };
+    f.machine.start_entered.notified().await;
+    let second = {
+        let service = f.dispatcher.service.clone();
+        let key = key.clone();
+        tokio::spawn(async move { service.start_planning(&key).await })
+    };
+    tokio::task::yield_now().await;
+    gate.notify_one();
+    let first = first.await.unwrap();
+    let second = second.await.unwrap();
+    assert!(first.is_ok(), "{first:?}");
+    assert_eq!(second.unwrap_err().code(), "plan-running");
+    assert_eq!(f.plan_runs(&key).await.len(), 1);
+    assert_eq!(f.detached.created.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_saved_plan_settles_the_run_and_removes_the_worktree() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    f.dispatcher.service.start_planning(&key).await.unwrap();
+    f.write_plan(&key, AGENT_P1).await;
+    let run = f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(
+        f.outcome(run).await,
+        Some(DispatchOutcome::Planned),
+        "{report:?}"
+    );
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Planned);
+    assert!(!record.needs_planning);
+    assert_eq!(record.planning_claim, None);
+    assert_eq!(record.plan, "Do it in two steps.");
+    assert!(f.marked(&key, SystemMarker::PlanEmpty).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_run_that_leaves_no_plan_comments_the_ticket_once_and_gives_the_claim_back() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    f.dispatcher.service.start_planning(&key).await.unwrap();
+    // a plan of someone else in the meantime is not the agent's
+    f.write_plan(&key, "someone-else").await;
+    let abort = abort_of(AbortCategory::Timeout, TIMEOUT_REASON);
+    let run = f
+        .end_run(&key, RunOutcome::TimedOut, None, Some(abort))
+        .await;
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Other));
+    let bodies = f.marked(&key, SystemMarker::PlanEmpty).await;
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert!(
+        bodies[0].starts_with("[dispatch] plan-empty: time limit of 90 min reached, run stopped."),
+        "{bodies:?}"
+    );
+    assert!(bodies[0].contains("\"Plan\" on the ticket starts a new one"));
+    let comments = f.comments.list(&key).await.unwrap();
+    let line = comments
+        .iter()
+        .find(|line| line.comment.record().system_marker == Some(SystemMarker::PlanEmpty))
+        .unwrap();
+    assert_eq!(line.comment.record().run, Some(run));
+    assert_eq!(line.author_kind, ActorKind::Dispatcher);
+    assert!(f.claim_of(&key).await.is_none());
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_planning_that_asks_a_question_settles_as_a_question_without_a_comment() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    f.dispatcher.service.start_planning(&key).await.unwrap();
+    let input = NewQuestion {
+        title: String::from("Which database?"),
+        tickets: vec![key.clone()],
+        ..NewQuestion::default()
+    };
+    f.questions
+        .create(f.board.project(), &input, Author::default(), &f.person)
+        .await
+        .unwrap();
+    let run = f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Question));
+    assert!(f.marked(&key, SystemMarker::PlanEmpty).await.is_empty());
+    assert!(f.claim_of(&key).await.is_none());
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_usage_limit_in_a_planning_pauses_the_dispatcher_and_leaves_the_ticket_to_plan_again() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    f.dispatcher.service.start_planning(&key).await.unwrap();
+    let run = f
+        .end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+        .await;
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::PauseLimit));
+    assert_eq!(
+        f.paused_until().await.map(Timestamp::as_millis),
+        Some(START + 60 * MINUTE)
+    );
+    let bodies = f.marked(&key, SystemMarker::PlanEmpty).await;
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert!(
+        bodies[0].starts_with("[dispatch] plan-empty: usage limit reached, plan not saved."),
+        "{bodies:?}"
+    );
+    assert!(bodies[0].contains("Start the planning again afterwards."));
+    assert_eq!(f.notice_kinds(), [NoticeKind::Paused]);
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    assert_eq!(f.plan_runs(&key).await.len(), 1);
+}
+
+#[tokio::test]
+async fn missing_claude_in_a_planning_pauses_the_dispatcher() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    f.dispatcher.service.start_planning(&key).await.unwrap();
+    let missing = abort_of(
+        AbortCategory::StartFailed,
+        "claude could not be started: not found",
+    );
+    let run = f
+        .end_run(&key, RunOutcome::Failed, Some(127), Some(missing))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(
+        f.outcome(run).await,
+        Some(DispatchOutcome::PauseClaudeMissing)
+    );
+    let bodies = f.marked(&key, SystemMarker::PlanEmpty).await;
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert!(
+        bodies[0].contains("Claude Code was not found (command \"claude\")"),
+        "{bodies:?}"
+    );
+    assert_eq!(f.notice_kinds(), [NoticeKind::Paused]);
+}
+
+#[tokio::test]
+async fn a_plan_worktree_that_stays_is_removed_by_a_later_pass_but_not_while_its_run_lives() {
+    let f = fixture().await;
+    let key = f.unplanned("Plan me", None).await;
+    f.dispatcher.service.start_planning(&key).await.unwrap();
+    let folder = format!("{ROOT}-worktrees/plan-ARC-0001");
+    f.dispatcher.pass.run().await;
+    assert!(f.detached.folders.lock().unwrap().contains(&folder));
+    f.detached.keep.store(true, Ordering::SeqCst);
+    let run = f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Other));
+    assert!(f.detached.folders.lock().unwrap().contains(&folder));
+    f.detached.keep.store(false, Ordering::SeqCst);
+    f.dispatcher.pass.run().await;
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    assert!(f.dispatcher.service.start_planning(&key).await.is_ok());
+}
+
+#[tokio::test]
+async fn a_research_folder_is_no_plan_orphan_and_a_plan_folder_no_research_orphan() {
+    let f = fixture().await;
+    let research = format!("{ROOT}-worktrees/research-ARC-Q0001");
+    let plan = format!("{ROOT}-worktrees/plan-ARC-0009");
+    f.detached.folders.lock().unwrap().insert(research.clone());
+    f.detached.folders.lock().unwrap().insert(plan.clone());
+    f.dispatcher.pass.run().await;
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    let mut removed = f.detached.removed.lock().unwrap().clone();
+    removed.sort();
+    assert_eq!(removed, [plan, research]);
+}
+
+#[tokio::test]
+async fn the_planning_automation_takes_up_only_tickets_newer_than_its_switch() {
+    let f = fixture().await;
+    let old = f.unplanned("Old", None).await;
+    f.advance(1);
+    f.auto_planning(5).await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.planned.is_empty(), "{report:?}");
+    f.advance(1);
+    let fresh = f.unplanned("Fresh", None).await;
+    // the dispatcher is off: the automation does not need the switch
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.planned, [fresh.clone()], "{report:?}");
+    assert!(f.plan_runs(&old).await.is_empty());
+    let tracked = f.plan_tracked(&fresh).await.unwrap();
+    assert_eq!(tracked.count, 1);
+    assert!(tracked.auto_at.is_some());
+    // under way or tried: no second start, not even after a run without a plan
+    assert!(f.dispatcher.pass.run().await.planned.is_empty());
+    f.end_run(&fresh, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    f.dispatcher.pass.run().await;
+    assert!(f.dispatcher.pass.run().await.planned.is_empty());
+    assert_eq!(f.plan_runs(&fresh).await.len(), 1);
+    // a changed old ticket counts as new
+    f.advance(1);
+    let version = f.record(&old).await.version;
+    let patch = TicketPatch {
+        description: Some(String::from("Now with a description.")),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&old, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    assert_eq!(f.dispatcher.pass.run().await.planned, [old.clone()]);
+    // switched off and on again: the clock starts anew
+    f.end_run(&old, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    f.configure(|config| config.planning.auto = false).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    f.auto_planning(5).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let again = f.unplanned("Again", None).await;
+    assert_eq!(f.dispatcher.pass.run().await.planned, [again]);
+}
+
+#[tokio::test]
+async fn the_planning_automation_goes_by_priority_then_number_within_its_places() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_planning(1).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let low = f.unplanned("Low", Some("low")).await;
+    let normal = f.unplanned("Normal", None).await;
+    let urgent = f.unplanned("Urgent", Some("urgent")).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.planned, [urgent.clone()], "{report:?}");
+    // one place: nothing more while it runs
+    assert!(f.dispatcher.pass.run().await.planned.is_empty());
+    f.end_run(&urgent, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.planned, [normal.clone()], "{report:?}");
+    f.end_run(&normal, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.planned, [low], "{report:?}");
+}
+
+#[tokio::test]
+async fn the_planning_automation_plans_only_while_the_ticket_limit_has_room() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_planning(3).await;
+    f.configure(|config| {
+        config.enabled = true;
+        config.review_before_merge = false;
+        config.wip = 1;
+    })
+    .await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let work = f.ready("Work", &["auto"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started, [work.clone()], "{report:?}");
+    f.advance(1);
+    let key = f.unplanned("Plan me", None).await;
+    // the only place of the limit is taken by the work run
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.planned.is_empty(), "{report:?}");
+    f.end_run(&work, RunOutcome::Succeeded, Some(0), None).await;
+    f.agent_changes(&work, "done", None).await;
+    // the pass settles the work run and plans in the place it freed
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.planned, [key], "{report:?}");
+    // the plan run takes no place of the limit
+    let status = f.dispatcher.service.status(None).await.unwrap();
+    assert_eq!(status.active, 0);
+    assert_eq!(status.planning, 1);
+}
+
+#[tokio::test]
+async fn the_planning_automation_marks_ticket_faults_and_waits_after_machine_faults() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_planning(5).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    // a live claim of another agent keeps a ticket out of the candidates
+    let claimed = f.unplanned("Claimed", None).await;
+    f.tickets
+        .claim_planning(&claimed, "someone-else", &f.person)
+        .await
+        .unwrap();
+    let report = f.dispatcher.pass.run().await;
+    assert!(
+        report.planned.is_empty() && report.errors.is_empty(),
+        "{report:?}"
+    );
+    let key = f.unplanned("Broken", None).await;
+    f.detached.fail_create.store(true, Ordering::SeqCst);
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.planned.is_empty());
+    assert_eq!(report.errors.len(), 1, "{report:?}");
+    assert!(report.errors[0].contains("git is broken"), "{report:?}");
+    // within the pause nothing is tried, so nothing is reported again
+    f.detached.fail_create.store(false, Ordering::SeqCst);
+    f.advance(29);
+    let report = f.dispatcher.pass.run().await;
+    assert!(
+        report.planned.is_empty() && report.errors.is_empty(),
+        "{report:?}"
+    );
+    // the claim of the other agent has run out by now, and its ticket is a candidate again
+    f.advance(2);
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.planned, [claimed, key], "{report:?}");
+}
+
+#[tokio::test]
+async fn the_planning_automation_stands_down_while_paused_or_outside_the_window() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_planning(5).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let key = f.unplanned("Later", None).await;
+    f.dispatcher
+        .service
+        .pause(nullradix_app::dispatch::control::PauseFor::Minutes(15))
+        .await
+        .unwrap();
+    assert!(f.dispatcher.pass.run().await.planned.is_empty());
+    f.dispatcher.service.resume().await.unwrap();
+    f.configure(|config| {
+        config.window = Some(nullradix_domain::TimeWindow {
+            from: String::from("13:00"),
+            to: String::from("14:00"),
+        });
+    })
+    .await;
+    assert!(f.dispatcher.pass.run().await.planned.is_empty());
+    f.configure(|config| config.window = None).await;
+    assert_eq!(f.dispatcher.pass.run().await.planned, [key]);
+}
+
+#[tokio::test]
+async fn a_ticket_being_planned_is_not_started_for_work() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.ready("Replan me", &["auto"]).await;
+    f.dispatcher.service.start_planning(&key).await.unwrap();
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.started.is_empty(), "{report:?}");
+    assert_eq!(f.plan_runs(&key).await.len(), 1);
+}
+
+impl Fixture {
+    async fn claim_of(&self, key: &str) -> Option<(String, Timestamp)> {
+        self.record(key).await.planning_claim
+    }
+}
+
+impl Fixture {
+    /// A ticket on a board that has no repository.
+    async fn bare_board_ticket(&self) -> String {
+        let clock = self.clock.clone();
+        let ids = Arc::new(UuidV7Generator);
+        let signal = ChangeSignal::new();
+        let runners = Arc::new(
+            RunnerService::start(
+                self.store.clone(),
+                self.store.clone(),
+                self.machine.clone(),
+                clock.clone(),
+                ids.clone(),
+                signal.clone(),
+            )
+            .await
+            .unwrap(),
+        );
+        let projects = ProjectService::new(
+            self.store.clone(),
+            clock.clone(),
+            ids.clone(),
+            signal.clone(),
+        );
+        let boards = BoardService::new(
+            self.store.clone(),
+            self.store.clone(),
+            self.store.clone(),
+            runners,
+            clock,
+            ids,
+            signal,
+        );
+        let project = projects.create("OTH", "Others").await.unwrap();
+        let board = boards
+            .create(project.id(), "Bare", &self.person)
+            .await
+            .unwrap()
+            .board;
+        let input = NewTicket {
+            title: String::from("No repository"),
+            ..NewTicket::default()
+        };
+        self.tickets
+            .create(project.id(), board.id(), &input, &self.person, FORCE)
+            .await
+            .unwrap()
+            .ticket
+            .key()
+            .to_string()
+    }
 }

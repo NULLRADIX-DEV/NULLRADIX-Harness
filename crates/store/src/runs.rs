@@ -562,7 +562,7 @@ impl RunRepository for Store {
                       num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,
                       cache_write_tokens, model_usage, denied_count, outcome, agent
                FROM runs
-               WHERE kind IN ('work', 'research') AND subject_key IS NOT NULL AND outcome IS NULL
+               WHERE kind IN ('work', 'research', 'plan') AND subject_key IS NOT NULL AND outcome IS NULL
                  AND status NOT IN ('starting', 'running')
                ORDER BY finished_at, id LIMIT ?"#,
             limit,

@@ -52,7 +52,7 @@ pub const RESEARCH_DENIED_TOOLS: [&str; 17] = [
 ];
 
 /// The only tools of a plan run.
-pub const PLANNING_TOOLS: [&str; 13] = [
+pub const PLANNING_TOOLS: [&str; 16] = [
     "Read",
     "Glob",
     "Grep",
@@ -60,15 +60,18 @@ pub const PLANNING_TOOLS: [&str; 13] = [
     "Edit(./plan.json)",
     "Bash(nullradix ticket show:*)",
     "Bash(nullradix ticket list:*)",
-    "Bash(nullradix plan write:*)",
-    "Bash(nullradix comment:*)",
+    "Bash(nullradix plan import:*)",
+    "Bash(nullradix ticket comment:*)",
     "Bash(nullradix note list:*)",
+    "Bash(nullradix question show:*)",
+    "Bash(nullradix question list:*)",
     "Bash(nullradix question add:*)",
     "Bash(git log:*)",
     "Bash(git show:*)",
+    "Bash(git diff:*)",
 ];
 
-/// Denied in plan runs on top of the research denials; `plan write` changes the ticket.
+/// Denied in plan runs on top of the research denials; `plan import` changes the ticket.
 pub const PLANNING_ONLY_DENIED_TOOLS: [&str; 5] = [
     "Bash(nullradix ticket set:*)",
     "Bash(nullradix ticket claim:*)",
@@ -421,6 +424,21 @@ mod tests {
             plan.args
                 .contains(&String::from("Bash(nullradix ticket done:*)"))
         );
+    }
+
+    #[test]
+    fn a_plan_run_saves_with_plan_import_and_reads_questions_and_diffs() {
+        for tool in [
+            "Bash(nullradix plan import:*)",
+            "Bash(nullradix question list:*)",
+            "Bash(nullradix question show:*)",
+            "Bash(nullradix ticket comment:*)",
+            "Bash(git diff:*)",
+        ] {
+            assert!(PLANNING_TOOLS.contains(&tool), "{tool}");
+        }
+        assert!(!PLANNING_TOOLS.contains(&"Bash(nullradix plan write:*)"));
+        assert!(!PLANNING_TOOLS.contains(&"Bash(nullradix comment:*)"));
     }
 
     #[test]

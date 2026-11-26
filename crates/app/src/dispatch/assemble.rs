@@ -19,6 +19,7 @@ use super::merge_git::MergeGit;
 use super::merge_jobs::{MergeGate, MergeJobRepository, MergeQueue, QueueOnAccept};
 use super::pass::{DispatchPass, PassPhase};
 use super::pauses::{DispatchPauses, PauseParts};
+use super::planning::{PlanOrphans, PlanningParts, PlanningRuns, StartPlanning};
 use super::research::{ResearchOrphans, ResearchParts, ResearchRuns, StartResearch};
 use super::review_decide::{DecisionParts, ReviewDecisions};
 use super::review_gate::ReviewGate;
@@ -87,6 +88,7 @@ pub struct Dispatcher {
     /// Settles finished runs; the pause hook of a later slice is set here.
     pub evaluate: Arc<EvaluateRuns>,
     pub research: Arc<ResearchRuns>,
+    pub planning: Arc<PlanningRuns>,
     /// Accept and return of a held review, serialized with the pass.
     pub decisions: Arc<ReviewDecisions>,
     /// Queues merges and lists the jobs of a ticket.
@@ -175,8 +177,8 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         runs: deps.runs.clone(),
         dispatch: deps.dispatch.clone(),
         prompts: deps.prompts.clone(),
-        detached: deps.detached,
-        tracking: deps.tracking,
+        detached: deps.detached.clone(),
+        tracking: deps.tracking.clone(),
         accounts: accounts.clone(),
         state: state.clone(),
         config: deps.config.clone(),
@@ -195,6 +197,25 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         deps.ids.clone(),
         deps.signal.clone(),
     ));
+    let planning = PlanningRuns::new(PlanningParts {
+        tickets: deps.tickets.clone(),
+        comments: deps.comments.clone(),
+        boards: deps.boards.clone(),
+        runners: deps.runners.clone(),
+        runs: deps.runs.clone(),
+        dispatch: deps.dispatch.clone(),
+        prompts: deps.prompts.clone(),
+        detached: deps.detached.clone(),
+        tracking: deps.tracking.clone(),
+        accounts: accounts.clone(),
+        state: state.clone(),
+        config: deps.config.clone(),
+        pass: pass.clone(),
+        local: deps.local_time.clone(),
+        starter: starter.clone(),
+        log: log.clone(),
+        clock: deps.clock.clone(),
+    });
     let evaluate = Arc::new(
         EvaluateRuns::new(
             deps.tickets.clone(),
@@ -219,7 +240,8 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
             ),
             merges.clone(),
         )))
-        .with_research(research.clone()),
+        .with_research(research.clone())
+        .with_planning(planning.clone()),
     );
     evaluate.set_pause_hook(Arc::new(DispatchPauses::new(PauseParts {
         tickets: deps.tickets.clone(),
@@ -239,6 +261,10 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
     pass.set_step(
         PassPhase::ResearchOrphans,
         Arc::new(ResearchOrphans(research.clone())),
+    );
+    pass.set_step(
+        PassPhase::PlanOrphans,
+        Arc::new(PlanOrphans(planning.clone())),
     );
     pass.set_step(
         PassPhase::ReleaseStale,
@@ -291,6 +317,10 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
             .with_notifier(deps.notifier.clone()),
         ),
     );
+    pass.set_step(
+        PassPhase::StartPlanning,
+        Arc::new(StartPlanning(planning.clone())),
+    );
     let decisions = Arc::new(
         ReviewDecisions::new(DecisionParts {
             pass: pass.clone(),
@@ -305,6 +335,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
     );
     let service = Arc::new(DispatcherService::new(ControlParts {
         research: research.clone(),
+        planning: planning.clone(),
         config: deps.config,
         state,
         pass: pass.clone(),
@@ -325,6 +356,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         pauses,
         evaluate,
         research,
+        planning,
         decisions,
         merges,
     }

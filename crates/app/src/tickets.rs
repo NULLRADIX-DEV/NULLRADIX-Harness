@@ -22,6 +22,8 @@ use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator, boards};
 
 /// How many tickets one move to another board may carry, as in legacy.
 pub const IMPORT_MAX: usize = 200;
+/// Longest text of a plan write: plan, handbook, diagram and acceptance each.
+pub const PLAN_TEXT_MAX: usize = 200_000;
 
 /// A ticket with the name of the actor who created it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -979,6 +981,23 @@ impl TicketService {
                 "plan-empty",
                 "give at least a plan, a handbook or a diagram",
             ));
+        }
+        for (name, text) in [
+            ("plan", &input.plan),
+            ("handbook", &input.handbook),
+            ("diagram", &input.diagram),
+            ("acceptance", &input.acceptance),
+        ] {
+            if text
+                .as_ref()
+                .is_some_and(|text| text.chars().count() > PLAN_TEXT_MAX)
+            {
+                return Err(AppError::text(
+                    nullradix_domain::TextError::TooLong(PLAN_TEXT_MAX),
+                    "plan-empty",
+                    format!("the {name} has more than {PLAN_TEXT_MAX} characters"),
+                ));
+            }
         }
         let status = optional_status(input.status.as_deref())?.unwrap_or(TicketStatus::Planned);
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;

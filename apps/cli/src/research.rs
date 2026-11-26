@@ -10,7 +10,7 @@ use nullradix_client::Client;
 use crate::comment::agent_session;
 
 /// Largest research file read; the daemon limits the parts on top.
-const FILE_MAX_BYTES: u64 = 1024 * 1024;
+pub(crate) const FILE_MAX_BYTES: u64 = 1024 * 1024;
 
 const FILE_FORMAT: &str = r#"File: {"context": "...", "options": [{"title": "...", "text": "...", "pros": ["..."], "cons": ["..."], "recommended": true}]}
 Example:
@@ -43,8 +43,8 @@ pub(crate) struct SubmitArgs {
     author: Option<String>,
 }
 
-/// Reads at most [`FILE_MAX_BYTES`] of a file or of standard input.
-fn read_limited(path: &Path) -> anyhow::Result<String> {
+/// Reads at most [`FILE_MAX_BYTES`] of a file or of standard input; `what` names it in the error.
+pub(crate) fn read_limited(path: &Path, what: &str) -> anyhow::Result<String> {
     let mut text = String::new();
     let read = if path == Path::new("-") {
         std::io::stdin()
@@ -60,7 +60,7 @@ fn read_limited(path: &Path) -> anyhow::Result<String> {
     };
     anyhow::ensure!(
         read as u64 <= FILE_MAX_BYTES,
-        "the research has more than {FILE_MAX_BYTES} bytes"
+        "the {what} has more than {FILE_MAX_BYTES} bytes"
     );
     Ok(text)
 }
@@ -68,7 +68,7 @@ fn read_limited(path: &Path) -> anyhow::Result<String> {
 /// The research as typed; the author and session of the call replace those in a file.
 fn input(args: &SubmitArgs, session: Option<String>) -> anyhow::Result<SubmitResearch> {
     let mut research = match (&args.from, &args.context) {
-        (Some(path), _) => serde_json::from_str::<SubmitResearch>(&read_limited(path)?)
+        (Some(path), _) => serde_json::from_str::<SubmitResearch>(&read_limited(path, "research")?)
             .context("the research is not valid JSON of the expected shape")?,
         (None, context) => SubmitResearch {
             context: context.clone(),

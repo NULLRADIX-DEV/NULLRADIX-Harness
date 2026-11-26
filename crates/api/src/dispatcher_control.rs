@@ -47,6 +47,9 @@ pub struct PassReportDto {
     pub research: Vec<String>,
     /// Tickets whose branch went into its target.
     pub merged: Vec<String>,
+    /// Tickets whose planning started.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planned: Vec<String>,
     /// Ready tickets that wait for a free place.
     pub queued: Vec<String>,
     pub released: Vec<String>,
@@ -61,6 +64,7 @@ impl From<PassReport> for PassReportDto {
             started: report.started,
             research: report.research,
             merged: report.merged,
+            planned: report.planned,
             queued: report.queued,
             released: report.released,
             errors: report.errors,

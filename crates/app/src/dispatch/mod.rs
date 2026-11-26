@@ -17,6 +17,7 @@ pub mod outcome;
 pub mod pass;
 pub mod pause;
 pub mod pauses;
+pub mod planning;
 pub mod research;
 pub mod review_decide;
 pub mod review_gate;

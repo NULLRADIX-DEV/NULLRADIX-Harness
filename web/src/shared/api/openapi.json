@@ -8096,6 +8096,93 @@
         }
       }
     },
+    "/api/v1/tickets/{ticketKey}/plan-runs": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "operationId": "start_plan_run",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The plan run; progress arrives as events",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the run"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Planning already, claimed by another agent, or the dispatcher is paused or has no account free",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The ticket cannot be planned now: its status, an open question, another run or no board with a repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner could not start it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticketKey}/planning-claim": {
       "post": {
         "tags": [
@@ -12999,6 +13086,13 @@
             },
             "description": "Tickets whose branch went into its target."
           },
+          "planned": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tickets whose planning started."
+          },
           "queued": {
             "type": "array",
             "items": {
@@ -17220,6 +17314,13 @@
               "null"
             ]
           },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `planner-ARC-0007`; the acting person when left out."
+          },
           "diagram": {
             "type": [
               "string",
@@ -17238,6 +17339,13 @@
               "string",
               "null"
             ]
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller."
           },
           "status": {
             "oneOf": [

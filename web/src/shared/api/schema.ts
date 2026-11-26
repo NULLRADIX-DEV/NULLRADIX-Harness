@@ -1477,6 +1477,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/plan-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_plan_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticketKey}/planning-claim": {
         parameters: {
             query?: never;
@@ -2857,6 +2873,8 @@ export interface components {
             idle?: string | null;
             /** @description Tickets whose branch went into its target. */
             merged: string[];
+            /** @description Tickets whose planning started. */
+            planned?: string[];
             /** @description Ready tickets that wait for a free place. */
             queued: string[];
             released: string[];
@@ -4166,10 +4184,14 @@ export interface components {
         /** @description A plan; at least one of plan, handbook and diagram. */
         WritePlan: {
             acceptance?: string | null;
+            /** @description Name to write under, such as `planner-ARC-0007`; the acting person when left out. */
+            author?: string | null;
             /** @description Mermaid; a Markdown fence around it is dropped. */
             diagram?: string | null;
             handbook?: string | null;
             plan?: string | null;
+            /** @description Agent session of the caller. */
+            session?: string | null;
             status?: components["schemas"]["TicketStatusDto"] | null;
         };
     };
@@ -10341,6 +10363,74 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    start_plan_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The plan run; progress arrives as events */
+            202: {
+                headers: {
+                    /** @description URL of the run */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Planning already, claimed by another agent, or the dispatcher is paused or has no account free */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The ticket cannot be planned now: its status, an open question, another run or no board with a repository */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner could not start it */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

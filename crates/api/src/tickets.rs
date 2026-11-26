@@ -587,6 +587,12 @@ pub struct WritePlan {
     /// Planned when left out.
     #[schema(value_type = Option<TicketStatusDto>)]
     pub status: Option<String>,
+    /// Name to write under, such as `planner-ARC-0007`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -1198,6 +1204,7 @@ pub(crate) async fn accept_ticket(
 )]
 pub(crate) async fn write_plan(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<WritePlan>,
 ) -> Result<Json<TicketDto>, ApiError> {
@@ -1208,10 +1215,15 @@ pub(crate) async fn write_plan(
         acceptance: input.acceptance,
         status: input.status,
     };
-    let view = state
-        .tickets
-        .plan(&path.ticket_key, &plan, &state.person)
-        .await?;
+    let actor = author_of(
+        &state,
+        &principal,
+        input.author.as_deref(),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
+    let view = state.tickets.plan(&path.ticket_key, &plan, &actor).await?;
     Ok(Json(view.into()))
 }
 

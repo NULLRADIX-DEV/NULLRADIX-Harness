@@ -5,6 +5,7 @@ import { ticketQuery, type Ticket, type TicketDetail, type TicketStatus } from '
 import { AcceptanceDialog } from './AcceptanceDialog';
 import { loadProblem, ticketProblem } from './messages';
 import { TicketDependencies } from './TicketDependencies';
+import { TicketPlanning } from './TicketPlanning';
 import { TicketProperties } from './TicketProperties';
 import { TicketTabs } from './TicketTabs';
 import { TicketSessions } from './TicketSessions';
@@ -188,6 +189,7 @@ function TicketView({
           <TicketTabs detail={detail} actions={actions} />
         </div>
         <div className="db-panel-side">
+          <TicketPlanning ticket={ticket} />
           <TicketDependencies ticket={ticket} onOpen={onOpen} />
           <TicketWork ticket={ticket} />
           <TicketSessions ticketKey={ticket.key} />

@@ -35,11 +35,12 @@ struct Posted {
     toast: String,
 }
 
-/// What a pause ends: a ticket that goes back or a research that waits for a new start.
+/// What a pause ends: a ticket that goes back, a research or a plan that waits for a new start.
 #[derive(Clone, Copy)]
 enum Paused {
     Ticket,
     Research,
+    Plan,
 }
 
 impl Paused {
@@ -47,6 +48,7 @@ impl Paused {
         match self {
             Self::Ticket => "ticket back to planned",
             Self::Research => "research not stored",
+            Self::Plan => "plan not saved",
         }
     }
 
@@ -54,6 +56,7 @@ impl Paused {
         match self {
             Self::Ticket => "The ticket starts on the next pass with another free account.",
             Self::Research => "Start the research again to use another free account.",
+            Self::Plan => "Start the planning again to use another free account.",
         }
     }
 
@@ -61,6 +64,7 @@ impl Paused {
         match self {
             Self::Ticket => "Does not count as an attempt.",
             Self::Research => "Start the research again afterwards.",
+            Self::Plan => "Start the planning again afterwards.",
         }
     }
 }
@@ -470,6 +474,29 @@ impl PauseHook for DispatchPauses {
         Ok(Some(posted.body.replacen(
             "[dispatch] pause:",
             "[dispatch] research-empty:",
+            1,
+        )))
+    }
+
+    async fn paused_plan(
+        &self,
+        run: &Run,
+        ticket: &TicketRecord,
+        kind: PauseKind,
+        config: &DispatcherConfig,
+    ) -> Result<Option<String>, AppError> {
+        let posted = match kind {
+            PauseKind::UsageLimit => self.pause_for_limit(run, config, Paused::Plan).await?,
+            PauseKind::ClaudeMissing => self.pause_for_missing(config, Paused::Plan).await?,
+        };
+        self.log
+            .info(&posted.body, Some(&ticket.key.to_string()))
+            .await;
+        self.toast(ticket, posted.toast).await;
+        // the comment of the ticket is the marker of an empty plan
+        Ok(Some(posted.body.replacen(
+            "[dispatch] pause:",
+            "[dispatch] plan-empty:",
             1,
         )))
     }
