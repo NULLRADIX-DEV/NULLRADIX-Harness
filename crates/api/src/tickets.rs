@@ -3,6 +3,7 @@ use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
+use nullradix_app::comments::Author;
 use nullradix_app::tickets::{
     self, HistoryLine, NewTicket, PlanInput, StepGuard, StepPatch, TicketDetail, TicketFilter,
     TicketPatch, TicketScope, TicketView, WriteOptions,
@@ -432,6 +433,12 @@ pub struct UpdateTicket {
     /// Lifts the dependency, question and not-needed locks.
     #[serde(default)]
     pub force: bool,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 /// A move to another column; done needs acceptance criteria, here or on the ticket.
@@ -447,6 +454,12 @@ pub struct MoveTicket {
     /// Lifts the dependency, question and not-needed locks.
     #[serde(default)]
     pub force: bool,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 /// A new work step.
@@ -781,6 +794,21 @@ pub(crate) fn writer(principal: &Principal, force: bool) -> WriteOptions {
     }
 }
 
+/// The actor of a write: the shared author rule, so a run's session writes as a session.
+pub(crate) async fn author_of(
+    state: &ApiState,
+    principal: &Principal,
+    name: Option<&str>,
+    session: Option<&str>,
+) -> Result<nullradix_domain::Actor, AppError> {
+    let author = Author {
+        by_person: matches!(principal, Principal::Session { .. }),
+        name,
+        session,
+    };
+    state.comments.author(author, &state.person).await
+}
+
 fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
     value.map(AppError::client_version).transpose()
 }
@@ -812,6 +840,13 @@ pub(crate) async fn update_ticket(
     let clear_link = link.iter().any(|given| given.is_some());
     let expected = AppError::client_version(input.version)?;
     let options = writer(&principal, input.force);
+    let actor = author_of(
+        &state,
+        &principal,
+        input.author.as_deref(),
+        input.session.as_deref(),
+    )
+    .await?;
     let changes = TicketPatch {
         title: input.title,
         description: input.description,
@@ -834,7 +869,7 @@ pub(crate) async fn update_ticket(
     };
     let detail = state
         .tickets
-        .update(&path.ticket_key, &changes, &state.person, expected, options)
+        .update(&path.ticket_key, &changes, &actor, expected, options)
         .await?;
     Ok(Json(detail.into()))
 }
@@ -859,13 +894,20 @@ pub(crate) async fn move_ticket(
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<MoveTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
+    let actor = author_of(
+        &state,
+        &principal,
+        input.author.as_deref(),
+        input.session.as_deref(),
+    )
+    .await?;
     let view = state
         .tickets
         .move_to(
             &path.ticket_key,
             input.status.as_deref(),
             input.acceptance.as_deref(),
-            &state.person,
+            &actor,
             version(input.version)?,
             writer(&principal, input.force),
         )
@@ -1372,6 +1414,64 @@ mod tests {
             .unwrap();
         let (_, _, list) = send(&api.router, request).await;
         assert_eq!(list["items"].as_array().map(Vec::len), Some(1));
+    }
+
+    #[tokio::test]
+    async fn set_and_move_inside_a_session_write_under_the_named_agent() {
+        let api = test_api().await;
+        let path = board_path(&api).await;
+        let request = bearer(Request::post(path.as_str()), &api.token)
+            .header("content-type", "application/json")
+            .body(Body::from(json!({ "title": "Fix it" }).to_string()))
+            .unwrap();
+        send(&api.router, request).await;
+        let call = |request: axum::http::request::Builder, body: serde_json::Value| {
+            bearer(request, &api.token)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let set = json!({
+            "version": 1, "status": "blocked", "blockedReason": "no access",
+            "author": "worker-ARC-0001", "session": "s-1"
+        });
+        let (status, _, detail) = send(
+            &api.router,
+            call(Request::patch("/api/v1/tickets/arc-1"), set),
+        )
+        .await;
+        assert_eq!(status.as_u16(), 200, "{detail}");
+        let moved = json!({ "status": "planned", "author": "worker-ARC-0001", "session": "s-1" });
+        let (status, _, _) = send(
+            &api.router,
+            call(Request::post("/api/v1/tickets/arc-1/move"), moved),
+        )
+        .await;
+        assert_eq!(status.as_u16(), 200);
+        let anonymous = json!({ "status": "blocked", "blockedReason": "x" });
+        send(
+            &api.router,
+            call(Request::post("/api/v1/tickets/arc-1/move"), anonymous),
+        )
+        .await;
+        let request = bearer(Request::get("/api/v1/tickets/arc-1"), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (_, _, detail) = send(&api.router, request).await;
+        let actors: Vec<&str> = detail["history"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|line| line["field"] == "status")
+            .filter_map(|line| line["actorName"].as_str())
+            .collect();
+        assert_eq!(actors.len(), 3, "{detail}");
+        // newest first
+        assert_eq!(&actors[1..], ["worker-ARC-0001", "worker-ARC-0001"]);
+        assert_ne!(
+            actors[0], "worker-ARC-0001",
+            "without an author the person writes"
+        );
     }
 
     #[tokio::test]

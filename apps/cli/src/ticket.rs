@@ -57,6 +57,9 @@ pub(crate) enum TicketCommand {
         /// Lift the dependency, question and not-needed locks
         #[arg(long)]
         force: bool,
+        /// Who moves it, such as claude; the person the daemon acts for when left out
+        #[arg(long)]
+        author: Option<String>,
     },
     /// Take a ticket for an agent; it moves to in progress unless told
     Claim {
@@ -99,6 +102,9 @@ pub(crate) enum TicketCommand {
         /// Lift the dependency, question and not-needed locks
         #[arg(long)]
         force: bool,
+        /// Who finishes it, such as claude; the person the daemon acts for when left out
+        #[arg(long)]
+        author: Option<String>,
     },
     /// Give a ticket back; a given status applies without locks
     Release {
@@ -189,6 +195,9 @@ pub(crate) struct SetArgs {
     /// Lift the dependency, question and not-needed locks
     #[arg(long)]
     force: bool,
+    /// Who changes it, such as claude; the person the daemon acts for when left out
+    #[arg(long)]
+    author: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -323,6 +332,7 @@ pub(crate) fn run(
             acceptance,
             version,
             force,
+            author,
         } => {
             let key = TicketKey::parse(&key)?.to_string();
             let input = MoveTicket {
@@ -330,6 +340,8 @@ pub(crate) fn run(
                 version,
                 acceptance,
                 force,
+                author,
+                session: comment::agent_session(),
             };
             let ticket = client.move_ticket(&key, &input)?;
             println!(
@@ -370,9 +382,10 @@ pub(crate) fn run(
             acceptance,
             acceptance_file,
             force,
+            author,
         } => {
             let acceptance = text(acceptance, acceptance_file.as_deref())?;
-            done(client, &key, acceptance, force)?;
+            done(client, &key, acceptance, force, author)?;
         }
         TicketCommand::Release { key, status } => {
             let ticket = client.release_ticket(&canonical(&key)?, &ReleaseTicket { status })?;
@@ -419,7 +432,13 @@ fn start(
     Ok(())
 }
 
-fn done(client: &Client, key: &str, acceptance: Option<String>, force: bool) -> anyhow::Result<()> {
+fn done(
+    client: &Client,
+    key: &str,
+    acceptance: Option<String>,
+    force: bool,
+    author: Option<String>,
+) -> anyhow::Result<()> {
     let folder = std::env::current_dir().context("cannot read the current folder")?;
     let input = FinishTicket {
         runner_id: local_runner(client)?.id,
@@ -427,6 +446,8 @@ fn done(client: &Client, key: &str, acceptance: Option<String>, force: bool) -> 
         acceptance,
         version: None,
         force,
+        author,
+        session: comment::agent_session(),
     };
     let finished = client.finish_ticket(&canonical(key)?, &input)?;
     for line in done_lines(&finished) {
@@ -564,6 +585,8 @@ fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
         branch: args.clear_branch.then_some(None),
         worktree: args.clear_branch.then_some(None),
         force: args.force,
+        author: None,
+        session: None,
     };
     // without fields the daemon answers nothing-changed before it looks at the version
     let names_a_field = input
@@ -575,6 +598,8 @@ fn set(args: SetArgs, client: &Client) -> anyhow::Result<()> {
     if version.is_none() && names_a_field {
         input.version = client.get_ticket(&key)?.ticket.version;
     }
+    input.author = args.author;
+    input.session = comment::agent_session();
     let detail = client.update_ticket(&key, &input)?;
     println!(
         "{} changed (version {})",
@@ -811,5 +836,43 @@ mod tests {
     fn dependency_lists_drop_blanks_and_read_none_as_empty() {
         assert_eq!(dependency_list("ARC-1, ,arc-2,"), ["ARC-1", "arc-2"]);
         assert_eq!(dependency_list(" None "), Vec::<String>::new());
+    }
+
+    #[derive(clap::Parser)]
+    struct Cli {
+        #[command(subcommand)]
+        command: TicketCommand,
+    }
+
+    #[test]
+    fn done_set_and_move_take_the_author_the_prompts_name() {
+        use clap::Parser;
+        let parse = |args: &[&str]| Cli::try_parse_from([&["ticket"], args].concat()).unwrap();
+        let author = |args: &[&str]| match parse(args).command {
+            TicketCommand::Done { author, .. } | TicketCommand::Move { author, .. } => author,
+            TicketCommand::Set(set) => set.author,
+            _ => None,
+        };
+        let done = [
+            "done",
+            "ARC-1",
+            "--acceptance",
+            "ok",
+            "--author",
+            "worker-ARC-1",
+        ];
+        assert_eq!(author(&done).as_deref(), Some("worker-ARC-1"));
+        let set = [
+            "set",
+            "ARC-1",
+            "--status",
+            "blocked",
+            "--author",
+            "worker-ARC-1",
+        ];
+        assert_eq!(author(&set).as_deref(), Some("worker-ARC-1"));
+        let moved = ["move", "ARC-1", "done", "--author", "worker-ARC-1"];
+        assert_eq!(author(&moved).as_deref(), Some("worker-ARC-1"));
+        assert_eq!(author(&["done", "ARC-1"]), None);
     }
 }
