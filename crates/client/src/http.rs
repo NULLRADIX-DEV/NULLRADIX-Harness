@@ -633,10 +633,16 @@ impl Client {
         decode(&mut response, 200)
     }
 
-    /// Installs a theme a source offers; the daemon downloads the package.
-    pub fn install_from_catalog(&self, source: &str, theme: &str) -> Result<ThemeDto, ClientError> {
+    /// Installs a theme a source offers; `replace` takes over one from elsewhere.
+    pub fn install_from_catalog(
+        &self,
+        source: &str,
+        theme: &str,
+        replace: bool,
+    ) -> Result<ThemeDto, ClientError> {
+        let query = if replace { "?replace=true" } else { "" };
         let route = format!(
-            "/theme-catalog/sources/{}/themes/{}/install",
+            "/theme-catalog/sources/{}/themes/{}/install{query}",
             segment(source),
             segment(theme)
         );
@@ -1828,7 +1834,7 @@ mod tests {
             Some("catalog-unreachable")
         );
         let missing = client
-            .install_from_catalog(&source.id, "night-blue")
+            .install_from_catalog(&source.id, "night-blue", false)
             .unwrap_err();
         assert!(matches!(missing, ClientError::Refused { status: 503, .. }));
         client.remove_catalog_source(&source.id, 1).unwrap();

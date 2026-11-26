@@ -9,7 +9,7 @@ use nullradix_app::theme_package::{PackageFile, parse_manifest};
 use nullradix_app::themes::{ThemeFiles, ThemeRepository, ThemeService};
 use nullradix_app::{ChangeFeed, ChangeOp, ChangeSignal, Entity, SystemClock, UuidV7Generator};
 use nullradix_domain::{
-    InstalledTheme, SettingValue, ThemeId, ThemeSettingValues, Timestamp, Version,
+    InstalledTheme, SettingValue, SourceId, ThemeId, ThemeSettingValues, Timestamp, Version,
 };
 use nullradix_store::Store;
 use std::collections::BTreeMap;
@@ -388,6 +388,29 @@ async fn purging_drops_the_values_of_one_theme_only() {
     assert_eq!(store.settings(&id).await.unwrap(), None);
     let other = ThemeId::parse("other").unwrap();
     assert!(store.settings(&other).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn an_origin_is_kept_replaced_and_dropped_with_the_write() {
+    let store = Store::in_memory().await.unwrap();
+    let at = Timestamp::from_millis(4);
+    let id = ThemeId::parse("night-blue").unwrap();
+    let one = SourceId::parse("aaaaaaaaaaaa").unwrap();
+    let two = SourceId::parse("bbbbbbbbbbbb").unwrap();
+    assert!(store.origins().await.unwrap().is_empty());
+    let mut write = store.begin().await.unwrap();
+    write.set_origin(&id, Some(&one), at).await.unwrap();
+    write.set_origin(&id, Some(&two), at).await.unwrap();
+    write.commit().await.unwrap();
+    assert_eq!(store.origins().await.unwrap().get(&id), Some(&two));
+    let mut write = store.begin().await.unwrap();
+    write.set_origin(&id, None, at).await.unwrap();
+    drop(write);
+    assert_eq!(store.origins().await.unwrap().len(), 1);
+    let mut write = store.begin().await.unwrap();
+    write.set_origin(&id, None, at).await.unwrap();
+    write.commit().await.unwrap();
+    assert!(store.origins().await.unwrap().is_empty());
 }
 
 fn archive() -> Vec<u8> {

@@ -16,6 +16,8 @@ pub const MAX_URL_CHARS: usize = 2048;
 pub const MAX_INDEX_BYTES: u64 = 1024 * 1024;
 pub const MAX_INDEX_ENTRIES: usize = 500;
 pub const MAX_DESCRIPTION_CHARS: usize = 2000;
+/// Longest version or SDK range an entry may state.
+pub const MAX_VERSION_CHARS: usize = 128;
 const SOURCE_ID_CHARS: usize = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -187,15 +189,12 @@ fn public_v6(address: Ipv6Addr) -> bool {
         let [c, d] = low.to_be_bytes();
         return public_v4(Ipv4Addr::new(a, b, c, d));
     }
-    let unique_local = segments[0] & 0xfe00 == 0xfc00;
-    let link_local = segments[0] & 0xffc0 == 0xfe80;
-    let documentation = segments[0] == 0x2001 && segments[1] == 0x0db8;
-    !(address.is_unspecified()
-        || address.is_loopback()
-        || address.is_multicast()
-        || unique_local
-        || link_local
-        || documentation)
+    // only global unicast 2000::/3 counts; everything else is special use
+    let global_unicast = segments[0] & 0xe000 == 0x2000;
+    let teredo = segments[0] == 0x2001 && segments[1] == 0;
+    let documentation = (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        || (segments[0] == 0x3fff && segments[1] & 0xf000 == 0);
+    global_unicast && !(teredo || documentation)
 }
 
 /// Stable id of a source: the first characters of the hash of its address.
@@ -302,6 +301,14 @@ fn text<'a>(value: Option<&'a String>, name: &str) -> Result<&'a str, String> {
         .ok_or_else(|| format!("{name} is missing"))
 }
 
+/// Whether the text has no control characters or bidi overrides; `newline` allows line breaks.
+fn printable(text: &str, newline: bool) -> bool {
+    text.chars().all(|c| {
+        (!c.is_control() || (newline && c == '\n'))
+            && !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    })
+}
+
 impl CatalogEntry {
     /// Checks the fields; the first problem is the reason the entry is skipped.
     pub fn build(draft: &EntryDraft, reach: Reach) -> Result<Self, String> {
@@ -314,10 +321,23 @@ impl CatalogEntry {
         if name.chars().count() > 1000 {
             return Err(String::from("name is longer than 1000 characters"));
         }
+        if !printable(name, false) {
+            return Err(String::from("name holds control or direction characters"));
+        }
         let version = text(draft.version.as_ref(), "version")?;
+        if version.chars().count() > MAX_VERSION_CHARS {
+            return Err(format!(
+                "version is longer than {MAX_VERSION_CHARS} characters"
+            ));
+        }
         semver::Version::parse(version)
             .map_err(|_| String::from("version is not a semver version such as 1.2.3"))?;
         let sdk_version = text(draft.sdk_version.as_ref(), "sdkVersion")?;
+        if sdk_version.chars().count() > MAX_VERSION_CHARS {
+            return Err(format!(
+                "sdkVersion is longer than {MAX_VERSION_CHARS} characters"
+            ));
+        }
         let range = semver::VersionReq::parse(sdk_version)
             .map_err(|_| String::from("sdkVersion is not a semver range such as ^1.0"))?;
         let download_url =
@@ -334,6 +354,15 @@ impl CatalogEntry {
         {
             return Err(format!(
                 "description is longer than {MAX_DESCRIPTION_CHARS} characters"
+            ));
+        }
+        if draft
+            .description
+            .as_ref()
+            .is_some_and(|text| !printable(text, true))
+        {
+            return Err(String::from(
+                "description holds control or direction characters",
             ));
         }
         let sdk = semver::Version::parse(THEME_SDK_VERSION)
@@ -359,15 +388,20 @@ pub enum Availability {
     Installed(String),
     /// Installed at this older version.
     Update(String),
+    /// Installed at this version from another source or by upload.
+    OtherSource(String),
 }
 
 impl Availability {
-    /// Compares by semver; an installed version that does not parse counts as older.
+    /// Compares by semver; a theme from another source is never an update.
     #[must_use]
-    pub fn of(installed: Option<&str>, offered: &str) -> Self {
+    pub fn of(installed: Option<&str>, from_this_source: bool, offered: &str) -> Self {
         let Some(installed) = installed else {
             return Self::NotInstalled;
         };
+        if !from_this_source {
+            return Self::OtherSource(installed.to_owned());
+        }
         match (
             semver::Version::parse(installed),
             semver::Version::parse(offered),
@@ -421,6 +455,11 @@ mod tests {
             ("https://[fe80::1]/i.json", CatalogError::Private),
             ("https://[::ffff:127.0.0.1]/i.json", CatalogError::Private),
             ("https://[64:ff9b::7f00:1]/i.json", CatalogError::Private),
+            ("https://[::7f00:1]/i.json", CatalogError::Private),
+            ("https://[fec0::1]/i.json", CatalogError::Private),
+            ("https://[64:ff9b:1::1]/i.json", CatalogError::Private),
+            ("https://[2001::1]/i.json", CatalogError::Private),
+            ("https://[100::1]/i.json", CatalogError::Private),
         ];
         for (raw, expected) in cases {
             assert_eq!(public(raw).unwrap_err(), expected, "{raw}");
@@ -473,6 +512,12 @@ mod tests {
             "240.0.0.1",
             "::",
             "::1",
+            "::7f00:1",
+            "fec0::1",
+            "64:ff9b:1::1",
+            "2001::1",
+            "100::1",
+            "3fff::1",
         ] {
             assert!(!is_public_address(text.parse().unwrap()), "{text}");
         }
@@ -541,6 +586,13 @@ mod tests {
     }
 
     #[test]
+    fn a_description_may_have_line_breaks() {
+        let mut entry = draft();
+        entry.description = Some(String::from("Blue\nand calm"));
+        assert!(build(&entry).is_ok());
+    }
+
+    #[test]
     fn an_entry_for_another_sdk_stays_but_is_not_compatible() {
         let mut other = draft();
         other.sdk_version = Some(String::from("^2.0"));
@@ -584,6 +636,36 @@ mod tests {
                 Box::new(|d| d.description = Some("x".repeat(MAX_DESCRIPTION_CHARS + 1))),
                 "description is longer",
             ),
+            (
+                Box::new(|d| d.name = Some(String::from("Oc\u{1b}ean"))),
+                "name holds",
+            ),
+            (
+                Box::new(|d| d.name = Some(String::from("Oc\u{202e}ean"))),
+                "name holds",
+            ),
+            (
+                Box::new(|d| d.name = Some(String::from("a\nb"))),
+                "name holds",
+            ),
+            (
+                Box::new(|d| d.description = Some(String::from("a\r\nb"))),
+                "description holds",
+            ),
+            (
+                Box::new(|d| d.description = Some(String::from("a\u{2066}b"))),
+                "description holds",
+            ),
+            (
+                Box::new(|d| d.version = Some(format!("1.0.0-{}", "a".repeat(MAX_VERSION_CHARS)))),
+                "version is longer",
+            ),
+            (
+                Box::new(|d| {
+                    d.sdk_version = Some(format!("^1.0.0-{}", "a".repeat(MAX_VERSION_CHARS)));
+                }),
+                "sdkVersion is longer",
+            ),
         ];
         for (change, expected) in broken {
             let mut entry = draft();
@@ -595,22 +677,29 @@ mod tests {
 
     #[test]
     fn availability_compares_versions() {
-        assert_eq!(Availability::of(None, "1.0.0"), Availability::NotInstalled);
         assert_eq!(
-            Availability::of(Some("1.0.0"), "1.0.0"),
+            Availability::of(None, false, "1.0.0"),
+            Availability::NotInstalled
+        );
+        assert_eq!(
+            Availability::of(Some("1.0.0"), true, "1.0.0"),
             Availability::Installed(String::from("1.0.0"))
         );
         assert_eq!(
-            Availability::of(Some("1.1.0"), "1.0.0"),
+            Availability::of(Some("1.1.0"), true, "1.0.0"),
             Availability::Installed(String::from("1.1.0"))
         );
         assert_eq!(
-            Availability::of(Some("1.0.0"), "1.0.1"),
+            Availability::of(Some("1.0.0"), true, "1.0.1"),
             Availability::Update(String::from("1.0.0"))
         );
         assert_eq!(
-            Availability::of(Some("1.0.0"), "2.0.0-beta.1"),
+            Availability::of(Some("1.0.0"), true, "2.0.0-beta.1"),
             Availability::Update(String::from("1.0.0"))
+        );
+        assert_eq!(
+            Availability::of(Some("1.0.0"), false, "1.0.1"),
+            Availability::OtherSource(String::from("1.0.0"))
         );
     }
 }

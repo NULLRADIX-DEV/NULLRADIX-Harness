@@ -28,6 +28,9 @@ pub(crate) enum CatalogCommand {
         /// Source id; needed only when several sources offer the theme
         #[arg(long)]
         source: Option<String>,
+        /// Replace a theme of the same id that was installed from another source or by upload
+        #[arg(long)]
+        replace: bool,
     },
 }
 
@@ -37,7 +40,7 @@ pub(crate) fn run(command: CatalogCommand, client: &Client) -> anyhow::Result<()
         CatalogCommand::Sources { json } => sources(client, json),
         CatalogCommand::Add { url } => {
             let source = client.add_catalog_source(&url)?;
-            println!("added {} {}", source.id, source.url);
+            println!("added {} {}", plain(&source.id), plain(&source.url));
             Ok(())
         }
         CatalogCommand::Remove { id } => {
@@ -49,19 +52,37 @@ pub(crate) fn run(command: CatalogCommand, client: &Client) -> anyhow::Result<()
             println!("removed {id}");
             Ok(())
         }
-        CatalogCommand::Install { theme, source } => install(client, &theme, source.as_deref()),
+        CatalogCommand::Install {
+            theme,
+            source,
+            replace,
+        } => install(client, &theme, source.as_deref(), replace),
     }
+}
+
+/// The text with control and direction characters replaced, so an index cannot steer the terminal.
+fn plain(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            let direction = matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
+            if c.is_control() || direction { '?' } else { c }
+        })
+        .collect()
 }
 
 fn state_text(state: CatalogStateDto, installed: Option<&str>) -> String {
     match (state, installed) {
         (CatalogStateDto::Available, _) => String::from("available"),
         (CatalogStateDto::Installed, version) => {
-            format!("installed {}", version.unwrap_or_default())
+            format!("installed {}", plain(version.unwrap_or_default()))
         }
         (CatalogStateDto::Update, version) => {
-            format!("update from {}", version.unwrap_or_default())
+            format!("update from {}", plain(version.unwrap_or_default()))
         }
+        (CatalogStateDto::OtherSource, version) => format!(
+            "installed {} from another source (--replace to take over)",
+            plain(version.unwrap_or_default())
+        ),
     }
 }
 
@@ -79,24 +100,32 @@ fn list(client: &Client, json: bool) -> anyhow::Result<()> {
         };
         println!(
             "{:<20} {:<24} v{:<10} {} [{}]{fit}",
-            theme.id,
-            theme.name,
-            theme.version,
+            plain(&theme.id),
+            plain(&theme.name),
+            plain(&theme.version),
             state_text(theme.state, theme.installed_version.as_deref()),
-            theme.source_id
+            plain(&theme.source_id)
         );
     }
     for status in &catalog.sources {
         if let Some(problem) = &status.problem {
             eprintln!(
                 "source {} failed: {} ({})",
-                status.source.url, problem.message, problem.code
+                plain(&status.source.url),
+                plain(&problem.message),
+                plain(&problem.code)
             );
         }
         for skipped in &status.skipped {
             eprintln!(
-                "source {} skipped entry {}: {}",
-                status.source.url, skipped.index, skipped.reason
+                "source {} skipped entry {}{}: {}",
+                plain(&status.source.url),
+                skipped.index,
+                skipped
+                    .id
+                    .as_deref()
+                    .map_or_else(String::new, |id| format!(" ({})", plain(id))),
+                plain(&skipped.reason)
             );
         }
     }
@@ -110,12 +139,17 @@ fn sources(client: &Client, json: bool) -> anyhow::Result<()> {
         return Ok(());
     }
     for source in &list.items {
-        println!("{} {}", source.id, source.url);
+        println!("{} {}", plain(&source.id), plain(&source.url));
     }
     Ok(())
 }
 
-fn install(client: &Client, theme: &str, source: Option<&str>) -> anyhow::Result<()> {
+fn install(
+    client: &Client,
+    theme: &str,
+    source: Option<&str>,
+    replace: bool,
+) -> anyhow::Result<()> {
     let source = if let Some(source) = source {
         source.to_owned()
     } else {
@@ -127,15 +161,32 @@ fn install(client: &Client, theme: &str, source: Option<&str>) -> anyhow::Result
             .map(|item| item.source_id.as_str())
             .collect();
         match offers.as_slice() {
-            [] => bail!("no source offers {theme}"),
+            [] => bail!("no source offers {}", plain(theme)),
             [only] => (*only).to_owned(),
             several => bail!(
-                "several sources offer {theme}; pick one with --source: {}",
+                "several sources offer {}; pick one with --source: {}",
+                plain(theme),
                 several.join(", ")
             ),
         }
     };
-    let installed = client.install_from_catalog(&source, theme)?;
-    println!("installed {} {}", installed.id, installed.package_version);
+    let installed = client.install_from_catalog(&source, theme, replace)?;
+    println!(
+        "installed {} {}",
+        plain(&installed.id),
+        plain(&installed.package_version)
+    );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn control_and_direction_characters_never_reach_the_terminal() {
+        let text = "a\u{1b}[2Jb\nc\u{202e}d\u{2066}e";
+        assert_eq!(plain(text), "a?[2Jb?c?d?e");
+        assert_eq!(plain("Night Blue 1.0"), "Night Blue 1.0");
+    }
 }

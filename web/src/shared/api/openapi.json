@@ -6271,6 +6271,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "replace",
+            "in": "query",
+            "description": "Replace a theme of the same id that was installed from another source or by upload.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -6322,7 +6331,7 @@
             }
           },
           "409": {
-            "description": "`catalog-theme-incompatible`",
+            "description": "`catalog-theme-incompatible` or `catalog-theme-installed-elsewhere` (retry with `replace=true`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9067,7 +9076,8 @@
         "enum": [
           "available",
           "installed",
-          "update"
+          "update",
+          "other-source"
         ]
       },
       "CatalogThemeDto": {

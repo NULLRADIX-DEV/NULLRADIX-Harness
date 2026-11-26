@@ -50,6 +50,9 @@ impl std::fmt::Debug for CurlCatalogFetcher {
     }
 }
 
+/// Host, port and every checked address of the host.
+type Pin = (String, u16, Vec<IpAddr>);
+
 struct Answer {
     status: u16,
     redirect: Option<String>,
@@ -66,7 +69,7 @@ impl CurlCatalogFetcher {
     }
 
     /// The address curl connects to; a name must resolve to public addresses only.
-    async fn pin(&self, url: &CatalogUrl) -> Result<Option<(String, u16, IpAddr)>, FetchError> {
+    async fn pin(&self, url: &CatalogUrl) -> Result<Option<Pin>, FetchError> {
         let endpoint = url.endpoint().ok_or(FetchError::Refused)?;
         let host = match endpoint.host {
             EndpointHost::Address(_) => return Ok(None),
@@ -80,17 +83,14 @@ impl CurlCatalogFetcher {
         if self.reach == Reach::Public && addresses.iter().any(|ip| !is_public_address(*ip)) {
             return Err(FetchError::Refused);
         }
-        let address = addresses.first().ok_or(FetchError::Unreachable)?;
-        Ok(Some((host, endpoint.port, *address)))
+        if addresses.is_empty() {
+            return Err(FetchError::Unreachable);
+        }
+        Ok(Some((host, endpoint.port, addresses)))
     }
 
     /// The request as a curl config, so nothing about it appears on a command line.
-    fn config(
-        &self,
-        url: &CatalogUrl,
-        pin: Option<&(String, u16, IpAddr)>,
-        max_bytes: u64,
-    ) -> String {
+    fn config(&self, url: &CatalogUrl, pin: Option<&Pin>, max_bytes: u64) -> String {
         let quoted = |text: &str| text.replace('\\', "\\\\").replace('"', "\\\"");
         let protocols = match self.reach {
             Reach::Public => "=https",
@@ -101,12 +101,20 @@ impl CurlCatalogFetcher {
             quoted(url.as_str()),
             limit_for(max_bytes).as_secs(),
         );
-        if let Some((host, port, address)) = pin {
-            let address = match address {
-                IpAddr::V4(address) => address.to_string(),
-                IpAddr::V6(address) => format!("[{address}]"),
-            };
-            let _ = writeln!(config, "resolve = \"{host}:{port}:{address}\"");
+        if let Some((host, port, addresses)) = pin {
+            let addresses: Vec<String> = addresses
+                .iter()
+                .map(|address| match address {
+                    IpAddr::V4(address) => address.to_string(),
+                    IpAddr::V6(address) => format!("[{address}]"),
+                })
+                .collect();
+            let _ = writeln!(
+                config,
+                "resolve = \"{}:{port}:{}\"",
+                quoted(host),
+                addresses.join(",")
+            );
         }
         config
     }
@@ -485,10 +493,17 @@ mod tests {
     #[test]
     fn the_config_quotes_the_address_and_pins_the_host() {
         let url = local("http://catalog.test:81/a\"b");
-        let pin = ("catalog.test".to_owned(), 81, "::1".parse().unwrap());
+        let pin = (
+            "catalog.test".to_owned(),
+            81,
+            vec!["::1".parse().unwrap(), "10.1.2.3".parse().unwrap()],
+        );
         let config = fetcher().config(&url, Some(&pin), 5);
         assert!(config.contains("a%22b") || config.contains("a\\\"b"));
-        assert!(config.contains("resolve = \"catalog.test:81:[::1]\""));
+        assert!(config.contains("resolve = \"catalog.test:81:[::1],10.1.2.3\""));
+        let odd = ("a\"b\\c".to_owned(), 81, vec!["10.1.2.3".parse().unwrap()]);
+        let escaped = fetcher().config(&url, Some(&odd), 5);
+        assert!(escaped.contains("resolve = \"a\\\"b\\\\c:81:10.1.2.3\""));
         assert!(config.contains("noproxy = \"*\""));
         assert!(config.contains("max-redirs = 0"));
         assert!(config.contains("max-filesize = 5"));

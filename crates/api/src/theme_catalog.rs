@@ -7,7 +7,7 @@ use nullradix_app::AppError;
 use nullradix_app::theme_catalog::{
     Catalog, CatalogTheme, SkippedEntry, SourceList, SourceProblem, SourceStatus,
 };
-use nullradix_domain::{Availability, CatalogSource};
+use nullradix_domain::{Availability, CatalogSource, MAX_VERSION_CHARS, THEME_ID_MAX};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -66,6 +66,8 @@ pub enum CatalogStateDto {
     Installed,
     /// A newer version than the installed one is offered.
     Update,
+    /// Installed from another source or by upload; installing needs `replace`.
+    OtherSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -85,6 +87,11 @@ pub struct CatalogThemeDto {
     pub installed_version: Option<String>,
 }
 
+/// A version string as long as an entry may state it.
+fn capped(text: &str) -> String {
+    text.chars().take(MAX_VERSION_CHARS).collect()
+}
+
 impl From<&CatalogTheme> for CatalogThemeDto {
     fn from(theme: &CatalogTheme) -> Self {
         let entry = &theme.entry;
@@ -92,13 +99,16 @@ impl From<&CatalogTheme> for CatalogThemeDto {
             Availability::NotInstalled => (CatalogStateDto::Available, None),
             Availability::Installed(version) => (CatalogStateDto::Installed, Some(version.clone())),
             Availability::Update(version) => (CatalogStateDto::Update, Some(version.clone())),
+            Availability::OtherSource(version) => {
+                (CatalogStateDto::OtherSource, Some(version.clone()))
+            }
         };
         Self {
             source_id: theme.source.to_string(),
             id: entry.id.to_string(),
             name: entry.name.clone(),
-            version: entry.version.clone(),
-            sdk_version: entry.sdk_version.clone(),
+            version: capped(&entry.version),
+            sdk_version: capped(&entry.sdk_version),
             compatible: entry.compatible,
             description: entry.description.clone(),
             state,
@@ -137,7 +147,10 @@ impl From<&SkippedEntry> for SkippedEntryDto {
     fn from(skipped: &SkippedEntry) -> Self {
         Self {
             index: skipped.index,
-            id: skipped.id.clone(),
+            id: skipped
+                .id
+                .as_deref()
+                .map(|id| id.chars().take(THEME_ID_MAX).collect()),
             reason: skipped.reason.clone(),
         }
     }
@@ -199,6 +212,14 @@ pub(crate) struct InstallPath {
     id: String,
     /// Theme id as the source offers it.
     theme: String,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct InstallQuery {
+    /// Replace a theme of the same id that was installed from another source or by upload.
+    #[serde(default)]
+    replace: bool,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -296,14 +317,14 @@ pub(crate) async fn browse_catalog(
     post,
     path = "/theme-catalog/sources/{id}/themes/{theme}/install",
     tag = "themes",
-    params(InstallPath),
+    params(InstallPath, InstallQuery),
     responses(
         (status = 201, description = "Installed", body = ThemeDto,
             headers(("Location" = String, description = "URL of the stylesheet"))),
         (status = 200, description = "Replaced the installed theme with the same id", body = ThemeDto),
         (status = 401, body = Problem),
         (status = 404, description = "`catalog-source-not-found` or `catalog-theme-not-found`", body = Problem),
-        (status = 409, description = "`catalog-theme-incompatible`", body = Problem),
+        (status = 409, description = "`catalog-theme-incompatible` or `catalog-theme-installed-elsewhere` (retry with `replace=true`)", body = Problem),
         (status = 422, description = "`catalog-checksum-mismatch`, `theme-package-mismatch`, `catalog-too-large`, `catalog-address-refused`, or the package is invalid as an uploaded one", body = Problem),
         (status = 503, description = "The source cannot be reached: `catalog-timeout`, `catalog-unreachable`, `catalog-http-error`", body = Problem),
     )
@@ -311,8 +332,12 @@ pub(crate) async fn browse_catalog(
 pub(crate) async fn install_catalog_theme(
     State(state): State<ApiState>,
     ApiPath(path): ApiPath<InstallPath>,
+    ApiQuery(query): ApiQuery<InstallQuery>,
 ) -> Result<(StatusCode, HeaderMap, Json<ThemeDto>), ApiError> {
-    let theme = state.catalog.install(&path.id, &path.theme).await?;
+    let theme = state
+        .catalog
+        .install(&path.id, &path.theme, query.replace)
+        .await?;
     let dto = ThemeDto::from(&theme);
     let mut headers = HeaderMap::new();
     if let Ok(value) = HeaderValue::from_str(&dto.style_url) {
@@ -529,6 +554,34 @@ mod tests {
         assert_eq!(catalog["items"][0]["state"], "installed");
         let (status, _) = call(&api, "POST", &path, None).await;
         assert_eq!(status, 200);
+    }
+
+    #[tokio::test]
+    async fn a_theme_from_elsewhere_is_replaced_only_on_request() {
+        let api = test_api().await;
+        let bytes = package();
+        let (_, added) = add(&api, SOURCE).await;
+        let id = added["id"].as_str().unwrap();
+        api.fetcher.answer(SOURCE, Ok(index(&bytes)));
+        api.fetcher.answer(PACKAGE, Ok(bytes.clone()));
+        let upload = bearer(Request::post("/api/v1/themes"), &api.token)
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .body(Body::from(bytes))
+            .unwrap();
+        assert!(send(&api.router, upload).await.0.is_success());
+        let (_, catalog) = call(&api, "GET", "/api/v1/theme-catalog/themes", None).await;
+        assert_eq!(catalog["items"][0]["state"], "other-source");
+
+        let path = format!("/api/v1/theme-catalog/sources/{id}/themes/night-blue/install");
+        let (status, problem) = call(&api, "POST", &path, None).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (409, Some("catalog-theme-installed-elsewhere"))
+        );
+        let (status, _) = call(&api, "POST", &format!("{path}?replace=true"), None).await;
+        assert_eq!(status, 200);
+        let (_, catalog) = call(&api, "GET", "/api/v1/theme-catalog/themes", None).await;
+        assert_eq!(catalog["items"][0]["state"], "installed");
     }
 
     #[tokio::test]

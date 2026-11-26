@@ -104,14 +104,14 @@ pub use theme::{
     BUILTIN_THEMES, CLAUDE_DIR, CLAUDE_HOOKS_FILE, ColorScheme, DEFAULT_THEME, FieldError,
     InstalledTheme, InstalledThemeRecord, MANIFEST_FILE, MAX_ENTRIES, MAX_ENTRY_PATH,
     MAX_FILE_BYTES, MAX_PACKAGE_BYTES, ManifestDraft, ManifestRecord, PackageError, STYLE_FILE,
-    SelectOption, SettingSpec, ThemeError, ThemeId, ThemeManifest, asset_segments,
+    SelectOption, SettingSpec, THEME_ID_MAX, ThemeError, ThemeId, ThemeManifest, asset_segments,
     check_claude_files, check_entry_path, check_theme_css, content_type, host_allowed,
     is_allowed_extension, is_claude_path, is_hidden,
 };
 pub use theme_catalog::{
     Availability, CatalogEntry, CatalogError, CatalogSource, CatalogUrl, Endpoint, EndpointHost,
     EntryDraft, MAX_DESCRIPTION_CHARS, MAX_INDEX_BYTES, MAX_INDEX_ENTRIES, MAX_SOURCES,
-    MAX_URL_CHARS, Reach, SourceId, THEME_SDK_VERSION, is_public_address,
+    MAX_URL_CHARS, MAX_VERSION_CHARS, Reach, SourceId, THEME_SDK_VERSION, is_public_address,
 };
 pub use theme_settings::{SETTING_VALUE_MAX, SettingValue, ThemeSettingValues};
 pub use ticket::{

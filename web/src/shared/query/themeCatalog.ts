@@ -69,10 +69,21 @@ export function useInstallFromCatalog() {
   const invalidateThemes = useInvalidate(themeKeys.all);
   const invalidateCatalog = useInvalidate(catalogKeys.themes);
   return useMutation({
-    mutationFn: async ({ sourceId, id }: { sourceId: string; id: string }) =>
+    mutationFn: async ({
+      sourceId,
+      id,
+      replace,
+    }: {
+      sourceId: string;
+      id: string;
+      replace?: boolean;
+    }) =>
       unwrap(
         await api.POST('/api/v1/theme-catalog/sources/{id}/themes/{theme}/install', {
-          params: { path: { id: sourceId, theme: id } },
+          params: {
+            path: { id: sourceId, theme: id },
+            query: replace === true ? { replace: true } : {},
+          },
         }),
       ),
     onSettled: async () => {

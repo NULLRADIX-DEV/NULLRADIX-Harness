@@ -8,13 +8,13 @@ use futures_util::StreamExt;
 use nullradix_domain::{
     Availability, CatalogEntry, CatalogError, CatalogSource, CatalogUrl, EntryDraft,
     InstalledTheme, MAX_INDEX_BYTES, MAX_INDEX_ENTRIES, MAX_PACKAGE_BYTES, MAX_SOURCES, Reach,
-    SourceId, ThemeId, Timestamp, Version,
+    SourceId, THEME_ID_MAX, ThemeId, Timestamp, Version,
 };
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::themes::ThemeService;
+use crate::themes::{Origin, ThemeService};
 use crate::{AppError, Change, ChangeSignal, Clock};
 
 /// Entity id of the catalog sources in the change feed, which only takes UUIDs.
@@ -183,7 +183,10 @@ pub fn parse_index(bytes: &[u8], reach: Reach) -> Result<ParsedIndex, IndexError
     let mut parsed = ParsedIndex::default();
     let mut seen = HashSet::new();
     for (index, item) in items.iter().enumerate() {
-        let id = item.get("id").and_then(Value::as_str).map(str::to_owned);
+        let id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .map(|id| id.chars().take(THEME_ID_MAX).collect::<String>());
         let built = draft(item).and_then(|draft| CatalogEntry::build(&draft, reach));
         match built {
             Ok(entry) if seen.insert(entry.id.clone()) => parsed.entries.push(entry),
@@ -397,6 +400,7 @@ impl CatalogService {
                 (record.id.to_string(), record.version.clone())
             })
             .collect();
+        let origins = self.themes.origins().await?;
         let answers: Vec<(CatalogSource, Result<ParsedIndex, SourceProblem>)> =
             futures_util::stream::iter(sources)
                 .map(|source| async move {
@@ -420,6 +424,7 @@ impl CatalogService {
                     for entry in parsed.entries {
                         let availability = Availability::of(
                             installed.get(entry.id.as_str()).map(String::as_str),
+                            origins.get(&entry.id) == Some(source.id()),
                             &entry.version,
                         );
                         themes.push(CatalogTheme {
@@ -451,8 +456,13 @@ impl CatalogService {
         })
     }
 
-    /// Downloads the theme, checks it against the index and installs it like a package.
-    pub async fn install(&self, source: &str, theme: &str) -> Result<InstalledTheme, AppError> {
+    /// Installs the offered theme; one from another source needs `replace`.
+    pub async fn install(
+        &self,
+        source: &str,
+        theme: &str,
+        replace: bool,
+    ) -> Result<InstalledTheme, AppError> {
         let id = SourceId::parse(source).ok_or_else(source_not_found)?;
         let theme_id = ThemeId::parse(theme)
             .map_err(|error| AppError::invalid("theme-id-invalid", error.to_string()))?;
@@ -504,7 +514,14 @@ impl CatalogService {
             ));
         }
         self.themes
-            .install_expecting(bytes, Some((&entry.id, &entry.version)))
+            .install_expecting(
+                bytes,
+                Some((&entry.id, &entry.version)),
+                Some(Origin {
+                    source: source.id(),
+                    replace,
+                }),
+            )
             .await
     }
 
@@ -804,7 +821,15 @@ mod tests {
             (SOURCE.to_owned(), MAX_INDEX_BYTES)
         );
 
-        world.themes.install(bytes.clone()).await.unwrap();
+        world.fetcher.answer(PACKAGE_URL, Ok(bytes.clone()));
+        let source = world.service.sources().await.unwrap().sources[0]
+            .id()
+            .to_string();
+        world
+            .service
+            .install(&source, "night-blue", false)
+            .await
+            .unwrap();
         let catalog = world.service.browse().await.unwrap();
         assert_eq!(
             catalog.themes[0].availability,
@@ -911,11 +936,109 @@ mod tests {
         let world = world(Reach::Public);
         let bytes = night_blue();
         let source = ready(&world, &bytes).await;
-        let theme = world.service.install(&source, "night-blue").await.unwrap();
+        let theme = world
+            .service
+            .install(&source, "night-blue", false)
+            .await
+            .unwrap();
         assert_eq!(theme.id().as_str(), "night-blue");
         assert_eq!(world.themes.list().await.unwrap().themes.len(), 1);
         let asked = world.fetcher.asked.lock().clone();
         assert_eq!(asked[1], (PACKAGE_URL.to_owned(), MAX_PACKAGE_BYTES));
+    }
+
+    #[tokio::test]
+    async fn a_theme_from_elsewhere_needs_an_explicit_replace() {
+        let world = world(Reach::Public);
+        let bytes = night_blue();
+        let source = ready(&world, &bytes).await;
+        world.themes.install(bytes.clone()).await.unwrap();
+        let catalog = world.service.browse().await.unwrap();
+        assert_eq!(
+            catalog.themes[0].availability,
+            Availability::OtherSource(String::from("1.0.0"))
+        );
+        let error = world
+            .service
+            .install(&source, "night-blue", false)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "catalog-theme-installed-elsewhere");
+
+        world
+            .service
+            .install(&source, "night-blue", true)
+            .await
+            .unwrap();
+        let catalog = world.service.browse().await.unwrap();
+        assert_eq!(
+            catalog.themes[0].availability,
+            Availability::Installed(String::from("1.0.0"))
+        );
+        // now it is from this source: no flag needed
+        world
+            .service
+            .install(&source, "night-blue", false)
+            .await
+            .unwrap();
+
+        // another source offering the same id sees it as installed elsewhere
+        let other = world
+            .service
+            .add_source("https://other.example.com/i.json")
+            .await
+            .unwrap();
+        world
+            .fetcher
+            .answer(other.url().as_str(), index(&[entry("1.0.0", &bytes)]));
+        let catalog = world.service.browse().await.unwrap();
+        let states: Vec<_> = catalog
+            .themes
+            .iter()
+            .map(|theme| (theme.source.to_string(), theme.availability.clone()))
+            .collect();
+        assert!(states.contains(&(
+            other.id().to_string(),
+            Availability::OtherSource(String::from("1.0.0"))
+        )));
+        let error = world
+            .service
+            .install(other.id().as_str(), "night-blue", false)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "catalog-theme-installed-elsewhere");
+
+        // an upload and a removal forget where the theme came from
+        world.themes.install(bytes.clone()).await.unwrap();
+        assert!(world.themes.origins().await.unwrap().is_empty());
+        world
+            .service
+            .install(&source, "night-blue", true)
+            .await
+            .unwrap();
+        let theme = world.themes.list().await.unwrap().themes.remove(0);
+        world
+            .themes
+            .remove("night-blue", theme.record().version)
+            .await
+            .unwrap();
+        assert!(world.themes.origins().await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn skipped_entries_keep_ids_short() {
+        let long = "x".repeat(500);
+        let parsed = parse_index(
+            serde_json::to_vec(&[serde_json::json!({ "id": long })])
+                .unwrap()
+                .as_slice(),
+            Reach::Public,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.skipped[0].id.as_deref().map(str::len),
+            Some(THEME_ID_MAX)
+        );
     }
 
     #[tokio::test]
@@ -926,7 +1049,7 @@ mod tests {
         world.fetcher.answer(PACKAGE_URL, Ok(b"tampered".to_vec()));
         let error = world
             .service
-            .install(&source, "night-blue")
+            .install(&source, "night-blue", false)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-checksum-mismatch");
@@ -938,7 +1061,7 @@ mod tests {
         other.answer(PACKAGE_URL, Ok(bytes.clone()));
         let error = world
             .service
-            .install(&source, "night-blue")
+            .install(&source, "night-blue", false)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-package-mismatch");
@@ -952,17 +1075,21 @@ mod tests {
         let source = ready(&world, &bytes).await;
         let error = world
             .service
-            .install(&source, "ghost-theme")
+            .install(&source, "ghost-theme", false)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-theme-not-found");
         let error = world
             .service
-            .install("111111111111", "night-blue")
+            .install("111111111111", "night-blue", false)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-source-not-found");
-        let error = world.service.install(&source, "Bad Id").await.unwrap_err();
+        let error = world
+            .service
+            .install(&source, "Bad Id", false)
+            .await
+            .unwrap_err();
         assert_eq!(error.code(), "theme-id-invalid");
 
         let mut old = entry("1.0.0", &bytes);
@@ -971,7 +1098,7 @@ mod tests {
         world.fetcher.answer(SOURCE, index(&[old]));
         let error = world
             .service
-            .install(&source, "night-blue")
+            .install(&source, "night-blue", false)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-theme-incompatible");
@@ -989,7 +1116,7 @@ mod tests {
             world.fetcher.answer(PACKAGE_URL, Err(failure));
             let error = world
                 .service
-                .install(&source, "night-blue")
+                .install(&source, "night-blue", false)
                 .await
                 .unwrap_err();
             assert_eq!(error.code(), code);

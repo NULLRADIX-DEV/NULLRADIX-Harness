@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    BUILTIN_THEMES, DEFAULT_THEME, InstalledTheme, SettingValue, ThemeId, ThemeSettingValues,
-    Timestamp, Version, asset_segments, content_type,
+    BUILTIN_THEMES, DEFAULT_THEME, InstalledTheme, SettingValue, SourceId, ThemeId,
+    ThemeSettingValues, Timestamp, Version, asset_segments, content_type,
 };
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -104,6 +104,13 @@ pub trait ThemeWrite: Send {
         id: &ThemeId,
         at: Timestamp,
     ) -> Result<Option<Change>, AppError>;
+    /// Records the catalog source the theme came from; `None` forgets it.
+    async fn set_origin(
+        &mut self,
+        id: &ThemeId,
+        source: Option<&SourceId>,
+        at: Timestamp,
+    ) -> Result<(), AppError>;
     async fn commit(self: Box<Self>) -> Result<(), AppError>;
 }
 
@@ -116,6 +123,15 @@ pub trait ThemeRepository: Send + Sync {
     /// The chosen theme; `None` while none was chosen.
     async fn selection(&self) -> Result<Option<String>, AppError>;
     async fn settings(&self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError>;
+    /// The catalog source of every theme installed from one.
+    async fn origins(&self) -> Result<BTreeMap<ThemeId, SourceId>, AppError>;
+}
+
+/// Where an install comes from and whether it may take over a theme from elsewhere.
+#[derive(Debug, Clone, Copy)]
+pub struct Origin<'a> {
+    pub source: &'a SourceId,
+    pub replace: bool,
 }
 
 /// The files of installed themes; adapters report refused packages with `package_invalid`.
@@ -230,14 +246,15 @@ impl ThemeService {
 
     /// Installs the package, or replaces the installed theme with the same id.
     pub async fn install(&self, archive: Vec<u8>) -> Result<InstalledTheme, AppError> {
-        self.install_expecting(archive, None).await
+        self.install_expecting(archive, None, None).await
     }
 
-    /// Like `install`, but refuses a package whose manifest is not the theme and version expected.
+    /// Installs a package that must be the theme and version expected, recording its origin.
     pub async fn install_expecting(
         &self,
         archive: Vec<u8>,
         expected: Option<(&ThemeId, &str)>,
+        origin: Option<Origin<'_>>,
     ) -> Result<InstalledTheme, AppError> {
         let files = self.files.unpack(archive).await?;
         let manifest = check_package(&files, false)?;
@@ -260,6 +277,19 @@ impl ThemeService {
             ));
         }
         let _writing = self.writes.lock().await;
+        if let Some(origin) = &origin
+            && !origin.replace
+            && self.repository.get(manifest.id()).await?.is_some()
+            && self.repository.origins().await?.get(manifest.id()) != Some(origin.source)
+        {
+            return Err(AppError::conflict(
+                "catalog-theme-installed-elsewhere",
+                format!(
+                    "{} is installed from another source or by upload; replace it explicitly",
+                    manifest.id()
+                ),
+            ));
+        }
         self.files.store(manifest.id(), files).await?;
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
@@ -272,9 +302,17 @@ impl ThemeService {
             let change = write.insert(&theme, self.ids.next_uuid()).await?;
             (theme, change)
         };
+        write
+            .set_origin(theme.id(), origin.map(|origin| origin.source), now)
+            .await?;
         write.commit().await?;
         self.signal.notify(&change);
         Ok(theme)
+    }
+
+    /// The catalog source of every theme installed from one.
+    pub async fn origins(&self) -> Result<BTreeMap<ThemeId, SourceId>, AppError> {
+        self.repository.origins().await
     }
 
     /// Chooses a built-in or an installed theme; the choice survives restarts.
@@ -302,6 +340,7 @@ impl ThemeService {
         let mut write = self.repository.begin().await?;
         // the values go with the theme, in the same transaction
         let purged = write.purge_settings(&theme, now).await?;
+        write.set_origin(&theme, None, now).await?;
         let Some(change) = write.delete(&theme, expected, now).await? else {
             return Err(theme_not_found(id));
         };
@@ -430,6 +469,7 @@ pub(crate) mod tests {
         selection: Mutex<Option<String>>,
         feed: Mutex<Vec<(Entity, Uuid, ChangeOp)>>,
         settings: Mutex<BTreeMap<String, StoredSettings>>,
+        origins: Mutex<BTreeMap<String, SourceId>>,
     }
 
     impl Memory {
@@ -588,6 +628,20 @@ pub(crate) mod tests {
                 .map(|feed_id| self.0.record(Entity::Setting, feed_id, ChangeOp::Delete)))
         }
 
+        async fn set_origin(
+            &mut self,
+            id: &ThemeId,
+            source: Option<&SourceId>,
+            _at: Timestamp,
+        ) -> Result<(), AppError> {
+            let mut origins = self.0.origins.lock();
+            match source {
+                Some(source) => origins.insert(id.to_string(), source.clone()),
+                None => origins.remove(id.as_str()),
+            };
+            Ok(())
+        }
+
         async fn commit(self: Box<Self>) -> Result<(), AppError> {
             Ok(())
         }
@@ -622,6 +676,15 @@ pub(crate) mod tests {
 
         async fn settings(&self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError> {
             Ok(self.settings.lock().get(id.as_str()).cloned())
+        }
+
+        async fn origins(&self) -> Result<BTreeMap<ThemeId, SourceId>, AppError> {
+            Ok(self
+                .origins
+                .lock()
+                .iter()
+                .map(|(id, source)| (ThemeId::parse(id).unwrap(), source.clone()))
+                .collect())
         }
     }
 

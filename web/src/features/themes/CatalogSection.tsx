@@ -26,6 +26,8 @@ const REMOVE_MESSAGES = {
 const INSTALL_MESSAGES = {
   'catalog-checksum-mismatch': 'The download does not match the catalog and was not installed.',
   'catalog-theme-incompatible': 'This theme does not fit this version of NULLRADIX.',
+  'catalog-theme-installed-elsewhere':
+    'This theme is installed from another source or by upload. Replace it to continue.',
   'catalog-theme-not-found': 'The source does not offer this theme any more.',
   'catalog-timeout': 'The source did not answer in time.',
   'catalog-unreachable': 'The source cannot be reached.',
@@ -37,12 +39,17 @@ const INSTALL_MESSAGES = {
 function stateText(theme: CatalogTheme): string {
   if (theme.state === 'installed') return `Installed v${theme.installedVersion ?? ''}`;
   if (theme.state === 'update') return `Update from v${theme.installedVersion ?? ''}`;
+  if (theme.state === 'other-source') {
+    return `Installed v${theme.installedVersion ?? ''} from another source`;
+  }
   return 'Not installed';
 }
 
 function ThemeRow({ theme }: { theme: CatalogTheme }) {
   const install = useInstallFromCatalog();
-  const label = theme.state === 'update' ? 'Update' : 'Install';
+  const [confirming, setConfirming] = useState(false);
+  const elsewhere = theme.state === 'other-source';
+  const label = theme.state === 'update' ? 'Update' : elsewhere ? 'Replace' : 'Install';
   return (
     <li className="theme-row">
       <div className="theme-row-text">
@@ -60,11 +67,55 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
           disabled={install.isPending}
           aria-label={`${label} ${theme.name}`}
           onClick={() => {
-            install.mutate({ sourceId: theme.sourceId, id: theme.id });
+            if (elsewhere) setConfirming(true);
+            else install.mutate({ sourceId: theme.sourceId, id: theme.id });
           }}
         >
           {install.isPending ? 'Working...' : label}
         </button>
+      )}
+      {confirming && elsewhere && (
+        <div
+          className="project-confirm"
+          role="group"
+          aria-label={`Replace ${theme.name}`}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setConfirming(false);
+          }}
+        >
+          <p>
+            <strong>{theme.name}</strong> is installed from another source or by upload. Replace it
+            with this one?
+          </p>
+          <div className="form-row">
+            <button
+              type="button"
+              className="btn danger"
+              disabled={install.isPending}
+              onClick={() => {
+                install.mutate(
+                  { sourceId: theme.sourceId, id: theme.id, replace: true },
+                  {
+                    onSettled: () => {
+                      setConfirming(false);
+                    },
+                  },
+                );
+              }}
+            >
+              Replace
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setConfirming(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
       <FormError
         message={problemMessage(install.error, INSTALL_MESSAGES, 'Could not install the theme.')}

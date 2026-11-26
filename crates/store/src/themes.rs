@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use nullradix_app::theme_package::{manifest_json, parse_manifest};
 use nullradix_app::theme_settings::{parse_settings, settings_json};
@@ -6,7 +8,7 @@ use nullradix_app::themes::{
 };
 use nullradix_app::{AppError, Change, ChangeOp, Entity};
 use nullradix_domain::{
-    InstalledTheme, InstalledThemeRecord, ThemeId, ThemeSettingValues, Timestamp, Version,
+    InstalledTheme, InstalledThemeRecord, SourceId, ThemeId, ThemeSettingValues, Timestamp, Version,
 };
 use sqlx::{Sqlite, SqliteConnection, Transaction};
 use uuid::Uuid;
@@ -17,9 +19,16 @@ use crate::{Store, StoreError, change_feed};
 /// Key of the chosen theme in the settings table.
 const SELECTION_KEY: &str = "theme";
 
+const ORIGIN_PREFIX: &str = "theme-origin.";
+
 /// Settings key of the values chosen for one theme.
 fn settings_key(id: &ThemeId) -> String {
     format!("theme-settings.{id}")
+}
+
+/// Settings key of the catalog source a theme was installed from.
+fn origin_key(id: &ThemeId) -> String {
+    format!("{ORIGIN_PREFIX}{id}")
 }
 
 fn corrupt(what: &str) -> StoreError {
@@ -392,6 +401,37 @@ impl ThemeWrite for Write {
         self.settings_removed(id, at).await
     }
 
+    async fn set_origin(
+        &mut self,
+        id: &ThemeId,
+        source: Option<&SourceId>,
+        at: Timestamp,
+    ) -> Result<(), AppError> {
+        let key = origin_key(id);
+        let Some(source) = source else {
+            sqlx::query!("DELETE FROM settings WHERE key = ?", key)
+                .execute(&mut *self.0)
+                .await
+                .map_err(database)?;
+            return Ok(());
+        };
+        let value = serde_json::to_string(source.as_str()).map_err(|_| corrupt("origin"))?;
+        let millis = at.as_millis();
+        sqlx::query!(
+            "INSERT INTO settings (key, value, version, updated_at) VALUES (?, ?, 1, ?)
+             ON CONFLICT (key) DO UPDATE
+                 SET value = excluded.value, version = version + 1,
+                     updated_at = excluded.updated_at",
+            key,
+            value,
+            millis,
+        )
+        .execute(&mut *self.0)
+        .await
+        .map_err(database)?;
+        Ok(())
+    }
+
     async fn commit(self: Box<Self>) -> Result<(), AppError> {
         self.0.commit().await.map_err(database)
     }
@@ -438,5 +478,28 @@ impl ThemeRepository for Store {
     async fn settings(&self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError> {
         let mut read = self.reader.acquire().await.map_err(database)?;
         Ok(stored_settings(&mut read, id).await?)
+    }
+
+    async fn origins(&self) -> Result<BTreeMap<ThemeId, SourceId>, AppError> {
+        let mut read = self.reader.acquire().await.map_err(database)?;
+        let rows = sqlx::query!("SELECT key, value FROM settings WHERE key LIKE 'theme-origin.%'")
+            .fetch_all(&mut *read)
+            .await
+            .map_err(database)?;
+        let mut origins = BTreeMap::new();
+        for row in rows {
+            let id = row
+                .key
+                .strip_prefix(ORIGIN_PREFIX)
+                .and_then(|id| ThemeId::parse(id).ok());
+            let source = serde_json::from_str::<String>(&row.value)
+                .ok()
+                .and_then(|text| SourceId::parse(&text));
+            let (Some(id), Some(source)) = (id, source) else {
+                return Err(corrupt("origin").into());
+            };
+            origins.insert(id, source);
+        }
+        Ok(origins)
     }
 }

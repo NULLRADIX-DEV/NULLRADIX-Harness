@@ -162,6 +162,29 @@ describe('CatalogSection', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('asks before replacing a theme installed from another source', async () => {
+    const api = catalogServer({
+      sources: [source('aaaaaaaaaaaa', URL_A)],
+      themes: [offered({ state: 'other-source', installedVersion: '1.0.0' })],
+    });
+    renderApp('/settings');
+    expect(await screen.findByText('v1.2.0 - Installed v1.0.0 from another source')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Replace Night Blue' }));
+    const confirm = within(screen.getByRole('group', { name: 'Replace Night Blue' }));
+    await userEvent.click(confirm.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('group', { name: 'Replace Night Blue' })).not.toBeInTheDocument();
+    const path = 'POST /api/v1/theme-catalog/sources/aaaaaaaaaaaa/themes/night-blue/install';
+    expect(api.requests(path)).toHaveLength(0);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Replace Night Blue' }));
+    const again = within(screen.getByRole('group', { name: 'Replace Night Blue' }));
+    await userEvent.click(again.getByRole('button', { name: 'Replace' }));
+    await waitFor(() => {
+      expect(api.requests(path)).toHaveLength(1);
+    });
+    expect(new URL(api.requests(path)[0]?.url ?? '').searchParams.get('replace')).toBe('true');
+  });
+
   it('explains a failed install', async () => {
     catalogServer({
       sources: [source('aaaaaaaaaaaa', URL_A)],

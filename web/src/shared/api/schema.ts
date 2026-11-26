@@ -1727,7 +1727,7 @@ export interface components {
          * @description What a catalog theme means for this installation.
          * @enum {string}
          */
-        CatalogStateDto: "available" | "installed" | "update";
+        CatalogStateDto: "available" | "installed" | "update" | "other-source";
         CatalogThemeDto: {
             /** @description Whether the theme fits this version; incompatible themes cannot be installed. */
             compatible: boolean;
@@ -8437,7 +8437,10 @@ export interface operations {
     };
     install_catalog_theme: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Replace a theme of the same id that was installed from another source or by upload. */
+                replace?: boolean;
+            };
             header?: never;
             path: {
                 /** @description Source id. */
@@ -8486,7 +8489,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `catalog-theme-incompatible` */
+            /** @description `catalog-theme-incompatible` or `catalog-theme-installed-elsewhere` (retry with `replace=true`) */
             409: {
                 headers: {
                     [name: string]: unknown;
