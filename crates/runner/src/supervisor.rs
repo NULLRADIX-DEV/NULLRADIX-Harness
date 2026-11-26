@@ -84,6 +84,7 @@ fn program(spec: &SpecFile) -> PathBuf {
 }
 
 /// The command to start; on Windows a Claude run finds its program like the shell does.
+#[cfg_attr(not(windows), allow(clippy::unnecessary_wraps))]
 fn command(spec: &SpecFile) -> Result<Command, launch::LaunchError> {
     #[cfg(windows)]
     if spec.claude {
