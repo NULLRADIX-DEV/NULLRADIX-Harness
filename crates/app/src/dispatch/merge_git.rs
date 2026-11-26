@@ -46,6 +46,13 @@ pub enum MergeOutcome {
     },
 }
 
+/// The branch a merge goes into and the commit it stands at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetTip {
+    pub into: String,
+    pub tip: String,
+}
+
 /// A branch whose merge the target holds already.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergedEarlier {
@@ -89,6 +96,20 @@ pub trait MergeGit: Send + Sync {
         branch: &str,
         target: Option<&str>,
     ) -> Result<Option<MergedEarlier>, AppError>;
+    /// The target and its commit; without a target the branch the main checkout has checked out.
+    async fn target_tip(
+        &self,
+        root: &str,
+        target: Option<&str>,
+    ) -> Result<Option<TargetTip>, AppError>;
+    /// Whether a merge session left the branch with `ancestor` in it and its folder clean.
+    async fn session_resolved(
+        &self,
+        root: &str,
+        ancestor: &str,
+        branch: &str,
+        folder: &str,
+    ) -> Result<bool, AppError>;
     /// Merges where the target is checked out, or in a merge worktree; a conflict is undone.
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError>;
     /// Deletes the branch when it is merged, still at `tip` and checked out nowhere.

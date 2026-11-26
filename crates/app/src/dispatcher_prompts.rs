@@ -21,8 +21,7 @@ const SAMPLE_TICKET: &str = "ARC-0042";
 const SAMPLE_QUESTION: &str = "ARC-Q0007";
 const SAMPLE_TITLE: &str = "Sample ticket: preview of the instruction";
 
-const ATTEMPTS_STAND_IN: &str =
-    "(preview) The report of earlier failed merge sessions appears here once merge sessions exist.";
+const ATTEMPTS_STAND_IN: &str = "(preview) The report of earlier failed merge sessions appears here from the second session on.";
 
 /// The feedback a person returned the ticket with since the agent started last.
 fn feedback_of(detail: &TicketDetail) -> Vec<String> {
@@ -272,6 +271,30 @@ impl DispatcherPromptService {
             ticket,
         });
         render_prompt(&run, &config, config.prompts.get(PromptKind::Work))
+            .map_err(AppError::internal)
+    }
+
+    /// The instruction of a merge session; `previous` reports the failed earlier ones.
+    pub async fn merge_prompt(
+        &self,
+        key: &str,
+        branch: &str,
+        target: &str,
+        previous: Option<String>,
+    ) -> Result<String, AppError> {
+        let config = self.config.get().await?.config;
+        let detail = self.tickets.get(key).await?;
+        let record = detail.view.ticket.record();
+        let ticket = record.key.to_string();
+        let run = PromptRun::Merge(MergeRun {
+            agent: config.work_agent(&ticket),
+            title: record.title.as_str().to_owned(),
+            branch: branch.to_owned(),
+            target: target.to_owned(),
+            previous_attempts: previous,
+            ticket,
+        });
+        render_prompt(&run, &config, config.prompts.get(PromptKind::Merge))
             .map_err(AppError::internal)
     }
 

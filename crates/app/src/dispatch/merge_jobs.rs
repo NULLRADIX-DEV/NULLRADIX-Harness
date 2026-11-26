@@ -4,13 +4,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    DispatchOutcome, DispatcherConfig, Id, MergeJob, Run, Ticket, TicketRecord, Timestamp, Version,
-    Worktree,
+    DispatchOutcome, DispatcherConfig, Id, MergeJob, Run, RunKind, Ticket, TicketRecord, Timestamp,
+    Version, Worktree,
 };
 
 use super::evaluate::DoneGate;
 use super::review_decide::AcceptHook;
 use crate::dispatcher_config::DispatcherConfigService;
+use crate::runs::{RunFilter, RunService};
 use crate::worktrees::WorktreeRepository;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
@@ -18,6 +19,27 @@ use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 pub const MAX_OPEN_JOBS: u32 = 1000;
 /// Jobs the history of one ticket lists.
 pub const MAX_TICKET_JOBS: u32 = 50;
+/// Merge runs of one ticket looked at to find one that is not settled.
+pub const SESSION_RUNS_LOOKED_AT: u32 = 20;
+
+/// Whether a merge session of one of the tickets has not been settled yet.
+pub async fn merge_session_open(
+    runs: &RunService,
+    subjects: impl IntoIterator<Item = String>,
+) -> Result<bool, AppError> {
+    for subject in subjects {
+        let filter = RunFilter {
+            subject_key: Some(subject),
+            kind: Some(RunKind::Merge),
+            ..RunFilter::default()
+        };
+        let found = runs.find(&filter, SESSION_RUNS_LOOKED_AT).await?;
+        if found.iter().any(|run| run.outcome().is_none()) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
 
 /// A job with the branch of its worktree.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::dispatch::merge_git::{
-    BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier,
+    BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier, TargetTip,
 };
 use nullradix_app::review::check_branch;
 use nullradix_app::worktrees::git_failed;
@@ -808,6 +808,54 @@ impl MergeGit for LocalMergeGit {
         Ok(None)
     }
 
+    async fn target_tip(
+        &self,
+        root: &str,
+        target: Option<&str>,
+    ) -> Result<Option<TargetTip>, AppError> {
+        let root = Path::new(root);
+        let into = match target {
+            Some(target) => {
+                checked(target)?;
+                target.to_owned()
+            }
+            None => git(root, &["branch", "--show-current"]).await?,
+        };
+        if into.is_empty() {
+            return Ok(None);
+        }
+        Ok(tip_of(root, &into)
+            .await?
+            .map(|tip| TargetTip { into, tip }))
+    }
+
+    async fn session_resolved(
+        &self,
+        root: &str,
+        ancestor: &str,
+        branch: &str,
+        folder: &str,
+    ) -> Result<bool, AppError> {
+        checked(branch)?;
+        if ancestor.is_empty() || !ancestor.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(AppError::invalid(
+                "merge-commit-invalid",
+                format!("\"{ancestor}\" is not a commit id"),
+            ));
+        }
+        if !is_ancestor(Path::new(root), ancestor, &refs(branch)).await? {
+            return Ok(false);
+        }
+        // a folder that is gone or broken counts as not resolved
+        let cwd = Path::new(folder);
+        let clean = async {
+            Ok::<_, AppError>(
+                running(cwd).await?.is_none() && blocking(&status_of(cwd).await?).is_empty(),
+            )
+        };
+        Ok(clean.await.unwrap_or(false))
+    }
+
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
         checked(&request.branch)?;
         if let Some(target) = &request.target {
@@ -1023,6 +1071,70 @@ mod tests {
             assert!(!root.join(".git/MERGE_HEAD").exists());
             assert!(!root.join(".git/SQUASH_MSG").exists());
         }
+    }
+
+    #[tokio::test]
+    async fn the_target_tip_names_the_branch_and_its_commit() {
+        let (_dir, root) = repository();
+        let main = git_sync(&root, &["rev-parse", "refs/heads/main"]);
+        let ticket = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
+        let at = slashed(&root);
+        let current = LocalMergeGit.target_tip(&at, None).await.unwrap().unwrap();
+        assert_eq!(
+            (current.into.as_str(), current.tip.as_str()),
+            ("main", main.as_str())
+        );
+        let named = LocalMergeGit
+            .target_tip(&at, Some("ticket/x"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (named.into.as_str(), named.tip.as_str()),
+            ("ticket/x", ticket.as_str())
+        );
+        assert_eq!(
+            LocalMergeGit.target_tip(&at, Some("nope")).await.unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_is_resolved_only_with_the_target_in_the_branch_and_a_clean_folder() {
+        let (_dir, root) = repository();
+        conflicting(&root);
+        let at = slashed(&root);
+        let target = git_sync(&root, &["rev-parse", "refs/heads/main"]);
+        let resolved = |folder: String| {
+            let (at, target) = (at.clone(), target.clone());
+            async move {
+                LocalMergeGit
+                    .session_resolved(&at, &target, "ticket/x", &folder)
+                    .await
+                    .unwrap()
+            }
+        };
+        assert!(!resolved(at.clone()).await);
+        git_sync(&root, &["checkout", "-q", "ticket/x"]);
+        let tried = Command::new("git")
+            .args(["merge", "main"])
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(!tried.status.success());
+        fs::write(root.join("a.txt"), "both\n").unwrap();
+        git_sync(&root, &["add", "-A"]);
+        // the merge is still under way: not resolved yet
+        assert!(!resolved(at.clone()).await);
+        git_sync(&root, &["commit", "-q", "--no-edit"]);
+        assert!(resolved(at.clone()).await);
+        fs::write(root.join("left.tmp"), "x\n").unwrap();
+        assert!(!resolved(at.clone()).await);
+        assert!(!resolved(format!("{at}/gone")).await);
+        let invalid = LocalMergeGit
+            .session_resolved(&at, "--all", "ticket/x", &at)
+            .await;
+        assert_eq!(invalid.unwrap_err().code(), "merge-commit-invalid");
     }
 
     #[tokio::test]

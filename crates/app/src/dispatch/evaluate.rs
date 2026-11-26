@@ -13,6 +13,7 @@ use parking_lot::RwLock;
 use super::abort::{AbortAttempts, AbortRequest, Aborted, Standing};
 use super::accounts::AccountPicker;
 use super::log::{DispatchLog, LogLevel};
+use super::merge::MergeAll;
 use super::outcome::{Decision, Ended, decide, question_comment};
 use super::pass::{PassContext, PassReport, PassStep};
 use super::pause::{NoPauseHook, PauseHook, PauseKind};
@@ -71,6 +72,7 @@ pub struct EvaluateRuns {
     accounts: Option<Arc<AccountPicker>>,
     research: Option<Arc<ResearchRuns>>,
     planning: Option<Arc<PlanningRuns>>,
+    merge: Option<Arc<MergeAll>>,
     pauses: RwLock<Arc<dyn PauseHook>>,
     notifier: Arc<dyn Notifier>,
 }
@@ -108,6 +110,7 @@ impl EvaluateRuns {
             accounts: None,
             research: None,
             planning: None,
+            merge: None,
             pauses: RwLock::new(Arc::new(NoPauseHook)),
             notifier: Arc::new(NoNotifier),
         }
@@ -162,6 +165,28 @@ impl EvaluateRuns {
     pub fn with_planning(mut self, planning: Arc<PlanningRuns>) -> Self {
         self.planning = Some(planning);
         self
+    }
+
+    /// Has merge sessions settled too; without it they wait.
+    #[must_use]
+    pub fn with_merge(mut self, merge: Arc<MergeAll>) -> Self {
+        self.merge = Some(merge);
+        self
+    }
+
+    /// Settles a merge session: its job merges again, tries again or is blocked.
+    async fn settle_merge(
+        &self,
+        run: &Run,
+        key: &str,
+        context: &PassContext,
+        report: &mut PassReport,
+    ) {
+        let Some(merge) = &self.merge else {
+            return;
+        };
+        let settled = merge.settle_session(run, context).await;
+        self.record_settled(run, key, settled, report).await;
     }
 
     /// Settles a research run: its question gets the research or the comment that it left none.
@@ -571,7 +596,11 @@ impl PassStep for EvaluateRuns {
                 self.settle_plan(run, key, &context.config, report).await;
                 continue;
             }
-            // merge runs have their own slice; a ticket with a live run waits
+            if dispatch.kind == RunKind::Merge {
+                self.settle_merge(run, key, context, report).await;
+                continue;
+            }
+            // a ticket with a live run waits
             if dispatch.kind != RunKind::Work || working.contains(key) || launching.contains(key) {
                 continue;
             }
