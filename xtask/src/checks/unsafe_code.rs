@@ -3,7 +3,7 @@ use std::path::Path;
 use super::Violation;
 
 /// Files that may opt out of the workspace `unsafe_code` lint.
-const ALLOWED: &[&str] = &["crates/os/src/windows.rs"];
+const ALLOWED: &[&str] = &["crates/os/src/windows.rs", "crates/os/src/unix_time.rs"];
 const MESSAGE: &str = "unsafe_code opt-out outside the xtask allowlist";
 
 fn opts_out(text: &str) -> bool {

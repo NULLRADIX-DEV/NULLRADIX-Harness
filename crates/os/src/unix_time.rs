@@ -2,16 +2,19 @@
 
 use nix::libc;
 
+unsafe extern "C" {
+    /// Re-reads the zone of the process, which libc does lazily and only once.
+    safe fn tzset();
+}
+
 /// Minutes local time is ahead of UTC at a moment, by the zone rules of that moment.
 pub(crate) fn utc_offset_minutes(at_millis: i64) -> Option<i32> {
     let seconds = libc::time_t::try_from(at_millis.div_euclid(1000)).ok()?;
     // SAFETY: the structure is plain data that the call fills in.
     let mut parts: libc::tm = unsafe { std::mem::zeroed() };
-    // SAFETY: both pointers are valid for the calls; tzset re-reads a changed zone.
-    let done = unsafe {
-        libc::tzset();
-        libc::localtime_r(&raw const seconds, &raw mut parts)
-    };
+    tzset();
+    // SAFETY: both pointers are valid for the call.
+    let done = unsafe { libc::localtime_r(&raw const seconds, &raw mut parts) };
     if done.is_null() {
         return None;
     }
@@ -28,7 +31,7 @@ mod tests {
 
     #[test]
     fn the_offset_follows_daylight_saving_at_each_moment() {
-        // a POSIX rule needs no zone files; the process is the test's alone under nextest
+        // a POSIX rule needs no zone files, and nextest gives the test its own process
         // SAFETY: nothing else reads the environment while this test runs.
         unsafe { std::env::set_var("TZ", "CET-1CEST,M3.5.0,M10.5.0/3") };
         assert_eq!(utc_offset_minutes(JAN_15_2027), Some(60));

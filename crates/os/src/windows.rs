@@ -534,7 +534,7 @@ const EPOCH_GAP_MS: i64 = 11_644_473_600_000;
 const TICKS_PER_MS: i64 = 10_000;
 const TICKS_PER_MINUTE: i64 = 600_000_000;
 
-fn ticks(time: &FILETIME) -> i64 {
+fn ticks(time: FILETIME) -> i64 {
     (i64::from(time.dwHighDateTime) << 32) | i64::from(time.dwLowDateTime)
 }
 
@@ -560,7 +560,7 @@ pub(crate) fn utc_offset_minutes(at_millis: i64) -> Option<i32> {
     if !converted {
         return None;
     }
-    i32::try_from((ticks(&local_file) - utc_ticks).div_euclid(TICKS_PER_MINUTE)).ok()
+    i32::try_from((ticks(local_file) - utc_ticks).div_euclid(TICKS_PER_MINUTE)).ok()
 }
 
 /// Owner, protection and allow entries (SID text and access mask) of a file or folder.
