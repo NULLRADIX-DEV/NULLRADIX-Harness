@@ -16,6 +16,9 @@ use crate::worktree::{LONG_PATHS, attempt, ensure_target, exists, git, output};
 /// Trailer of a squash commit: `Harness-Squashed: <branch> <full tip of the branch>`.
 const SQUASH_TRAILER: &str = "Harness-Squashed";
 
+/// Characters of git output a refusal carries.
+const REFUSAL_MAX: usize = 2000;
+
 /// Git states in which nothing is merged; a file in the git dir shows them.
 const BUSY: [(&str, &str); 5] = [
     ("MERGE_HEAD", "a merge"),
@@ -249,13 +252,22 @@ async fn merge_in(cwd: &Path, request: &MergeRequest, tip: &str) -> Result<Merge
             cwd.display()
         )));
     }
+    if squash_pending(cwd).await?
+        && attempt(cwd, &["diff", "--cached", "--quiet"])
+            .await?
+            .is_none()
+    {
+        return Ok(MergeStep::Refused(format!(
+            "an unfinished squash is left in {}; commit or reset its staged changes, nothing is              merged",
+            cwd.display()
+        )));
+    }
     if squashed_into(cwd, &request.branch, tip, "HEAD").await? {
         return Ok(MergeStep::Merged(short_head(cwd).await?));
     }
     match request.strategy {
         MergeStrategy::Squash => squash(cwd, request, tip).await,
         MergeStrategy::Merge => {
-            let reference = refs(&request.branch);
             let args = [
                 "-c",
                 "core.quotePath=false",
@@ -264,7 +276,7 @@ async fn merge_in(cwd: &Path, request: &MergeRequest, tip: &str) -> Result<Merge
                 "--no-edit",
                 "-m",
                 &request.message,
-                &reference,
+                tip,
             ];
             let tried = run(cwd, &args).await?;
             if tried.ok {
@@ -286,8 +298,7 @@ enum MergeStep {
 }
 
 async fn squash(cwd: &Path, request: &MergeRequest, tip: &str) -> Result<MergeStep, AppError> {
-    let reference = refs(&request.branch);
-    if is_ancestor(cwd, &reference, "HEAD").await? {
+    if is_ancestor(cwd, tip, "HEAD").await? {
         return Ok(MergeStep::Merged(short_head(cwd).await?));
     }
     // a squash would take staged changes into its commit
@@ -304,13 +315,7 @@ async fn squash(cwd: &Path, request: &MergeRequest, tip: &str) -> Result<MergeSt
     let pending_before = squash_pending(cwd).await?;
     let tried = run(
         cwd,
-        &[
-            "-c",
-            "core.quotePath=false",
-            "merge",
-            "--squash",
-            &reference,
-        ],
+        &["-c", "core.quotePath=false", "merge", "--squash", tip],
     )
     .await?;
     if tried.ok {
@@ -344,7 +349,7 @@ async fn squash_message(
     request: &MergeRequest,
     tip: &str,
 ) -> Result<Vec<String>, AppError> {
-    let range = format!("HEAD..{}", refs(&request.branch));
+    let range = format!("HEAD..{tip}");
     let listed = git(cwd, &["log", "--reverse", "--format=- %s", &range, "--"]).await?;
     let subjects: Vec<&str> = listed.split('\n').filter(|line| !line.is_empty()).collect();
     let mut shown: Vec<String> = subjects
@@ -411,19 +416,31 @@ async fn after_failure(
     if started {
         abort(cwd, strategy).await?;
     }
-    if started || !conflicted.is_empty() {
+    if !conflicted.is_empty() {
         return Ok(MergeStep::Conflict(conflicted));
     }
     let message = [tried.err.clone(), tried.out.clone()]
         .into_iter()
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
-        .join("\n");
+        .join(
+            "
+",
+        );
+    // a started merge without conflicts failed on a hook or a signature
     Ok(MergeStep::Refused(if message.is_empty() {
         String::from("git refused the merge")
     } else {
-        message
+        bounded(&message)
     }))
+}
+
+/// The head of a git message, so a noisy hook cannot fill a comment.
+fn bounded(text: &str) -> String {
+    match text.char_indices().nth(REFUSAL_MAX) {
+        Some((end, _)) => format!("{}...", &text[..end]),
+        None => text.to_owned(),
+    }
 }
 
 /// Undoes our own merge; when that fails the folder needs a person (`merge-abort-failed`).
@@ -463,6 +480,31 @@ async fn close(root: &Path, path: &str) -> Option<String> {
         Ok(closed) => Some(format!("merge worktree {path} stays: {}", closed.err)),
         Err(error) => Some(error.message().to_owned()),
     }
+}
+
+/// Merges the captured tip of the branch, not the ref, which a commit may move meanwhile.
+async fn merge_at(request: &MergeRequest, tip: String) -> Result<MergeOutcome, AppError> {
+    let root = Path::new(&request.root);
+    let place = match place_of(root, request.target.as_deref()).await? {
+        Placed::Place(place) => place,
+        Placed::Refused(reason) => return Ok(MergeOutcome::Refused { reason }),
+    };
+    let stepped = merge_in(Path::new(&place.path), request, &tip).await;
+    let warning = if place.opened {
+        close(root, &place.path).await
+    } else {
+        None
+    };
+    Ok(match stepped? {
+        MergeStep::Merged(commit) => MergeOutcome::Merged {
+            into: place.into,
+            commit,
+            tip,
+            warning,
+        },
+        MergeStep::Conflict(files) => MergeOutcome::Conflict { files },
+        MergeStep::Refused(reason) => MergeOutcome::Refused { reason },
+    })
 }
 
 #[async_trait]
@@ -577,26 +619,7 @@ impl MergeGit for LocalMergeGit {
                 reason: format!("branch {} does not exist", request.branch),
             });
         };
-        let place = match place_of(root, request.target.as_deref()).await? {
-            Placed::Place(place) => place,
-            Placed::Refused(reason) => return Ok(MergeOutcome::Refused { reason }),
-        };
-        let stepped = merge_in(Path::new(&place.path), request, &tip).await;
-        let warning = if place.opened {
-            close(root, &place.path).await
-        } else {
-            None
-        };
-        Ok(match stepped? {
-            MergeStep::Merged(commit) => MergeOutcome::Merged {
-                into: place.into,
-                commit,
-                tip,
-                warning,
-            },
-            MergeStep::Conflict(files) => MergeOutcome::Conflict { files },
-            MergeStep::Refused(reason) => MergeOutcome::Refused { reason },
-        })
+        merge_at(request, tip).await
     }
 
     async fn delete_merged(&self, request: &DeleteBranch) -> Result<BranchDeletion, AppError> {
@@ -796,6 +819,105 @@ mod tests {
             "{outcome:?}"
         );
         assert!(root.join(".git/MERGE_HEAD").exists());
+    }
+
+    fn hook_that_fails(root: &Path) {
+        let hook = root.join(".git/hooks/pre-merge-commit");
+        fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        fs::write(
+            &hook,
+            "#!/bin/sh
+echo hook said no >&2
+exit 1
+",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn a_merge_that_a_hook_stops_is_refused_with_the_hook_output_and_undone() {
+        let (_dir, root) = repository();
+        hook_that_fails(&root);
+        let head = git_sync(&root, &["rev-parse", "HEAD"]);
+        let outcome = LocalMergeGit
+            .merge(&request(&root, None, MergeStrategy::Merge))
+            .await
+            .unwrap();
+        assert!(
+            matches!(&outcome, MergeOutcome::Refused { reason } if reason.contains("hook said no")),
+            "{outcome:?}"
+        );
+        assert_eq!(git_sync(&root, &["rev-parse", "HEAD"]), head);
+        assert_eq!(git_sync(&root, &["status", "--porcelain"]), "");
+        assert!(!root.join(".git/MERGE_HEAD").exists());
+    }
+
+    #[test]
+    fn a_refusal_keeps_only_the_head_of_long_output() {
+        let long = "x".repeat(REFUSAL_MAX + 50);
+        assert_eq!(bounded(&long).len(), REFUSAL_MAX + 3);
+        assert_eq!(bounded("short"), "short");
+    }
+
+    #[tokio::test]
+    async fn only_the_captured_tip_is_merged_when_the_branch_moves_meanwhile() {
+        for strategy in [MergeStrategy::Merge, MergeStrategy::Squash] {
+            let (_dir, root) = repository();
+            let tip = tip_of(&root, "ticket/x").await.unwrap().unwrap();
+            git_sync(&root, &["checkout", "-q", "ticket/x"]);
+            commit(
+                &root,
+                "late.txt",
+                "late
+",
+                "late commit",
+            );
+            git_sync(&root, &["checkout", "-q", "main"]);
+            let outcome = merge_at(&request(&root, None, strategy), tip.clone())
+                .await
+                .unwrap();
+            let MergeOutcome::Merged { tip: merged, .. } = outcome else {
+                panic!("{outcome:?}");
+            };
+            assert_eq!(merged, tip);
+            assert!(root.join("b.txt").exists());
+            assert!(!root.join("late.txt").exists(), "{strategy:?}");
+            let body = git_sync(&root, &["log", "-1", "--format=%B"]);
+            assert!(!body.contains("late commit"), "{body}");
+            assert!(body.contains("(ticket/x)"), "{body}");
+            // the branch moved on, so the delete keeps it
+            let kept = LocalMergeGit
+                .delete_merged(&delete(&root, &tip))
+                .await
+                .unwrap();
+            assert!(matches!(kept, BranchDeletion::Kept(_)), "{kept:?}");
+            assert!(has_ref(&root, "refs/heads/ticket/x").await.unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unfinished_squash_in_the_checkout_is_refused_for_both_strategies() {
+        let (_dir, root) = repository();
+        git_sync(&root, &["merge", "--squash", "ticket/x"]);
+        assert!(root.join(".git/SQUASH_MSG").exists());
+        for strategy in [MergeStrategy::Merge, MergeStrategy::Squash] {
+            let outcome = LocalMergeGit
+                .merge(&request(&root, None, strategy))
+                .await
+                .unwrap();
+            assert!(
+                matches!(&outcome, MergeOutcome::Refused { reason }
+                    if reason.contains("unfinished squash")),
+                "{strategy:?}: {outcome:?}"
+            );
+            assert!(root.join(".git/SQUASH_MSG").exists());
+            assert_eq!(git_sync(&root, &["status", "--porcelain"]), "A  b.txt");
+        }
     }
 
     #[tokio::test]
