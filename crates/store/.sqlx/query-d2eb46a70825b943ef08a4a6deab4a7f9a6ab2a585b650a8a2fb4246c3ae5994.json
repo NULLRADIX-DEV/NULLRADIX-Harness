@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO account_usage_samples\n           (id, account_id, run_id, phase, five_hour_pct, seven_day_pct, five_hour_resets_at,\n            seven_day_resets_at, at)\n         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "d2eb46a70825b943ef08a4a6deab4a7f9a6ab2a585b650a8a2fb4246c3ae5994"
+}

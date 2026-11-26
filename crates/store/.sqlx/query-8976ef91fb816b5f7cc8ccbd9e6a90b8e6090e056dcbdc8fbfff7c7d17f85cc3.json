@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT five_hour_pct, seven_day_pct, five_hour_resets_at, seven_day_resets_at\n             FROM account_usage_samples WHERE account_id = ? ORDER BY at DESC, id DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "five_hour_pct",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "account_usage_samples",
+            "name": "five_hour_pct"
+          }
+        }
+      },
+      {
+        "name": "seven_day_pct",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "account_usage_samples",
+            "name": "seven_day_pct"
+          }
+        }
+      },
+      {
+        "name": "five_hour_resets_at",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "account_usage_samples",
+            "name": "five_hour_resets_at"
+          }
+        }
+      },
+      {
+        "name": "seven_day_resets_at",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "account_usage_samples",
+            "name": "seven_day_resets_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "8976ef91fb816b5f7cc8ccbd9e6a90b8e6090e056dcbdc8fbfff7c7d17f85cc3"
+}
