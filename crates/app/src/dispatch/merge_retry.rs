@@ -222,48 +222,56 @@ impl MergeRetry {
         let record = detail.view.ticket.record();
         let jobs = self.parts.queue.of_ticket(record.id).await?;
         let newest = jobs.first().map(|stored| stored.job.record());
-        let (outcome, text) =
-            if let Some(job) = newest.filter(|job| job.phase == MergePhase::Merged) {
-                (
-                    RetryOutcome::Merged,
-                    format!(
-                        "{key} merged into {} ({}).",
-                        job.merged_into.as_deref().unwrap_or_default(),
-                        job.merged_commit.as_deref().unwrap_or_default()
-                    ),
-                )
-            } else if merge_blocked(record) {
-                let reason = record.blocked_reason.as_deref().unwrap_or_default();
-                (
-                    RetryOutcome::Blocked,
-                    format!(
-                        "{key}: merge blocked - {}",
-                        reason.trim_start_matches(MERGE_REASON).trim()
-                    ),
-                )
-            } else if newest.is_some_and(|job| job.phase == MergePhase::ConflictSession) {
-                (
-                    RetryOutcome::Session,
-                    format!("{key}: merge conflict - a merge session started."),
-                )
-            } else if let Some(error) = run.first() {
-                (
-                    RetryOutcome::Pending,
-                    format!("{key}: merge not run - {error}"),
-                )
-            } else if newest.is_some_and(|job| job.conflict_seen) {
-                (
-                    RetryOutcome::Pending,
-                    format!("{key}: merge conflict - the merge waits for a merge session."),
-                )
-            } else if newest.is_some_and(|job| job.phase == MergePhase::Waiting) {
-                (
-                    RetryOutcome::Waiting,
-                    format!("{key}: the merge waits for other tickets of the worktree."),
-                )
-            } else {
-                (RetryOutcome::Pending, format!("{key}: merge queued."))
-            };
+        let (outcome, text) = if let Some(job) =
+            newest.filter(|job| job.phase == MergePhase::Merged)
+        {
+            (
+                RetryOutcome::Merged,
+                format!(
+                    "{key} merged into {} ({}).",
+                    job.merged_into.as_deref().unwrap_or_default(),
+                    job.merged_commit.as_deref().unwrap_or_default()
+                ),
+            )
+        } else if merge_blocked(record) {
+            let reason = record.blocked_reason.as_deref().unwrap_or_default();
+            (
+                RetryOutcome::Blocked,
+                format!(
+                    "{key}: merge blocked - {}",
+                    reason.trim_start_matches(MERGE_REASON).trim()
+                ),
+            )
+        } else if newest.is_some_and(|job| job.phase == MergePhase::ConflictSession) {
+            (
+                RetryOutcome::Session,
+                format!("{key}: merge conflict - a merge session started."),
+            )
+        } else if let Some(error) = run.first() {
+            (
+                RetryOutcome::Pending,
+                format!("{key}: merge not run - {error}"),
+            )
+        } else if newest.is_some_and(|job| job.conflict_seen) {
+            (
+                RetryOutcome::Pending,
+                format!("{key}: merge conflict - the merge waits for a merge session."),
+            )
+        } else if let Some(held) = jobs.first().and_then(|stored| stored.job.held_text()) {
+            (
+                RetryOutcome::Waiting,
+                format!(
+                    "{key}: the merge waits for {held} - it is merged automatically once that is done."
+                ),
+            )
+        } else if newest.is_some_and(|job| job.phase == MergePhase::Waiting) {
+            (
+                RetryOutcome::Waiting,
+                format!("{key}: the merge waits for other tickets of the worktree."),
+            )
+        } else {
+            (RetryOutcome::Pending, format!("{key}: merge queued."))
+        };
         Ok(MergeRetried {
             outcome,
             text,

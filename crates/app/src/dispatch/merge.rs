@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Actor, MERGE_REASON, MergeJob, MergeStrategy, SystemMarker, Ticket, TicketRecord, TicketStatus,
-    Timestamp, WorktreePurpose, finished_for_merge, merge_block_reason, merge_message,
-    ready_to_merge,
+    Actor, HOLD_NOTICE_MINUTES, HoldKind, MERGE_REASON, MergeJob, MergeStrategy, SystemMarker,
+    Ticket, TicketRecord, TicketStatus, Timestamp, WorktreePurpose, finished_for_merge,
+    merge_block_reason, merge_message, ready_to_merge,
 };
 
 use super::log::{DispatchLog, LogLevel};
@@ -38,6 +38,9 @@ pub struct MergeParts {
     pub clock: Arc<dyn Clock>,
     pub signal: ChangeSignal,
 }
+
+/// Milliseconds in a minute.
+const MILLIS_PER_MINUTE: i64 = 60_000;
 
 /// Codes of a merge whose failure needs a person; any other failure is tried again.
 const BLOCKING_CODES: [&str; 2] = ["merge-abort-failed", "merge-worktree-foreign"];
@@ -278,6 +281,9 @@ impl MergeAll {
                     .await
             }
             Ok(MergeOutcome::Conflict { files }) => self.conflict(job, branch, &files).await,
+            Ok(MergeOutcome::Held { kind, place, text }) => {
+                self.hold(job, branch, (kind, &place, &text)).await
+            }
             Ok(MergeOutcome::Refused { reason }) => self.block(job, branch, context, &reason).await,
             Err(error) if BLOCKING_CODES.contains(&error.code()) => {
                 self.block(job, branch, context, error.message()).await
@@ -289,7 +295,10 @@ impl MergeAll {
     /// Some ticket of the branch is open again: wait, and say so once.
     async fn wait(&self, job: MergeJob, branch: &Branch) -> Result<(), AppError> {
         let record = job.record();
-        if record.phase == nullradix_domain::MergePhase::Waiting && record.wait_noted {
+        if record.phase == nullradix_domain::MergePhase::Waiting
+            && record.wait_noted
+            && job.held_text().is_none()
+        {
             return Ok(());
         }
         let open: Vec<String> = branch
@@ -309,6 +318,74 @@ impl MergeAll {
         }
         let version = record.version;
         self.save(job.waiting(true), version).await
+    }
+
+    /// The folder cannot take the merge yet: say so once per reason, tell the person after a while.
+    async fn hold(
+        &self,
+        job: MergeJob,
+        branch: &Branch,
+        held: (HoldKind, &str, &str),
+    ) -> Result<(), AppError> {
+        let (kind, place, text) = held;
+        let record = job.record();
+        let line = format!("{place}: {text}");
+        let fresh = record.held_by.as_deref() != Some(kind.as_str());
+        let waited =
+            (self.parts.clock.now().as_millis() - record.since.as_millis()) / MILLIS_PER_MINUTE;
+        let notice = !record.hold_noticed && waited >= HOLD_NOTICE_MINUTES;
+        if !fresh && !notice && job.held_text() == Some(line.as_str()) {
+            return Ok(());
+        }
+        let done = branch.done();
+        if fresh {
+            let body = format!(
+                "[dispatch] merge-waiting: waiting for {line} - merged automatically once that is \
+                 done."
+            );
+            self.note(&done, &body, SystemMarker::MergeWait).await?;
+        }
+        let version = record.version;
+        self.save(job.held(kind, &line, notice), version).await?;
+        let Some(first) = done.first() else {
+            return Ok(());
+        };
+        let key = first.key.to_string();
+        if fresh {
+            self.parts
+                .log
+                .write(
+                    LogLevel::Info,
+                    &format!("merge of {key} waits for {line}"),
+                    Some(&key),
+                    None,
+                )
+                .await;
+        }
+        if notice {
+            let how_long = if waited < 120 {
+                format!("{waited} minutes")
+            } else {
+                format!("{} hours", waited / 60)
+            };
+            self.parts
+                .log
+                .write(
+                    LogLevel::Info,
+                    &format!("merge of {key} has waited {how_long}: reported"),
+                    Some(&key),
+                    None,
+                )
+                .await;
+            let notice = Notice {
+                kind: NoticeKind::MergeWaiting,
+                ticket: Some(key),
+                title: first.title.as_str().to_owned(),
+                text: format!("merge has waited {how_long} for {line}"),
+            };
+            self.toast(&notice).await;
+        }
+        Ok(())
     }
 
     /// The merge was undone; the job keeps the files for a merge session and stands still.

@@ -1,7 +1,7 @@
 //! The git side of a merge, run where the repository is: merge, squash, branch delete.
 
 use async_trait::async_trait;
-use nullradix_domain::MergeStrategy;
+use nullradix_domain::{HoldKind, MergeStrategy};
 
 use crate::AppError;
 
@@ -36,6 +36,13 @@ pub enum MergeOutcome {
     /// Nothing changed; the reason says why git or the checkout did not take the merge.
     Refused {
         reason: String,
+    },
+    /// Nothing changed; the folder cannot take the merge now but will once it is clean.
+    Held {
+        kind: HoldKind,
+        /// The folder, as in "the main checkout".
+        place: String,
+        text: String,
     },
 }
 

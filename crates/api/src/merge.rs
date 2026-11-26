@@ -47,7 +47,7 @@ pub struct MergeJobDto {
     pub strategy: crate::MergeStrategyDto,
     /// A merge conflict was found and undone.
     pub conflict_seen: bool,
-    /// Why the merge failed, or the files it conflicts in.
+    /// Why the merge failed, the files it conflicts in, or what it waits for.
     pub problem: Option<String>,
     pub merged_into: Option<String>,
     pub merged_commit: Option<String>,

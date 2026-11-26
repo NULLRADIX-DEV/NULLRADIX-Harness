@@ -8,7 +8,8 @@ use nullradix_app::dispatch::merge_git::{
     BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier,
 };
 use nullradix_app::review::check_branch;
-use nullradix_domain::{MergeStrategy, SQUASH_LIST_MAX};
+use nullradix_app::worktrees::git_failed;
+use nullradix_domain::{HoldKind, MergeStrategy, SQUASH_LIST_MAX, hold_files};
 
 use crate::git::local_key;
 use crate::worktree::{LONG_PATHS, attempt, ensure_target, exists, git, output};
@@ -110,6 +111,8 @@ struct Place {
     path: String,
     into: String,
     opened: bool,
+    /// The folder as a sentence names it.
+    label: String,
 }
 
 /// Why the merge has no place, or the place.
@@ -130,6 +133,7 @@ async fn place_of(root: &Path, target: Option<&str>) -> Result<Placed, AppError>
             path: slashed(root),
             into: current,
             opened: false,
+            label: main_label(),
         }));
     };
     let at = match checked_out_at(root, target).await? {
@@ -142,6 +146,7 @@ async fn place_of(root: &Path, target: Option<&str>) -> Result<Placed, AppError>
     match at {
         Some(at) if !same_folder(&at, &main) && !same_folder(&at, &own) => {
             Ok(Placed::Place(Place {
+                label: format!("the worktree {at}"),
                 path: at,
                 into: target.to_owned(),
                 opened: false,
@@ -151,6 +156,7 @@ async fn place_of(root: &Path, target: Option<&str>) -> Result<Placed, AppError>
             path: main,
             into: target.to_owned(),
             opened: false,
+            label: main_label(),
         })),
         _ => open_merge_worktree(root, target, &own).await,
     }
@@ -167,6 +173,7 @@ async fn open_merge_worktree(root: &Path, target: &str, path: &str) -> Result<Pl
             path: path.to_owned(),
             into: target.to_owned(),
             opened,
+            label: format!("the merge worktree {path}"),
         })
     };
     if exists(PathBuf::from(path)).await? {
@@ -208,6 +215,152 @@ async fn running(cwd: &Path) -> Result<Option<&'static str>, AppError> {
         }
     }
     Ok(None)
+}
+
+fn main_label() -> String {
+    String::from("the main checkout")
+}
+
+/// Files of the harness that never count as local changes.
+const HARNESS_FILES: [&str; 3] = [
+    ".claude/settings.local.json",
+    ".claude/rules/ai-harness-docs.md",
+    ".claude/rules/ai-harness-board.md",
+];
+
+/// Pointer of the old spec tooling; it only counts once it is staged.
+const SPEC_POINTER: &str = ".specify/feature.json";
+
+/// One line of `git status`: both status columns and the paths (a rename names both).
+struct StatusEntry {
+    columns: String,
+    paths: Vec<String>,
+}
+
+async fn status_of(cwd: &Path) -> Result<Vec<StatusEntry>, AppError> {
+    let args = [
+        "-c",
+        "core.quotePath=false",
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+    ];
+    let output = output(cwd, &args).await?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(git_failed(&args, detail.trim()));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let parts: Vec<&str> = text.split('\0').collect();
+    let mut entries = Vec::new();
+    let mut at = 0;
+    while at < parts.len() {
+        let part = parts[at];
+        at += 1;
+        let (Some(columns), Some(path)) = (part.get(..2), part.get(3..)) else {
+            continue;
+        };
+        let mut paths = vec![path.to_owned()];
+        // a rename or copy is followed by the old path
+        if columns.contains(['R', 'C']) {
+            if let Some(old) = parts.get(at).filter(|old| !old.is_empty()) {
+                paths.push((*old).to_owned());
+            }
+            at += 1;
+        }
+        entries.push(StatusEntry {
+            columns: columns.to_owned(),
+            paths,
+        });
+    }
+    Ok(entries)
+}
+
+/// Local changes outside the harness files, sorted, with whether each is staged.
+fn blocking(entries: &[StatusEntry]) -> Vec<(String, bool)> {
+    let mut files: Vec<(String, bool)> = Vec::new();
+    for entry in entries {
+        let first = entry.columns.chars().next().unwrap_or(' ');
+        let unstaged = first == ' ' || entry.columns == "??";
+        let allowed = |file: &String| {
+            HARNESS_FILES.contains(&file.as_str()) || (unstaged && file == SPEC_POINTER)
+        };
+        if !entry.paths.iter().all(allowed) {
+            files.push((entry.paths[0].clone(), !unstaged));
+        }
+    }
+    files.sort();
+    files
+}
+
+/// Local changes that the branch changes too; none when git cannot tell.
+async fn overlapping(cwd: &Path, tip: &str, entries: &[StatusEntry]) -> Vec<String> {
+    let local: std::collections::BTreeSet<&str> = entries
+        .iter()
+        .flat_map(|entry| entry.paths.iter().map(String::as_str))
+        .collect();
+    let range = format!("HEAD...{tip}");
+    let args = [
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--name-only",
+        "-z",
+        "--no-renames",
+        &range,
+        "--",
+    ];
+    let Ok(output) = output(cwd, &args).await else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let files: std::collections::BTreeSet<String> = text
+        .split('\0')
+        .filter(|file| !file.is_empty() && local.contains(file))
+        .map(str::to_owned)
+        .collect();
+    files.into_iter().collect()
+}
+
+/// Why git would refuse the merge in this folder now, though the folder will be fine later.
+async fn hold_of(place: &Place, tip: &str) -> Result<Option<(HoldKind, String)>, AppError> {
+    let cwd = Path::new(&place.path);
+    if let Some(what) = running(cwd).await? {
+        return Ok(Some((HoldKind::Busy, format!("{what} is under way"))));
+    }
+    let entries = status_of(cwd).await?;
+    let local = blocking(&entries);
+    if place.opened && !local.is_empty() {
+        let files: Vec<String> = local.into_iter().map(|(file, _)| file).collect();
+        return Ok(Some((
+            HoldKind::Leftover,
+            format!("changes of an earlier attempt in {}", hold_files(&files)),
+        )));
+    }
+    let staged: Vec<String> = local
+        .into_iter()
+        .filter(|(_, staged)| *staged)
+        .map(|(file, _)| file)
+        .collect();
+    if !staged.is_empty() {
+        return Ok(Some((
+            HoldKind::Staged,
+            format!("staged changes (git add) in {}", hold_files(&staged)),
+        )));
+    }
+    let overlap = overlapping(cwd, tip, &entries).await;
+    Ok((!overlap.is_empty()).then(|| (HoldKind::Overlap, overlap_text(&overlap))))
+}
+
+fn overlap_text(files: &[String]) -> String {
+    format!(
+        "local changes in {} that the branch changes too",
+        hold_files(files)
+    )
 }
 
 async fn short_head(cwd: &Path) -> Result<String, AppError> {
@@ -295,6 +448,7 @@ enum MergeStep {
     Merged(String),
     Conflict(Vec<String>),
     Refused(String),
+    Held(HoldKind, String),
 }
 
 async fn squash(cwd: &Path, request: &MergeRequest, tip: &str) -> Result<MergeStep, AppError> {
@@ -493,6 +647,24 @@ async fn close(root: &Path, path: &str) -> Option<String> {
     }
 }
 
+/// Checks the folder first, so a merge git would refuse waits instead of failing.
+async fn step_in(place: &Place, request: &MergeRequest, tip: &str) -> Result<MergeStep, AppError> {
+    if let Some((kind, text)) = hold_of(place, tip).await? {
+        return Ok(MergeStep::Held(kind, text));
+    }
+    let cwd = Path::new(&place.path);
+    let stepped = merge_in(cwd, request, tip).await?;
+    if matches!(stepped, MergeStep::Refused(_)) {
+        // git refused over local files the branch changes: that waits too
+        let entries = status_of(cwd).await.unwrap_or_default();
+        let files = overlapping(cwd, tip, &entries).await;
+        if !files.is_empty() {
+            return Ok(MergeStep::Held(HoldKind::Overlap, overlap_text(&files)));
+        }
+    }
+    Ok(stepped)
+}
+
 /// Merges the captured tip of the branch, not the ref, which a commit may move meanwhile.
 async fn merge_at(request: &MergeRequest, tip: String) -> Result<MergeOutcome, AppError> {
     let root = Path::new(&request.root);
@@ -500,8 +672,10 @@ async fn merge_at(request: &MergeRequest, tip: String) -> Result<MergeOutcome, A
         Placed::Place(place) => place,
         Placed::Refused(reason) => return Ok(MergeOutcome::Refused { reason }),
     };
-    let stepped = merge_in(Path::new(&place.path), request, &tip).await;
-    let warning = if place.opened {
+    let stepped = step_in(&place, request, &tip).await;
+    // a merge worktree with leftovers cannot be removed; it stays until someone cleans up
+    let leftover = matches!(stepped, Ok(MergeStep::Held(HoldKind::Leftover, _)));
+    let warning = if place.opened && !leftover {
         close(root, &place.path).await
     } else {
         None
@@ -515,6 +689,16 @@ async fn merge_at(request: &MergeRequest, tip: String) -> Result<MergeOutcome, A
         },
         MergeStep::Conflict(files) => MergeOutcome::Conflict { files },
         MergeStep::Refused(reason) => MergeOutcome::Refused { reason },
+        MergeStep::Held(kind, text) => {
+            if let Some(warning) = warning {
+                tracing::warn!("{warning}");
+            }
+            MergeOutcome::Held {
+                kind,
+                place: place.label,
+                text,
+            }
+        }
     })
 }
 
@@ -837,7 +1021,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_merge_that_someone_else_started_is_left_alone() {
+    async fn a_merge_that_someone_else_started_holds_the_merge_and_is_left_alone() {
         let (_dir, root) = repository();
         conflicting(&root);
         let started = Command::new("git")
@@ -851,7 +1035,7 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            matches!(&outcome, MergeOutcome::Refused { reason } if reason.contains("a merge")),
+            matches!(&outcome, MergeOutcome::Held { kind: HoldKind::Busy, text, .. } if text.contains("a merge")),
             "{outcome:?}"
         );
         assert!(root.join(".git/MERGE_HEAD").exists());
@@ -937,7 +1121,7 @@ exit 1
     }
 
     #[tokio::test]
-    async fn an_unfinished_squash_in_the_checkout_is_refused_for_both_strategies() {
+    async fn an_unfinished_squash_in_the_checkout_holds_the_merge_for_both_strategies() {
         let (_dir, root) = repository();
         git_sync(&root, &["merge", "--squash", "ticket/x"]);
         assert!(root.join(".git/SQUASH_MSG").exists());
@@ -947,8 +1131,8 @@ exit 1
                 .await
                 .unwrap();
             assert!(
-                matches!(&outcome, MergeOutcome::Refused { reason }
-                    if reason.contains("unfinished squash")),
+                matches!(&outcome, MergeOutcome::Held { kind: HoldKind::Staged, text, .. }
+                    if text.contains("b.txt")),
                 "{strategy:?}: {outcome:?}"
             );
             assert!(root.join(".git/SQUASH_MSG").exists());
@@ -1138,5 +1322,160 @@ exit 1
             .await
             .unwrap();
         assert!(found.is_some());
+    }
+
+    /// What a hold names, or a failure of the test.
+    fn held(outcome: &MergeOutcome) -> (HoldKind, &str, &str) {
+        match outcome {
+            MergeOutcome::Held { kind, place, text } => (*kind, place, text),
+            other => panic!("not held: {other:?}"),
+        }
+    }
+
+    async fn attempt_merge(root: &Path, target: Option<&str>) -> MergeOutcome {
+        LocalMergeGit
+            .merge(&request(root, target, MergeStrategy::Merge))
+            .await
+            .unwrap()
+    }
+
+    /// The ticket branch also changes a.txt.
+    fn ticket_changes_a(root: &Path) {
+        git_sync(root, &["checkout", "-q", "ticket/x"]);
+        commit(root, "a.txt", "base\nticket\n", "ticket line");
+        git_sync(root, &["checkout", "-q", "main"]);
+    }
+
+    #[tokio::test]
+    async fn a_dirty_file_the_branch_changes_holds_the_merge_until_it_is_clean() {
+        for strategy in [MergeStrategy::Merge, MergeStrategy::Squash] {
+            let (_dir, root) = repository();
+            ticket_changes_a(&root);
+            fs::write(root.join("a.txt"), "local\n").unwrap();
+            let head = git_sync(&root, &["rev-parse", "HEAD"]);
+            let outcome = LocalMergeGit
+                .merge(&request(&root, None, strategy))
+                .await
+                .unwrap();
+            let (kind, place, text) = held(&outcome);
+            assert_eq!(kind, HoldKind::Overlap);
+            assert_eq!(place, "the main checkout");
+            assert_eq!(text, "local changes in a.txt that the branch changes too");
+            assert_eq!(git_sync(&root, &["rev-parse", "HEAD"]), head);
+            assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "local\n");
+            git_sync(&root, &["checkout", "--", "a.txt"]);
+            merged(&request(&root, None, strategy)).await;
+            assert!(root.join("b.txt").exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn an_untracked_file_in_the_way_holds_the_merge() {
+        let (_dir, root) = repository();
+        fs::write(root.join("b.txt"), "mine\n").unwrap();
+        let outcome = attempt_merge(&root, None).await;
+        assert_eq!(held(&outcome).0, HoldKind::Overlap);
+        assert!(held(&outcome).2.contains("b.txt"), "{outcome:?}");
+        assert_eq!(fs::read_to_string(root.join("b.txt")).unwrap(), "mine\n");
+        fs::remove_file(root.join("b.txt")).unwrap();
+        merged(&request(&root, None, MergeStrategy::Merge)).await;
+        let text = fs::read_to_string(root.join("b.txt")).unwrap();
+        assert_eq!(text.trim_end(), "ticket");
+    }
+
+    #[tokio::test]
+    async fn local_changes_in_other_files_do_not_hold_the_merge() {
+        let (_dir, root) = repository();
+        fs::write(root.join("a.txt"), "local\n").unwrap();
+        fs::write(root.join("other.txt"), "x\n").unwrap();
+        merged(&request(&root, None, MergeStrategy::Merge)).await;
+        assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "local\n");
+        assert_eq!(
+            git_sync(&root, &["status", "--porcelain"]),
+            "M a.txt\n?? other.txt"
+        );
+    }
+
+    #[tokio::test]
+    async fn staged_changes_hold_the_merge_and_name_their_files() {
+        let (_dir, root) = repository();
+        fs::write(root.join("new.txt"), "x\n").unwrap();
+        git_sync(&root, &["add", "new.txt"]);
+        let outcome = attempt_merge(&root, None).await;
+        let (kind, _, text) = held(&outcome);
+        assert_eq!(kind, HoldKind::Staged);
+        assert_eq!(text, "staged changes (git add) in new.txt");
+        assert!(!root.join("b.txt").exists());
+        git_sync(&root, &["commit", "-q", "-m", "local"]);
+        merged(&request(&root, None, MergeStrategy::Merge)).await;
+    }
+
+    #[tokio::test]
+    async fn files_of_the_harness_never_count_but_a_staged_spec_pointer_does() {
+        let (_dir, root) = repository();
+        fs::create_dir_all(root.join(".claude/rules")).unwrap();
+        fs::create_dir_all(root.join(".specify")).unwrap();
+        fs::write(root.join(".claude/settings.local.json"), "{}").unwrap();
+        fs::write(root.join(".claude/rules/ai-harness-docs.md"), "x").unwrap();
+        fs::write(root.join(".claude/rules/ai-harness-board.md"), "x").unwrap();
+        fs::write(root.join(".specify/feature.json"), "{}").unwrap();
+        git_sync(&root, &["add", ".specify/feature.json"]);
+        let outcome = attempt_merge(&root, None).await;
+        let (kind, _, text) = held(&outcome);
+        assert_eq!(kind, HoldKind::Staged);
+        assert_eq!(text, "staged changes (git add) in .specify/feature.json");
+        git_sync(&root, &["reset", "-q", ".specify/feature.json"]);
+        merged(&request(&root, None, MergeStrategy::Merge)).await;
+    }
+
+    #[tokio::test]
+    async fn a_merge_worktree_with_leftovers_holds_and_stays_open() {
+        let (dir, root) = repository();
+        git_sync(&root, &["branch", "release", "main"]);
+        let own = dir.path().join("arches-worktrees/_merge/release");
+        git_sync(
+            &root,
+            &["worktree", "add", "-q", own.to_str().unwrap(), "release"],
+        );
+        fs::write(own.join("left.txt"), "x\n").unwrap();
+        let outcome = attempt_merge(&root, Some("release")).await;
+        let (kind, place, text) = held(&outcome);
+        assert_eq!(kind, HoldKind::Leftover);
+        assert!(place.starts_with("the merge worktree "), "{place}");
+        assert_eq!(text, "changes of an earlier attempt in left.txt");
+        assert!(own.join("left.txt").exists());
+        fs::remove_file(own.join("left.txt")).unwrap();
+        let (into, _, _) = merged(&request(&root, Some("release"), MergeStrategy::Merge)).await;
+        assert_eq!(into, "release");
+        assert!(!own.exists());
+    }
+
+    #[tokio::test]
+    async fn a_busy_target_checked_out_elsewhere_holds_until_the_action_ends() {
+        let (dir, root) = repository();
+        git_sync(&root, &["branch", "release", "main"]);
+        let elsewhere = dir.path().join("elsewhere");
+        git_sync(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                elsewhere.to_str().unwrap(),
+                "release",
+            ],
+        );
+        let marker = git_sync(&elsewhere, &["rev-parse", "--git-path", "MERGE_HEAD"]);
+        let marker = elsewhere.join(marker);
+        fs::write(&marker, git_sync(&elsewhere, &["rev-parse", "HEAD"])).unwrap();
+        let outcome = attempt_merge(&root, Some("release")).await;
+        let (kind, place, text) = held(&outcome);
+        assert_eq!(kind, HoldKind::Busy);
+        assert!(place.starts_with("the worktree "), "{place}");
+        assert_eq!(text, "a merge is under way");
+        assert!(!dir.path().join("arches-worktrees/_merge/release").exists());
+        fs::remove_file(&marker).unwrap();
+        merged(&request(&root, Some("release"), MergeStrategy::Merge)).await;
+        assert!(elsewhere.join("b.txt").exists());
     }
 }

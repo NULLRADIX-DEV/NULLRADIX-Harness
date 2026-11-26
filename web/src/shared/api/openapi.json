@@ -12634,7 +12634,7 @@
               "string",
               "null"
             ],
-            "description": "Why the merge failed, or the files it conflicts in."
+            "description": "Why the merge failed, the files it conflicts in, or what it waits for."
           },
           "queuedAt": {
             "type": "integer",
