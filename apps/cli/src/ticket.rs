@@ -6,7 +6,7 @@ use anyhow::Context;
 use clap::Subcommand;
 use nullradix_api::{
     AcceptTicket, ClaimTicket, CleanedWorktree, ColumnDto, CreateTicket, FinishTicket,
-    FinishedTicket, MoveTicket, PriorityDto, ReleaseTicket, ReturnReview, StartTicket,
+    FinishedTicket, MoveTicket, PriorityDto, ReleaseTicket, RetryMerge, ReturnReview, StartTicket,
     StartedTicket, TicketDetailDto, TicketDto, UpdateTicket,
 };
 use nullradix_client::Client;
@@ -114,6 +114,12 @@ pub(crate) enum TicketCommand {
     },
     /// Finish a ticket that waits for a person
     Accept {
+        key: String,
+        #[arg(long)]
+        version: Option<i64>,
+    },
+    /// Try the merge of a done or merge-blocked ticket again
+    Merge {
         key: String,
         #[arg(long)]
         version: Option<i64>,
@@ -435,6 +441,10 @@ pub(crate) fn run(
                 &client.accept_ticket(&canonical(&key)?, &input)?,
                 "accepted",
             );
+        }
+        TicketCommand::Merge { key, version } => {
+            let retried = client.retry_merge(&canonical(&key)?, &RetryMerge { version })?;
+            println!("{}", retried.text);
         }
         TicketCommand::Return {
             key,
@@ -903,6 +913,16 @@ mod tests {
                 ..
             }
         ));
+        assert!(matches!(
+            parse(&["merge", "ARC-1", "--version", "4"])
+                .unwrap()
+                .command,
+            TicketCommand::Merge {
+                version: Some(4),
+                ..
+            }
+        ));
+        assert!(parse(&["merge"]).is_err(), "a key is required");
         let command = parse(&["return", "ARC-1", "--feedback", "add a test"])
             .unwrap()
             .command;

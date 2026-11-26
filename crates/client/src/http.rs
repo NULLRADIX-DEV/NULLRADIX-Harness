@@ -11,16 +11,16 @@ use nullradix_api::{
     DispatcherConfigView, DispatcherStatusDto, DropNote, EffectiveDto, ExtensionPointDto,
     FavoriteDto, FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health,
     HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto,
-    MarkFavorite, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList,
-    PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto, ProjectList, PromoteNote,
-    PromotedNote, PromptDetail, PromptKindDto, PromptListDto, PromptPreviewDto, QuestionCommentDto,
-    QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket, RenameBoard,
-    RenameProject, RepositoryList, ReturnReview, RunDto, RunList, RunOutput, RunnerList,
-    SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList,
-    SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
-    SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto,
-    TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
-    UpdateDispatcherConfig, UpdateTicket, WritePlan,
+    MarkFavorite, MergeRetryDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto,
+    NoteList, PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto, ProjectList,
+    PromoteNote, PromotedNote, PromptDetail, PromptKindDto, PromptListDto, PromptPreviewDto,
+    QuestionCommentDto, QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket,
+    RenameBoard, RenameProject, RepositoryList, RetryMerge, ReturnReview, RunDto, RunList,
+    RunOutput, RunnerList, SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto,
+    SessionDto, SessionList, SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun,
+    StartTicket, StartedTicket, SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto,
+    TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization,
+    UpdateDispatcher, UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -1179,6 +1179,17 @@ impl Client {
         self.ticket_action(key, "accept", input)
     }
 
+    /// Queues the merge of a done or merge-blocked ticket again and tries it.
+    pub fn retry_merge(&self, key: &str, input: &RetryMerge) -> Result<MergeRetryDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/tickets/{key}/merge")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
     pub fn return_ticket(&self, key: &str, input: &ReturnReview) -> Result<TicketDto, ClientError> {
         self.ticket_action(key, "review/return", input)
     }
@@ -1772,6 +1783,7 @@ mod tests {
             reviews,
             decisions: assembled.decisions,
             merges: assembled.merges,
+            retries: assembled.retries,
             notes,
             inbox: inbox_service(&store, &signal),
             runners,

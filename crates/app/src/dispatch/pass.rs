@@ -330,13 +330,35 @@ impl DispatchPass {
         ))
     }
 
-    async fn steps(&self, now: Timestamp, report: &mut PassReport) -> Result<(), AppError> {
+    async fn context(&self, now: Timestamp) -> Result<PassContext, AppError> {
         let config = self.config.get().await?.config;
         let idle = self.idle_now(&config, now).await?;
-        if let Some(reason) = &idle {
+        Ok(PassContext { config, now, idle })
+    }
+
+    /// Runs one step alone; the caller holds [`Self::exclusive`].
+    pub async fn run_step(&self, phase: PassPhase) -> PassReport {
+        let now = self.clock.now();
+        let mut report = PassReport::new(now);
+        let step = self.steps.lock()[phase.slot()].clone();
+        let outcome = match (step, self.context(now).await) {
+            (Some(step), Ok(context)) => step.run(&context, &mut report).await,
+            (_, Err(error)) => Err(error),
+            (None, Ok(_)) => Ok(()),
+        };
+        if let Err(error) = outcome {
+            report
+                .errors
+                .push(format!("{}: {}", phase.name(), error.message()));
+        }
+        report
+    }
+
+    async fn steps(&self, now: Timestamp, report: &mut PassReport) -> Result<(), AppError> {
+        let mut context = self.context(now).await?;
+        if let Some(reason) = &context.idle {
             report.idle = Some(idle_message(reason));
         }
-        let mut context = PassContext { config, now, idle };
         let steps: Vec<(PassPhase, Arc<dyn PassStep>)> = {
             let slots = self.steps.lock();
             PassPhase::ALL

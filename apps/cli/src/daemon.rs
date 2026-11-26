@@ -160,7 +160,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
-    let (dispatcher, account_pauses, decisions, merges, dispatching) = start_dispatcher(
+    let (dispatcher, account_pauses, deciding, dispatching) = start_dispatcher(
         &store,
         &signal,
         &shutdown,
@@ -198,8 +198,9 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         questions: board.questions,
         worktrees: board.worktrees,
         reviews: board.reviews,
-        decisions,
-        merges,
+        decisions: deciding.decisions,
+        merges: deciding.merges,
+        retries: deciding.retries,
         notes: board.notes,
         inbox: board.inbox,
         runners,
@@ -309,6 +310,13 @@ impl Dispatching {
     }
 }
 
+/// What decides over reviews and merges for the API.
+struct Deciding {
+    decisions: Arc<ReviewDecisions>,
+    merges: Arc<nullradix_app::dispatch::merge_jobs::MergeQueue>,
+    retries: Arc<nullradix_app::dispatch::merge_retry::MergeRetry>,
+}
+
 /// The dispatcher and its beat: a pass every minute until the daemon stops.
 fn start_dispatcher(
     store: &Store,
@@ -318,8 +326,7 @@ fn start_dispatcher(
 ) -> (
     Arc<DispatcherService>,
     Arc<AccountPauses>,
-    Arc<ReviewDecisions>,
-    Arc<nullradix_app::dispatch::merge_jobs::MergeQueue>,
+    Deciding,
     Dispatching,
 ) {
     let dispatcher = assemble(DispatcherDeps {
@@ -367,8 +374,11 @@ fn start_dispatcher(
     (
         dispatcher.service,
         dispatcher.pauses,
-        dispatcher.decisions,
-        dispatcher.merges,
+        Deciding {
+            decisions: dispatcher.decisions,
+            merges: dispatcher.merges,
+            retries: dispatcher.retries,
+        },
         dispatching,
     )
 }

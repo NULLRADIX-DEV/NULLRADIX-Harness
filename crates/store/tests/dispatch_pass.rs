@@ -6788,3 +6788,252 @@ impl Fixture {
             .to_string()
     }
 }
+
+impl Fixture {
+    /// A finished ticket whose first merge the checkout refused.
+    async fn refused_ticket(&self) -> String {
+        let key = self.finished_ticket().await;
+        self.git
+            .merges
+            .lock()
+            .unwrap()
+            .push_back(MergeOutcome::Refused {
+                reason: String::from("changes are staged"),
+            });
+        let report = self.dispatcher.pass.run().await;
+        assert!(report.errors.is_empty(), "{report:?}");
+        assert_eq!(self.record(&key).await.status, TicketStatus::Blocked);
+        key
+    }
+}
+
+#[tokio::test]
+async fn a_retry_unblocks_the_ticket_and_merges_the_branch() {
+    use nullradix_app::dispatch::merge_retry::RetryOutcome;
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    assert!(
+        f.notices.0.lock().unwrap().iter().any(|notice| {
+            notice.kind == NoticeKind::Blocked && notice.text.contains("Merge: changes are staged")
+        }),
+        "the refusal is announced with its problem"
+    );
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.outcome, RetryOutcome::Merged, "{}", retried.text);
+    assert_eq!(retried.text, format!("{key} merged into main (abc1234)."));
+    let after = f.record(&key).await;
+    assert_eq!(
+        (after.status, after.blocked_reason, after.branch),
+        (TicketStatus::Done, None, None)
+    );
+    let jobs = f.jobs_of(&key).await;
+    let phases: Vec<_> = jobs.iter().map(|job| job.job.record().phase).collect();
+    assert_eq!(
+        phases,
+        [
+            nullradix_domain::MergePhase::Merged,
+            nullradix_domain::MergePhase::Failed
+        ]
+    );
+    let bodies = f.bodies(&key).await;
+    assert!(
+        bodies
+            .iter()
+            .any(|body| body.starts_with("[dispatch] merge: retry started by "))
+    );
+    assert_eq!(f.git.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_retry_forgets_the_conflict_and_merges_again() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Conflict {
+            files: vec![String::from("a.rs")],
+        });
+    f.dispatcher.pass.run().await;
+    assert!(f.jobs_of(&key).await[0].job.record().conflict_seen);
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.text, format!("{key} merged into main (abc1234)."));
+    // the conflicted job itself was reset, not replaced
+    let jobs = f.jobs_of(&key).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(
+        jobs[0].job.record().phase,
+        nullradix_domain::MergePhase::Merged
+    );
+    assert!(!jobs[0].job.record().conflict_seen);
+}
+
+#[tokio::test]
+async fn a_retry_of_a_branch_the_target_holds_finishes_without_merging() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    f.git.gone.store(true, Ordering::SeqCst);
+    *f.git.earlier.lock().unwrap() = Some(nullradix_app::dispatch::merge_git::MergedEarlier {
+        into: String::from("main"),
+        commit: String::from("1234abc"),
+    });
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.text, format!("{key} merged into main (1234abc)."));
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+    let after = f.record(&key).await;
+    assert_eq!((after.status, after.branch), (TicketStatus::Done, None));
+}
+
+#[tokio::test]
+async fn a_retry_that_is_repeated_changes_nothing() {
+    use nullradix_app::dispatch::merge_retry::RetryOutcome;
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    *f.git.fail_merge.lock().unwrap() = Some(AppError::conflict("git-failed", "locked"));
+    let first = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(first.outcome, RetryOutcome::Pending);
+    assert!(first.text.contains("merge not run"), "{}", first.text);
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    let comments = f.comment_count(&key).await;
+    let versions: Vec<_> = f
+        .jobs_of(&key)
+        .await
+        .iter()
+        .map(|job| job.job.record().version)
+        .collect();
+    // the version the caller saw is stale by now, a repeat still answers
+    let again = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, Some(Version::INITIAL))
+        .await
+        .unwrap();
+    assert_eq!(again.outcome, RetryOutcome::Pending);
+    assert_eq!(f.comment_count(&key).await, comments);
+    let after: Vec<_> = f
+        .jobs_of(&key)
+        .await
+        .iter()
+        .map(|job| job.job.record().version)
+        .collect();
+    assert_eq!(after, versions);
+    assert_eq!(f.git.requests.lock().unwrap().len(), 2);
+    // the next pass merges it
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged, vec![key.clone()], "{report:?}");
+}
+
+#[tokio::test]
+async fn a_retry_is_refused_for_a_stale_version_and_for_a_ticket_that_waits_for_no_merge() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    let stale = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, Some(Version::INITIAL))
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code(), "version-conflict");
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
+    assert_eq!(f.jobs_of(&key).await.len(), 1);
+    let other = f.ready("Not started", &[]).await;
+    let error = f
+        .dispatcher
+        .retries
+        .retry(&other, &f.person, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "merge-not-possible");
+    // blocked for something else is no merge problem
+    f.agent_changes(&key, "blocked", Some("no database access"))
+        .await;
+    let error = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "merge-not-possible");
+}
+
+#[tokio::test]
+async fn a_person_who_sets_the_ticket_done_again_queues_no_merge() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    f.agent_changes(&key, "done", None).await;
+    let after = f.record(&key).await;
+    assert_eq!(
+        (after.status, after.blocked_reason.clone()),
+        (TicketStatus::Done, None)
+    );
+    assert!(after.branch.is_some());
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+    assert_eq!(f.jobs_of(&key).await.len(), 1);
+    // the way back into the merge is the retry
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.text, format!("{key} merged into main (abc1234)."));
+}
+
+#[tokio::test]
+async fn a_retry_waits_for_the_pass_that_is_under_way() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Refused {
+            reason: String::from("changes are staged"),
+        });
+    // the pass stops inside the merge of the first job
+    let gate = Arc::new(Notify::new());
+    *f.git.hold_merge.lock().unwrap() = Some(gate.clone());
+    let pass = {
+        let pass = f.dispatcher.pass.clone();
+        tokio::spawn(async move { pass.run().await })
+    };
+    f.git.merge_entered.notified().await;
+    let service = f.dispatcher.retries.clone();
+    let person = f.person.clone();
+    let name = key.clone();
+    let retry = tokio::spawn(async move { service.retry(&name, &person, None).await });
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!retry.is_finished(), "the retry ran inside the pass");
+    gate.notify_one();
+    pass.await.unwrap();
+    // the pass blocked the ticket first, then the retry saw it blocked and merged it
+    let retried = retry.await.unwrap().unwrap();
+    assert_eq!(retried.text, format!("{key} merged into main (abc1234)."));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(f.git.requests.lock().unwrap().len(), 2);
+}
