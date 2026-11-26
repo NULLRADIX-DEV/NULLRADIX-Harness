@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nullradix_domain::{
     Actor, REVIEW_FEEDBACK_MAX, ReviewState, SystemMarker, TicketRecord, TicketStatus, Version,
-    pending_feedback, required_text, returned_comment, waits_for_a_person, waits_for_review,
+    pending_feedback, required_text, returned_comment, waits_for_a_person,
 };
 
 use super::pass::DispatchPass;
@@ -124,8 +124,6 @@ impl ReviewDecisions {
         let detail = self.tickets.get(key).await?;
         let record = detail.view.ticket.record();
         let text = record.key.to_string();
-        let held = record.status == TicketStatus::Blocked
-            && waits_for_review(record.blocked_reason.as_deref());
         if !waiting(record) && record.status == TicketStatus::Done {
             // a repeat, or an accept whose decision or hook was lost
             match self.reviews.state_of(&text).await? {
@@ -148,12 +146,10 @@ impl ReviewDecisions {
             .accept(key, actor, expected, by_person)
             .await?;
         let record = view.ticket.record();
-        // a ticket blocked for something else leaves the review of a worktree mate alone
-        if held {
-            self.reviews
-                .decide(&text, ReviewState::Approved, actor.id())
-                .await?;
-        }
+        // only reviews of this ticket's own runs are decided, so a worktree mate stays pending
+        self.reviews
+            .decide(&text, ReviewState::Approved, actor.id())
+            .await?;
         self.hook.accepted(record).await?;
         Ok(view)
     }
@@ -197,6 +193,10 @@ impl ReviewDecisions {
                 if expected.is_some_and(|version| version != record.version) {
                     return Err(AppError::version_conflict("ticket", &text));
                 }
+                // the decision may have been lost after the ticket went back
+                self.reviews
+                    .decide(&text, ReviewState::Returned, actor.id())
+                    .await?;
                 return Ok(detail.view);
             }
             return Err(return_not_possible(
