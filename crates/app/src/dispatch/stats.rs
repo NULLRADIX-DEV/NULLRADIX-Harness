@@ -140,7 +140,11 @@ impl DispatchStatsService {
             .iter()
             .enumerate()
             .find(|(index, at)| {
-                let (here, before) = (offsets[index * 2], offsets[index * 2 + 1]);
+                let (Some(&here), Some(&before)) =
+                    (offsets.get(index * 2), offsets.get(index * 2 + 1))
+                else {
+                    return false;
+                };
                 local_day_of(**at, here) == day
                     && local_day_of(moment_plus(**at, -MINUTE_MS), before) < day
             })
