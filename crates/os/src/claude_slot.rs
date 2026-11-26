@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
-use crate::archive::{ArchiveError, Limits, read_tree};
+use crate::archive::{ArchiveError, Entry, Limits, read_tree};
 use crate::files::{create_private_dir, write_private};
 
 /// Folder name below `skills/`, also the plugin name.
@@ -64,6 +64,8 @@ pub struct Applied {
 pub enum SlotError {
     #[error("{0} is not owned by NULLRADIX")]
     Foreign(PathBuf),
+    #[error("{0} still holds files that are not part of the theme")]
+    NotEmpty(PathBuf),
     #[error("the config folder must be an absolute path: {0}")]
     Relative(PathBuf),
     #[error("the theme files are refused: {0}")]
@@ -89,6 +91,8 @@ struct Marker {
     theme_version: String,
     settings_hash: String,
     files: BTreeSet<String>,
+    /// No `files` list: the marker owned the whole folder.
+    legacy: bool,
 }
 
 fn read_marker(slot: &Path) -> Option<Marker> {
@@ -101,7 +105,9 @@ fn read_marker(slot: &Path) -> Option<Marker> {
     if value.get("managedBy")?.as_str()? != MANAGED_BY {
         return None;
     }
-    let files = match value.get("files").and_then(Value::as_array) {
+    let listed = value.get("files").and_then(Value::as_array);
+    let legacy = listed.is_none();
+    let files = match listed {
         Some(files) => files
             .iter()
             .filter_map(Value::as_str)
@@ -120,6 +126,7 @@ fn read_marker(slot: &Path) -> Option<Marker> {
             .unwrap_or_default()
             .to_owned(),
         files,
+        legacy,
     })
 }
 
@@ -226,7 +233,19 @@ fn apply_with(
     if state == SlotState::Empty {
         create_private_dir(&slot)?;
     }
-    if !wanted.is_subset(&old) {
+    let before = fs::read(slot.join(MARKER_FILE)).ok();
+    let wanted_lower: BTreeSet<String> = wanted.iter().map(|path| path.to_lowercase()).collect();
+    // a case-only rename is the same file on a case-insensitive disk
+    let leftover: Vec<&String> = old
+        .difference(&wanted)
+        .filter(|path| !wanted_lower.contains(&path.to_lowercase()))
+        .collect();
+    let changes = before.as_deref() != Some(marker.as_slice())
+        || !leftover.is_empty()
+        || files
+            .iter()
+            .any(|(path, data)| !same_file(&slot, path, data));
+    if changes {
         // old and new files are listed before any is written, so an interrupted apply still clears
         let both: BTreeSet<String> = old.union(&wanted).cloned().collect();
         write(&slot.join(MARKER_FILE), &marker_bytes(theme, &both, ""))?;
@@ -236,13 +255,14 @@ fn apply_with(
             applied.written += 1;
         }
     }
-    for stale in old.difference(&wanted) {
+    for stale in leftover {
         if remove_file(&slot, stale)? {
             applied.removed += 1;
         }
     }
     // the marker names the new theme only once everything for it is there
-    if write_if_changed(&slot, MARKER_FILE, &marker, write)? {
+    write_if_changed(&slot, MARKER_FILE, &marker, write)?;
+    if before.as_deref() != Some(marker.as_slice()) {
         applied.written += 1;
     }
     Ok(applied)
@@ -256,9 +276,19 @@ pub fn clear(config_dir: &Path) -> Result<bool, SlotError> {
         SlotState::Empty => Ok(false),
         SlotState::Foreign => Err(SlotError::Foreign(slot)),
         SlotState::Managed { .. } => {
-            let files = read_marker(&slot).map_or_default(|marker| marker.files);
-            for path in files {
+            let Some(marker) = read_marker(&slot) else {
+                return Err(SlotError::Foreign(slot));
+            };
+            if marker.legacy {
+                // remove_dir_all removes links and junctions without following them
+                fs::remove_dir_all(&slot)?;
+                return Ok(true);
+            }
+            for path in marker.files {
                 remove_file(&slot, &path)?;
+            }
+            if prune_empty_dirs(&slot) {
+                return Err(SlotError::NotEmpty(slot));
             }
             // the marker goes last: until then an interrupted clear can be repeated
             remove_file(&slot, MARKER_FILE)?;
@@ -266,6 +296,35 @@ pub fn clear(config_dir: &Path) -> Result<bool, SlotError> {
             Ok(true)
         }
     }
+}
+
+/// Removes folders without files bottom-up; `true` when anything but the marker is left.
+fn prune_empty_dirs(slot: &Path) -> bool {
+    let mut dirs = Vec::new();
+    let mut pending = vec![(slot.to_path_buf(), 0_usize)];
+    while let Some((dir, depth)) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if dirs.len() >= WALK_MAX_FILES {
+                break;
+            }
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) && depth + 1 < PATH_MAX_SEGMENTS {
+                dirs.push((entry.path(), depth + 1));
+                pending.push((entry.path(), depth + 1));
+            }
+        }
+    }
+    dirs.sort_by_key(|(_, depth)| std::cmp::Reverse(*depth));
+    for (dir, _) in dirs {
+        let _ = fs::remove_dir(dir);
+    }
+    fs::read_dir(slot).map_or(true, |entries| {
+        entries
+            .flatten()
+            .any(|entry| entry.file_name() != MARKER_FILE)
+    })
 }
 
 fn desired_files(
@@ -277,7 +336,15 @@ fn desired_files(
         ArchiveError::Io(error) => SlotError::Io(error),
         other => SlotError::Source(other.to_string()),
     })?;
+    files_of(entries, theme)
+}
+
+fn files_of(
+    entries: Vec<Entry>,
+    theme: &SlotTheme<'_>,
+) -> Result<BTreeMap<String, Vec<u8>>, SlotError> {
     let mut files = BTreeMap::new();
+    let mut seen = BTreeSet::new();
     for entry in entries {
         if !safe_relative(&entry.path) || entry.path.contains('~') {
             return Err(SlotError::Source(format!("unsafe path {}", entry.path)));
@@ -289,6 +356,12 @@ fn desired_files(
         {
             return Err(SlotError::Source(format!(
                 "{} is a path NULLRADIX generates",
+                entry.path
+            )));
+        }
+        if !seen.insert(lower) {
+            return Err(SlotError::Source(format!(
+                "{} differs from another file only in case",
                 entry.path
             )));
         }
@@ -389,6 +462,12 @@ fn prepare_parents(slot: &Path, relative: &str) -> io::Result<()> {
     Ok(())
 }
 
+fn same_file(slot: &Path, relative: &str, data: &[u8]) -> bool {
+    let target = slot.join(relative);
+    fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.is_file())
+        && fs::read(&target).is_ok_and(|current| current == data)
+}
+
 fn write_if_changed(
     slot: &Path,
     relative: &str,
@@ -396,9 +475,7 @@ fn write_if_changed(
     write: &dyn Fn(&Path, &[u8]) -> io::Result<()>,
 ) -> io::Result<bool> {
     let target = slot.join(relative);
-    let unchanged = fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.is_file())
-        && fs::read(&target).is_ok_and(|current| current == data);
-    if unchanged {
+    if same_file(slot, relative, data) {
         return Ok(false);
     }
     prepare_parents(slot, relative)?;
@@ -590,9 +667,16 @@ mod tests {
         apply(config.path(), source.path(), &theme(&values), LIMITS).unwrap();
         let slot = slot_of(&config);
         fs::write(slot.join("mine.txt"), "mine").unwrap();
-        assert!(clear(config.path()).unwrap());
+        assert!(matches!(clear(config.path()), Err(SlotError::NotEmpty(_))));
         assert_eq!(fs::read_to_string(slot.join("mine.txt")).unwrap(), "mine");
         assert!(!slot.join("hooks").exists());
+        assert!(matches!(
+            inspect(config.path()).unwrap(),
+            SlotState::Managed { .. }
+        ));
+        fs::remove_file(slot.join("mine.txt")).unwrap();
+        assert!(clear(config.path()).unwrap());
+        assert!(!slot.exists());
     }
 
     #[test]
@@ -644,7 +728,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        assert!(clear(config.path()).unwrap());
+        assert!(matches!(clear(config.path()), Err(SlotError::NotEmpty(_))));
         assert_eq!(fs::read_to_string(&victim).unwrap(), "precious");
         assert!(!slot.join("hooks/hooks.json").exists());
     }
@@ -821,10 +905,95 @@ mod tests {
         });
         fs::write(slot.join(MARKER_FILE), marker.to_string()).unwrap();
         assert!(!remove_file(&slot, "hooks/old.ts").unwrap());
-        assert!(clear(config.path()).unwrap());
+        assert!(matches!(clear(config.path()), Err(SlotError::NotEmpty(_))));
         for name in ["register.tsx", "old.ts"] {
             assert!(outside.path().join(name).is_file(), "{name} was removed");
         }
+    }
+
+    #[test]
+    fn a_junction_deep_in_a_legacy_slot_is_not_followed() {
+        let config = config();
+        let slot = legacy_slot(&config);
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("keep.txt"), "keep").unwrap();
+        link_dir(
+            &slot.join("hooks").join("deep").join("linked"),
+            outside.path(),
+        );
+        fs::create_dir_all(slot.join("empty/inner")).unwrap();
+        assert!(clear(config.path()).unwrap());
+        assert!(!slot.exists());
+        assert!(outside.path().join("keep.txt").is_file());
+    }
+
+    #[test]
+    fn clear_removes_folders_the_theme_left_empty() {
+        let (config, source, values) = (config(), source(), settings("blue"));
+        apply(config.path(), source.path(), &theme(&values), LIMITS).unwrap();
+        let slot = slot_of(&config);
+        fs::create_dir_all(slot.join("hooks/cache/inner")).unwrap();
+        assert!(clear(config.path()).unwrap());
+        assert!(!slot.exists());
+    }
+
+    #[test]
+    fn a_case_only_rename_keeps_the_file() {
+        let (config, source, values) = (config(), source(), settings("blue"));
+        fs::write(source.path().join("Extra.ts"), "a").unwrap();
+        apply(config.path(), source.path(), &theme(&values), LIMITS).unwrap();
+        fs::remove_file(source.path().join("Extra.ts")).unwrap();
+        fs::write(source.path().join("extra.ts"), "a").unwrap();
+        apply(config.path(), source.path(), &theme(&values), LIMITS).unwrap();
+        let slot = slot_of(&config);
+        let names: Vec<String> = fs::read_dir(&slot)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_lowercase())
+            .collect();
+        assert!(names.contains(&String::from("extra.ts")), "{names:?}");
+        assert!(fs::read_to_string(slot.join("extra.ts")).is_ok_and(|text| text == "a"));
+    }
+
+    #[test]
+    fn theme_files_that_differ_only_in_case_are_refused() {
+        let values = settings("blue");
+        let entry = |path: &str| Entry {
+            path: path.to_owned(),
+            data: Vec::new(),
+        };
+        let result = files_of(vec![entry("A.ts"), entry("a.ts")], &theme(&values));
+        assert!(matches!(result, Err(SlotError::Source(_))), "{result:?}");
+    }
+
+    #[test]
+    fn an_interrupted_apply_never_reports_in_sync() {
+        let (config, source, values) = (config(), source(), settings("blue"));
+        apply(config.path(), source.path(), &theme(&values), LIMITS).unwrap();
+        fs::write(
+            source.path().join("hooks/register.tsx"),
+            "export const a = 1",
+        )
+        .unwrap();
+        let broken = |path: &Path, data: &[u8]| {
+            if path.ends_with("register.tsx") {
+                Err(io::Error::other("disk full"))
+            } else {
+                write_private(path, data)
+            }
+        };
+        let result = apply_with(
+            config.path(),
+            source.path(),
+            &theme(&values),
+            LIMITS,
+            &broken,
+        );
+        assert!(result.is_err());
+        let Ok(SlotState::Managed { settings_hash, .. }) = inspect(config.path()) else {
+            panic!("not managed");
+        };
+        assert_eq!(settings_hash, "");
     }
 
     #[test]
