@@ -6,12 +6,12 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nullradix_domain::{
     Account, DispatchOutcome, DispatcherConfig, Id, Run, RunKind, SystemMarker, TicketRecord,
-    TicketStatus, Timestamp,
+    TicketStatus, Timestamp, local_day_of,
 };
 
 use super::accounts::{AccountLimits, AccountPauses, MAX_PAUSE_DAYS, PauseReason};
 use super::evaluate::agent_of;
-use super::local_time::{LocalTime, day_text, local_day};
+use super::local_time::{LocalTime, day_text, minute_with_offset};
 use super::log::DispatchLog;
 use super::pause::{PauseHook, PauseKind};
 use super::start::TicketStarter;
@@ -106,6 +106,27 @@ pub struct PauseParts {
     pub notifier: Arc<dyn Notifier>,
 }
 
+/// What became of the pause of the whole dispatcher.
+#[derive(Clone, Copy)]
+enum Held {
+    /// Set until this moment.
+    Until(Timestamp),
+    /// A person changed it meanwhile.
+    Changed,
+    /// Not touched: other accounts can still start work.
+    Untouched,
+}
+
+/// What the toast of a limit pause is worked out from.
+struct ToastParts<'a> {
+    now: Timestamp,
+    held: Held,
+    until: Timestamp,
+    own_pause: Option<&'a (String, Timestamp)>,
+    own_text: Option<&'a str>,
+    multi: bool,
+}
+
 /// One full window of an account: its use, its ceiling and when it resets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FullWindow {
@@ -162,13 +183,15 @@ impl DispatchPauses {
     /// The local time of a moment, with the date when it is not today.
     async fn when(&self, at: Timestamp) -> String {
         let now = self.clock.now();
-        let minute = self.local.minute_of_day(at).await;
-        let today = self.local.minute_of_day(now).await;
+        let offset = self.local.offset_minutes(at).await;
+        let day = local_day_of(at, offset);
+        let today = local_day_of(now, self.local.offset_minutes(now).await);
+        let minute = minute_with_offset(at, offset);
         let clock = clock_text(minute);
-        if local_day(at, minute) == local_day(now, today) {
+        if day == today {
             clock
         } else {
-            format!("{} {clock}", day_text(local_day(at, minute)))
+            format!("{} {clock}", day_text(day))
         }
     }
 
@@ -280,6 +303,44 @@ impl DispatchPauses {
         Ok(pause.until)
     }
 
+    /// The toast of a limit pause; it names only a pause that is set and still ahead.
+    async fn limit_toast(&self, parts: ToastParts<'_>) -> String {
+        let ToastParts {
+            now,
+            held,
+            until,
+            own_pause,
+            own_text,
+            multi,
+        } = parts;
+        // the account's own end is the one that matters only next to other accounts
+        let shown = if let (Some(text), true) = (own_text, multi) {
+            Some(text.to_owned())
+        } else {
+            let holding = match held {
+                Held::Until(at) => Some(at),
+                // a person changed it meanwhile: theirs holds, if one is still set
+                Held::Changed => self
+                    .state
+                    .get()
+                    .await
+                    .ok()
+                    .and_then(|state| state.record().paused_until)
+                    .filter(|at| *at > now),
+                Held::Untouched => Some(until),
+            };
+            match holding {
+                Some(at) => Some(self.when(at).await),
+                None => None,
+            }
+        };
+        let name = own_pause.map_or_else(String::new, |(slug, _)| format!(" {slug}"));
+        match shown {
+            Some(text) => format!("usage limit{name} - pause until {text}"),
+            None => format!("usage limit{name} - pause stays as set by hand"),
+        }
+    }
+
     async fn pause_for_limit(
         &self,
         run: &Run,
@@ -360,10 +421,20 @@ impl DispatchPauses {
                 what.counting()
             ),
         };
-        let toast = match (&own_pause, own_text) {
-            (Some((slug, _)), Some(text)) => format!("usage limit {slug} - pause until {text}"),
-            _ => format!("usage limit - pause until {}", self.when(until).await),
-        };
+        let toast = self
+            .limit_toast(ToastParts {
+                now,
+                held: match held {
+                    Some(Some(at)) => Held::Until(at),
+                    Some(None) => Held::Changed,
+                    None => Held::Untouched,
+                },
+                until,
+                own_pause: own_pause.as_ref(),
+                own_text: own_text.as_deref(),
+                multi,
+            })
+            .await;
         Ok(Posted { body, toast })
     }
 
@@ -392,10 +463,17 @@ impl DispatchPauses {
             what.back(),
             what.counting()
         );
-        Ok(Posted {
-            body,
-            toast: format!("Claude Code not found - pause {minutes} min"),
-        })
+        let toast = match applied {
+            Some(at) if at > until => {
+                format!(
+                    "Claude Code not found - paused until {}",
+                    self.when(at).await
+                )
+            }
+            None => String::from("Claude Code not found - pause stays as set by hand"),
+            Some(_) => format!("Claude Code not found - pause {minutes} min"),
+        };
+        Ok(Posted { body, toast })
     }
 }
 

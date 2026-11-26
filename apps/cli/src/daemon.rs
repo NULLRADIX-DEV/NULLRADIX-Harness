@@ -15,7 +15,7 @@ use nullradix_app::customizations::{CustomizationService, NoStandards};
 use nullradix_app::dispatch::accounts::AccountPauses;
 use nullradix_app::dispatch::assemble::{DispatcherDeps, assemble};
 use nullradix_app::dispatch::control::DispatcherService;
-use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
+use nullradix_app::dispatch::local_time::LocalTime;
 use nullradix_app::dispatch::pass::DispatchPass;
 use nullradix_app::dispatch::review_decide::ReviewDecisions;
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
@@ -254,20 +254,42 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// Local time as the machine tells it, read afresh because daylight saving moves it.
+/// Local time as the machine tells it, per moment because daylight saving moves it.
 struct OsLocalTime;
+
+/// The failure to read the offset is reported once per process.
+static OFFSET_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[async_trait::async_trait]
 impl LocalTime for OsLocalTime {
-    async fn minute_of_day(&self, at: Timestamp) -> u32 {
-        let offset = task::spawn_blocking(nullradix_os::local_utc_offset_minutes)
-            .await
-            .ok()
-            .flatten();
-        if offset.is_none() {
-            tracing::warn!("cannot read the local time offset, the time window uses UTC");
-        }
-        minute_with_offset(at, offset.unwrap_or(0))
+    async fn offset_minutes(&self, at: Timestamp) -> i32 {
+        self.offsets(&[at]).await.first().copied().unwrap_or(0)
+    }
+
+    async fn offsets(&self, moments: &[Timestamp]) -> Vec<i32> {
+        let millis: Vec<i64> = moments.iter().map(|moment| moment.as_millis()).collect();
+        let found = task::spawn_blocking(move || {
+            let zone = nullradix_os::LocalZone::system()?;
+            Some(
+                millis
+                    .iter()
+                    .map(|at| zone.offset_minutes(*at))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .await
+        .ok()
+        .flatten();
+        let Some(found) = found else {
+            if !OFFSET_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!("cannot read the local time zone, local times are shown in UTC");
+            }
+            return vec![0; moments.len()];
+        };
+        found
+            .into_iter()
+            .map(|offset| offset.unwrap_or(0))
+            .collect()
     }
 }
 

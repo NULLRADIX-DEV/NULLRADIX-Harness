@@ -1,64 +1,95 @@
-/// Minutes local time is ahead of UTC right now; `None` when the system does not say.
+use jiff::Timestamp;
+use jiff::tz::TimeZone;
+
+/// The time zone of the machine, read once and asked for many moments.
+#[derive(Debug, Clone)]
+pub struct LocalZone(TimeZone);
+
+impl LocalZone {
+    /// The system zone; `None` when the machine does not say which it is.
+    #[must_use]
+    pub fn system() -> Option<Self> {
+        TimeZone::try_system().ok().map(Self)
+    }
+
+    /// Minutes local time is ahead of UTC at a moment (Unix milliseconds).
+    #[must_use]
+    pub fn offset_minutes(&self, at_millis: i64) -> Option<i32> {
+        let moment = Timestamp::from_millisecond(at_millis).ok()?;
+        Some(self.0.to_offset(moment).seconds() / 60)
+    }
+}
+
+/// Minutes local time is ahead of UTC at a moment; `None` when the zone or moment is unknown.
 #[must_use]
-pub fn local_utc_offset_minutes() -> Option<i32> {
-    #[cfg(windows)]
-    {
-        crate::windows::utc_offset_minutes()
-    }
-    #[cfg(not(windows))]
-    {
-        unix_offset()
-    }
-}
-
-/// Reads `+hhmm` or `-hhmm` as printed by `date +%z`.
-#[cfg_attr(windows, allow(dead_code, reason = "only Unix asks the date command"))]
-fn parse_offset(text: &str) -> Option<i32> {
-    let text = text.trim();
-    let sign = match text.chars().next()? {
-        '+' => 1,
-        '-' => -1,
-        _ => return None,
-    };
-    let digits = &text[1..];
-    if digits.len() != 4 || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    let hours: i32 = digits[..2].parse().ok()?;
-    let minutes: i32 = digits[2..].parse().ok()?;
-    Some(sign * (hours * 60 + minutes))
-}
-
-#[cfg(not(windows))]
-fn unix_offset() -> Option<i32> {
-    let output = std::process::Command::new("date")
-        .arg("+%z")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| parse_offset(&String::from_utf8_lossy(&output.stdout)))?
+pub fn local_utc_offset_minutes(at_millis: i64) -> Option<i32> {
+    LocalZone::system()?.offset_minutes(at_millis)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_date_command_offset_is_read_in_minutes() {
-        assert_eq!(parse_offset("+0100\n"), Some(60));
-        assert_eq!(parse_offset("-0930"), Some(-570));
-        assert_eq!(parse_offset("+0000"), Some(0));
-        assert_eq!(parse_offset("0100"), None);
-        assert_eq!(parse_offset("+01:00"), None);
-        assert_eq!(parse_offset(""), None);
-    }
+    const JAN_15_2027: i64 = 1_800_000_000_000;
+    const JUL_7_2027: i64 = 1_815_000_000_000;
 
     #[test]
-    fn the_system_offset_is_a_plausible_one() {
-        let offset = local_utc_offset_minutes().unwrap();
-        assert!((-14 * 60..=14 * 60).contains(&offset));
+    fn the_offset_at_any_moment_is_a_plausible_one() {
+        for at in [JAN_15_2027, JUL_7_2027, 0] {
+            let offset = local_utc_offset_minutes(at).unwrap();
+            assert!((-14 * 60..=14 * 60).contains(&offset), "{at}: {offset}");
+        }
+    }
+
+    // The test runs itself with a zone set, so no test mutates its own environment.
+    #[cfg(unix)]
+    fn in_child(name: &str, zone: &str) {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", name, "--nocapture"])
+            .env("NULLRADIX_TZ_CHILD", "1")
+            .env("TZ", zone)
+            .output()
+            .unwrap();
+        let printed = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{printed}");
+        assert!(
+            printed.contains("running 1 test"),
+            "the child ran no test: {printed}"
+        );
+        assert!(printed.contains("1 passed"), "{printed}");
+    }
+
+    #[cfg(unix)]
+    fn check_berlin() {
+        assert_eq!(local_utc_offset_minutes(JAN_15_2027), Some(60));
+        assert_eq!(local_utc_offset_minutes(JUL_7_2027), Some(120));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_offset_follows_daylight_saving_at_each_moment() {
+        if std::env::var_os("NULLRADIX_TZ_CHILD").is_some() {
+            return check_berlin();
+        }
+        in_child(
+            "local_time::tests::the_offset_follows_daylight_saving_at_each_moment",
+            "CET-1CEST,M3.5.0,M10.5.0/3",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_zone_name_is_found_in_the_zone_files() {
+        assert!(
+            std::path::Path::new("/usr/share/zoneinfo").exists(),
+            "install the tzdata package: the zone files are missing"
+        );
+        if std::env::var_os("NULLRADIX_TZ_CHILD").is_some() {
+            return check_berlin();
+        }
+        in_child(
+            "local_time::tests::a_zone_name_is_found_in_the_zone_files",
+            "Europe/Berlin",
+        );
     }
 }

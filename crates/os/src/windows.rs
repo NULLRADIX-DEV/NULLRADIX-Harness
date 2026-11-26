@@ -48,7 +48,6 @@ use windows_sys::Win32::System::Threading::{
     OpenProcessToken, OpenThread, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
     ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOW, THREAD_SUSPEND_RESUME,
 };
-use windows_sys::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
 
 const STILL_ACTIVE: u32 = 259;
 
@@ -525,24 +524,6 @@ fn restrict_with(apply: impl FnOnce(PSID, *const ACL) -> u32) -> io::Result<()> 
     // SAFETY: descriptor was allocated by the conversion and is freed exactly once.
     unsafe { LocalFree(descriptor) };
     result
-}
-
-const ZONE_UNKNOWN: u32 = 0;
-const ZONE_STANDARD: u32 = 1;
-const ZONE_DAYLIGHT: u32 = 2;
-
-/// Minutes local time is ahead of UTC right now, daylight saving included.
-pub(crate) fn utc_offset_minutes() -> Option<i32> {
-    // SAFETY: the structure is plain data that the call fills in.
-    let mut info: TIME_ZONE_INFORMATION = unsafe { std::mem::zeroed() };
-    // SAFETY: the pointer is valid for the call.
-    let id = unsafe { GetTimeZoneInformation(&raw mut info) };
-    let bias = match id {
-        ZONE_UNKNOWN | ZONE_STANDARD => info.Bias + info.StandardBias,
-        ZONE_DAYLIGHT => info.Bias + info.DaylightBias,
-        _ => return None,
-    };
-    Some(-bias)
 }
 
 /// Owner, protection and allow entries (SID text and access mask) of a file or folder.

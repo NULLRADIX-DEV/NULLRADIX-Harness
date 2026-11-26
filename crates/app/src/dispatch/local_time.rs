@@ -6,10 +6,24 @@ use nullradix_domain::Timestamp;
 const MINUTE_MS: i64 = 60_000;
 const DAY_MINUTES: i64 = 24 * 60;
 
-/// Tells the local minute of the day at a moment.
+/// Tells the local clock of the machine at a moment.
 #[async_trait]
 pub trait LocalTime: Send + Sync {
-    async fn minute_of_day(&self, at: Timestamp) -> u32;
+    /// Minutes the local clock is ahead of UTC at a moment.
+    async fn offset_minutes(&self, at: Timestamp) -> i32;
+
+    /// The offsets at many moments; one lookup of the zone serves them all.
+    async fn offsets(&self, moments: &[Timestamp]) -> Vec<i32> {
+        let mut offsets = Vec::with_capacity(moments.len());
+        for moment in moments {
+            offsets.push(self.offset_minutes(*moment).await);
+        }
+        offsets
+    }
+
+    async fn minute_of_day(&self, at: Timestamp) -> u32 {
+        minute_with_offset(at, self.offset_minutes(at).await)
+    }
 }
 
 /// The minute of the day shifted by a fixed offset from UTC.
@@ -17,18 +31,6 @@ pub trait LocalTime: Send + Sync {
 pub fn minute_with_offset(at: Timestamp, offset_minutes: i32) -> u32 {
     let minutes = at.as_millis().div_euclid(MINUTE_MS) + i64::from(offset_minutes);
     u32::try_from(minutes.rem_euclid(DAY_MINUTES)).unwrap_or(0)
-}
-
-/// The local day number since 1970-01-01 of a moment, from its local minute of the day.
-#[must_use]
-pub fn local_day(at: Timestamp, minute_of_day: u32) -> i64 {
-    let minutes = at.as_millis().div_euclid(MINUTE_MS);
-    let mut offset = (i64::from(minute_of_day) - minutes).rem_euclid(DAY_MINUTES);
-    // offsets run from UTC-12 to UTC+14
-    if offset > 14 * 60 {
-        offset -= DAY_MINUTES;
-    }
-    (minutes + offset).div_euclid(DAY_MINUTES)
 }
 
 /// A day number as `YYYY-MM-DD`.
@@ -56,13 +58,15 @@ pub struct UtcTime;
 
 #[async_trait]
 impl LocalTime for UtcTime {
-    async fn minute_of_day(&self, at: Timestamp) -> u32 {
-        minute_with_offset(at, 0)
+    async fn offset_minutes(&self, _at: Timestamp) -> i32 {
+        0
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use nullradix_domain::local_day_of;
+
     use super::*;
 
     fn at(hours: i64, minutes: i64) -> Timestamp {
@@ -73,17 +77,15 @@ mod tests {
     fn the_local_day_follows_the_offset() {
         // 2026-11-26 23:30 UTC
         let moment = Timestamp::from_millis(1_795_735_800_000);
+        assert_eq!(day_text(local_day_of(moment, 0)), "2026-11-26");
+        assert_eq!(day_text(local_day_of(moment, 60)), "2026-11-27");
+        assert_eq!(day_text(local_day_of(moment, -300)), "2026-11-26");
+        // UTC-10 and UTC+14 show the same clock but are a day apart
+        assert_eq!(day_text(local_day_of(moment, -600)), "2026-11-26");
+        assert_eq!(day_text(local_day_of(moment, 14 * 60)), "2026-11-27");
         assert_eq!(
-            day_text(local_day(moment, minute_with_offset(moment, 0))),
-            "2026-11-26"
-        );
-        assert_eq!(
-            day_text(local_day(moment, minute_with_offset(moment, 60))),
-            "2026-11-27"
-        );
-        assert_eq!(
-            day_text(local_day(moment, minute_with_offset(moment, -300))),
-            "2026-11-26"
+            day_text(local_day_of(moment, -(23 * 60 + 31))),
+            "2026-11-25"
         );
         assert_eq!(day_text(0), "1970-01-01");
         assert_eq!(day_text(11_016), "2000-02-29");

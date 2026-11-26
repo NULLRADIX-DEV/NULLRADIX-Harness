@@ -19,7 +19,7 @@ use super::detached::{
     DetachedCreate, DetachedCreated, DetachedPurpose, DetachedRemove, DetachedRemoved,
     DetachedWorktreePort, detached_busy, detached_root,
 };
-use super::local_time::{LocalTime, local_day};
+use super::local_time::LocalTime;
 use super::log::{DispatchLog, LogLevel};
 use super::pass::{DispatchPass, PassContext, PassReport, PassStep};
 use super::pause::{PauseHook, PauseKind};
@@ -865,8 +865,8 @@ impl ResearchRuns {
     /// Starts of today and the local day (days since 1970-01-01, as `YYYY-MM-DD` counts them).
     async fn used_today(&self, now: Timestamp) -> Result<(u32, Timestamp), AppError> {
         // the key is the local calendar day, so a change of the clock inside it counts on
-        let minute = self.parts.local.minute_of_day(now).await;
-        let day = Timestamp::from_millis(local_day(now, minute));
+        let offset = self.parts.local.offset_minutes(now).await;
+        let day = Timestamp::from_millis(nullradix_domain::local_day_of(now, offset));
         let used = match self.tracking_row(DAY_ROW).await? {
             Some(row) if row.last_started_at == Some(day) => row.count,
             _ => 0,

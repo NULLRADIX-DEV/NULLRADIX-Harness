@@ -143,6 +143,7 @@ impl DispatchStatsRepository for Store {
                         .map_err(|_| corrupt("abort category"))?,
                     retried,
                     started_at: Timestamp::from_millis(row.created_at),
+                    offset_minutes: 0,
                     duration_ms: row.duration_ms,
                     cost_usd: row.cost_usd,
                     input_tokens: row.input_tokens,
