@@ -13,7 +13,7 @@ use super::log::{DispatchLog, LogLevel};
 use super::outcome::{Decision, decide, question_comment};
 use super::pass::{PassContext, PassReport, PassStep};
 use super::start::TicketStarter;
-use crate::comments::{Author, CommentService};
+use crate::comments::CommentService;
 use crate::runs::RunService;
 use crate::tickets::{TicketDetail, TicketPatch, TicketService, WriteOptions};
 use crate::{AppError, ErrorKind};
@@ -121,7 +121,7 @@ impl EvaluateRuns {
         let decision = if asked {
             Decision::Question(questions)
         } else {
-            decide(config, &config.work_agent(key), run, record, &questions)
+            decide(config, &agent_of(run, key, config), run, record, &questions)
         };
         let outcome = match &decision {
             Decision::Pending(_) => return Ok(Settled::Later),
@@ -132,7 +132,7 @@ impl EvaluateRuns {
                 DispatchOutcome::Question
             }
             Decision::AutoAccept { reason } => {
-                let accepted = self.auto_accept(&detail, reason).await?;
+                let accepted = self.auto_accept(&detail, run, reason).await?;
                 self.gate.finished(&accepted, run, config).await?
             }
             Decision::Done => self.gate.finished(record, run, config).await?,
@@ -163,7 +163,8 @@ impl EvaluateRuns {
         let fresh = self.tickets.get(&key.to_string()).await?;
         let current = fresh.view.ticket.record();
         let ours = current.status == TicketStatus::InProgress
-            && current.assignee.as_deref() == Some(config.work_agent(&key.to_string()).as_str());
+            && current.assignee.as_deref()
+                == Some(agent_of(run, &key.to_string(), config).as_str());
         if !ours {
             return Ok(true);
         }
@@ -184,6 +185,7 @@ impl EvaluateRuns {
     async fn auto_accept(
         &self,
         detail: &TicketDetail,
+        run: &Run,
         reason: &str,
     ) -> Result<TicketRecord, AppError> {
         let actor = self.starter.actor().await?;
@@ -202,13 +204,21 @@ impl EvaluateRuns {
             version = updated.view.ticket.record().version;
         }
         let body = format!("{AUTOPILOT_PREFIX} accepted automatically - {reason}");
-        if !detail
-            .comments
-            .iter()
-            .any(|line| line.comment.body() == body)
-        {
+        let posted = detail.comments.iter().any(|line| {
+            let comment = line.comment.record();
+            line.comment.body() == body
+                && comment.system_marker == Some(SystemMarker::Review)
+                && comment.run == Some(run.id())
+        });
+        if !posted {
             self.comments
-                .add(&key, &body, Author::default(), actor)
+                .add_system(
+                    &record.key,
+                    &body,
+                    SystemMarker::Review,
+                    Some(run.id()),
+                    actor,
+                )
                 .await?;
             version = self.tickets.get(&key).await?.view.ticket.record().version;
         }
@@ -218,6 +228,13 @@ impl EvaluateRuns {
             .await?;
         Ok(accepted.ticket.record().clone())
     }
+}
+
+/// The agent the run worked under; runs from before it was kept use the configured name.
+fn agent_of(run: &Run, key: &str, config: &DispatcherConfig) -> String {
+    run.dispatch()
+        .and_then(|dispatch| dispatch.agent.clone())
+        .unwrap_or_else(|| config.work_agent(key))
 }
 
 /// Whether the question comment of this run is on the ticket already.

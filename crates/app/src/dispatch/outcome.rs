@@ -142,6 +142,7 @@ mod tests {
             },
             account: None,
             config_hash: String::new(),
+            agent: None,
             cwd: String::new(),
             args: Vec::new(),
             prompt: String::new(),

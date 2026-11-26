@@ -128,6 +128,8 @@ pub struct DispatchRun {
     pub account: Option<Uuid>,
     /// Hash of the dispatcher configuration in force.
     pub config_hash: String,
+    /// The agent name the run worked under; none for runs from before it was kept.
+    pub agent: Option<String>,
     pub cwd: String,
     /// Arguments after the program, as the run was started.
     pub args: Vec<String>,

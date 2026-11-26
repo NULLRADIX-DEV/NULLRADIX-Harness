@@ -794,18 +794,32 @@ pub(crate) fn writer(principal: &Principal, force: bool) -> WriteOptions {
     }
 }
 
-/// The actor of a write: the shared author rule, so a run's session writes as a session.
+/// Longest session text a caller may send; it only tells that the write comes from a run.
+const SESSION_MAX: usize = 200;
+
+/// The actor of a write; a named author is made only for a valid request on a ticket.
 pub(crate) async fn author_of(
     state: &ApiState,
     principal: &Principal,
     name: Option<&str>,
     session: Option<&str>,
+    ticket_key: &str,
 ) -> Result<nullradix_domain::Actor, AppError> {
+    if session.is_some_and(|text| text.chars().count() > SESSION_MAX) {
+        return Err(AppError::text(
+            nullradix_domain::TextError::TooLong(SESSION_MAX),
+            "session-empty",
+            String::from("the session is too long"),
+        ));
+    }
     let author = Author {
         by_person: matches!(principal, Principal::Session { .. }),
         name,
         session,
     };
+    if !author.by_person {
+        state.tickets.get(ticket_key).await?;
+    }
     state.comments.author(author, &state.person).await
 }
 
@@ -845,6 +859,7 @@ pub(crate) async fn update_ticket(
         &principal,
         input.author.as_deref(),
         input.session.as_deref(),
+        &path.ticket_key,
     )
     .await?;
     let changes = TicketPatch {
@@ -899,6 +914,7 @@ pub(crate) async fn move_ticket(
         &principal,
         input.author.as_deref(),
         input.session.as_deref(),
+        &path.ticket_key,
     )
     .await?;
     let view = state
@@ -1472,6 +1488,54 @@ mod tests {
             actors[0], "worker-ARC-0001",
             "without an author the person writes"
         );
+    }
+
+    #[tokio::test]
+    async fn a_refused_write_creates_no_agent_and_a_long_session_is_refused() {
+        use nullradix_app::boards::ActorRepository;
+        let api = test_api().await;
+        let path = board_path(&api).await;
+        let request = bearer(Request::post(path.as_str()), &api.token)
+            .header("content-type", "application/json")
+            .body(Body::from(json!({ "title": "Fix it" }).to_string()))
+            .unwrap();
+        send(&api.router, request).await;
+        let call = |request: axum::http::request::Builder, body: serde_json::Value| {
+            bearer(request, &api.token)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let missing = json!({ "version": 1, "status": "planned", "author": "ghost-agent" });
+        let (status, _, _) = send(
+            &api.router,
+            call(Request::patch("/api/v1/tickets/arc-99"), missing),
+        )
+        .await;
+        assert_eq!(status.as_u16(), 404);
+        let long = json!({
+            "version": 1, "status": "planned", "author": "long-agent",
+            "session": "s".repeat(201)
+        });
+        let (status, _, problem) = send(
+            &api.router,
+            call(Request::patch("/api/v1/tickets/arc-1"), long),
+        )
+        .await;
+        assert_eq!(
+            (status.as_u16(), problem["code"].as_str()),
+            (422, Some("value-too-long"))
+        );
+        for (index, name) in ["ghost-agent", "long-agent"].into_iter().enumerate() {
+            let candidate = nullradix_domain::Actor::new(
+                nullradix_domain::Id::from_uuid(uuid::Uuid::from_u128(77 + index as u128)),
+                nullradix_domain::ActorKind::Human,
+                nullradix_domain::ActorName::parse(name).unwrap(),
+                nullradix_domain::Timestamp::from_millis(1),
+            );
+            let known = api.store.ensure(&candidate).await.unwrap();
+            assert_eq!(known.id(), candidate.id(), "{name} was created");
+        }
     }
 
     #[tokio::test]

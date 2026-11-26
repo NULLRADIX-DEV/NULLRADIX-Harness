@@ -42,6 +42,8 @@ pub struct StartDispatchRun {
     pub profile: Option<String>,
     pub account: Option<Id<nullradix_domain::Account>>,
     pub extra_tools: Vec<String>,
+    /// The agent name the run works under, when it is one of a ticket.
+    pub agent: Option<String>,
 }
 
 /// Bytes of files a run left on its runner.
@@ -225,6 +227,7 @@ impl DispatchRuns {
             profile: run_profile(&view.config, profile),
             account: account.as_ref().map(|account| account.id().as_uuid()),
             config_hash: view.hash,
+            agent: request.agent.clone(),
             cwd: request.cwd.to_string_lossy().into_owned(),
             args: invocation.args,
             prompt: request.prompt,

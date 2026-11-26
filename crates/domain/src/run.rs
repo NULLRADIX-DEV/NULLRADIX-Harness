@@ -425,6 +425,7 @@ mod tests {
             },
             account: None,
             config_hash: String::from("0123456789abcdef"),
+            agent: None,
             cwd: String::from("/work"),
             args: vec![String::from("-p")],
             prompt: String::from("go"),

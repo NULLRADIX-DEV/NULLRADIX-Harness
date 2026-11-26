@@ -636,6 +636,7 @@ pub(crate) async fn start_dispatch_run(
             profile: input.profile,
             account: None,
             extra_tools: Vec::new(),
+            agent: None,
         })
         .await?;
     let run = RunDto::from(run);

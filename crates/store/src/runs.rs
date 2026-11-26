@@ -35,6 +35,7 @@ struct Row {
     timeout_minutes: Option<i64>,
     account_id: Option<Uuid>,
     config_hash: Option<String>,
+    agent: Option<String>,
     cwd: Option<String>,
     command_args: Option<String>,
     prompt: Option<String>,
@@ -133,6 +134,7 @@ impl Row {
             },
             account: self.account_id,
             config_hash: self.config_hash.clone().unwrap_or_default(),
+            agent: self.agent.clone(),
             cwd: self.cwd.clone().unwrap_or_default(),
             args,
             prompt: self.prompt.clone().unwrap_or_default(),
@@ -341,6 +343,7 @@ impl RunRepository for Store {
         let timeout_minutes = dispatch.map(|dispatch| i64::from(dispatch.profile.timeout_minutes));
         let account_id = dispatch.and_then(|dispatch| dispatch.account);
         let config_hash = dispatch.map(|dispatch| dispatch.config_hash.as_str());
+        let agent = dispatch.and_then(|dispatch| dispatch.agent.as_deref());
         let cwd = dispatch.map(|dispatch| dispatch.cwd.as_str());
         let command_args = dispatch
             .map(|dispatch| serde_json::to_string(&dispatch.args))
@@ -352,8 +355,8 @@ impl RunRepository for Store {
             "INSERT INTO runs (id, label, status, pid, exit_code, error, created_at, started_at,
                                finished_at, version, kind, triggered_by, subject_key, profile_id,
                                profile_name, model, effort, max_turns, timeout_minutes, account_id,
-                               config_hash, cwd, command_args, prompt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                               config_hash, cwd, command_args, prompt, agent)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             id,
             label,
             status,
@@ -378,6 +381,7 @@ impl RunRepository for Store {
             cwd,
             command_args,
             prompt,
+            agent,
         )
         .execute(&mut *tx)
         .await
@@ -478,7 +482,7 @@ impl RunRepository for Store {
                       timeout_minutes, account_id AS "account_id: Uuid", config_hash, cwd,
                       command_args, prompt, claude_session_id, abort_category, abort_reason,
                       num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,
-                      cache_write_tokens, model_usage, denied_count, outcome
+                      cache_write_tokens, model_usage, denied_count, outcome, agent
                FROM runs WHERE id = ?"#,
             uuid
         )
@@ -512,7 +516,7 @@ impl RunRepository for Store {
                       timeout_minutes, account_id AS "account_id: Uuid", config_hash, cwd,
                       command_args, prompt, claude_session_id, abort_category, abort_reason,
                       num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,
-                      cache_write_tokens, model_usage, denied_count, outcome
+                      cache_write_tokens, model_usage, denied_count, outcome, agent
                FROM runs WHERE (?1 IS NULL OR subject_key = ?1)
                   AND (?2 IS NULL OR kind = ?2)
                   AND (?3 IS NULL OR claude_session_id = ?3 OR id = ?4)
@@ -538,7 +542,7 @@ impl RunRepository for Store {
                       timeout_minutes, account_id AS "account_id: Uuid", config_hash, cwd,
                       command_args, prompt, claude_session_id, abort_category, abort_reason,
                       num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,
-                      cache_write_tokens, model_usage, denied_count, outcome
+                      cache_write_tokens, model_usage, denied_count, outcome, agent
                FROM runs WHERE status IN ('starting', 'running') ORDER BY created_at"#
         )
         .fetch_all(&self.reader)
@@ -556,10 +560,11 @@ impl RunRepository for Store {
                       timeout_minutes, account_id AS "account_id: Uuid", config_hash, cwd,
                       command_args, prompt, claude_session_id, abort_category, abort_reason,
                       num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,
-                      cache_write_tokens, model_usage, denied_count, outcome
+                      cache_write_tokens, model_usage, denied_count, outcome, agent
                FROM runs
-               WHERE kind IS NOT NULL AND outcome IS NULL
+               WHERE kind = 'work' AND subject_key IS NOT NULL AND outcome IS NULL
                  AND status NOT IN ('starting', 'running')
+                 AND (abort_category IS NULL OR abort_category <> 'start-failed')
                ORDER BY finished_at, id LIMIT ?"#,
             limit,
         )

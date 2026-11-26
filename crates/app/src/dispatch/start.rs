@@ -616,6 +616,7 @@ impl TicketStarter {
                 profile: Some(launch.choice.profile.clone()),
                 account: None,
                 extra_tools: Vec::new(),
+                agent: Some(launch.agent.clone()),
             })
             .await?;
         // the run is live now: a failed check keeps it rather than giving the claim back

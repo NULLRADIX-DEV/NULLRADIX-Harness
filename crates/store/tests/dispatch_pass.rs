@@ -1682,7 +1682,77 @@ async fn autopilot_accepts_a_ticket_that_waits_for_a_person() {
         .filter(|line| line.comment.body() == accepted)
         .count();
     assert_eq!(posted, 1);
+    let marked = f
+        .comments
+        .list(&key)
+        .await
+        .unwrap()
+        .iter()
+        .filter(|line| {
+            let record = line.comment.record();
+            line.comment.body() == accepted
+                && record.system_marker == Some(SystemMarker::Review)
+                && record.run == Some(run)
+        })
+        .count();
+    assert_eq!(marked, 1);
     let comments = f.comment_count(&key).await;
     f.dispatcher.pass.run().await;
     assert_eq!(f.comment_count(&key).await, comments);
+}
+
+#[tokio::test]
+async fn a_run_is_judged_by_the_agent_it_started_under() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.agent_changes(&key, "done", None).await;
+    let run = f.finish_run(&key).await;
+    assert_eq!(
+        f.run_of(run).await.dispatch().unwrap().agent.as_deref(),
+        Some("worker-ARC-0001")
+    );
+    f.configure(|config| config.agent_prefix = String::from("bot-"))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Done));
+}
+
+#[tokio::test]
+async fn failed_starts_do_not_crowd_finished_runs_out_of_the_batch() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.agent_changes(&key, "done", None).await;
+    let started = nullradix_app::runs::RunRepository::find(
+        f.store.as_ref(),
+        &RunFilter {
+            subject_key: Some(key.clone()),
+            ..RunFilter::default()
+        },
+        1,
+    )
+    .await
+    .unwrap()
+    .remove(0);
+    let mut dispatch = started.dispatch().unwrap().clone();
+    dispatch.subject_key = Some(String::from("ARC-9999"));
+    for index in 0..55 {
+        let label = nullradix_domain::RunLabel::parse("work").unwrap();
+        let id = Id::from_uuid(uuid::Uuid::from_u128(1_000 + index));
+        let run =
+            Run::new(id, label, Timestamp::from_millis(START - 10)).with_dispatch(dispatch.clone());
+        nullradix_app::runs::RunRepository::insert(f.store.as_ref(), &run)
+            .await
+            .unwrap();
+        let failed = run
+            .failed_to_start(String::from("no"), Timestamp::from_millis(START - 5))
+            .unwrap();
+        nullradix_app::runs::RunRepository::update(f.store.as_ref(), &failed, run.version())
+            .await
+            .unwrap();
+    }
+    let run = f.finish_run(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Done));
 }

@@ -242,6 +242,7 @@ pub(crate) async fn finish_ticket(
         &principal,
         input.author.as_deref(),
         input.session.as_deref(),
+        &path.ticket_key,
     )
     .await?;
     let request = DoneRequest {
