@@ -1380,18 +1380,8 @@ exit 1
             let (_dir, root) = repository();
             ticket_changes_a(&root);
             let (_, commit, _) = merged(&request(&root, None, strategy)).await;
-            fs::write(
-                root.join("a.txt"),
-                "local
-",
-            )
-            .unwrap();
-            fs::write(
-                root.join("new.txt"),
-                "x
-",
-            )
-            .unwrap();
+            fs::write(root.join("a.txt"), "local\n").unwrap();
+            fs::write(root.join("new.txt"), "x\n").unwrap();
             git_sync(&root, &["add", "new.txt"]);
             let (_, again, _) = merged(&request(&root, None, strategy)).await;
             assert_eq!(again, commit);
