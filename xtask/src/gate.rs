@@ -10,6 +10,8 @@ use crate::db;
 
 const SCHEMA_PATH: &str = "web/src/shared/api/schema.ts";
 const LINUX: &str = "x86_64-unknown-linux-gnu";
+// same scope as the coverage gate in CI
+const COVERAGE_IGNORE: &str = r"(apps|tests|xtask|crates[/\\](api|client|os|runner|store))[/\\]";
 
 enum Outcome {
     Passed,
@@ -39,7 +41,7 @@ fn present(program: &str, args: &[&str]) -> bool {
 fn run(root: &Path, program: &str, args: &[&str]) -> Outcome {
     let mut command = Command::new(program);
     command.args(args).current_dir(root);
-    // keeps local builds small and off the incremental cache, like CI
+    // the build settings this repository uses locally, so the gate reuses that cache
     for (key, value) in [("CARGO_INCREMENTAL", "0"), ("CARGO_PROFILE_DEV_DEBUG", "0")] {
         if std::env::var_os(key).is_none() {
             command.env(key, value);
@@ -60,23 +62,30 @@ fn from_code(result: Result<ExitCode>) -> Outcome {
     }
 }
 
-fn generated(root: &Path) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
-    (
-        fs::read(root.join(OPENAPI_PATH)).ok(),
-        fs::read(root.join(SCHEMA_PATH)).ok(),
-    )
+fn committed(root: &Path, path: &str) -> Option<Vec<u8>> {
+    let output = Command::new("git")
+        .args(["show", &format!("HEAD:{path}")])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    output.status.success().then_some(output.stdout)
 }
 
+/// Regenerates the client and compares it with the last commit, as CI does on a clean checkout.
 fn codegen_drift(root: &Path) -> Outcome {
-    let before = generated(root);
     if let Err(error) = codegen::codegen(root) {
         return Outcome::Failed(format!("{error:#}"));
     }
-    if generated(root) == before {
+    let stale: Vec<&str> = [OPENAPI_PATH, SCHEMA_PATH]
+        .into_iter()
+        .filter(|path| fs::read(root.join(path)).ok() != committed(root, path))
+        .collect();
+    if stale.is_empty() {
         Outcome::Passed
     } else {
         Outcome::Failed(format!(
-            "{OPENAPI_PATH} or {SCHEMA_PATH} changed; review and commit them"
+            "{} differ from the last commit; review and commit them",
+            stale.join(", ")
         ))
     }
 }
@@ -87,6 +96,13 @@ fn linux_clippy(root: &Path) -> Outcome {
     }
     if !present("zig", &["version"]) {
         return Outcome::Skipped("zig is not installed".to_owned());
+    }
+    let installed = Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).contains(LINUX));
+    if !installed {
+        return Outcome::Skipped(format!("run `rustup target add {LINUX}`"));
     }
     run(
         root,
@@ -107,7 +123,8 @@ fn linux_clippy(root: &Path) -> Outcome {
 
 fn deny(root: &Path) -> Outcome {
     if !present("cargo", &["deny", "--version"]) {
-        return Outcome::Skipped("cargo-deny is not installed".to_owned());
+        // CI always runs it, so a missing tool is no pass
+        return Outcome::Failed("cargo-deny is not installed".to_owned());
     }
     run(
         root,
@@ -120,6 +137,56 @@ fn deny(root: &Path) -> Outcome {
             "check",
         ],
     )
+}
+
+/// Runs the tests under coverage like CI, or plainly when cargo-llvm-cov is missing.
+fn tests(root: &Path, reports: &mut Vec<Report>) {
+    let covered = present("cargo", &["llvm-cov", "--version"]);
+    step("tests", reports, || {
+        if covered {
+            run(
+                root,
+                "cargo",
+                &[
+                    "llvm-cov",
+                    "nextest",
+                    "--workspace",
+                    "--locked",
+                    "--no-fail-fast",
+                ],
+            )
+        } else {
+            run(
+                root,
+                "cargo",
+                &[
+                    "nextest",
+                    "run",
+                    "--workspace",
+                    "--locked",
+                    "--no-fail-fast",
+                ],
+            )
+        }
+    });
+    step("coverage", reports, || {
+        if !covered {
+            return Outcome::Failed("cargo-llvm-cov is not installed".to_owned());
+        }
+        run(
+            root,
+            "cargo",
+            &[
+                "llvm-cov",
+                "report",
+                "--summary-only",
+                "--fail-under-lines",
+                "80",
+                "--ignore-filename-regex",
+                COVERAGE_IGNORE,
+            ],
+        )
+    });
 }
 
 fn step(name: &'static str, reports: &mut Vec<Report>, work: impl FnOnce() -> Outcome) {
@@ -143,6 +210,7 @@ pub(crate) fn gate(root: &Path, skip_web: bool) -> ExitCode {
     step("repository checks", &mut reports, || {
         from_code(crate::check(root))
     });
+    step("npm ci", &mut reports, || run(root, npm, &["ci"]));
     step("prettier", &mut reports, || {
         run(root, npm, &["run", "format:check"])
     });
@@ -165,19 +233,7 @@ pub(crate) fn gate(root: &Path, skip_web: bool) -> ExitCode {
     step("query cache", &mut reports, || from_code(db::check(root)));
     step("codegen", &mut reports, || codegen_drift(root));
     step("deny", &mut reports, || deny(root));
-    step("tests", &mut reports, || {
-        run(
-            root,
-            "cargo",
-            &[
-                "nextest",
-                "run",
-                "--workspace",
-                "--locked",
-                "--no-fail-fast",
-            ],
-        )
-    });
+    tests(root, &mut reports);
     if skip_web {
         for name in ["eslint", "typecheck", "web tests", "web build"] {
             reports.push(Report {
@@ -202,6 +258,7 @@ pub(crate) fn gate(root: &Path, skip_web: bool) -> ExitCode {
 fn summarize(reports: &[Report]) -> ExitCode {
     println!("\ngate summary");
     let mut failed = 0;
+    let mut skipped = 0;
     for report in reports {
         let (label, detail) = match &report.outcome {
             Outcome::Passed => ("passed ", String::new()),
@@ -209,12 +266,18 @@ fn summarize(reports: &[Report]) -> ExitCode {
                 failed += 1;
                 ("FAILED ", format!(": {why}"))
             }
-            Outcome::Skipped(why) => ("skipped", format!(": {why}")),
+            Outcome::Skipped(why) => {
+                skipped += 1;
+                ("skipped", format!(": {why}"))
+            }
         };
         println!("  {label} {} ({}s){detail}", report.name, report.seconds);
     }
-    if failed == 0 {
+    if failed == 0 && skipped == 0 {
         println!("gate passed");
+        ExitCode::SUCCESS
+    } else if failed == 0 {
+        println!("gate passed with {skipped} skipped step(s)");
         ExitCode::SUCCESS
     } else {
         println!("gate failed: {failed} step(s)");
