@@ -66,6 +66,12 @@ impl std::fmt::Debug for DispatchStatsService {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Bound {
+    Start,
+    End,
+}
+
 fn refused(error: &StatsError) -> AppError {
     let code = match error {
         StatsError::BadKind => "stats-kind-invalid",
@@ -92,6 +98,17 @@ impl DispatchStatsService {
         }
     }
 
+    /// A midnight bound of the range, with the offset in force at that midnight.
+    async fn bound(&self, range: StatsRange, side: Bound, now: Timestamp) -> Timestamp {
+        let at = |offset| match side {
+            Bound::Start => range.start(offset),
+            Bound::End => range.end(offset),
+        };
+        // the offset of the bound is read at the bound, guessed with today's offset first
+        let guess = at(self.local.offset_minutes(now).await);
+        at(self.local.offset_minutes(guess).await)
+    }
+
     /// The numbers of the runs that started on the days asked for, in local time.
     pub async fn get(&self, request: StatsRequest<'_>) -> Result<StatsReport, AppError> {
         let kind = parse_stats_kind(request.kind).map_err(|error| refused(&error))?;
@@ -101,11 +118,15 @@ impl DispatchStatsService {
             return Err(boards::not_found(id));
         }
         let now = self.clock.now();
-        let offset = self.local.offset_minutes(now).await;
-        let today = local_day_of(now, offset);
-        let end = StatsRange::resolve(request.from, request.to, today, None)
-            .map_err(|error| refused(&error))?
-            .end(offset);
+        let today = local_day_of(now, self.local.offset_minutes(now).await);
+        let end = self
+            .bound(
+                StatsRange::resolve(request.from, request.to, today, None)
+                    .map_err(|error| refused(&error))?,
+                Bound::End,
+                now,
+            )
+            .await;
         let config_changed_at = self
             .config
             .versions()
@@ -113,17 +134,22 @@ impl DispatchStatsService {
             .iter()
             .rfind(|version| version.first_seen_at < end)
             .map(|version| version.first_seen_at);
-        let config_day = config_changed_at
-            .filter(|_| wants_config(request.from))
-            .map(|at| local_day_of(at, offset));
+        let config_day = match config_changed_at.filter(|_| wants_config(request.from)) {
+            Some(at) => Some(local_day_of(at, self.local.offset_minutes(at).await)),
+            None => None,
+        };
         let range = StatsRange::resolve(request.from, request.to, today, config_day)
             .map_err(|error| refused(&error))?;
+        let (from, until) = (
+            self.bound(range, Bound::Start, now).await,
+            self.bound(range, Bound::End, now).await,
+        );
         let limit = u32::try_from(STATS_MAX_RUNS + 1).unwrap_or(u32::MAX);
-        let runs = self
+        let mut runs = self
             .repository
             .runs(&StatsQuery {
-                from: range.start(offset),
-                until: range.end(offset),
+                from,
+                until,
                 board: request.board,
                 limit,
             })
@@ -134,12 +160,10 @@ impl DispatchStatsService {
                 format!("more than {STATS_MAX_RUNS} runs in the range, choose fewer days"),
             ));
         }
-        let stats = calculate_stats(&StatsFacts {
-            kind,
-            range,
-            offset_minutes: offset,
-            runs,
-        });
+        for run in &mut runs {
+            run.offset_minutes = self.local.offset_minutes(run.started_at).await;
+        }
+        let stats = calculate_stats(&StatsFacts { kind, range, runs });
         Ok(StatsReport {
             board: request.board,
             range,

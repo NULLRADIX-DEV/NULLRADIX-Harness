@@ -170,6 +170,8 @@ pub struct StatsRun {
     /// An earlier run of the subject was aborted, so this one is a retry or an escalation.
     pub retried: bool,
     pub started_at: Timestamp,
+    /// Minutes the local day was ahead of UTC when the run started; the store leaves 0.
+    pub offset_minutes: i32,
     pub duration_ms: Option<i64>,
     pub cost_usd: Option<f64>,
     pub input_tokens: Option<i64>,
@@ -183,8 +185,6 @@ pub struct StatsRun {
 pub struct StatsFacts {
     pub kind: RunKind,
     pub range: StatsRange,
-    /// Minutes the local day is ahead of UTC.
-    pub offset_minutes: i32,
     /// Runs of every kind that started inside the range.
     pub runs: Vec<StatsRun>,
 }
@@ -416,7 +416,7 @@ fn series(facts: &StatsFacts, runs: &[&StatsRun]) -> StatsSeries {
         day += step;
     }
     for run in runs {
-        let bucket = start_of(local_day_of(run.started_at, facts.offset_minutes));
+        let bucket = start_of(local_day_of(run.started_at, run.offset_minutes));
         let Some(counts) = buckets.get_mut(&bucket) else {
             continue;
         };
@@ -716,6 +716,7 @@ mod tests {
             abort_category: None,
             retried: false,
             started_at: Timestamp::from_millis(day("2026-03-10") * 86_400_000 + hour * HOUR),
+            offset_minutes: 0,
             duration_ms: None,
             cost_usd: None,
             input_tokens: None,
@@ -741,7 +742,6 @@ mod tests {
         StatsFacts {
             kind: RunKind::Work,
             range: range(Some("2026-03-04"), Some("2026-03-10"), "2026-03-10").unwrap(),
-            offset_minutes: 0,
             runs,
         }
     }
@@ -907,7 +907,9 @@ mod tests {
                 other: 1
             }
         );
-        stats_facts.offset_minutes = 120;
+        for run in &mut stats_facts.runs {
+            run.offset_minutes = 120;
+        }
         let shifted = calculate_stats(&stats_facts);
         // 23:00 UTC is 01:00 the next day, outside the range
         assert_eq!(last(&shifted).aborted, 0);

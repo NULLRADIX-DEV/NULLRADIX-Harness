@@ -5,8 +5,9 @@ mod common;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
+use async_trait::async_trait;
 use nullradix_app::boards::{BoardService, local_person};
-use nullradix_app::dispatch::local_time::UtcTime;
+use nullradix_app::dispatch::local_time::{LocalTime, UtcTime};
 use nullradix_app::dispatch::stats::{
     DispatchStatsRepository, DispatchStatsService, StatsQuery, StatsRequest,
 };
@@ -23,6 +24,20 @@ struct ManualClock(AtomicI64);
 impl Clock for ManualClock {
     fn now(&self) -> Timestamp {
         Timestamp::from_millis(self.0.load(Ordering::SeqCst))
+    }
+}
+
+/// Berlin in the spring of 2026: UTC+1 until 2026-03-29 01:00 UTC, UTC+2 from then on.
+struct Berlin;
+
+#[async_trait]
+impl LocalTime for Berlin {
+    async fn offset_minutes(&self, moment: Timestamp) -> i32 {
+        if moment.as_millis() < at("2026-03-29T01:00:00Z") {
+            60
+        } else {
+            120
+        }
     }
 }
 
@@ -667,5 +682,82 @@ async fn plan_runs_do_not_count_toward_the_run_cap() {
     .await
     .unwrap();
     let report = f.stats.get(week_request()).await.unwrap();
+    assert_eq!(report.stats.kpis.runs, 0);
+}
+
+#[tokio::test]
+async fn each_run_lands_on_the_local_day_of_its_own_moment() {
+    let f = fixture().await;
+    let local = DispatchStatsService::new(
+        f.store.clone(),
+        f.config.clone(),
+        f.store.clone(),
+        f.clock.clone(),
+        Arc::new(Berlin),
+    );
+    // now is after the switch, so today's offset is +2 h
+    f.clock
+        .0
+        .store(at("2026-03-30T12:00:00Z"), Ordering::SeqCst);
+    // 23:30 local on 03-28 (+1 h), 00:30 local on 03-30 (+2 h)
+    for (subject, time) in [
+        ("ARC-0001", "2026-03-28T22:30:00Z"),
+        ("ARC-0002", "2026-03-29T22:30:00Z"),
+    ] {
+        f.raw.run(run(subject, "small", time, "done", None)).await;
+    }
+    let report = local
+        .get(StatsRequest {
+            from: Some("2026-03-28"),
+            to: Some("2026-03-30"),
+            ..StatsRequest::default()
+        })
+        .await
+        .unwrap();
+    let points: Vec<_> = report
+        .stats
+        .series
+        .points
+        .iter()
+        .map(|point| (point.start.as_str(), point.done))
+        .collect();
+    assert_eq!(
+        points,
+        [("2026-03-28", 1), ("2026-03-29", 0), ("2026-03-30", 1)]
+    );
+}
+
+#[tokio::test]
+async fn the_range_bounds_use_the_offset_at_each_midnight() {
+    let f = fixture().await;
+    let local = DispatchStatsService::new(
+        f.store.clone(),
+        f.config.clone(),
+        f.store.clone(),
+        f.clock.clone(),
+        Arc::new(Berlin),
+    );
+    // today is before the switch (+1 h) but the day ends after it (+2 h)
+    f.clock
+        .0
+        .store(at("2026-03-29T00:00:00Z"), Ordering::SeqCst);
+    // 00:30 local on 03-30, so outside a range that ends on 03-29
+    f.raw
+        .run(run(
+            "ARC-0001",
+            "small",
+            "2026-03-29T22:30:00Z",
+            "done",
+            None,
+        ))
+        .await;
+    let report = local
+        .get(StatsRequest {
+            from: Some("2026-03-29"),
+            to: Some("2026-03-29"),
+            ..StatsRequest::default()
+        })
+        .await
+        .unwrap();
     assert_eq!(report.stats.kpis.runs, 0);
 }
