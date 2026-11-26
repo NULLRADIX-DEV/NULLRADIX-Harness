@@ -171,8 +171,14 @@ impl MergeJob {
         self.0.phase = MergePhase::Waiting;
         self.0.held_by = Some(kind.as_str().to_owned());
         self.0.hold_noticed |= noticed;
-        self.0.problem = Some(text.chars().take(MERGE_PROBLEM_MAX).collect());
+        self.0.problem = Some(cap_problem(text));
         self
+    }
+
+    /// Whether the job already waits for exactly this text, as `held` stores it.
+    #[must_use]
+    pub fn waits_for(&self, text: &str) -> bool {
+        self.held_text() == Some(cap_problem(text).as_str())
     }
 
     /// What the job waits for in its folder, while it does.
@@ -268,6 +274,10 @@ impl MergeJob {
     }
 }
 
+fn cap_problem(text: &str) -> String {
+    text.chars().take(MERGE_PROBLEM_MAX).collect()
+}
+
 #[must_use]
 pub fn conflict_problem(files: &[String]) -> String {
     if files.is_empty() {
@@ -359,6 +369,21 @@ mod tests {
         assert_eq!(waiting.record().held_by.as_deref(), Some("staged"));
         assert_eq!(waiting.record().problem, None);
         assert_eq!(HoldKind::Overlap.as_str(), "overlap");
+    }
+
+    #[test]
+    fn a_long_hold_text_still_matches_the_stored_one() {
+        let job = MergeJob::pending(
+            Id::from_uuid(uuid::Uuid::from_u128(1)),
+            Id::from_uuid(uuid::Uuid::from_u128(2)),
+            None,
+            MergeStrategy::Merge,
+            Timestamp::from_millis(1),
+        );
+        let long = "x".repeat(MERGE_PROBLEM_MAX + 50);
+        let held = job.held(HoldKind::Overlap, &long, false);
+        assert!(held.waits_for(&long));
+        assert!(!held.waits_for("other"));
     }
 
     #[test]

@@ -239,6 +239,7 @@ struct StatusEntry {
 
 async fn status_of(cwd: &Path) -> Result<Vec<StatusEntry>, AppError> {
     let args = [
+        "--no-optional-locks",
         "-c",
         "core.quotePath=false",
         "status",
@@ -302,6 +303,7 @@ async fn overlapping(cwd: &Path, tip: &str, entries: &[StatusEntry]) -> Vec<Stri
         .collect();
     let range = format!("HEAD...{tip}");
     let args = [
+        "--no-optional-locks",
         "-c",
         "core.quotePath=false",
         "diff",
@@ -649,17 +651,20 @@ async fn close(root: &Path, path: &str) -> Option<String> {
 
 /// Checks the folder first, so a merge git would refuse waits instead of failing.
 async fn step_in(place: &Place, request: &MergeRequest, tip: &str) -> Result<MergeStep, AppError> {
+    let cwd = Path::new(&place.path);
+    if squashed_into(cwd, &request.branch, tip, "HEAD").await?
+        || is_ancestor(cwd, tip, "HEAD").await?
+    {
+        return Ok(MergeStep::Merged(short_head(cwd).await?));
+    }
     if let Some((kind, text)) = hold_of(place, tip).await? {
         return Ok(MergeStep::Held(kind, text));
     }
-    let cwd = Path::new(&place.path);
     let stepped = merge_in(cwd, request, tip).await?;
     if matches!(stepped, MergeStep::Refused(_)) {
-        // git refused over local files the branch changes: that waits too
-        let entries = status_of(cwd).await.unwrap_or_default();
-        let files = overlapping(cwd, tip, &entries).await;
-        if !files.is_empty() {
-            return Ok(MergeStep::Held(HoldKind::Overlap, overlap_text(&files)));
+        // git refused over a state that waits too
+        if let Some((kind, text)) = hold_of(place, tip).await? {
+            return Ok(MergeStep::Held(kind, text));
         }
     }
     Ok(stepped)
@@ -1366,6 +1371,30 @@ exit 1
             git_sync(&root, &["checkout", "--", "a.txt"]);
             merged(&request(&root, None, strategy)).await;
             assert!(root.join("b.txt").exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_branch_already_in_the_target_is_merged_not_held() {
+        for strategy in [MergeStrategy::Merge, MergeStrategy::Squash] {
+            let (_dir, root) = repository();
+            ticket_changes_a(&root);
+            let (_, commit, _) = merged(&request(&root, None, strategy)).await;
+            fs::write(
+                root.join("a.txt"),
+                "local
+",
+            )
+            .unwrap();
+            fs::write(
+                root.join("new.txt"),
+                "x
+",
+            )
+            .unwrap();
+            git_sync(&root, &["add", "new.txt"]);
+            let (_, again, _) = merged(&request(&root, None, strategy)).await;
+            assert_eq!(again, commit);
         }
     }
 

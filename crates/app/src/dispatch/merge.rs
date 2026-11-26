@@ -334,10 +334,12 @@ impl MergeAll {
         let waited =
             (self.parts.clock.now().as_millis() - record.since.as_millis()) / MILLIS_PER_MINUTE;
         let notice = !record.hold_noticed && waited >= HOLD_NOTICE_MINUTES;
-        if !fresh && !notice && job.held_text() == Some(line.as_str()) {
+        if !fresh && !notice && job.waits_for(&line) {
             return Ok(());
         }
         let done = branch.done();
+        let version = record.version;
+        self.save(job.held(kind, &line, notice), version).await?;
         if fresh {
             let body = format!(
                 "[dispatch] merge-waiting: waiting for {line} - merged automatically once that is \
@@ -345,8 +347,6 @@ impl MergeAll {
             );
             self.note(&done, &body, SystemMarker::MergeWait).await?;
         }
-        let version = record.version;
-        self.save(job.held(kind, &line, notice), version).await?;
         let Some(first) = done.first() else {
             return Ok(());
         };
