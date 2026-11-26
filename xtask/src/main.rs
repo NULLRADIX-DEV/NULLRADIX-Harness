@@ -8,6 +8,7 @@ mod checks;
 mod codegen;
 mod db;
 mod files;
+mod gate;
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "Repository tasks for NULLRADIX")]
@@ -27,6 +28,12 @@ enum Command {
     Openapi,
     /// Write the OpenAPI document and regenerate the web API types
     Codegen,
+    /// Run every check CI runs and print one summary
+    Gate {
+        /// Skip lint, typecheck, tests and build of the web app
+        #[arg(long)]
+        skip_web: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -63,6 +70,7 @@ fn run(command: &Command) -> Result<ExitCode> {
             codegen::codegen(root)?;
             Ok(ExitCode::SUCCESS)
         }
+        Command::Gate { skip_web } => Ok(gate::gate(root, *skip_web)),
     }
 }
 
