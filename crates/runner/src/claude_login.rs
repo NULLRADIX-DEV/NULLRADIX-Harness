@@ -74,6 +74,11 @@ impl LocalClaudeLogins {
         }
     }
 
+    /// The file Claude Code keeps the login of the account in.
+    pub(crate) fn credentials_file(&self, dir: Option<&ConfigDir>) -> PathBuf {
+        self.dir_of(dir).join(".credentials.json")
+    }
+
     fn identity_file(&self, dir: Option<&ConfigDir>) -> PathBuf {
         match self.explicit(dir) {
             Some(dir) => dir.join(".claude.json"),
@@ -164,7 +169,7 @@ fn parse_login(document: &Value) -> Option<ClaudeLogin> {
 #[async_trait]
 impl ClaudeLogins for LocalClaudeLogins {
     async fn read(&self, dir: Option<&ConfigDir>) -> LoginRead {
-        let file = self.dir_of(dir).join(".credentials.json");
+        let file = self.credentials_file(dir);
         for attempt in 0..=UNREADABLE_RETRIES {
             let Some(text) = self.document(dir, file.clone()).await else {
                 return LoginRead::Missing;

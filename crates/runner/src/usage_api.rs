@@ -1,6 +1,5 @@
 //! Asks the usage endpoint of Anthropic through `curl`, which every supported system ships.
 
-use std::process::Stdio;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -9,13 +8,12 @@ use nullradix_app::secrets::SecretValue;
 use nullradix_app::usage::{UsageApi, UsageReply, UsageWindow, request_failed};
 use nullradix_domain::Timestamp;
 use serde_json::Value;
-use tokio::io::AsyncWriteExt;
+
+use crate::curl;
 
 /// Endpoint of the subscription limits; it is not documented and may change.
 pub const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const REQUEST_LIMIT: Duration = Duration::from_secs(10);
-/// Grace for starting curl and its own timeout to fire first.
-const PROCESS_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub struct CurlUsageApi {
@@ -37,16 +35,10 @@ impl CurlUsageApi {
 
     /// The request as a curl config, so the token never appears on a command line.
     fn config(&self, token: &str) -> Option<String> {
-        let quoted = |text: &str| -> Option<String> {
-            if text.chars().any(char::is_control) {
-                return None;
-            }
-            Some(text.replace('\\', "\\\\").replace('"', "\\\""))
-        };
         Some(format!(
             "url = \"{}\"\nheader = \"Authorization: Bearer {}\"\nheader = \"anthropic-beta: oauth-2025-04-20\"\nheader = \"User-Agent: ai-harness\"\n",
-            quoted(&self.url)?,
-            quoted(token)?
+            curl::quoted(&self.url)?,
+            curl::quoted(token)?
         ))
     }
 }
@@ -61,79 +53,28 @@ impl UsageApi for CurlUsageApi {
         let config = self
             .config(token.expose())
             .ok_or_else(|| failed("the token holds control characters"))?;
-        let mut command = tokio::process::Command::new("curl");
-        command
-            .args(["--silent", "--show-error", "--include", "--max-time"])
-            .arg(REQUEST_LIMIT.as_secs().to_string())
-            .args(["--config", "-"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        #[cfg(windows)]
-        {
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-        let mut child = command.spawn().map_err(request_failed)?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(config.as_bytes())
-                .await
-                .map_err(request_failed)?;
-        }
-        let output = tokio::time::timeout(REQUEST_LIMIT + PROCESS_GRACE, child.wait_with_output())
+        let text = curl::run(&config, REQUEST_LIMIT)
             .await
-            .map_err(|_| failed("curl did not finish in time"))?
-            .map_err(request_failed)?;
-        if !output.status.success() {
-            let said = String::from_utf8_lossy(&output.stderr);
-            return Err(failed(said.trim()));
-        }
-        parse_response(&String::from_utf8_lossy(&output.stdout))
-            .ok_or_else(|| failed("curl printed no HTTP response"))
+            .map_err(|said| failed(&said))?;
+        parse_response(&text).ok_or_else(|| failed("curl printed no HTTP response"))
     }
 }
 
 /// Status, `Retry-After` and the limit windows of a response printed with `--include`.
 fn parse_response(text: &str) -> Option<UsageReply> {
-    let mut rest = text;
-    loop {
-        let (head, body) = rest
-            .split_once("\r\n\r\n")
-            .or_else(|| rest.split_once("\n\n"))?;
-        let mut lines = head.lines();
-        let status: u16 = lines
-            .next()?
-            .strip_prefix("HTTP/")?
-            .split_whitespace()
-            .nth(1)?
-            .parse()
-            .ok()?;
-        // an interim answer such as 100 Continue comes before the real one
-        if (100..200).contains(&status) {
-            rest = body;
-            continue;
-        }
-        let retry_after = lines.find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            name.trim()
-                .eq_ignore_ascii_case("retry-after")
-                .then(|| value.trim().to_owned())
-        });
-        let document: Option<Value> = serde_json::from_str(body).ok();
-        let window = |name: &str| {
-            document
-                .as_ref()
-                .and_then(|json| read_window(json.get(name)))
-        };
-        return Some(UsageReply {
-            status,
-            five_hour: window("five_hour"),
-            seven_day: window("seven_day"),
-            retry_after,
-        });
-    }
+    let response = curl::split_response(text)?;
+    let document: Option<Value> = serde_json::from_str(response.body).ok();
+    let window = |name: &str| {
+        document
+            .as_ref()
+            .and_then(|json| read_window(json.get(name)))
+    };
+    Some(UsageReply {
+        status: response.status,
+        five_hour: window("five_hour"),
+        seven_day: window("seven_day"),
+        retry_after: response.retry_after,
+    })
 }
 
 /// A limit window; one without a usable utilization stays empty.

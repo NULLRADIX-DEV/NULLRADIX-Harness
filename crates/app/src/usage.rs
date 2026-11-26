@@ -101,6 +101,23 @@ pub trait ClaudeLogins: Send + Sync {
     fn folder(&self, dir: Option<&ConfigDir>) -> String;
 }
 
+/// How renewing the login of a folder ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Renewal {
+    /// The login holds a token that is valid now.
+    Renewed,
+    /// There is nothing to renew with, or the renewal was refused: the person has to log in again.
+    NeedsLogin,
+    /// The attempt failed for a reason that may pass.
+    Failed,
+}
+
+/// Renews the login Claude Code keeps in an account's folder, as Claude Code itself does.
+#[async_trait]
+pub trait LoginRenewal: Send + Sync {
+    async fn renew(&self, dir: Option<&ConfigDir>) -> Renewal;
+}
+
 /// What the usage endpoint answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsageReply {
@@ -153,6 +170,7 @@ pub struct UsageService {
     logins: Arc<dyn ClaudeLogins>,
     api: Arc<dyn UsageApi>,
     clock: Arc<dyn Clock>,
+    renewal: Option<Arc<dyn LoginRenewal>>,
     memory: Mutex<HashMap<Id<Account>, Arc<Memory>>>,
 }
 
@@ -187,8 +205,16 @@ impl UsageService {
             logins,
             api,
             clock,
+            renewal: None,
             memory: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Renews an expired login of accounts that run on a long-lived token; without it nobody would.
+    #[must_use]
+    pub fn with_renewal(mut self, renewal: Arc<dyn LoginRenewal>) -> Self {
+        self.renewal = Some(renewal);
+        self
     }
 
     /// Login and limits of every account; disabled accounts show no numbers and ask nothing.
@@ -231,7 +257,7 @@ impl UsageService {
         if let Some(value) = self.current(&memory, fresh) {
             return value;
         }
-        let loaded = self.load(account.config_dir()).await;
+        let loaded = self.load(account).await;
         let ttl = Self::backoff(&memory, &loaded);
         *memory.cached.lock() = Some(Cached {
             at: self.clock.now(),
@@ -286,8 +312,8 @@ impl UsageService {
         ttl
     }
 
-    async fn load(&self, dir: Option<&ConfigDir>) -> Loaded {
-        let mut login = match self.logins.read(dir).await {
+    async fn load(&self, account: &Account) -> Loaded {
+        let mut login = match self.logins.read(account.config_dir()).await {
             LoginRead::Found(login) => login,
             LoginRead::Missing => return failed(UsageReason::NoLogin, None, FAILURE_TTL, false),
             LoginRead::Unreadable => {
@@ -295,9 +321,12 @@ impl UsageService {
             }
         };
         if self.expired(&login) {
-            match self.renewed(dir, &login.token).await {
-                Some(renewed) => login = renewed,
-                None => return failed(UsageReason::TokenExpired, login.plan, FAILURE_TTL, false),
+            match self.renewed(account, &login.token).await {
+                Ok(renewed) => login = renewed,
+                Err(reason) => {
+                    let backoff = reason == UsageReason::RequestFailed;
+                    return failed(reason, login.plan, FAILURE_TTL, backoff);
+                }
             }
         }
         let rejected = |plan| failed(UsageReason::RequestFailed, plan, FAILURE_TTL, true);
@@ -306,7 +335,7 @@ impl UsageService {
         };
         // another process renewed the token a moment ago: ask again with the new one
         if reply.status == 401
-            && let Some(renewed) = self.renewed(dir, &login.token).await
+            && let Ok(renewed) = self.renewed(account, &login.token).await
         {
             login = renewed;
             let Ok(again) = self.api.fetch(&login.token).await else {
@@ -343,11 +372,34 @@ impl UsageService {
         login.expires_at.is_some_and(|at| at <= self.clock.now())
     }
 
-    /// A usable login whose token differs from `old`, because someone else renewed it.
-    async fn renewed(&self, dir: Option<&ConfigDir>, old: &SecretValue) -> Option<ClaudeLogin> {
-        match self.logins.read(dir).await {
+    /// A usable login that differs from `old`, renewed by someone else or here; else the reason.
+    async fn renewed(
+        &self,
+        account: &Account,
+        old: &SecretValue,
+    ) -> Result<ClaudeLogin, UsageReason> {
+        let dir = account.config_dir();
+        let usable = |read: LoginRead| match read {
             LoginRead::Found(login) if login.token != *old && !self.expired(&login) => Some(login),
             _ => None,
+        };
+        if let Some(login) = usable(self.logins.read(dir).await) {
+            return Ok(login);
+        }
+        let renewal = self
+            .renewal
+            .as_ref()
+            .filter(|_| account.token_ref().is_some())
+            .ok_or(UsageReason::TokenExpired)?;
+        match renewal.renew(dir).await {
+            Renewal::Renewed => {
+                usable(self.logins.read(dir).await).ok_or(UsageReason::TokenExpired)
+            }
+            Renewal::NeedsLogin => {
+                tracing::debug!(account = %account.slug(), "the login cannot be renewed");
+                Err(UsageReason::TokenExpired)
+            }
+            Renewal::Failed => Err(UsageReason::RequestFailed),
         }
     }
 
@@ -741,5 +793,92 @@ mod tests {
                 "rate-limited"
             ]
         );
+    }
+
+    struct Renewer {
+        answer: Renewal,
+        calls: Mutex<u32>,
+    }
+
+    #[async_trait]
+    impl LoginRenewal for Renewer {
+        async fn renew(&self, _dir: Option<&ConfigDir>) -> Renewal {
+            *self.calls.lock() += 1;
+            self.answer
+        }
+    }
+
+    fn with_token(account: &Account) -> Account {
+        account
+            .with_token_ref(
+                Some(String::from("account-token/1")),
+                Timestamp::from_millis(2),
+            )
+            .unwrap()
+    }
+
+    /// An expired login that is read three times as expired, then as renewed.
+    fn renewing(answer: Renewal) -> (Rig, Arc<Renewer>) {
+        let renewer = Arc::new(Renewer {
+            answer,
+            calls: Mutex::new(0),
+        });
+        let mut rig = rig(
+            vec![
+                login("old", Some(1)),
+                login("old", Some(1)),
+                login("new", None),
+            ],
+            vec![reply(200, 5)],
+        );
+        rig.service = rig.service.with_renewal(renewer.clone());
+        (rig, renewer)
+    }
+
+    #[tokio::test]
+    async fn an_expired_login_of_a_token_account_is_renewed_before_asking() {
+        let (rig, renewer) = renewing(Renewal::Renewed);
+        let usage = rig.service.usage(&with_token(&account(true)), false).await;
+        assert!(usage.available());
+        assert_eq!(*rig.api.tokens.lock(), ["new"]);
+        assert_eq!(*renewer.calls.lock(), 1);
+    }
+
+    #[tokio::test]
+    async fn accounts_without_a_run_token_are_never_renewed() {
+        let (rig, renewer) = renewing(Renewal::Renewed);
+        let usage = rig.service.usage(&account(true), false).await;
+        assert_eq!(reason(&usage), Some("token-expired"));
+        assert_eq!(*renewer.calls.lock(), 0);
+        assert!(rig.api.tokens.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_refused_renewal_needs_a_login_and_a_failed_one_is_a_failed_request() {
+        let (rig, _) = renewing(Renewal::NeedsLogin);
+        let usage = rig.service.usage(&with_token(&account(true)), false).await;
+        assert_eq!(reason(&usage), Some("token-expired"));
+        assert_eq!(usage.plan.as_deref(), Some("max"));
+
+        let (rig, _) = renewing(Renewal::Failed);
+        let usage = rig.service.usage(&with_token(&account(true)), false).await;
+        assert_eq!(reason(&usage), Some("request-failed"));
+        assert!(rig.api.tokens.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_login_renewed_by_someone_else_is_used_without_renewing() {
+        let renewer = Arc::new(Renewer {
+            answer: Renewal::Failed,
+            calls: Mutex::new(0),
+        });
+        let mut rig = rig(
+            vec![login("old", Some(1)), login("new", None)],
+            vec![reply(200, 5)],
+        );
+        rig.service = rig.service.with_renewal(renewer.clone());
+        let usage = rig.service.usage(&with_token(&account(true)), false).await;
+        assert!(usage.available());
+        assert_eq!(*renewer.calls.lock(), 0);
     }
 }
