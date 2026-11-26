@@ -53,6 +53,7 @@ pub enum NotReady {
         name: String,
         known: Vec<String>,
     },
+    BadLabel(String),
     /// The text after `account:` is no account id.
     BadAccountLabel(String),
     BoardOff,
@@ -87,6 +88,7 @@ impl fmt::Display for NotReady {
                 "label {PROFILE_LABEL_PREFIX}{name} - there is no such profile ({})",
                 known.join(", ")
             ),
+            Self::BadLabel(problem) => f.write_str(problem),
             Self::BadAccountLabel(slug) => write!(
                 f,
                 "label {ACCOUNT_LABEL_PREFIX}{slug} - not a valid account id"
@@ -151,6 +153,9 @@ pub fn not_ready(config: &DispatcherConfig, facts: &ReadinessFacts<'_>) -> Optio
             name: name.to_owned(),
             known: config.profiles.iter().map(|p| p.name.clone()).collect(),
         });
+    }
+    if let Some(problem) = super::escalation::label_problem(config, facts.labels) {
+        return Some(NotReady::BadLabel(problem));
     }
     if let Some(slug) = account_label(facts.labels)
         && AccountSlug::parse(slug).is_err()
@@ -304,6 +309,25 @@ mod tests {
             "label account:Max Private - not a valid account id"
         );
         parts.labels = vec![String::from("auto"), String::from("account:max")];
+        assert_eq!(not_ready(&config(), &facts(&parts)), None);
+    }
+
+    #[test]
+    fn a_model_or_effort_label_must_be_valid() {
+        let mut parts = parts();
+        parts.labels = vec![String::from("auto"), String::from("model:gpt")];
+        let reason = not_ready(&config(), &facts(&parts)).unwrap();
+        assert!(matches!(reason, NotReady::BadLabel(_)));
+        assert!(
+            reason
+                .to_string()
+                .starts_with("label model:gpt - unknown model")
+        );
+        parts.labels = vec![
+            String::from("auto"),
+            String::from("model:haiku"),
+            String::from("effort:low"),
+        ];
         assert_eq!(not_ready(&config(), &facts(&parts)), None);
     }
 
