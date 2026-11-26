@@ -93,7 +93,7 @@ pub(crate) struct Wait {
 }
 
 const fn default_timeout() -> u64 {
-    20_000
+    60_000
 }
 
 impl Scenario {

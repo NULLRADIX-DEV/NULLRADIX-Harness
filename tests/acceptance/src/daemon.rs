@@ -12,9 +12,10 @@ use serde_json::Value;
 use tempfile::TempDir;
 use ureq::Agent;
 
-const STARTUP: Duration = Duration::from_secs(30);
+/// Generous for a loaded machine; the daemon is waited for, not guessed at.
+const STARTUP: Duration = Duration::from_secs(60);
 /// Time active runs get to end before the daemon is stopped.
-const WIND_DOWN: Duration = Duration::from_secs(10);
+const WIND_DOWN: Duration = Duration::from_secs(30);
 /// Sources each binary is built from; a newer file there means it is stale.
 const NULLRADIX_SOURCES: &[&str] = &["apps/cli", "crates"];
 const FAKE_CLAUDE_SOURCES: &[&str] = &["apps/fake-claude"];
@@ -187,12 +188,35 @@ impl Daemon {
             }
             thread::sleep(Duration::from_millis(50));
         }
+        daemon.wait_until_serving(deadline)?;
         let token = daemon.home.path().join("config").join("cli-token");
         daemon.token = fs::read_to_string(&token)
             .with_context(|| format!("cannot read {}", token.display()))?
             .trim()
             .to_owned();
         Ok(daemon)
+    }
+
+    /// Waits until the daemon answers its health check, trying again while the connection fails.
+    fn wait_until_serving(&mut self, deadline: Instant) -> anyhow::Result<()> {
+        let agent: Agent = Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(Duration::from_secs(10)))
+            .proxy(None)
+            .build()
+            .into();
+        loop {
+            if agent.get(&self.url("/api/v1/health")).call().is_ok() {
+                return Ok(());
+            }
+            if let Some(status) = self.child.try_wait()? {
+                bail!("the daemon stopped with {status}");
+            }
+            if Instant::now() > deadline {
+                bail!("the daemon did not answer in time");
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
     }
 
     /// The CLI of the same profile and home as this daemon.
@@ -212,7 +236,7 @@ impl Daemon {
     fn wind_down(&self) {
         let agent: Agent = Agent::config_builder()
             .http_status_as_error(false)
-            .timeout_global(Some(Duration::from_secs(2)))
+            .timeout_global(Some(Duration::from_secs(10)))
             .build()
             .into();
         let bearer = format!("Bearer {}", self.token);
