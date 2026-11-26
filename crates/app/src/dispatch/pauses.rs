@@ -106,6 +106,27 @@ pub struct PauseParts {
     pub notifier: Arc<dyn Notifier>,
 }
 
+/// What became of the pause of the whole dispatcher.
+#[derive(Clone, Copy)]
+enum Held {
+    /// Set until this moment.
+    Until(Timestamp),
+    /// A person changed it meanwhile.
+    Changed,
+    /// Not touched: other accounts can still start work.
+    Untouched,
+}
+
+/// What the toast of a limit pause is worked out from.
+struct ToastParts<'a> {
+    now: Timestamp,
+    held: Held,
+    until: Timestamp,
+    own_pause: Option<&'a (String, Timestamp)>,
+    own_text: Option<&'a str>,
+    multi: bool,
+}
+
 /// One full window of an account: its use, its ceiling and when it resets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FullWindow {
@@ -282,6 +303,44 @@ impl DispatchPauses {
         Ok(pause.until)
     }
 
+    /// The toast of a limit pause; it names only a pause that is set and still ahead.
+    async fn limit_toast(&self, parts: ToastParts<'_>) -> String {
+        let ToastParts {
+            now,
+            held,
+            until,
+            own_pause,
+            own_text,
+            multi,
+        } = parts;
+        // the account's own end is the one that matters only next to other accounts
+        let shown = if let (Some(text), true) = (own_text, multi) {
+            Some(text.to_owned())
+        } else {
+            let holding = match held {
+                Held::Until(at) => Some(at),
+                // a person changed it meanwhile: theirs holds, if one is still set
+                Held::Changed => self
+                    .state
+                    .get()
+                    .await
+                    .ok()
+                    .and_then(|state| state.record().paused_until)
+                    .filter(|at| *at > now),
+                Held::Untouched => Some(until),
+            };
+            match holding {
+                Some(at) => Some(self.when(at).await),
+                None => None,
+            }
+        };
+        let name = own_pause.map_or_else(String::new, |(slug, _)| format!(" {slug}"));
+        match shown {
+            Some(text) => format!("usage limit{name} - pause until {text}"),
+            None => format!("usage limit{name} - pause stays as set by hand"),
+        }
+    }
+
     async fn pause_for_limit(
         &self,
         run: &Run,
@@ -362,34 +421,20 @@ impl DispatchPauses {
                 what.counting()
             ),
         };
-        // the account's own end is the one that matters only next to other accounts
-        let shown = if let (Some(text), true) = (&own_text, multi) {
-            Some(text.clone())
-        } else {
-            let holding = match held {
-                Some(Some(at)) => Some(at),
-                // a person changed it meanwhile: theirs holds, if one is still set
-                Some(None) => self
-                    .state
-                    .get()
-                    .await
-                    .ok()
-                    .and_then(|state| state.record().paused_until)
-                    .filter(|at| *at > now),
-                None => Some(until),
-            };
-            match holding {
-                Some(at) => Some(self.when(at).await),
-                None => None,
-            }
-        };
-        let name = own_pause
-            .as_ref()
-            .map_or_else(String::new, |(slug, _)| format!(" {slug}"));
-        let toast = match shown {
-            Some(text) => format!("usage limit{name} - pause until {text}"),
-            None => format!("usage limit{name} - pause stays as set by hand"),
-        };
+        let toast = self
+            .limit_toast(ToastParts {
+                now,
+                held: match held {
+                    Some(Some(at)) => Held::Until(at),
+                    Some(None) => Held::Changed,
+                    None => Held::Untouched,
+                },
+                until,
+                own_pause: own_pause.as_ref(),
+                own_text: own_text.as_deref(),
+                multi,
+            })
+            .await;
         Ok(Posted { body, toast })
     }
 

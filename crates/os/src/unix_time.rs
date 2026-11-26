@@ -18,7 +18,7 @@ pub(crate) fn utc_offset_minutes(at_millis: i64) -> Option<i32> {
     if done.is_null() {
         return None;
     }
-    i32::try_from(i64::from(parts.tm_gmtoff).div_euclid(60)).ok()
+    i32::try_from(parts.tm_gmtoff.div_euclid(60)).ok()
 }
 
 #[cfg(test)]
