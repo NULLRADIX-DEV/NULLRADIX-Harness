@@ -1,18 +1,21 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
 const RENAME_ATTEMPTS: u32 = 10;
 const RENAME_PAUSE: Duration = Duration::from_millis(50);
 
+static SERIAL: AtomicU64 = AtomicU64::new(0);
+
 /// Replaces `path` with `bytes` in one rename, so readers never see a partial file.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     replace(path, bytes, false)
 }
 
-/// Like [`write_atomic`], and on Unix the file is readable by its owner only from the start.
+/// Like [`write_atomic`], and the file is readable by its owner only from the start.
 pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     replace(path, bytes, true)
 }
@@ -69,27 +72,34 @@ pub fn create_private_dir(dir: &Path) -> io::Result<()> {
     }
 }
 
+/// A staging name of its own per call, so writers of one path never meet.
+fn staging_for(path: &Path) -> PathBuf {
+    let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+    path.with_extension(format!("{}-{serial}.tmp", std::process::id()))
+}
+
 fn replace(path: &Path, bytes: &[u8], private: bool) -> io::Result<()> {
-    let staging = path.with_extension(format!("{}.tmp", std::process::id()));
-    if private {
-        // a leftover from a dead process may carry looser permissions
-        let _ = fs::remove_file(&staging);
-    }
-    let file = create(&staging, private)?;
+    replace_via(path, &staging_for(path), bytes, private)
+}
+
+fn replace_via(path: &Path, staging: &Path, bytes: &[u8], private: bool) -> io::Result<()> {
+    // a leftover of a dead process with the same pid would block create_new for good
+    let _ = fs::remove_file(staging);
+    let file = create(staging, private)?;
     if let Err(error) = fill(file, bytes, private) {
-        let _ = fs::remove_file(&staging);
+        let _ = fs::remove_file(staging);
         return Err(error);
     }
     let mut attempt = 1;
     loop {
-        match fs::rename(&staging, path) {
+        match fs::rename(staging, path) {
             Ok(()) => return Ok(()),
             Err(error) if attempt < RENAME_ATTEMPTS && transient(&error) => {
                 attempt += 1;
                 thread::sleep(RENAME_PAUSE);
             }
             Err(error) => {
-                let _ = fs::remove_file(&staging);
+                let _ = fs::remove_file(staging);
                 return Err(error);
             }
         }
@@ -150,15 +160,47 @@ mod tests {
     fn a_pre_existing_staging_path_fails_the_write_and_stays_untouched() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("cli-token");
-        let staging = path.with_extension(format!("{}.tmp", std::process::id()));
+        let staging = path.with_extension("planted.tmp");
         // a folder cannot be removed as a leftover file, so create_new meets it
         fs::create_dir(&staging).unwrap();
         fs::write(staging.join("keep"), b"theirs").unwrap();
-        assert!(write_private(&path, b"secret").is_err());
-        assert!(write_atomic(&path, b"secret").is_err());
+        assert!(replace_via(&path, &staging, b"secret", true).is_err());
+        assert!(replace_via(&path, &staging, b"secret", false).is_err());
         assert!(!path.exists());
         assert_eq!(fs::read(staging.join("keep")).unwrap(), b"theirs");
         assert_eq!(fs::read_dir(&staging).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_leftover_staging_file_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cancel");
+        let staging = path.with_extension("left.tmp");
+        fs::write(&staging, b"old").unwrap();
+        replace_via(&path, &staging, b"new", false).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        assert!(!staging.exists());
+    }
+
+    #[test]
+    fn writers_of_one_path_do_not_meet() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cancel");
+        let writers: Vec<_> = (0..4)
+            .map(|_| {
+                let path = path.clone();
+                thread::spawn(move || {
+                    for _ in 0..25 {
+                        write_atomic(&path, b"stop").unwrap();
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        assert_eq!(fs::read(&path).unwrap(), b"stop");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]
