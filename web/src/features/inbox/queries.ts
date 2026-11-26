@@ -161,6 +161,7 @@ export function useInboxAction() {
           }),
         );
       }
+      return undefined;
     },
     onSettled: () =>
       Promise.all([
