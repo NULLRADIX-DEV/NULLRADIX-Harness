@@ -115,7 +115,7 @@ describe('ThemeSettingsPanel', () => {
     expect(screen.getByRole('button', { name: 'Reset to defaults' })).toBeDisabled();
   });
 
-  it('saves every value with the version it read, each change on top of the last', async () => {
+  it('saves only the values the person set, each change on top of the last', async () => {
     const api = server();
     renderApp('/settings');
     const dim = await screen.findByRole('checkbox', { name: 'Dim the sky' });
@@ -135,7 +135,7 @@ describe('ThemeSettingsPanel', () => {
     });
     const [first, second] = api.requests(`PUT ${SETTINGS_ROUTE}`);
     expect(await first?.clone().json()).toEqual({
-      values: { dim: false, mode: 'calm' },
+      values: { dim: false },
       version: 0,
     });
     expect(await second?.clone().json()).toEqual({

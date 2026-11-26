@@ -128,10 +128,39 @@ fn shown(value: &ThemeSettingValueDto) -> String {
     }
 }
 
-fn print_settings(theme: &ThemeDto, values: &BTreeMap<String, ThemeSettingValueDto>) {
+/// Keeps the values that still fit a declared setting.
+fn fitting(
+    declared: &[ThemeSettingDto],
+    values: BTreeMap<String, ThemeSettingValueDto>,
+) -> BTreeMap<String, ThemeSettingValueDto> {
+    values
+        .into_iter()
+        .filter(|(key, value)| {
+            declared.iter().any(|setting| match (setting, value) {
+                (ThemeSettingDto::Boolean { key: k, .. }, ThemeSettingValueDto::Switch(_)) => {
+                    k == key
+                }
+                (
+                    ThemeSettingDto::Select {
+                        key: k, options, ..
+                    },
+                    ThemeSettingValueDto::Choice(text),
+                ) => k == key && options.iter().any(|option| &option.value == text),
+                _ => false,
+            })
+        })
+        .collect()
+}
+
+fn settings_lines(
+    theme: &ThemeDto,
+    values: &BTreeMap<String, ThemeSettingValueDto>,
+) -> Vec<String> {
     if theme.settings.is_empty() {
-        println!("{} declares no settings", theme.id);
+        return vec![format!("{} declares no settings", theme.id)];
     }
+    let values = fitting(&theme.settings, values.clone());
+    let mut lines = Vec::new();
     for setting in &theme.settings {
         let (label, default) = match setting {
             ThemeSettingDto::Boolean { label, default, .. } => (label, default.to_string()),
@@ -139,7 +168,14 @@ fn print_settings(theme: &ThemeDto, values: &BTreeMap<String, ThemeSettingValueD
         };
         let key = key_of(setting);
         let value = values.get(key).map_or_else(|| default.clone(), shown);
-        println!("{key:<20} {value:<16} {label} (default {default})");
+        lines.push(format!("{key:<20} {value:<16} {label} (default {default})"));
+    }
+    lines
+}
+
+fn print_settings(theme: &ThemeDto, values: &BTreeMap<String, ThemeSettingValueDto>) {
+    for line in settings_lines(theme, values) {
+        println!("{line}");
     }
 }
 
@@ -152,7 +188,7 @@ fn settings(client: &Client, id: &str, action: Option<SettingsAction>) -> anyhow
     match action {
         None => print_settings(theme, &current.values),
         Some(SettingsAction::Set { pairs }) => {
-            let mut values = current.values;
+            let mut values = fitting(&theme.settings, current.values);
             for pair in &pairs {
                 let (key, value) = parse_pair(&theme.settings, pair)?;
                 values.insert(key, value);
@@ -273,6 +309,56 @@ mod tests {
                 default: String::from("a"),
             },
         ]
+    }
+
+    fn theme_with(settings: Vec<ThemeSettingDto>) -> ThemeDto {
+        ThemeDto {
+            id: String::from("night-blue"),
+            name: String::from("Night Blue"),
+            package_version: String::from("1.0.0"),
+            author: String::from("Ada"),
+            sdk_version: String::from("^1.3"),
+            color_scheme: nullradix_api::ColorSchemeDto::Dark,
+            start_color: None,
+            preview_url: None,
+            style_url: String::new(),
+            slots: Vec::new(),
+            network: Vec::new(),
+            settings,
+            claude_theme: false,
+            installed_at: 0,
+            updated_at: 0,
+            version: 1,
+        }
+    }
+
+    #[test]
+    fn stale_values_are_neither_shown_nor_sent_back() {
+        let mut theme = theme_with(declared());
+        if let ThemeSettingDto::Select { options, .. } = &mut theme.settings[1] {
+            options.push(nullradix_api::ThemeOptionDto {
+                value: String::from("a"),
+                label: String::from("A"),
+            });
+        }
+        let stale = BTreeMap::from([
+            (
+                String::from("dim"),
+                ThemeSettingValueDto::Choice(String::from("x")),
+            ),
+            (
+                String::from("mode"),
+                ThemeSettingValueDto::Choice(String::from("gone")),
+            ),
+            (String::from("old"), ThemeSettingValueDto::Switch(true)),
+        ]);
+        assert!(fitting(&theme.settings, stale.clone()).is_empty());
+        let lines = settings_lines(&theme, &stale);
+        assert!(lines[0].contains("true"), "{lines:?}");
+        assert!(
+            lines[1].starts_with("mode") && lines[1].contains(" a "),
+            "{lines:?}"
+        );
     }
 
     #[test]

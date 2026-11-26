@@ -42,7 +42,7 @@ function ThemeSettingsForm({ theme }: { theme: Theme }) {
   const change = (key: string, value: ThemeSettingValue) => {
     if (!saved) return;
     reset.reset();
-    save.mutate({ values: { ...values, [key]: value }, version: saved.version });
+    save.mutate({ values: { ...saved.values, [key]: value }, version: saved.version });
   };
 
   return (

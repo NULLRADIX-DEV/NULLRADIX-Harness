@@ -32,7 +32,7 @@ impl ThemeSettingValues {
         }
         let mut errors = Vec::new();
         for (key, value) in &input {
-            if key.len() > SETTING_KEY_MAX {
+            if key.chars().count() > SETTING_KEY_MAX {
                 errors.push(FieldError::new(
                     "values",
                     format!("a key has at most {SETTING_KEY_MAX} characters"),
@@ -49,6 +49,15 @@ impl ThemeSettingValues {
         } else {
             Err(errors)
         }
+    }
+
+    /// Keeps the stored entries that still fit the specs; the rest is dropped.
+    #[must_use]
+    pub fn fitting(self, specs: Option<&BTreeMap<String, SettingSpec>>) -> Self {
+        let mut values = self.0;
+        values
+            .retain(|key, value| problem(specs.and_then(|specs| specs.get(key)), value).is_none());
+        Self(values)
     }
 
     /// Trusts values read back from storage.
@@ -79,7 +88,7 @@ fn problem(spec: Option<&SettingSpec>, value: &SettingValue) -> Option<String> {
             Some(String::from("the value must be one of the options"))
         }
         (Some(SettingSpec::Select { options, .. }), SettingValue::Choice(text)) => {
-            if text.len() > SETTING_VALUE_MAX {
+            if text.chars().count() > SETTING_VALUE_MAX {
                 return Some(format!(
                     "the value has at most {SETTING_VALUE_MAX} characters"
                 ));
@@ -179,6 +188,19 @@ mod tests {
     }
 
     #[test]
+    fn stored_entries_that_no_longer_fit_are_dropped() {
+        let specs = specs();
+        let stored = ThemeSettingValues::restore(input(&[
+            ("dim", choice("yes")),
+            ("mode", choice("b")),
+            ("gone", SettingValue::Switch(true)),
+        ]));
+        let kept = stored.clone().fitting(Some(&specs));
+        assert_eq!(kept.values(), &input(&[("mode", choice("b"))]));
+        assert!(stored.fitting(None).is_empty());
+    }
+
+    #[test]
     fn a_theme_without_settings_accepts_no_key() {
         let fields_of = fields(None, &[("dim", SettingValue::Switch(true))]);
         assert_eq!(fields_of, ["dim"]);
@@ -197,6 +219,11 @@ mod tests {
         let long_key = "k".repeat(SETTING_KEY_MAX + 1);
         let fields_of = fields(Some(&specs), &[(long_key.as_str(), choice("a"))]);
         assert_eq!(fields_of, ["values"]);
+        let wide = "\u{e9}".repeat(SETTING_KEY_MAX);
+        assert!(
+            ThemeSettingValues::check(None, input(&[(wide.as_str(), choice("a"))]))
+                .is_err_and(|errors| errors[0].field == wide)
+        );
 
         let long = "a".repeat(SETTING_VALUE_MAX + 1);
         let errors = refused(Some(&specs), &[("mode", choice(&long))]);

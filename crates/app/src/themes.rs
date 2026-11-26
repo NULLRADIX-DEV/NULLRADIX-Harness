@@ -303,11 +303,15 @@ impl ThemeService {
     /// The values saved for an installed theme; none until something was saved.
     pub async fn settings(&self, id: &str) -> Result<ThemeSettings, AppError> {
         let theme = ThemeId::parse(id).map_err(|error| id_invalid(&error))?;
-        self.repository
+        let installed = self
+            .repository
             .get(&theme)
             .await?
             .ok_or_else(|| theme_not_found(id))?;
-        Ok(self.repository.settings(&theme).await?.into())
+        let specs = installed.record().manifest.record().settings.as_ref();
+        let mut settings: ThemeSettings = self.repository.settings(&theme).await?.into();
+        settings.values = settings.values.fitting(specs);
+        Ok(settings)
     }
 
     /// Replaces the saved values after checking them against the settings the theme declares.
@@ -748,6 +752,61 @@ pub(crate) mod tests {
         let feed = fixture.memory.feed.lock().clone();
         assert_eq!(feed[1].0, Entity::Setting);
         assert_eq!(feed[1].1, feed[0].1);
+    }
+
+    fn with_schema(schema: &str) -> Vec<u8> {
+        let tail = format!(r#""network": [] }}, "settingsSchema": {schema}"#);
+        let mut files = package();
+        files[0] = file(
+            "manifest.json",
+            &MANIFEST.replace(r#""network": [] }"#, &tail),
+        );
+        archive(&files)
+    }
+
+    #[tokio::test]
+    async fn values_that_no_longer_fit_a_reinstalled_manifest_are_left_out() {
+        let fixture = fixture();
+        fixture.service.install(with_settings()).await.unwrap();
+        let both = input(&[("dim", SettingValue::Switch(false)), ("mode", choice("b"))]);
+        fixture
+            .service
+            .save_settings("night-blue", both, None)
+            .await
+            .unwrap();
+        let reduced = r#"{ "mode": { "type": "select", "label": "Mode", "default": "a",
+            "options": [{ "value": "a", "label": "A" }] } }"#;
+        fixture.service.install(with_schema(reduced)).await.unwrap();
+        let read = fixture.service.settings("night-blue").await.unwrap();
+        assert!(read.values.is_empty());
+        let saved = fixture
+            .service
+            .save_settings("night-blue", input(&[("mode", choice("a"))]), read.version)
+            .await
+            .unwrap();
+        assert_eq!(saved.values.values(), &input(&[("mode", choice("a"))]));
+    }
+
+    #[tokio::test]
+    async fn a_removed_key_does_not_come_back_from_the_store() {
+        let fixture = fixture();
+        fixture.service.install(with_settings()).await.unwrap();
+        let both = input(&[("dim", SettingValue::Switch(false)), ("mode", choice("b"))]);
+        fixture
+            .service
+            .save_settings("night-blue", both, None)
+            .await
+            .unwrap();
+        let kept = r#"{ "mode": { "type": "select", "label": "Mode", "default": "a",
+            "options": [{ "value": "a", "label": "A" }, { "value": "b", "label": "B" }] } }"#;
+        fixture.service.install(with_schema(kept)).await.unwrap();
+        let read = fixture.service.settings("night-blue").await.unwrap();
+        assert_eq!(read.values.values(), &input(&[("mode", choice("b"))]));
+        fixture
+            .service
+            .save_settings("night-blue", read.values.values().clone(), read.version)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
