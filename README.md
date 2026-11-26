@@ -10,4 +10,6 @@ Local workbench for running many Claude Code sessions in parallel: board, git wo
 
 NULLRADIX grew out of the idea behind [Nexus](https://github.com/BenjaminBiber/Nexus) by Benjamin Biber, with thanks. The code is being rewritten from the ground up, and the features are being changed and extended.
 
+Installers and CLI archives are on the [releases page](https://github.com/NULLRADIX-DEV/NULLRADIX-Harness/releases); the container image is `ghcr.io/nullradix-dev/nullradix-harness`.
+
 Copyright (c) 2026 NULLRADIX-Dev. All rights reserved. The source is visible but not open source; see [LICENSE.md](LICENSE.md).

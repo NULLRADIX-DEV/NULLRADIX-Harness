@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "active": true,
+    "externalBin": ["binaries/nullradix"],
+    "resources": ["web/**/*"]
+  }
+}

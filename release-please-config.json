@@ -1,0 +1,114 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "prerelease": true,
+  "skip-changelog": true,
+  "packages": {
+    ".": {
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "apps/desktop/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "json",
+          "path": "apps/desktop/tauri.conf.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-acceptance')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-api')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-app')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-cli')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-client')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-domain')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-fake-claude')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-os')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-runner')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-store')].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='xtask')].version"
+        },
+        {
+          "type": "toml",
+          "path": "apps/desktop/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-api')].version"
+        },
+        {
+          "type": "toml",
+          "path": "apps/desktop/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-app')].version"
+        },
+        {
+          "type": "toml",
+          "path": "apps/desktop/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-client')].version"
+        },
+        {
+          "type": "toml",
+          "path": "apps/desktop/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-desktop')].version"
+        },
+        {
+          "type": "toml",
+          "path": "apps/desktop/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-domain')].version"
+        },
+        {
+          "type": "toml",
+          "path": "apps/desktop/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='nullradix-os')].version"
+        }
+      ]
+    }
+  }
+}
