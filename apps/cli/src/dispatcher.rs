@@ -163,6 +163,7 @@ fn describe_pass(report: &nullradix_api::PassReportDto) -> String {
         ("started", &report.started),
         ("research started", &report.research),
         ("merged", &report.merged),
+        ("planning started", &report.planned),
         ("waiting for a place", &report.queued),
         ("given back", &report.released),
     ] {

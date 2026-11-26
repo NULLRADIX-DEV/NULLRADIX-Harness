@@ -93,11 +93,42 @@ fn no_repo(key: &QuestionKey) -> AppError {
 
 /// The board a question can be researched in, with its checkout on this machine.
 #[derive(Debug, Clone)]
-struct BoardRoot {
-    board: Id<Board>,
-    project: Id<Project>,
+pub(super) struct BoardRoot {
+    pub(super) board: Id<Board>,
+    pub(super) project: Id<Project>,
     created_at: Timestamp,
-    root: String,
+    pub(super) root: String,
+}
+
+/// Boards with a repository whose checkout exists on this machine, oldest first.
+pub(super) async fn board_roots(
+    boards: &dyn BoardRepository,
+    runners: &RunnerService,
+) -> Result<Vec<BoardRoot>, AppError> {
+    let local = runners.local().id();
+    let mut found = Vec::new();
+    for summary in boards.list(None).await? {
+        let board = &summary.board;
+        let Some(repository) = board.repository() else {
+            continue;
+        };
+        let Some(root) = runners.root(local, repository).await? else {
+            continue;
+        };
+        let exists = runners
+            .folders_exist(local, std::slice::from_ref(&root))
+            .await?;
+        if exists.first().copied().unwrap_or(false) {
+            found.push(BoardRoot {
+                board: board.id(),
+                project: board.project(),
+                created_at: board.created_at(),
+                root,
+            });
+        }
+    }
+    found.sort_by_key(|found| (found.created_at, found.board.as_uuid()));
+    Ok(found)
 }
 
 /// Everything the research runs work with.
@@ -147,7 +178,7 @@ impl Drop for Starting<'_> {
     }
 }
 
-fn same_folder(left: &str, right: &str) -> bool {
+pub(super) fn same_folder(left: &str, right: &str) -> bool {
     let plain = |text: &str| text.replace('\\', "/").trim_end_matches('/').to_lowercase();
     plain(left) == plain(right)
 }
@@ -207,32 +238,7 @@ impl ResearchRuns {
     }
 
     async fn board_roots(&self) -> Result<Vec<BoardRoot>, AppError> {
-        let local = self.parts.runners.local().id();
-        let mut found = Vec::new();
-        for summary in self.parts.boards.list(None).await? {
-            let board = &summary.board;
-            let Some(repository) = board.repository() else {
-                continue;
-            };
-            let Some(root) = self.parts.runners.root(local, repository).await? else {
-                continue;
-            };
-            let exists = self
-                .parts
-                .runners
-                .folders_exist(local, std::slice::from_ref(&root))
-                .await?;
-            if exists.first().copied().unwrap_or(false) {
-                found.push(BoardRoot {
-                    board: board.id(),
-                    project: board.project(),
-                    created_at: board.created_at(),
-                    root,
-                });
-            }
-        }
-        found.sort_by_key(|found| (found.created_at, found.board.as_uuid()));
-        Ok(found)
+        board_roots(self.parts.boards.as_ref(), &self.parts.runners).await
     }
 
     /// The checkout: the board of a linked ticket, else the oldest board of the project.

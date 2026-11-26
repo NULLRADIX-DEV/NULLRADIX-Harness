@@ -12,6 +12,7 @@ use super::accounts::{AccountPick, AccountPicker, AccountRequest, PickContext, P
 use super::candidates::{Candidate, Candidates};
 use super::local_time::LocalTime;
 use super::pass::{DispatchPass, PassReport, counts_for_wip, idle_message};
+use super::planning::PlanningRuns;
 use super::research::ResearchRuns;
 use super::start::TicketStarter;
 use super::state::DispatcherStateService;
@@ -62,6 +63,7 @@ pub enum PauseFor {
 
 pub struct DispatcherService {
     research: Arc<ResearchRuns>,
+    planning: Arc<PlanningRuns>,
     config: Arc<DispatcherConfigService>,
     state: Arc<DispatcherStateService>,
     pass: Arc<DispatchPass>,
@@ -85,6 +87,7 @@ impl std::fmt::Debug for DispatcherService {
 /// Everything the service works with.
 pub struct ControlParts {
     pub research: Arc<ResearchRuns>,
+    pub planning: Arc<PlanningRuns>,
     pub config: Arc<DispatcherConfigService>,
     pub state: Arc<DispatcherStateService>,
     pub pass: Arc<DispatchPass>,
@@ -103,6 +106,7 @@ impl DispatcherService {
     pub fn new(parts: ControlParts) -> Self {
         Self {
             research: parts.research,
+            planning: parts.planning,
             config: parts.config,
             state: parts.state,
             pass: parts.pass,
@@ -126,6 +130,11 @@ impl DispatcherService {
     /// Starts the research of an open question at once, whatever the switch or the window say.
     pub async fn start_research(&self, question: &str) -> Result<Run, AppError> {
         self.research.start_manual(question).await
+    }
+
+    /// Starts the planning of a ticket at once, whatever the switch or the window say.
+    pub async fn start_planning(&self, ticket: &str) -> Result<Run, AppError> {
+        self.planning.start_manual(ticket).await
     }
 
     async fn check_board(&self, board: Option<Id<Board>>) -> Result<(), AppError> {

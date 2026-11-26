@@ -22,29 +22,35 @@ pub enum PassPhase {
     Evaluate,
     /// Remove research worktrees whose runs are gone (research).
     ResearchOrphans,
+    /// Remove plan worktrees whose runs are gone (planning).
+    PlanOrphans,
     /// Give back claims whose agent shows no sign of life.
     ReleaseStale,
     /// Queue merges for done tickets that have none (merge catch-up).
     MergeCatchUp,
     /// Process the merge jobs of every branch (merging).
     MergeAll,
-    /// Start ready tickets up to the limit; planning follows here later.
+    /// Start ready tickets up to the limit.
     StartReady,
     /// Start research on open questions: autopilot ones first, then the automation.
     StartResearch,
+    /// Plan tickets that need it, within the free places of the ticket limit.
+    StartPlanning,
     /// Write down what evaluated or failed runs left for the dashboard (run recorder).
     RecorderFlush,
 }
 
 impl PassPhase {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::Evaluate,
         Self::ResearchOrphans,
+        Self::PlanOrphans,
         Self::ReleaseStale,
         Self::MergeCatchUp,
         Self::MergeAll,
         Self::StartReady,
         Self::StartResearch,
+        Self::StartPlanning,
         Self::RecorderFlush,
     ];
 
@@ -53,11 +59,13 @@ impl PassPhase {
         match self {
             Self::Evaluate => "evaluate",
             Self::ResearchOrphans => "research-orphans",
+            Self::PlanOrphans => "plan-orphans",
             Self::ReleaseStale => "release-stale",
             Self::MergeCatchUp => "merge-catch-up",
             Self::MergeAll => "merge-all",
             Self::StartReady => "start-ready",
             Self::StartResearch => "start-research",
+            Self::StartPlanning => "start-planning",
             Self::RecorderFlush => "recorder-flush",
         }
     }
@@ -85,6 +93,9 @@ pub struct PassReport {
     /// Tickets whose branch went into its target.
     #[serde(default)]
     pub merged: Vec<String>,
+    /// Tickets whose planning started.
+    #[serde(default)]
+    pub planned: Vec<String>,
     /// Ready tickets that wait for a free place.
     pub queued: Vec<String>,
     pub released: Vec<String>,
@@ -106,6 +117,7 @@ impl PassReport {
         !(self.started.is_empty()
             && self.research.is_empty()
             && self.merged.is_empty()
+            && self.planned.is_empty()
             && self.released.is_empty()
             && self.errors.is_empty())
     }
@@ -364,7 +376,9 @@ mod tests {
         sorted.sort();
         assert_eq!(sorted, PassPhase::ALL);
         assert_eq!(PassPhase::ReleaseStale.name(), "release-stale");
-        assert_eq!(PassPhase::StartReady.slot(), 5);
+        assert_eq!(PassPhase::StartReady.slot(), 6);
+        assert!(PassPhase::StartResearch < PassPhase::StartPlanning);
+        assert!(PassPhase::StartPlanning < PassPhase::RecorderFlush);
     }
 
     #[test]

@@ -16,6 +16,7 @@ use super::log::{DispatchLog, LogLevel};
 use super::outcome::{Decision, Ended, decide, question_comment};
 use super::pass::{PassContext, PassReport, PassStep};
 use super::pause::{NoPauseHook, PauseHook, PauseKind};
+use super::planning::PlanningRuns;
 use super::research::ResearchRuns;
 use super::start::TicketStarter;
 use crate::comments::CommentService;
@@ -69,6 +70,7 @@ pub struct EvaluateRuns {
     gate: Arc<dyn DoneGate>,
     accounts: Option<Arc<AccountPicker>>,
     research: Option<Arc<ResearchRuns>>,
+    planning: Option<Arc<PlanningRuns>>,
     pauses: RwLock<Arc<dyn PauseHook>>,
     notifier: Arc<dyn Notifier>,
 }
@@ -105,6 +107,7 @@ impl EvaluateRuns {
             gate: Arc::new(NoDoneGate),
             accounts: None,
             research: None,
+            planning: None,
             pauses: RwLock::new(Arc::new(NoPauseHook)),
             notifier: Arc::new(NoNotifier),
         }
@@ -154,6 +157,13 @@ impl EvaluateRuns {
         self
     }
 
+    /// Has plan runs settled too; without it they wait.
+    #[must_use]
+    pub fn with_planning(mut self, planning: Arc<PlanningRuns>) -> Self {
+        self.planning = Some(planning);
+        self
+    }
+
     /// Settles a research run: its question gets the research or the comment that it left none.
     async fn settle_research(
         &self,
@@ -165,7 +175,34 @@ impl EvaluateRuns {
         let Some(research) = &self.research else {
             return;
         };
-        match research.settle(run, config, &*self.pause_hook()).await {
+        let settled = research.settle(run, config, &*self.pause_hook()).await;
+        self.record_settled(run, key, settled, report).await;
+    }
+
+    /// Settles a plan run: its ticket gets the plan or the comment that it left none.
+    async fn settle_plan(
+        &self,
+        run: &Run,
+        key: &str,
+        config: &DispatcherConfig,
+        report: &mut PassReport,
+    ) {
+        let Some(planning) = &self.planning else {
+            return;
+        };
+        let settled = planning.settle(run, config, &*self.pause_hook()).await;
+        self.record_settled(run, key, settled, report).await;
+    }
+
+    /// Writes the outcome of a side run down; a run settled meanwhile is left alone.
+    async fn record_settled(
+        &self,
+        run: &Run,
+        key: &str,
+        settled: Result<DispatchOutcome, AppError>,
+        report: &mut PassReport,
+    ) {
+        match settled {
             Ok(outcome) => match self.runs.settle_outcome(run.id(), outcome).await {
                 Ok(_) => {
                     self.record_end(run).await;
@@ -530,7 +567,11 @@ impl PassStep for EvaluateRuns {
                     .await;
                 continue;
             }
-            // plan and merge runs have their own slices; a ticket with a live run waits
+            if dispatch.kind == RunKind::Plan {
+                self.settle_plan(run, key, &context.config, report).await;
+                continue;
+            }
+            // merge runs have their own slice; a ticket with a live run waits
             if dispatch.kind != RunKind::Work || working.contains(key) || launching.contains(key) {
                 continue;
             }

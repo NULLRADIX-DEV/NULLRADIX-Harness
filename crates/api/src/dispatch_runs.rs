@@ -683,6 +683,41 @@ pub(crate) async fn start_research_run(
     Ok((StatusCode::ACCEPTED, headers, Json(run)))
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Path, rename_all = "camelCase")]
+pub(crate) struct PlanRunPath {
+    /// Ticket key such as `ARC-0007`; case and padding do not matter.
+    ticket_key: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/plan-runs",
+    tag = "tickets",
+    params(PlanRunPath),
+    responses(
+        (status = 202, description = "The plan run; progress arrives as events", body = RunDto,
+            headers(("Location" = String, description = "URL of the run"))),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Planning already, claimed by another agent, or the dispatcher is paused or has no account free", body = Problem),
+        (status = 422, description = "The ticket cannot be planned now: its status, an open question, another run or no board with a repository", body = Problem),
+        (status = 503, description = "The runner could not start it", body = Problem),
+    )
+)]
+pub(crate) async fn start_plan_run(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<PlanRunPath>,
+) -> Result<(StatusCode, HeaderMap, Json<RunDto>), ApiError> {
+    let run = RunDto::from(state.dispatcher.start_planning(&path.ticket_key).await?);
+    let mut headers = HeaderMap::new();
+    if let Ok(location) = HeaderValue::from_str(&format!("{API_PREFIX}/runs/{}", run.id)) {
+        headers.insert(header::LOCATION, location);
+    }
+    Ok((StatusCode::ACCEPTED, headers, Json(run)))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::Body;

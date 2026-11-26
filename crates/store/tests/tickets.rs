@@ -1457,6 +1457,76 @@ async fn plans_and_planning_claims_follow_the_legacy_rules() {
     assert_eq!(next.unwrap().ticket.key().to_string(), "ARC-0002");
 }
 
+#[tokio::test]
+async fn an_agent_plans_only_into_planned_blocked_or_in_planning() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("One"), AGENT).await.unwrap();
+    let agent = Actor::new(
+        fx.person.id(),
+        nullradix_domain::ActorKind::Session,
+        fx.person.name().clone(),
+        SystemClock.now(),
+    );
+    for status in ["backlog", "in-progress", "done", "not-needed"] {
+        let input = PlanInput {
+            plan: Some(String::from("Do it")),
+            status: Some(status.to_owned()),
+            ..PlanInput::default()
+        };
+        let refused = fx.tickets.plan("ARC-1", &input, &agent).await;
+        assert_eq!(
+            refused.unwrap_err().code(),
+            "plan-status-denied",
+            "{status}"
+        );
+    }
+    for status in ["planned", "blocked", "in-planning"] {
+        let input = PlanInput {
+            plan: Some(String::from("Do it")),
+            status: Some(status.to_owned()),
+            ..PlanInput::default()
+        };
+        fx.tickets.plan("ARC-1", &input, &agent).await.unwrap();
+    }
+    let input = PlanInput {
+        plan: Some(String::from("Do it")),
+        status: Some(String::from("done")),
+        ..PlanInput::default()
+    };
+    fx.tickets.plan("ARC-1", &input, &fx.person).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_plan_text_above_the_cap_is_a_field_problem_and_one_at_the_cap_is_kept() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("One"), AGENT).await.unwrap();
+    let at_cap = "x".repeat(nullradix_app::tickets::PLAN_TEXT_MAX);
+    let over = format!("{at_cap}x");
+    for field in ["plan", "handbook", "diagram", "acceptance"] {
+        let mut input = PlanInput {
+            plan: Some(String::from("Do it")),
+            ..PlanInput::default()
+        };
+        let text = Some(over.clone());
+        match field {
+            "plan" => input.plan = text,
+            "handbook" => input.handbook = text,
+            "diagram" => input.diagram = text,
+            _ => input.acceptance = text,
+        }
+        let refused = fx.tickets.plan("ARC-1", &input, &fx.person).await;
+        assert_eq!(refused.unwrap_err().code(), "value-too-long", "{field}");
+    }
+    let input = PlanInput {
+        plan: Some(at_cap.clone()),
+        ..PlanInput::default()
+    };
+    let planned = fx.tickets.plan("ARC-1", &input, &fx.person).await.unwrap();
+    assert_eq!(planned.ticket.record().plan, at_cap);
+}
+
 /// Hands out the store's writes, but lets a rival change ARC-1 just before the first one.
 struct Rival {
     store: Arc<Store>,

@@ -363,6 +363,7 @@ fn dispatcher_routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(dispatcher_control::run_pass))
         .routes(routes!(questions::submit_research))
         .routes(routes!(dispatch_runs::start_research_run))
+        .routes(routes!(dispatch_runs::start_plan_run))
 }
 
 fn routes() -> OpenApiRouter<ApiState> {

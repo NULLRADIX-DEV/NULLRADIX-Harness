@@ -587,6 +587,12 @@ pub struct WritePlan {
     /// Planned when left out.
     #[schema(value_type = Option<TicketStatusDto>)]
     pub status: Option<String>,
+    /// Name to write under, such as `planner-ARC-0007`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -821,6 +827,39 @@ pub(crate) async fn author_of(
         state.tickets.get(ticket_key).await?;
     }
     state.comments.author(author, &state.person).await
+}
+
+/// An agent named after a ticket writes only to that ticket; a person writes anywhere.
+pub(crate) async fn check_agent_target(
+    state: &ApiState,
+    principal: &Principal,
+    name: Option<&str>,
+    ticket_key: &str,
+) -> Result<(), AppError> {
+    let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
+        return Ok(());
+    };
+    if matches!(principal, Principal::Session { .. }) {
+        return Ok(());
+    }
+    let work = state.dispatcher_config.get().await?.config.agent_prefix;
+    let target = nullradix_domain::TicketKey::parse(ticket_key)
+        .map_or_else(|_| ticket_key.to_owned(), |key| key.to_string());
+    let named = [
+        nullradix_domain::PLAN_AGENT_PREFIX,
+        nullradix_domain::RESEARCH_AGENT_PREFIX,
+        work.as_str(),
+    ]
+    .into_iter()
+    .filter(|prefix| !prefix.is_empty())
+    .find_map(|prefix| name.strip_prefix(prefix));
+    match named {
+        Some(own) if own != target => Err(AppError::invalid(
+            "author-other-ticket",
+            format!("the agent {name} may write only to its own ticket, not to {target}"),
+        )),
+        _ => Ok(()),
+    }
 }
 
 fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
@@ -1198,6 +1237,7 @@ pub(crate) async fn accept_ticket(
 )]
 pub(crate) async fn write_plan(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<WritePlan>,
 ) -> Result<Json<TicketDto>, ApiError> {
@@ -1208,10 +1248,22 @@ pub(crate) async fn write_plan(
         acceptance: input.acceptance,
         status: input.status,
     };
-    let view = state
-        .tickets
-        .plan(&path.ticket_key, &plan, &state.person)
-        .await?;
+    check_agent_target(
+        &state,
+        &principal,
+        input.author.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
+    let actor = author_of(
+        &state,
+        &principal,
+        input.author.as_deref(),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
+    let view = state.tickets.plan(&path.ticket_key, &plan, &actor).await?;
     Ok(Json(view.into()))
 }
 

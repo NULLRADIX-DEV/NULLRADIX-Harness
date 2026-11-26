@@ -1032,6 +1032,15 @@ impl Client {
         )
     }
 
+    /// Starts a plan run on a ticket; the run goes on without the caller.
+    pub fn start_plan_run(&self, key: &str) -> Result<RunDto, ClientError> {
+        self.post_json(
+            &format!("/tickets/{key}/plan-runs"),
+            &serde_json::json!({}),
+            202,
+        )
+    }
+
     pub fn add_question_comment(
         &self,
         key: &str,
