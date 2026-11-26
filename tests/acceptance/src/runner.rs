@@ -12,7 +12,9 @@ use crate::daemon::{Binaries, Daemon};
 use crate::normalize::Normalizer;
 use crate::scenario::{Action, Auth, Cli, File, Http, Scenario, Wait};
 
-const WAIT_POLL: Duration = Duration::from_millis(100);
+const WAIT_POLL: Duration = Duration::from_millis(50);
+/// How long one request may take, and how long a read is retried when the connection drops.
+const REQUEST_LIMIT: Duration = Duration::from_secs(60);
 /// Run states that never change again.
 const FINAL: &[&str] = &["succeeded", "failed", "cancelled", "timed-out", "lost"];
 
@@ -32,7 +34,7 @@ pub(crate) fn play(scenario: &Scenario, binaries: &Binaries) -> anyhow::Result<V
     );
     let agent: Agent = Agent::config_builder()
         .http_status_as_error(false)
-        .timeout_global(Some(Duration::from_secs(30)))
+        .timeout_global(Some(REQUEST_LIMIT))
         .proxy(None)
         .build()
         .into();
@@ -200,16 +202,15 @@ fn request(
     let url = daemon.url(path);
     let bearer = (auth == Auth::Token).then(|| format!("Bearer {}", daemon.token));
     let mut response = match method {
-        "GET" | "DELETE" => {
-            let mut builder = if method == "GET" {
-                agent.get(&url)
-            } else {
-                agent.delete(&url)
-            };
+        "GET" => get_retrying(agent, &url, bearer.as_deref())?,
+        "DELETE" => {
+            let mut builder = agent.delete(&url);
             if let Some(bearer) = &bearer {
                 builder = builder.header("Authorization", bearer);
             }
-            builder.call()?
+            builder
+                .call()
+                .map_err(|error| not_retried(method, &error))?
         }
         "POST" | "PATCH" | "PUT" => {
             let mut builder = match method {
@@ -221,9 +222,10 @@ fn request(
                 builder = builder.header("Authorization", bearer);
             }
             match body {
-                Some(body) => builder.send_json(body)?,
-                None => builder.send_empty()?,
+                Some(body) => builder.send_json(body),
+                None => builder.send_empty(),
             }
+            .map_err(|error| not_retried(method, &error))?
         }
         other => bail!("unsupported method {other}"),
     };
@@ -250,6 +252,54 @@ fn request(
         location,
         payload,
     })
+}
+
+/// A GET changes nothing: a refused or reset connection is tried again until the limit.
+fn get_retrying(
+    agent: &Agent,
+    url: &str,
+    bearer: Option<&str>,
+) -> anyhow::Result<ureq::http::Response<ureq::Body>> {
+    let deadline = Instant::now() + REQUEST_LIMIT;
+    loop {
+        let mut builder = agent.get(url);
+        if let Some(bearer) = bearer {
+            builder = builder.header("Authorization", bearer);
+        }
+        match builder.call() {
+            Ok(response) => return Ok(response),
+            Err(error) if is_transient(&error) && Instant::now() < deadline => {
+                thread::sleep(WAIT_POLL);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+/// Whether the connection was refused or dropped before any answer.
+fn is_transient(error: &ureq::Error) -> bool {
+    use std::io::ErrorKind;
+    match error {
+        ureq::Error::ConnectionFailed | ureq::Error::Timeout(ureq::Timeout::Connect) => true,
+        ureq::Error::Io(io) => matches!(
+            io.kind(),
+            ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionRefused
+                | ErrorKind::ConnectionAborted
+                | ErrorKind::BrokenPipe
+                | ErrorKind::UnexpectedEof
+        ),
+        _ => false,
+    }
+}
+
+/// Writes are never repeated, since the daemon may have applied them before the connection broke.
+fn not_retried(method: &str, error: &ureq::Error) -> anyhow::Error {
+    if is_transient(error) {
+        anyhow::anyhow!("{method} lost its connection ({error}); a write is not sent twice")
+    } else {
+        anyhow::anyhow!("{method} failed: {error}")
+    }
 }
 
 fn cli_step(
