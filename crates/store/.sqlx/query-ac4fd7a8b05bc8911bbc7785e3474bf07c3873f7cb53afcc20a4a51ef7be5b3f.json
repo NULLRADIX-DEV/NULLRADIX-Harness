@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM reviews WHERE worktree_id = ? AND state = 'pending'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "ac4fd7a8b05bc8911bbc7785e3474bf07c3873f7cb53afcc20a4a51ef7be5b3f"
+}
