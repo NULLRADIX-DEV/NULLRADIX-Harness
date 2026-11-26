@@ -29,6 +29,8 @@
         "limitFiveHour": null,
         "limitWeek": null,
         "name": "Max (private)",
+        "pauseReason": null,
+        "pausedUntil": null,
         "slug": "max-private",
         "updatedAt": "<TIME>",
         "version": 1
@@ -89,6 +91,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "Default",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "default",
             "updatedAt": "<TIME>",
             "version": 1
@@ -103,6 +107,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "Max (private)",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "max-private",
             "updatedAt": "<TIME>",
             "version": 1
@@ -117,6 +123,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "Work",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "work",
             "updatedAt": "<TIME>",
             "version": 1
@@ -293,6 +301,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "Default",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "default",
             "updatedAt": "<TIME>",
             "version": 1
@@ -307,6 +317,8 @@
             "limitFiveHour": 50,
             "limitWeek": null,
             "name": "Max (private)",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "max-private",
             "updatedAt": "<TIME>",
             "version": 7
@@ -321,6 +333,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "Work",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "work",
             "updatedAt": "<TIME>",
             "version": 1
@@ -341,6 +355,71 @@
     "name": "clear the token",
     "stderr": "",
     "stdout": "token cleared for max-private\n"
+  },
+  {
+    "cli": [
+      "account",
+      "resume",
+      "max-private"
+    ],
+    "exitCode": 0,
+    "name": "resume in the CLI",
+    "stderr": "",
+    "stdout": "max-private      Max (private)        disabled 5h 50%   week -     token none <HOME>/data/accounts/max-private\n"
+  },
+  {
+    "name": "resume over HTTP",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/accounts/<ID-1>/resume"
+    },
+    "response": {
+      "json": {
+        "configDir": "<HOME>/data/accounts/max-private",
+        "createdAt": "<TIME>",
+        "enabled": false,
+        "fallback": true,
+        "hasRunToken": false,
+        "id": "<ID-1>",
+        "limitFiveHour": 50,
+        "limitWeek": null,
+        "name": "Max (private)",
+        "pauseReason": null,
+        "pausedUntil": null,
+        "slug": "max-private",
+        "updatedAt": "<TIME>",
+        "version": 8
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "account",
+      "resume",
+      "nobody"
+    ],
+    "exitCode": 1,
+    "name": "resume an unknown account",
+    "stderr": "error: no account has the id nobody, `nullradix account list` shows them\n",
+    "stdout": ""
+  },
+  {
+    "name": "resume an unknown id over HTTP",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/accounts/<ID-4>/resume"
+    },
+    "response": {
+      "json": {
+        "code": "account-not-found",
+        "detail": "account <ID-4> does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:account-not-found"
+      },
+      "status": 404
+    }
   },
   {
     "cli": [
@@ -413,6 +492,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "Default",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "default",
             "updatedAt": "<TIME>",
             "version": 1
@@ -427,6 +508,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "Work",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "work",
             "updatedAt": "<TIME>",
             "version": 1

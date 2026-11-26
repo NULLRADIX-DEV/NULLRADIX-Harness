@@ -71,6 +71,9 @@ pub struct PassReport {
     pub at: i64,
     /// Why nothing new started, in words.
     pub idle: Option<String>,
+    /// Why a ready ticket did not start for want of a Claude account.
+    #[serde(default)]
+    pub waiting: Option<String>,
     pub started: Vec<String>,
     /// Ready tickets that wait for a free place.
     pub queued: Vec<String>,

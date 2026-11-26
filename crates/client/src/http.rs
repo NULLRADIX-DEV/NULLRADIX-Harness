@@ -313,6 +313,15 @@ impl Client {
         decode(&mut response, 200)
     }
 
+    /// Lets the dispatcher use the account again before its pause ends.
+    pub fn resume_account(&self, id: Uuid) -> Result<AccountDto, ClientError> {
+        self.post_json(
+            &format!("/accounts/{id}/resume"),
+            &serde_json::json!({}),
+            200,
+        )
+    }
+
     pub fn clear_run_token(&self, id: Uuid, version: i64) -> Result<AccountDto, ClientError> {
         let mut response = self
             .agent
@@ -1638,11 +1647,16 @@ mod tests {
                 questions.clone(),
             ),
         );
-        let dispatcher = nullradix_app::dispatch::assemble::assemble(
+        let usage = usage_service();
+        let assembled = nullradix_app::dispatch::assemble::assemble(
             nullradix_app::dispatch::assemble::DispatcherDeps {
                 config: dispatcher_config.clone(),
                 states: store.clone(),
                 log: store.clone(),
+                accounts: accounts.clone(),
+                limits: usage.clone(),
+                pauses: store.clone(),
+                samples: store.clone(),
                 setup: Arc::new(nullradix_runner::LocalSetup),
                 actors: store.clone(),
                 boards: store.clone(),
@@ -1659,17 +1673,17 @@ mod tests {
                 local_time: Arc::new(nullradix_app::dispatch::local_time::UtcTime),
                 interval: None,
             },
-        )
-        .service;
+        );
         let themes = theme_service(&store, &signal);
         ApiState {
             auth,
             projects,
             accounts: accounts.clone(),
             dispatcher_prompts: prompts,
-            dispatcher,
+            dispatcher: assembled.service,
+            account_pauses: assembled.pauses,
             dispatcher_config,
-            usage: usage_service(),
+            usage,
             logins: login_service(&accounts),
             boards,
             tickets,
@@ -1883,11 +1897,15 @@ mod tests {
             .clear_run_token(created.id, with_token.version)
             .unwrap();
         assert!(!without.has_run_token);
+        let resumed = client.resume_account(created.id).unwrap();
+        assert_eq!(resumed.paused_until, None);
         client
             .delete_account(created.id, without.version, true)
             .unwrap();
         assert_eq!(client.list_accounts().unwrap().items.len(), 1);
         let gone = client.delete_account(created.id, 1, false).unwrap_err();
+        assert!(matches!(gone, ClientError::Refused { status: 404, .. }));
+        let gone = client.resume_account(created.id).unwrap_err();
         assert!(matches!(gone, ClientError::Refused { status: 404, .. }));
     }
 

@@ -231,6 +231,20 @@ impl UsageService {
         .await
     }
 
+    /// Which accounts have a login, from Claude's files alone; Anthropic is not asked.
+    pub async fn logged_in(&self, accounts: &[Account]) -> HashMap<Id<Account>, bool> {
+        let reads = accounts.iter().map(|account| async move {
+            let dir = account.config_dir();
+            let found = self.logins.email(dir).await.is_some()
+                || !matches!(self.logins.read(dir).await, LoginRead::Missing);
+            (account.id(), found)
+        });
+        futures_util::future::join_all(reads)
+            .await
+            .into_iter()
+            .collect()
+    }
+
     async fn account_status(&self, account: &Account, fresh: bool) -> AccountStatus {
         let dir = account.config_dir();
         let email = self.logins.email(dir).await;
@@ -774,6 +788,17 @@ mod tests {
         let rig = self::rig(vec![login("t", None)], vec![reply(500, 0)]);
         let statuses = rig.service.status(&[account(true)], false).await;
         assert!(statuses[0].logged_in);
+    }
+
+    #[tokio::test]
+    async fn logins_are_read_without_asking_the_endpoint() {
+        let rig = rig(vec![LoginRead::Missing], vec![]);
+        let found = rig.service.logged_in(&[account(true)]).await;
+        assert!(found.values().all(|logged_in| !logged_in));
+        let rig = self::rig(vec![login("t", None)], vec![]);
+        let found = rig.service.logged_in(&[account(true)]).await;
+        assert!(found.values().all(|logged_in| *logged_in));
+        assert!(rig.api.tokens.lock().is_empty());
     }
 
     #[test]

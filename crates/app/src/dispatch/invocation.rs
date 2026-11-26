@@ -194,6 +194,8 @@ fn env(input: &InvocationInput<'_>) -> RunEnv {
     if let Some(dir) = input.config_dir.filter(|dir| !dir.is_empty()) {
         env.set
             .insert(String::from("CLAUDE_CONFIG_DIR"), dir.to_owned());
+        // a token in the daemon env would override the login of the folder
+        env.remove.push(String::from("CLAUDE_CODE_OAUTH_TOKEN"));
     }
     if input.claude.use_subscription {
         env.remove.push(String::from("ANTHROPIC_API_KEY"));
@@ -428,6 +430,10 @@ mod tests {
         assert_eq!(env.set["NULLRADIX_TICKET"], "ARC-0001");
         assert_eq!(env.set["NULLRADIX_RUN"], "run-1");
         assert_eq!(env.set["CLAUDE_CONFIG_DIR"], "/accounts/a");
+        assert!(
+            env.remove
+                .contains(&String::from("CLAUDE_CODE_OAUTH_TOKEN"))
+        );
         assert_eq!(env.set["CLAUDE_CODE_USE_POWERSHELL_TOOL"], "0");
         assert_eq!(env.set["CLAUDE_CODE_GIT_BASH_PATH"], "C:/Git/bin/bash.exe");
         for name in [
@@ -453,6 +459,11 @@ mod tests {
         assert!(!research.set.contains_key("NULLRADIX_TICKET"));
         assert!(research.remove.contains(&String::from("NULLRADIX_TICKET")));
         assert!(!research.set.contains_key("CLAUDE_CONFIG_DIR"));
+        assert!(
+            !research
+                .remove
+                .contains(&String::from("CLAUDE_CODE_OAUTH_TOKEN"))
+        );
         assert!(!research.set.contains_key("CLAUDE_CODE_GIT_BASH_PATH"));
 
         config.claude.use_subscription = false;

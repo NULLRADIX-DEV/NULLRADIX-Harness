@@ -13,6 +13,7 @@ use parking_lot::Mutex;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
+use super::accounts::{AccountPick, AccountPicker, AccountRequest, Chosen, PickMode};
 use super::candidates::{Candidate, Candidates};
 use super::log::DispatchLog;
 use super::runs::{DispatchRuns, StartDispatchRun};
@@ -43,8 +44,26 @@ pub enum StartOutcome {
     SettingUp,
     /// The ticket stays where it is; the text says why.
     Skipped(String),
+    /// No Claude account is free; the ticket stays unclaimed and the text says why.
+    WaitsForAccount(String),
     /// Starting failed after the ticket was claimed, and it was given back.
     Failed(String),
+}
+
+/// How starting the run of a claimed ticket ended.
+enum Begun {
+    Started(Box<Run>),
+    /// The ticket changed meanwhile and the run was stopped.
+    Changed,
+    WaitsForAccount(String),
+}
+
+/// What was decided before the ticket is claimed.
+#[derive(Debug, Clone)]
+struct Picked {
+    choice: ProfileChoice,
+    account: Chosen,
+    request: AccountRequest,
 }
 
 /// The pieces of a start that the background part needs as well.
@@ -53,7 +72,7 @@ struct Launch {
     agent: String,
     branch: String,
     cwd: String,
-    choice: ProfileChoice,
+    picked: Picked,
     notes: Vec<String>,
     /// The version of the ticket after the last write of this start.
     version: Version,
@@ -67,6 +86,7 @@ pub struct TicketStarter {
     runners: Arc<RunnerService>,
     runs: Arc<RunService>,
     dispatch: Arc<DispatchRuns>,
+    accounts: Arc<AccountPicker>,
     prompts: Arc<DispatcherPromptService>,
     setup: Arc<dyn WorktreeSetupPort>,
     actors: Arc<dyn ActorRepository>,
@@ -97,6 +117,7 @@ pub struct StarterParts {
     pub runners: Arc<RunnerService>,
     pub runs: Arc<RunService>,
     pub dispatch: Arc<DispatchRuns>,
+    pub accounts: Arc<AccountPicker>,
     pub prompts: Arc<DispatcherPromptService>,
     pub setup: Arc<dyn WorktreeSetupPort>,
     pub actors: Arc<dyn ActorRepository>,
@@ -133,6 +154,7 @@ impl TicketStarter {
             runners: parts.runners,
             runs: parts.runs,
             dispatch: parts.dispatch,
+            accounts: parts.accounts,
             prompts: parts.prompts,
             setup: parts.setup,
             actors: parts.actors,
@@ -258,6 +280,23 @@ impl TicketStarter {
             )));
         }
         let choice = choose_profile(config, &record.labels, record.priority, &record.plan);
+        // the account is chosen before the claim: with none free the ticket waits unclaimed
+        let request = AccountRequest::for_ticket(config, &choice, &record.labels);
+        let account = match self
+            .accounts
+            .pick(&request, config, PickMode::Start)
+            .await?
+        {
+            AccountPick::Picked(chosen) => chosen,
+            AccountPick::Waiting { reason, .. } => {
+                return Ok(StartOutcome::WaitsForAccount(format!("waits - {reason}")));
+            }
+        };
+        let picked = Picked {
+            choice,
+            account,
+            request,
+        };
         let actor = self.actor().await?;
         let text = key.to_string();
         let agent = config.work_agent(&text);
@@ -283,7 +322,7 @@ impl TicketStarter {
             }
         };
         let launched = self
-            .launch(&fresh, &root, config, choice, agent, version)
+            .launch(&fresh, &root, config, picked, agent, version)
             .await;
         if launched.is_err() {
             self.remember_failure(&text).await;
@@ -328,13 +367,13 @@ impl TicketStarter {
         candidate: &Candidate,
         root: &str,
         config: &DispatcherConfig,
-        choice: ProfileChoice,
+        picked: Picked,
         agent: String,
         claimed: Version,
     ) -> Result<StartOutcome, AppError> {
         let mut version = claimed;
         let outcome = self
-            .place_and_run(candidate, root, config, choice, agent, &mut version)
+            .place_and_run(candidate, root, config, picked, agent, &mut version)
             .await;
         if !matches!(
             outcome,
@@ -350,7 +389,7 @@ impl TicketStarter {
         candidate: &Candidate,
         root: &str,
         config: &DispatcherConfig,
-        choice: ProfileChoice,
+        picked: Picked,
         agent: String,
         version: &mut Version,
     ) -> Result<StartOutcome, AppError> {
@@ -410,7 +449,7 @@ impl TicketStarter {
             agent,
             branch,
             cwd,
-            choice,
+            picked,
             notes,
             version: *version,
         };
@@ -427,8 +466,11 @@ impl TicketStarter {
             });
         }
         Ok(match self.begin_run(&launch, config).await? {
-            Some(run) => StartOutcome::Started(run.id()),
-            None => StartOutcome::Skipped(String::from("the ticket changed while the run started")),
+            Begun::Started(run) => StartOutcome::Started(run.id()),
+            Begun::Changed => {
+                StartOutcome::Skipped(String::from("the ticket changed while the run started"))
+            }
+            Begun::WaitsForAccount(reason) => StartOutcome::WaitsForAccount(reason),
         })
     }
 
@@ -465,16 +507,23 @@ impl TicketStarter {
                 return false;
             }
             launching.insert(text.clone(), launch.cwd.clone());
+            // the run does not exist yet, so the pick must count as work under way meanwhile
+            self.accounts
+                .hold(&text, &launch.picked.account, &launch.picked.request);
         }
         let this = Arc::clone(self);
         tokio::spawn(async move {
+            // also gives the hold and the entry back when the setup panics
+            let _guard = LaunchGuard {
+                starter: Arc::clone(&this),
+                text: text.clone(),
+            };
             if let Err(error) = this.set_up(&config, &launch).await {
                 let message = format!("cannot start {text}: {}", error.message());
                 this.log.error(&message, Some(&text)).await;
                 this.give_back(&launch.key, &config, launch.version).await;
                 this.remember_failure(&text).await;
             }
-            this.launching.lock().remove(&text);
         });
         true
     }
@@ -516,7 +565,17 @@ impl TicketStarter {
                         .await;
                     return Ok(());
                 }
-                self.begin_run(launch, config).await?;
+                if let Begun::WaitsForAccount(reason) = self.begin_run(launch, config).await? {
+                    self.log
+                        .write(
+                            super::log::LogLevel::Info,
+                            &format!("{text} not started: {reason}"),
+                            Some(&text),
+                            None,
+                        )
+                        .await;
+                    self.give_back(&launch.key, config, launch.version).await;
+                }
                 Ok(())
             }
             SetupOutcome::Cancelled => {
@@ -594,13 +653,24 @@ impl TicketStarter {
         Ok(())
     }
 
-    /// Starts the run and notes it; none, with the run stopped, when the ticket changed meanwhile.
+    /// Starts the run and notes it; the run is stopped when the ticket changed meanwhile.
     async fn begin_run(
         &self,
         launch: &Launch,
         config: &DispatcherConfig,
-    ) -> Result<Option<Run>, AppError> {
+    ) -> Result<Begun, AppError> {
         let text = launch.key.to_string();
+        // a pause may have come in since the account was chosen
+        let account = match self
+            .accounts
+            .confirm(&launch.picked.account, &launch.picked.request, config)
+            .await?
+        {
+            AccountPick::Picked(chosen) => chosen,
+            AccountPick::Waiting { reason, .. } => {
+                return Ok(Begun::WaitsForAccount(format!("waits - {reason}")));
+            }
+        };
         let prompt = self
             .prompts
             .work_prompt(&text, &launch.branch, Vec::new())
@@ -613,8 +683,8 @@ impl TicketStarter {
                 subject: text.clone(),
                 prompt,
                 cwd: PathBuf::from(&launch.cwd),
-                profile: Some(launch.choice.profile.clone()),
-                account: None,
+                profile: Some(launch.picked.choice.profile.clone()),
+                account: Some(account.account),
                 extra_tools: Vec::new(),
                 agent: Some(launch.agent.clone()),
             })
@@ -641,14 +711,17 @@ impl TicketStarter {
                     )
                     .await;
             }
-            return Ok(None);
+            return Ok(Begun::Changed);
         }
+        self.accounts.record_start(run.id(), &account).await;
+        // the run exists now and counts as work under way by itself
+        self.accounts.release(&text);
         let profile = run.dispatch().map(|dispatch| &dispatch.profile);
         let mut body = format!(
             "[dispatch] start: handed to {}. Branch {}, profile {} (model {}, effort {}, max {} turns, {} min). Reason: {}.",
             launch.agent,
             launch.branch,
-            launch.choice.profile,
+            launch.picked.choice.profile,
             profile
                 .and_then(|p| p.model.as_deref())
                 .unwrap_or("default"),
@@ -657,7 +730,12 @@ impl TicketStarter {
                 .unwrap_or("default"),
             profile.map_or(0, |p| p.max_turns),
             profile.map_or(0, |p| p.timeout_minutes),
-            launch.choice.why,
+            launch.picked.choice.why,
+        );
+        body = format!(
+            "{body}
+Account: {} ({}).",
+            account.slug, account.why
         );
         if !launch.notes.is_empty() {
             body.push_str("\nNote: ");
@@ -673,7 +751,7 @@ impl TicketStarter {
                 Some(run.id()),
             )
             .await;
-        Ok(Some(run))
+        Ok(Begun::Started(Box::new(run)))
     }
 
     /// A comment on the ticket; failing to write it never undoes a run that started.
@@ -723,6 +801,19 @@ impl TicketStarter {
                 )
                 .await;
         }
+    }
+}
+
+/// Gives the account hold and the launching entry of a ticket back when its task ends or panics.
+struct LaunchGuard {
+    starter: Arc<TicketStarter>,
+    text: String,
+}
+
+impl Drop for LaunchGuard {
+    fn drop(&mut self) {
+        self.starter.accounts.release(&self.text);
+        self.starter.launching.lock().remove(&self.text);
     }
 }
 

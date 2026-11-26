@@ -1,5 +1,6 @@
 //! Claude runs of the dispatcher: the call, what the output says and the use cases around them.
 
+pub mod accounts;
 pub mod assemble;
 pub mod candidates;
 pub mod control;

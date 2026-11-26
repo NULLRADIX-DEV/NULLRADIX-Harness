@@ -6,6 +6,7 @@ mod boards;
 mod change_feed;
 mod comments;
 mod customizations;
+mod dispatch_accounts;
 mod dispatcher_config;
 mod dispatcher_state;
 mod error;

@@ -84,6 +84,19 @@
       "http": { "method": "GET", "path": "/api/v1/accounts" }
     },
     { "name": "clear the token", "cli": { "args": ["account", "token", "clear", "max-private"] } },
+    { "name": "resume in the CLI", "cli": { "args": ["account", "resume", "max-private"] } },
+    {
+      "name": "resume over HTTP",
+      "http": { "method": "POST", "path": "/api/v1/accounts/{{max}}/resume" }
+    },
+    { "name": "resume an unknown account", "cli": { "args": ["account", "resume", "nobody"] } },
+    {
+      "name": "resume an unknown id over HTTP",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts/0199ffff-ffff-7fff-8fff-ffffffffffff/resume"
+      }
+    },
     { "name": "remove the default account", "cli": { "args": ["account", "remove", "default"] } },
     { "name": "remove an unknown account", "cli": { "args": ["account", "remove", "nobody"] } },
     {

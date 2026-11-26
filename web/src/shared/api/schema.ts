@@ -100,6 +100,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounts/{accountId}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lets the dispatcher use the account again before its pause ends. */
+        post: operations["resume_account"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounts/{accountId}/run-token": {
         parameters: {
             query?: never;
@@ -1546,6 +1563,13 @@ export interface components {
              */
             limitWeek?: number | null;
             name: string;
+            /** @description `usage-limit`, `auth-missing` or `manual` while the account is paused. */
+            pauseReason?: string | null;
+            /**
+             * Format: int64
+             * @description Unix milliseconds until which the dispatcher keeps runs off the account, if it does.
+             */
+            pausedUntil?: number | null;
             /** @description Short id used in labels such as `account:max` and on the command line. */
             slug: string;
             /** Format: int64 */
@@ -4155,6 +4179,45 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resume_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Account id. */
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account has no pause now */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -68,6 +68,11 @@ pub(crate) enum AccountCommand {
         /// Account id, as `nullradix account list` shows it
         account: String,
     },
+    /// Let the dispatcher use a paused account again before its pause ends
+    Resume {
+        /// Account id, as `nullradix account list` shows it
+        account: String,
+    },
     /// Remove an account and its stored token
     Remove {
         /// Account id, as `nullradix account list` shows it
@@ -168,6 +173,11 @@ pub(crate) fn run(command: AccountCommand, client: &Client) -> anyhow::Result<Ex
         AccountCommand::Set(args) => set(client, args)?,
         AccountCommand::Enable { account } => switch(client, &account, true)?,
         AccountCommand::Disable { account } => switch(client, &account, false)?,
+        AccountCommand::Resume { account } => {
+            let found = find(client, &account)?;
+            let resumed = client.resume_account(found.id)?;
+            println!("{}", describe(&resumed));
+        }
         AccountCommand::Remove {
             account,
             delete_dir,
@@ -396,8 +406,15 @@ fn describe(account: &AccountDto) -> String {
         .config_dir
         .as_deref()
         .map_or_else(|| String::from("the server's own login"), str::to_owned);
+    let pause = account.paused_until.map_or_else(String::new, |until| {
+        format!(
+            "  paused until {} ({})",
+            nullradix_domain::Timestamp::from_millis(until),
+            account.pause_reason.as_deref().unwrap_or("-")
+        )
+    });
     format!(
-        "{:<16} {:<20} {:<8} 5h {:<5} week {:<5} token {:<4} {}",
+        "{:<16} {:<20} {:<8} 5h {:<5} week {:<5} token {:<4} {}{pause}",
         account.slug,
         account.name,
         state,
@@ -450,6 +467,8 @@ mod tests {
             limit_five_hour: Some(50),
             limit_week: None,
             has_run_token: true,
+            paused_until: None,
+            pause_reason: None,
             created_at: 1,
             updated_at: 1,
             version: 1,
@@ -532,6 +551,9 @@ mod tests {
         off.enabled = true;
         off.fallback = true;
         assert!(describe(&off).contains("fallback"));
+        off.paused_until = Some(1_800_000_000_000);
+        off.pause_reason = Some(String::from("usage-limit"));
+        assert!(describe(&off).ends_with("  paused until 2027-01-15T08:00:00.000Z (usage-limit)"));
     }
 
     #[test]

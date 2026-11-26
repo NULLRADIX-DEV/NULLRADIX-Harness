@@ -1,7 +1,8 @@
 use std::fmt;
 
-use crate::{DispatcherConfig, TicketKey, TicketStatus};
+use crate::{AccountSlug, DispatcherConfig, TicketKey, TicketStatus};
 
+use super::account_choice::{ACCOUNT_LABEL_PREFIX, account_label};
 use super::profile_choice::PROFILE_LABEL_PREFIX;
 
 /// Where the board's repository stands on the machine the run would start on.
@@ -48,7 +49,12 @@ pub enum NotReady {
     WaitsFor(Vec<TicketKey>),
     WaitsForMerge(Vec<TicketKey>),
     WaitsForQuestions(Vec<String>),
-    UnknownProfile { name: String, known: Vec<String> },
+    UnknownProfile {
+        name: String,
+        known: Vec<String>,
+    },
+    /// The text after `account:` is no account id.
+    BadAccountLabel(String),
     BoardOff,
     NoRepository,
     NoCheckout,
@@ -80,6 +86,10 @@ impl fmt::Display for NotReady {
                 f,
                 "label {PROFILE_LABEL_PREFIX}{name} - there is no such profile ({})",
                 known.join(", ")
+            ),
+            Self::BadAccountLabel(slug) => write!(
+                f,
+                "label {ACCOUNT_LABEL_PREFIX}{slug} - not a valid account id"
             ),
             Self::BoardOff => f.write_str("the dispatcher is off for the board"),
             Self::NoRepository => f.write_str("the board has no repository"),
@@ -141,6 +151,11 @@ pub fn not_ready(config: &DispatcherConfig, facts: &ReadinessFacts<'_>) -> Optio
             name: name.to_owned(),
             known: config.profiles.iter().map(|p| p.name.clone()).collect(),
         });
+    }
+    if let Some(slug) = account_label(facts.labels)
+        && AccountSlug::parse(slug).is_err()
+    {
+        return Some(NotReady::BadAccountLabel(slug.to_owned()));
     }
     if !facts.board_dispatch {
         return Some(NotReady::BoardOff);
@@ -277,6 +292,19 @@ mod tests {
         };
         parts.labels = vec![String::from("docs")];
         assert_eq!(not_ready(&open, &facts(&parts)), None);
+    }
+
+    #[test]
+    fn an_account_label_must_look_like_an_account_id() {
+        let mut parts = parts();
+        parts.labels = vec![String::from("auto"), String::from("account:Max Private")];
+        let reason = not_ready(&config(), &facts(&parts)).unwrap();
+        assert_eq!(
+            reason.to_string(),
+            "label account:Max Private - not a valid account id"
+        );
+        parts.labels = vec![String::from("auto"), String::from("account:max")];
+        assert_eq!(not_ready(&config(), &facts(&parts)), None);
     }
 
     #[test]

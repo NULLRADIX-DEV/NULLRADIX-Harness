@@ -47,6 +47,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::CustomizationService;
+use nullradix_app::dispatch::accounts::AccountPauses;
 use nullradix_app::dispatch::control::DispatcherService;
 use nullradix_app::dispatch::runs::DispatchRuns;
 use nullradix_app::dispatcher_config::DispatcherConfigService;
@@ -211,6 +212,7 @@ pub struct ApiState {
     pub dispatcher_config: Arc<DispatcherConfigService>,
     pub dispatcher_prompts: Arc<DispatcherPromptService>,
     pub dispatcher: Arc<DispatcherService>,
+    pub account_pauses: Arc<AccountPauses>,
     pub usage: Arc<UsageService>,
     pub logins: Arc<LoginService>,
     pub boards: Arc<BoardService>,
@@ -254,6 +256,7 @@ fn account_routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(login::send_login_code))
         .routes(routes!(accounts::update_account, accounts::delete_account))
         .routes(routes!(accounts::set_run_token, accounts::clear_run_token))
+        .routes(routes!(accounts::resume_account))
 }
 
 fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> {
@@ -533,6 +536,7 @@ pub(crate) mod tests {
         pub(crate) changes: Arc<dyn ChangeFeed>,
         pub(crate) shutdown: CancellationToken,
         pub(crate) accounts: Arc<AccountService>,
+        pub(crate) pauses: Arc<AccountPauses>,
         pub(crate) logins: Arc<LoginService>,
         pub(crate) fetcher: Arc<crate::theme_catalog::fake::Fetcher>,
         pub(crate) store: Arc<Store>,
@@ -874,11 +878,16 @@ pub(crate) mod tests {
             tickets.clone(),
             questions.clone(),
         ));
-        let dispatcher = nullradix_app::dispatch::assemble::assemble(
+        let usage = test_usage();
+        let assembled = nullradix_app::dispatch::assemble::assemble(
             nullradix_app::dispatch::assemble::DispatcherDeps {
                 config: dispatcher_config.clone(),
                 states: store.clone(),
                 log: store.clone(),
+                accounts: accounts.clone(),
+                limits: usage.clone(),
+                pauses: store.clone(),
+                samples: store.clone(),
                 setup: Arc::new(nullradix_runner::LocalSetup),
                 actors: store.clone(),
                 boards: store.clone(),
@@ -895,16 +904,17 @@ pub(crate) mod tests {
                 local_time: Arc::new(nullradix_app::dispatch::local_time::UtcTime),
                 interval: None,
             },
-        )
-        .service;
+        );
+        let pauses = assembled.pauses.clone();
         let router = router(ApiState {
             auth: auth.clone(),
             projects: projects.clone(),
             accounts: accounts.clone(),
             dispatcher_config: dispatcher_config.clone(),
             dispatcher_prompts: prompts,
-            dispatcher,
-            usage: test_usage(),
+            dispatcher: assembled.service,
+            account_pauses: pauses.clone(),
+            usage,
             logins: logins.clone(),
             boards: boards.clone(),
             tickets,
@@ -945,6 +955,7 @@ pub(crate) mod tests {
             changes,
             shutdown,
             accounts,
+            pauses,
             logins,
             fetcher,
             store: store.clone(),

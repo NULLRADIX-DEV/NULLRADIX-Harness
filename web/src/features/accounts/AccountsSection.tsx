@@ -6,6 +6,7 @@ import {
   accountsQuery,
   usageQuery,
   useClearRunToken,
+  useResumeAccount,
   useCreateAccount,
   useDeleteAccount,
   useSendLoginCode,
@@ -585,6 +586,8 @@ function AccountRow({
 }) {
   const [mode, setMode] = useState<RowMode>('view');
   const update = useUpdateAccount();
+  const resume = useResumeAccount();
+  const paused = account.pausedUntil !== null && account.pausedUntil !== undefined;
   const back = () => {
     setMode('view');
   };
@@ -599,8 +602,24 @@ function AccountRow({
         ) : null}
         {!account.enabled && <span className="account-badge">disabled</span>}
         {account.enabled && account.fallback && <span className="account-badge">fallback</span>}
+        {paused && (
+          <span className="account-badge">paused until {resetTime(account.pausedUntil)}</span>
+        )}
         {mode === 'view' && (
           <span className="project-actions">
+            {paused && (
+              <button
+                type="button"
+                className="btn"
+                aria-label={`Resume ${account.name}`}
+                disabled={resume.isPending}
+                onClick={() => {
+                  resume.mutate(account.id);
+                }}
+              >
+                Resume
+              </button>
+            )}
             <button
               type="button"
               className="btn"

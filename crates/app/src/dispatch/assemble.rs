@@ -3,6 +3,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::accounts::{
+    AccountLimits, AccountPauseRepository, AccountPauses, AccountPicker, PickerParts,
+    UsageSampleRepository,
+};
 use super::candidates::Candidates;
 use super::control::{ControlParts, DispatcherService};
 use super::evaluate::EvaluateRuns;
@@ -15,6 +19,7 @@ use super::stale::ReleaseStale;
 use super::start::{StarterParts, TicketStarter};
 use super::start_ready::StartReady;
 use super::state::{DispatcherStateRepository, DispatcherStateService};
+use crate::accounts::AccountService;
 use crate::boards::{ActorRepository, BoardRepository};
 use crate::comments::CommentService;
 use crate::dispatcher_config::DispatcherConfigService;
@@ -30,6 +35,10 @@ pub struct DispatcherDeps {
     pub config: Arc<DispatcherConfigService>,
     pub states: Arc<dyn DispatcherStateRepository>,
     pub log: Arc<dyn DispatcherLogRepository>,
+    pub accounts: Arc<AccountService>,
+    pub limits: Arc<dyn AccountLimits>,
+    pub pauses: Arc<dyn AccountPauseRepository>,
+    pub samples: Arc<dyn UsageSampleRepository>,
     pub setup: Arc<dyn WorktreeSetupPort>,
     pub actors: Arc<dyn ActorRepository>,
     pub boards: Arc<dyn BoardRepository>,
@@ -52,6 +61,8 @@ pub struct Dispatcher {
     pub service: Arc<DispatcherService>,
     pub pass: Arc<DispatchPass>,
     pub starter: Arc<TicketStarter>,
+    pub accounts: Arc<AccountPicker>,
+    pub pauses: Arc<AccountPauses>,
 }
 
 impl std::fmt::Debug for Dispatcher {
@@ -61,6 +72,10 @@ impl std::fmt::Debug for Dispatcher {
 }
 
 /// The pass with its steps of this slice and the service that controls it.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the wiring of every step of the pass reads best in one place"
+)]
 #[must_use]
 pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
     let log = Arc::new(DispatchLog::new(
@@ -71,8 +86,24 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
     let state = Arc::new(DispatcherStateService::new(
         deps.states,
         deps.clock.clone(),
+        deps.signal.clone(),
+    ));
+    let pauses = Arc::new(AccountPauses::new(
+        deps.pauses,
+        deps.accounts.clone(),
+        state.clone(),
+        deps.clock.clone(),
         deps.signal,
     ));
+    let accounts = Arc::new(AccountPicker::new(PickerParts {
+        accounts: deps.accounts,
+        limits: deps.limits,
+        pauses: pauses.clone(),
+        samples: deps.samples,
+        runs: deps.runs.clone(),
+        clock: deps.clock.clone(),
+        ids: deps.ids.clone(),
+    }));
     let candidates = Arc::new(Candidates::new(
         deps.tickets.clone(),
         deps.boards.clone(),
@@ -86,6 +117,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         runners: deps.runners,
         runs: deps.runs.clone(),
         dispatch: deps.dispatch,
+        accounts: accounts.clone(),
         prompts: deps.prompts,
         setup: deps.setup,
         actors: deps.actors,
@@ -102,13 +134,16 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
     );
     pass.set_step(
         PassPhase::Evaluate,
-        Arc::new(EvaluateRuns::new(
-            deps.tickets.clone(),
-            deps.comments.clone(),
-            deps.runs.clone(),
-            starter.clone(),
-            log.clone(),
-        )),
+        Arc::new(
+            EvaluateRuns::new(
+                deps.tickets.clone(),
+                deps.comments.clone(),
+                deps.runs.clone(),
+                starter.clone(),
+                log.clone(),
+            )
+            .with_accounts(accounts.clone()),
+        ),
     );
     pass.set_step(
         PassPhase::ReleaseStale,
@@ -133,6 +168,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         pass: pass.clone(),
         candidates,
         starter: starter.clone(),
+        accounts: accounts.clone(),
         runs: deps.runs,
         boards: deps.boards,
         clock: deps.clock,
@@ -143,5 +179,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         service,
         pass,
         starter,
+        accounts,
+        pauses,
     }
 }

@@ -5,10 +5,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    AUTOPILOT_PREFIX, DispatchOutcome, DispatcherConfig, QuestionKey, Run, RunKind, SystemMarker,
-    TicketRecord, TicketStatus,
+    AUTOPILOT_PREFIX, DispatchOutcome, DispatcherConfig, Id, QuestionKey, Run, RunKind,
+    SystemMarker, TicketRecord, TicketStatus,
 };
 
+use super::accounts::AccountPicker;
 use super::log::{DispatchLog, LogLevel};
 use super::outcome::{Decision, decide, question_comment};
 use super::pass::{PassContext, PassReport, PassStep};
@@ -56,6 +57,7 @@ pub struct EvaluateRuns {
     starter: Arc<TicketStarter>,
     log: Arc<DispatchLog>,
     gate: Arc<dyn DoneGate>,
+    accounts: Option<Arc<AccountPicker>>,
 }
 
 impl std::fmt::Debug for EvaluateRuns {
@@ -86,6 +88,7 @@ impl EvaluateRuns {
             starter,
             log,
             gate: Arc::new(NoDoneGate),
+            accounts: None,
         }
     }
 
@@ -94,6 +97,21 @@ impl EvaluateRuns {
     pub fn with_gate(mut self, gate: Arc<dyn DoneGate>) -> Self {
         self.gate = gate;
         self
+    }
+
+    /// Has the usage at the end of each settled run recorded for the reserves.
+    #[must_use]
+    pub fn with_accounts(mut self, accounts: Arc<AccountPicker>) -> Self {
+        self.accounts = Some(accounts);
+        self
+    }
+
+    /// Keeps the usage of the account at the end of the run; repeating it changes nothing.
+    async fn record_end(&self, run: &Run) {
+        let account = run.dispatch().and_then(|dispatch| dispatch.account);
+        if let (Some(accounts), Some(account)) = (&self.accounts, account) {
+            accounts.record_end(run.id(), Id::from_uuid(account)).await;
+        }
     }
 
     async fn settle(
@@ -271,6 +289,7 @@ impl PassStep for EvaluateRuns {
                 Ok(Settled::Yes(outcome)) => {
                     match self.runs.settle_outcome(run.id(), outcome).await {
                         Ok(_) => {
+                            self.record_end(run).await;
                             self.log
                                 .write(
                                     LogLevel::Info,

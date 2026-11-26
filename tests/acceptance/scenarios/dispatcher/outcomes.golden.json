@@ -357,12 +357,12 @@
           {
             "createdAt": "<TIME>",
             "dispatch": {
-              "accountId": null,
+              "accountId": "<ID-7>",
               "configHash": "be69cf85d1a6fc2f",
               "kind": "work",
               "profile": {
                 "effort": "high",
-                "id": "<ID-7>",
+                "id": "<ID-8>",
                 "maxTurns": 80,
                 "model": "opus",
                 "name": "medium",
@@ -374,7 +374,7 @@
             "error": null,
             "exitCode": 0,
             "finishedAt": "<TIME>",
-            "id": "<ID-8>",
+            "id": "<ID-9>",
             "label": "work ARC-0001",
             "result": {
               "abort": null,
@@ -404,12 +404,12 @@
           {
             "createdAt": "<TIME>",
             "dispatch": {
-              "accountId": null,
+              "accountId": "<ID-7>",
               "configHash": "be69cf85d1a6fc2f",
               "kind": "work",
               "profile": {
                 "effort": "high",
-                "id": "<ID-7>",
+                "id": "<ID-8>",
                 "maxTurns": 80,
                 "model": "opus",
                 "name": "medium",
@@ -421,7 +421,7 @@
             "error": null,
             "exitCode": 0,
             "finishedAt": "<TIME>",
-            "id": "<ID-9>",
+            "id": "<ID-10>",
             "label": "work ARC-0002",
             "result": {
               "abort": null,
@@ -449,12 +449,12 @@
       "json": {
         "comments": [
           {
-            "authorId": "<ID-10>",
+            "authorId": "<ID-11>",
             "authorKind": "dispatcher",
             "authorName": "dispatcher",
-            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-login, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-login, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
             "createdAt": "<TIME>",
-            "id": "<ID-11>",
+            "id": "<ID-12>",
             "systemMarker": "start",
             "ticketKey": "ARC-0001"
           }
@@ -506,7 +506,7 @@
             "to": "10 characters"
           },
           {
-            "actorId": "<ID-10>",
+            "actorId": "<ID-11>",
             "actorName": "dispatcher",
             "at": "<TIME>",
             "field": "assignee",
@@ -515,7 +515,7 @@
             "to": "worker-ARC-0001"
           },
           {
-            "actorId": "<ID-10>",
+            "actorId": "<ID-11>",
             "actorName": "dispatcher",
             "at": "<TIME>",
             "field": "status",
@@ -524,7 +524,7 @@
             "to": "in-progress"
           },
           {
-            "actorId": "<ID-10>",
+            "actorId": "<ID-11>",
             "actorName": "dispatcher",
             "at": "<TIME>",
             "field": "branch",
@@ -533,7 +533,7 @@
             "to": "ticket/ARC-0001-build-the-login"
           },
           {
-            "actorId": "<ID-10>",
+            "actorId": "<ID-11>",
             "actorName": "dispatcher",
             "at": "<TIME>",
             "field": "worktree",
@@ -542,7 +542,7 @@
             "to": "<WORK>/arches-worktrees/ARC-0001"
           },
           {
-            "actorId": "<ID-12>",
+            "actorId": "<ID-13>",
             "actorName": "worker-ARC-0001",
             "at": "<TIME>",
             "field": "status",
@@ -568,7 +568,7 @@
           "description": "",
           "diagram": "",
           "handbook": "cargo test",
-          "id": "<ID-13>",
+          "id": "<ID-14>",
           "key": "ARC-0001",
           "labels": [
             "auto"
@@ -608,12 +608,12 @@
       "json": {
         "comments": [
           {
-            "authorId": "<ID-10>",
+            "authorId": "<ID-11>",
             "authorKind": "dispatcher",
             "authorName": "dispatcher",
-            "body": "[dispatch] start: handed to worker-ARC-0002. Branch ticket/ARC-0002-write-the-docs, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.",
+            "body": "[dispatch] start: handed to worker-ARC-0002. Branch ticket/ARC-0002-write-the-docs, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
             "createdAt": "<TIME>",
-            "id": "<ID-14>",
+            "id": "<ID-15>",
             "systemMarker": "start",
             "ticketKey": "ARC-0002"
           }
@@ -665,7 +665,7 @@
             "to": "10 characters"
           },
           {
-            "actorId": "<ID-10>",
+            "actorId": "<ID-11>",
             "actorName": "dispatcher",
             "at": "<TIME>",
             "field": "assignee",
@@ -674,7 +674,7 @@
             "to": "worker-ARC-0002"
           },
           {
-            "actorId": "<ID-10>",
+            "actorId": "<ID-11>",
             "actorName": "dispatcher",
             "at": "<TIME>",
             "field": "status",
@@ -683,7 +683,7 @@
             "to": "in-progress"
           },
           {
-            "actorId": "<ID-10>",
+            "actorId": "<ID-11>",
             "actorName": "dispatcher",
             "at": "<TIME>",
             "field": "branch",
@@ -692,7 +692,7 @@
             "to": "ticket/ARC-0002-write-the-docs"
           },
           {
-            "actorId": "<ID-10>",
+            "actorId": "<ID-11>",
             "actorName": "dispatcher",
             "at": "<TIME>",
             "field": "worktree",
@@ -701,7 +701,7 @@
             "to": "<WORK>/arches-worktrees/ARC-0002"
           },
           {
-            "actorId": "<ID-15>",
+            "actorId": "<ID-16>",
             "actorName": "worker-ARC-0002",
             "at": "<TIME>",
             "field": "status",
@@ -710,7 +710,7 @@
             "to": "blocked"
           },
           {
-            "actorId": "<ID-15>",
+            "actorId": "<ID-16>",
             "actorName": "worker-ARC-0002",
             "at": "<TIME>",
             "field": "blockedReason",
@@ -736,7 +736,7 @@
           "description": "",
           "diagram": "",
           "handbook": "cargo test",
-          "id": "<ID-16>",
+          "id": "<ID-17>",
           "key": "ARC-0002",
           "labels": [
             "auto"

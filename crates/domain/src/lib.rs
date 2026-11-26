@@ -45,9 +45,13 @@ pub use customization::{
     check_front_matter, overlay_content, overlay_state,
 };
 pub use dispatch_pass::{
-    DispatcherPhase, DispatcherState, DispatcherStateRecord, IdleReason, NotReady,
-    PROFILE_LABEL_PREFIX, ProfileChoice, ProfileReason, ReadinessFacts, RepositoryFact,
-    choose_profile, idle_reason, minutes_of_day, not_ready, phase, plan_estimate, plan_file_count,
+    ACCOUNT_LABEL_PREFIX, AccountChoice, AccountChoiceInput, AccountReserve, AccountState,
+    AllowedAccounts, DispatcherPhase, DispatcherState, DispatcherStateRecord, EstimatedReserve,
+    IdleReason, MAX_SAMPLES, MIN_SAMPLES, NotReady, PROFILE_LABEL_PREFIX, ProfileChoice,
+    ProfileReason, ReadinessFacts, RepositoryFact, ReserveFor, RunningWork, UsageSample,
+    UsageSnapshot, account_label, allowed_accounts, choose_account, choose_profile, clock_text,
+    estimate_reserve, idle_reason, minutes_of_day, not_ready, pending_reserve, phase,
+    plan_estimate, plan_file_count,
 };
 pub use dispatch_run::{
     Abort, AbortCategory, DeniedTool, DispatchOutcome, DispatchRun, ModelUsage, RunKind,
