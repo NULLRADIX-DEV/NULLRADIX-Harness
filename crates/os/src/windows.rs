@@ -1,6 +1,7 @@
 #![allow(unsafe_code, reason = "Win32 calls without a safe wrapper")]
 
 use std::ffi::{OsStr, OsString, c_void};
+use std::fs::File;
 use std::io;
 use std::iter;
 use std::os::windows::ffi::OsStrExt;
@@ -15,16 +16,18 @@ use windows_sys::Win32::Foundation::{
     LocalFree,
 };
 #[cfg(test)]
-use windows_sys::Win32::Security::Authorization::{
-    ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW,
-};
+use windows_sys::Win32::Security::Authorization::GetNamedSecurityInfoW;
 use windows_sys::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
-    SE_FILE_OBJECT, SetNamedSecurityInfoW,
+    SE_FILE_OBJECT, SetNamedSecurityInfoW, SetSecurityInfo,
 };
 use windows_sys::Win32::Security::Credentials::{
     CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree, CredReadW,
     CredWriteW,
+};
+#[cfg(test)]
+use windows_sys::Win32::Security::{
+    ACCESS_ALLOWED_ACE, GetAce, GetSecurityDescriptorControl, SE_DACL_PROTECTED,
 };
 use windows_sys::Win32::Security::{
     ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, GetTokenInformation,
@@ -351,6 +354,25 @@ fn path_wide(path: &Path) -> Vec<u16> {
         .collect()
 }
 
+/// The SID as text, such as `S-1-5-21-...`.
+fn sid_text(sid: PSID) -> io::Result<String> {
+    let mut raw: *mut u16 = ptr::null_mut();
+    // SAFETY: the caller passes a valid SID and raw is a valid out pointer.
+    if unsafe { ConvertSidToStringSidW(sid, &raw mut raw) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut length = 0;
+    // SAFETY: raw is NUL-terminated, so the scan stops inside the allocation.
+    while unsafe { *raw.add(length) } != 0 {
+        length += 1;
+    }
+    // SAFETY: the first `length` units were just read.
+    let text = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(raw, length) });
+    // SAFETY: raw was allocated by the conversion and is freed once.
+    unsafe { LocalFree(raw.cast::<c_void>()) };
+    Ok(text)
+}
+
 /// The user of this process: the SID in the token, which stays the same when run elevated.
 pub(crate) struct UserSid {
     // u64 units keep the TOKEN_USER structure aligned
@@ -400,21 +422,7 @@ impl UserSid {
             buffer,
             text: String::new(),
         };
-        let mut raw: *mut u16 = ptr::null_mut();
-        // SAFETY: the buffer holds a TOKEN_USER whose SID points into the same buffer.
-        let converted = unsafe { ConvertSidToStringSidW(sid.pointer(), &raw mut raw) };
-        if converted == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let mut length = 0;
-        // SAFETY: raw is NUL-terminated, so the scan stops inside the allocation.
-        while unsafe { *raw.add(length) } != 0 {
-            length += 1;
-        }
-        // SAFETY: the first `length` units were just read.
-        sid.text = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(raw, length) });
-        // SAFETY: raw was allocated by the conversion and is freed once.
-        unsafe { LocalFree(raw.cast::<c_void>()) };
+        sid.text = sid_text(sid.pointer())?;
         Ok(sid)
     }
 
@@ -431,6 +439,50 @@ impl UserSid {
 
 /// Makes the current user the owner and the only one with access to the file or folder.
 pub(crate) fn restrict_to_current_user(path: &Path) -> io::Result<()> {
+    let target = path_wide(path);
+    restrict_with(|owner, dacl| {
+        // SAFETY: target is NUL-terminated; owner and dacl outlive the call.
+        unsafe {
+            SetNamedSecurityInfoW(
+                target.as_ptr().cast_mut(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                owner,
+                ptr::null_mut(),
+                dacl,
+                ptr::null_mut(),
+            )
+        }
+    })
+}
+
+/// Access rights a handle needs for [`restrict_handle_to_current_user`].
+pub(crate) const RESTRICT_ACCESS: u32 = 0x4000_0000 | 0x0004_0000 | 0x0008_0000;
+
+/// Like [`restrict_to_current_user`] through an open handle, so no sharing is needed.
+pub(crate) fn restrict_handle_to_current_user(file: &File) -> io::Result<()> {
+    restrict_with(|owner, dacl| {
+        // SAFETY: the handle has write-DAC and write-owner rights; owner and dacl outlive the call.
+        unsafe {
+            SetSecurityInfo(
+                file.as_raw_handle(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                owner,
+                ptr::null_mut(),
+                dacl,
+                ptr::null_mut(),
+            )
+        }
+    })
+}
+
+/// Builds the owner-only DACL and hands the owner and the list to `apply`.
+fn restrict_with(apply: impl FnOnce(PSID, *const ACL) -> u32) -> io::Result<()> {
     let user = UserSid::current()?;
     let sddl = wide(&format!("D:P(A;OICI;FA;;;{})", user.text()));
     let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
@@ -461,21 +513,7 @@ pub(crate) fn restrict_to_current_user(path: &Path) -> io::Result<()> {
     let result = if found == 0 || present == 0 {
         Err(io::Error::last_os_error())
     } else {
-        let target = path_wide(path);
-        // SAFETY: target is NUL-terminated; descriptor and user outlive the call.
-        let status = unsafe {
-            SetNamedSecurityInfoW(
-                target.as_ptr().cast_mut(),
-                SE_FILE_OBJECT,
-                OWNER_SECURITY_INFORMATION
-                    | DACL_SECURITY_INFORMATION
-                    | PROTECTED_DACL_SECURITY_INFORMATION,
-                user.pointer(),
-                ptr::null_mut(),
-                dacl,
-                ptr::null_mut(),
-            )
-        };
+        let status = apply(user.pointer(), dacl);
         if status == 0 {
             Ok(())
         } else {
@@ -507,20 +545,30 @@ pub(crate) fn utc_offset_minutes() -> Option<i32> {
     Some(-bias)
 }
 
-/// Owner and access list of a file or folder in SDDL text, as `O:<sid>D:P(A;OICI;FA;;;<sid>)`.
+/// Owner, protection and allow entries (SID text and access mask) of a file or folder.
 #[cfg(test)]
-pub(crate) fn dacl_sddl(path: &Path) -> io::Result<String> {
+pub(crate) struct AclSummary {
+    pub(crate) owner: String,
+    pub(crate) protected: bool,
+    pub(crate) entries: u16,
+    pub(crate) allowed: Vec<(String, u32)>,
+}
+
+#[cfg(test)]
+pub(crate) fn acl_summary(path: &Path) -> io::Result<AclSummary> {
     let target = path_wide(path);
     let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
-    // SAFETY: target is NUL-terminated and descriptor is a valid out pointer.
+    let mut owner: PSID = ptr::null_mut();
+    let mut dacl: *mut ACL = ptr::null_mut();
+    // SAFETY: target is NUL-terminated and the out pointers are valid.
     let status = unsafe {
         GetNamedSecurityInfoW(
             target.as_ptr(),
             SE_FILE_OBJECT,
             OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &raw mut owner,
             ptr::null_mut(),
-            ptr::null_mut(),
-            ptr::null_mut(),
+            &raw mut dacl,
             ptr::null_mut(),
             &raw mut descriptor,
         )
@@ -530,37 +578,53 @@ pub(crate) fn dacl_sddl(path: &Path) -> io::Result<String> {
             i32::try_from(status).unwrap_or(i32::MAX),
         ));
     }
-    let mut text: *mut u16 = ptr::null_mut();
-    // SAFETY: descriptor was filled in above and text is a valid out pointer.
-    let converted = unsafe {
-        ConvertSecurityDescriptorToStringSecurityDescriptorW(
-            descriptor,
-            SDDL_REVISION_1,
-            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-            &raw mut text,
-            ptr::null_mut(),
-        )
-    };
-    let result = if converted == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        let mut length = 0;
-        // SAFETY: text is NUL-terminated, so the scan stops inside the allocation.
-        while unsafe { *text.add(length) } != 0 {
-            length += 1;
-        }
-        // SAFETY: the first `length` units were just read.
-        let units = unsafe { std::slice::from_raw_parts(text, length) };
-        Ok(String::from_utf16_lossy(units))
-    };
-    // SAFETY: both buffers were allocated by the calls above and are freed once.
-    unsafe {
-        if !text.is_null() {
-            LocalFree(text.cast::<c_void>());
-        }
-        LocalFree(descriptor);
+    let summary = read_summary(descriptor, owner, dacl);
+    // SAFETY: descriptor was allocated by the call above and is freed once.
+    unsafe { LocalFree(descriptor) };
+    summary
+}
+
+#[cfg(test)]
+fn read_summary(
+    descriptor: PSECURITY_DESCRIPTOR,
+    owner: PSID,
+    dacl: *mut ACL,
+) -> io::Result<AclSummary> {
+    let mut control = 0;
+    let mut revision = 0;
+    // SAFETY: descriptor is valid and the out pointers are valid.
+    if unsafe { GetSecurityDescriptorControl(descriptor, &raw mut control, &raw mut revision) } == 0
+    {
+        return Err(io::Error::last_os_error());
     }
-    result
+    if dacl.is_null() {
+        return Err(io::Error::other("no access list"));
+    }
+    // SAFETY: dacl points into the descriptor, which is still allocated.
+    let entries = unsafe { (*dacl).AceCount };
+    let mut allowed = Vec::new();
+    for index in 0..u32::from(entries) {
+        let mut ace: *mut c_void = ptr::null_mut();
+        // SAFETY: index is below the entry count and ace is a valid out pointer.
+        if unsafe { GetAce(dacl, index, &raw mut ace) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let ace = ace.cast::<ACCESS_ALLOWED_ACE>();
+        // SAFETY: GetAce returned an entry inside the list; type 0 is an allow entry.
+        if unsafe { (*ace).Header.AceType } == 0 {
+            // SAFETY: an allow entry stores its SID from SidStart on.
+            let sid = unsafe { (&raw mut (*ace).SidStart).cast::<c_void>() };
+            // SAFETY: as above.
+            let mask = unsafe { (*ace).Mask };
+            allowed.push((sid_text(sid)?, mask));
+        }
+    }
+    Ok(AclSummary {
+        owner: sid_text(owner)?,
+        protected: control & SE_DACL_PROTECTED != 0,
+        entries,
+        allowed,
+    })
 }
 
 #[cfg(test)]

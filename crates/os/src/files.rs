@@ -1,38 +1,57 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
 const RENAME_ATTEMPTS: u32 = 10;
 const RENAME_PAUSE: Duration = Duration::from_millis(50);
 
+static SERIAL: AtomicU64 = AtomicU64::new(0);
+
 /// Replaces `path` with `bytes` in one rename, so readers never see a partial file.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     replace(path, bytes, false)
 }
 
-/// Like [`write_atomic`], and on Unix the file is readable by its owner only from the start.
+/// Like [`write_atomic`], and the file is readable by its owner only from the start.
 pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     replace(path, bytes, true)
 }
 
 fn create(path: &Path, private: bool) -> io::Result<File> {
     let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    // create_new refuses a pre-created file or link instead of reusing it
+    options.write(true).create_new(true);
     #[cfg(unix)]
     if private {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    #[cfg(not(unix))]
-    let _ = private;
-    let file = options.open(path)?;
     #[cfg(windows)]
     if private {
-        crate::windows::restrict_to_current_user(path)?;
+        use std::os::windows::fs::OpenOptionsExt;
+        // no sharing, so nobody reads the file before its access list is set
+        options
+            .share_mode(0)
+            .access_mode(crate::windows::RESTRICT_ACCESS);
     }
-    Ok(file)
+    #[cfg(not(any(unix, windows)))]
+    let _ = private;
+    options.open(path)
+}
+
+/// Fills the staging file and closes it; the handle is held until the access list is set.
+fn fill(mut file: File, bytes: &[u8], private: bool) -> io::Result<()> {
+    #[cfg(windows)]
+    if private {
+        crate::windows::restrict_handle_to_current_user(&file)?;
+    }
+    #[cfg(not(windows))]
+    let _ = private;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 /// Creates `dir` for its owner only: mode 0700, or an owner-only access list on Windows.
@@ -53,26 +72,34 @@ pub fn create_private_dir(dir: &Path) -> io::Result<()> {
     }
 }
 
+/// A staging name of its own per call, so writers of one path never meet.
+fn staging_for(path: &Path) -> PathBuf {
+    let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+    path.with_extension(format!("{}-{serial}.tmp", std::process::id()))
+}
+
 fn replace(path: &Path, bytes: &[u8], private: bool) -> io::Result<()> {
-    let staging = path.with_extension(format!("{}.tmp", std::process::id()));
-    if private {
-        // a leftover from a dead process may carry looser permissions
-        let _ = fs::remove_file(&staging);
+    replace_via(path, &staging_for(path), bytes, private)
+}
+
+fn replace_via(path: &Path, staging: &Path, bytes: &[u8], private: bool) -> io::Result<()> {
+    // a leftover of a dead process with the same pid would block create_new for good
+    let _ = fs::remove_file(staging);
+    let file = create(staging, private)?;
+    if let Err(error) = fill(file, bytes, private) {
+        let _ = fs::remove_file(staging);
+        return Err(error);
     }
-    let mut file = create(&staging, private)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
     let mut attempt = 1;
     loop {
-        match fs::rename(&staging, path) {
+        match fs::rename(staging, path) {
             Ok(()) => return Ok(()),
             Err(error) if attempt < RENAME_ATTEMPTS && transient(&error) => {
                 attempt += 1;
                 thread::sleep(RENAME_PAUSE);
             }
             Err(error) => {
-                let _ = fs::remove_file(&staging);
+                let _ = fs::remove_file(staging);
                 return Err(error);
             }
         }
@@ -98,6 +125,91 @@ mod tests {
         write_atomic(&path, b"first").unwrap();
         write_atomic(&path, b"second").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_private_file_has_an_owner_only_protected_acl() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cli-token");
+        write_private(&path, b"one").unwrap();
+        write_private(&path, b"two").unwrap();
+        let user = crate::windows::UserSid::current().unwrap();
+        let acl = crate::windows::acl_summary(&path).unwrap();
+        // owned by the user, protected from inheritance, one entry: full access for that SID
+        assert_eq!(acl.owner, user.text());
+        assert!(acl.protected);
+        assert_eq!(acl.entries, 1);
+        assert_eq!(acl.allowed, [(user.text().to_owned(), 0x001F_01FF)]);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "two");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_file_is_readable_by_its_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cli-token");
+        write_private(&path, b"one").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn a_pre_existing_staging_path_fails_the_write_and_stays_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cli-token");
+        let staging = path.with_extension("planted.tmp");
+        // a folder cannot be removed as a leftover file, so create_new meets it
+        fs::create_dir(&staging).unwrap();
+        fs::write(staging.join("keep"), b"theirs").unwrap();
+        assert!(replace_via(&path, &staging, b"secret", true).is_err());
+        assert!(replace_via(&path, &staging, b"secret", false).is_err());
+        assert!(!path.exists());
+        assert_eq!(fs::read(staging.join("keep")).unwrap(), b"theirs");
+        assert_eq!(fs::read_dir(&staging).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_leftover_staging_file_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cancel");
+        let staging = path.with_extension("left.tmp");
+        fs::write(&staging, b"old").unwrap();
+        replace_via(&path, &staging, b"new", false).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        assert!(!staging.exists());
+    }
+
+    #[test]
+    fn writers_of_one_path_do_not_meet() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cancel");
+        let writers: Vec<_> = (0..4)
+            .map(|_| {
+                let path = path.clone();
+                thread::spawn(move || {
+                    for _ in 0..25 {
+                        write_atomic(&path, b"stop").unwrap();
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        assert_eq!(fs::read(&path).unwrap(), b"stop");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_failed_write_leaves_no_staging_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("target");
+        // a folder at the target makes the rename fail after the staging file was written
+        fs::create_dir(&path).unwrap();
+        assert!(write_private(&path, b"secret").is_err());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
