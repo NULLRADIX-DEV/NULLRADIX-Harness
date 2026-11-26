@@ -20,6 +20,7 @@ function job(overrides: Partial<MergeJob> = {}): MergeJob {
     targetBranch: 'main',
     strategy: 'merge',
     conflictSeen: false,
+    conflictSessions: 0,
     problem: 'changes are staged',
     queuedAt: 1_000,
     version: 1,
@@ -78,6 +79,31 @@ describe('ticket Merges tab', () => {
     const merges = await openMerges();
     await userEvent.click(await merges.findByRole('button', { name: 'Retry merge' }));
     expect(await merges.findByRole('alert')).toHaveTextContent(DETAIL);
+  });
+
+  it('numbers a merge session after the first and says a conflict waits for one', async () => {
+    const server = serve([
+      job({
+        id: '0190a0b0-0000-7000-8000-0000000000b2',
+        phase: 'conflict-session',
+        conflictSessions: 2,
+        problem: 'merge conflict in a.rs',
+      }),
+      job({
+        id: '0190a0b0-0000-7000-8000-0000000000b3',
+        phase: 'waiting',
+        conflictSeen: true,
+        problem: 'merge conflict in b.rs',
+      }),
+    ]);
+    renderApp('/board');
+    const merges = await openMerges();
+    expect(await merges.findByText('Merge session 2')).toBeInTheDocument();
+    expect(merges.getByText('Waiting')).toBeInTheDocument();
+    expect(
+      merges.getByText('A merge session starts when the dispatcher may start one.'),
+    ).toBeInTheDocument();
+    expect(server.api.requests(`GET ${BASE}/merges`).length).toBeGreaterThan(0);
   });
 
   it('offers a retry only for a done or merge-blocked ticket with a branch', () => {

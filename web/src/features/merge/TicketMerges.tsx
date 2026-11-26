@@ -18,12 +18,19 @@ function JobLine({ job }: { job: MergeJob }) {
     job.phase === 'merged' && job.mergedInto && job.mergedCommit
       ? ` into ${job.mergedInto} (${job.mergedCommit.slice(0, 7)})`
       : ` into ${target}`;
+  const phase =
+    job.phase === 'conflict-session' && job.conflictSessions > 1
+      ? `${PHASES[job.phase]} ${String(job.conflictSessions)}`
+      : PHASES[job.phase];
   return (
     <li className="merge-job">
-      <span className="badge">{PHASES[job.phase]}</span> <span className="mono">{job.branch}</span>
+      <span className="badge">{phase}</span> <span className="mono">{job.branch}</span>
       {result}
       <span className="muted">{` / ${new Date(job.queuedAt).toLocaleString()}`}</span>
       {job.problem && <p className="muted">{job.problem}</p>}
+      {job.phase === 'waiting' && job.conflictSeen && (
+        <p className="muted">A merge session starts when the dispatcher may start one.</p>
+      )}
     </li>
   );
 }

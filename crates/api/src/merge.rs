@@ -47,6 +47,8 @@ pub struct MergeJobDto {
     pub strategy: crate::MergeStrategyDto,
     /// A merge conflict was found and undone.
     pub conflict_seen: bool,
+    /// Merge sessions started for the conflict; autopilot starts up to its limit.
+    pub conflict_sessions: u32,
     /// Why the merge failed, the files it conflicts in, or what it waits for.
     pub problem: Option<String>,
     pub merged_into: Option<String>,
@@ -67,6 +69,7 @@ impl From<StoredMergeJob> for MergeJobDto {
             target_branch: record.target_branch.clone(),
             strategy: record.strategy.into(),
             conflict_seen: record.conflict_seen,
+            conflict_sessions: record.conflict_sessions,
             problem: record.problem.clone(),
             merged_into: record.merged_into.clone(),
             merged_commit: record.merged_commit.clone(),

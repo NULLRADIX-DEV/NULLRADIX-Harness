@@ -2712,6 +2712,11 @@ export interface components {
             branch: string;
             /** @description A merge conflict was found and undone. */
             conflictSeen: boolean;
+            /**
+             * Format: int32
+             * @description Merge sessions started for the conflict; autopilot starts up to its limit.
+             */
+            conflictSessions: number;
             /** Format: int64 */
             finishedAt?: number | null;
             /** Format: uuid */
