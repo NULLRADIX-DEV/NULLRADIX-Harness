@@ -1,13 +1,15 @@
 import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PROJECT_ID } from '../../test/boardServer';
 import { fakeApi, json, problem } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
+import type { Run } from '../runs/queries';
 import type { Question, QuestionDetail } from './queries';
 
 const LIST = `/api/v1/projects/${PROJECT_ID}/questions`;
 const DETAIL = '/api/v1/questions/ARC-Q0001';
+const RUNS = '/api/v1/runs';
 
 function question(overrides: Partial<Question> = {}): Question {
   return {
@@ -67,8 +69,20 @@ function detail(overrides: Partial<Question> = {}): QuestionDetail {
   };
 }
 
-function server(found: QuestionDetail = detail()) {
+function researchRun(overrides: Partial<Run> = {}): Run {
+  return {
+    id: '0190a0b0-0000-7000-8000-00000000a001',
+    label: 'research ARC-Q0001',
+    status: 'running',
+    createdAt: 1,
+    version: 1,
+    ...overrides,
+  };
+}
+
+function server(found: QuestionDetail = detail(), runs: Run[] = []) {
   return fakeApi({
+    [`GET ${RUNS}`]: () => json(200, { items: runs }),
     'GET /api/v1/projects': () =>
       json(200, {
         items: [
@@ -225,5 +239,77 @@ describe('QuestionsPage', () => {
     await userEvent.click(panel.getByRole('button', { name: 'Answer: O2' }));
 
     expect(await panel.findByRole('alert')).toHaveTextContent('kept for the dispatcher. Write it');
+  });
+  it('starts a research and refuses a second one while it runs', async () => {
+    let runs: Run[] = [];
+    const api = server();
+    api.set(`GET ${RUNS}`, () => json(200, { items: runs }));
+    api.set(`POST ${DETAIL}/research-runs`, () => {
+      runs = [researchRun()];
+      return json(202, runs[0]);
+    });
+    renderApp('/questions?question=ARC-Q0001');
+
+    const panel = within(await screen.findByRole('article', { name: 'Question ARC-Q0001' }));
+    const button = await panel.findByRole('button', { name: 'Research' });
+    await vi.waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+    expect(api.requests(`GET ${RUNS}`)[0]?.url).toContain('questionKey=ARC-Q0001');
+    expect(api.requests(`GET ${RUNS}`)[0]?.url).toContain('kind=research');
+    await userEvent.click(button);
+
+    expect(await panel.findByRole('button', { name: 'Researching...' })).toBeDisabled();
+    expect(api.requests(`POST ${DETAIL}/research-runs`)).toHaveLength(1);
+  });
+
+  it('waits while a finished research is not settled', async () => {
+    const unsettled = researchRun({ status: 'succeeded', result: { outcome: null } });
+    server(detail(), [unsettled]);
+    renderApp('/questions?question=ARC-Q0001');
+
+    const panel = within(await screen.findByRole('article', { name: 'Question ARC-Q0001' }));
+    expect(await panel.findByRole('button', { name: 'Researching...' })).toBeDisabled();
+  });
+
+  it('offers the research again once the run is settled', async () => {
+    const settled = researchRun({ status: 'succeeded', result: { outcome: 'research' } });
+    server(detail(), [settled]);
+    renderApp('/questions?question=ARC-Q0001');
+
+    const panel = within(await screen.findByRole('article', { name: 'Question ARC-Q0001' }));
+    const button = await panel.findByRole('button', { name: 'Research' });
+    await vi.waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+  });
+
+  it('says why a research could not start', async () => {
+    const api = server();
+    api.set(`POST ${DETAIL}/research-runs`, () =>
+      problem(422, 'board-repo-missing', 'no board with a repository'),
+    );
+    renderApp('/questions?question=ARC-Q0001');
+
+    const panel = within(await screen.findByRole('article', { name: 'Question ARC-Q0001' }));
+    const button = await panel.findByRole('button', { name: 'Research' });
+    await vi.waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+    await userEvent.click(button);
+
+    expect(await panel.findByRole('alert')).toHaveTextContent(
+      'Link the question to a ticket of a board with a repository',
+    );
+    expect(button).toBeEnabled();
+  });
+
+  it('offers no research on a decided question', async () => {
+    server(detail({ state: 'answered', ready: false }));
+    renderApp('/questions?question=ARC-Q0001');
+
+    const panel = within(await screen.findByRole('article', { name: 'Question ARC-Q0001' }));
+    await panel.findByRole('button', { name: 'Reopen' });
+    expect(panel.queryByRole('button', { name: /Research/ })).not.toBeInTheDocument();
   });
 });

@@ -20,6 +20,10 @@ use nullradix_app::dispatch::accounts::{
     PickMode, UsageSampleRepository,
 };
 use nullradix_app::dispatch::assemble::{Dispatcher, DispatcherDeps, assemble};
+use nullradix_app::dispatch::detached::{
+    DetachedCreate, DetachedCreated, DetachedPurpose, DetachedRemove, DetachedRemoved,
+    DetachedWorktreePort, detached_path,
+};
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
 use nullradix_app::dispatch::pause::{NoPauseHook, PauseHook, PauseKind};
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
@@ -74,7 +78,8 @@ const ROOT: &str = if cfg!(windows) {
     "/work/arches"
 };
 
-struct FakeClock(AtomicI64);
+/// The moment, and the offset of the local time from UTC in minutes.
+struct FakeClock(AtomicI64, std::sync::atomic::AtomicI32);
 
 impl Clock for FakeClock {
     fn now(&self) -> Timestamp {
@@ -85,7 +90,7 @@ impl Clock for FakeClock {
 #[async_trait]
 impl LocalTime for FakeClock {
     async fn minute_of_day(&self, at: Timestamp) -> u32 {
-        minute_with_offset(at, 0)
+        minute_with_offset(at, self.1.load(Ordering::SeqCst))
     }
 }
 
@@ -280,6 +285,51 @@ impl RunFilesPort for Machine {
         _file: &str,
     ) -> Result<Option<Vec<u8>>, AppError> {
         Ok(None)
+    }
+}
+
+/// Detached worktrees the test sees: created folders exist until removed.
+#[derive(Default)]
+struct Detached {
+    folders: Mutex<HashSet<String>>,
+    created: Mutex<Vec<DetachedCreate>>,
+    removed: Mutex<Vec<String>>,
+    busy: std::sync::atomic::AtomicBool,
+    keep: std::sync::atomic::AtomicBool,
+    fail_create: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl DetachedWorktreePort for Detached {
+    async fn create(&self, request: &DetachedCreate) -> Result<DetachedCreated, AppError> {
+        if self.fail_create.load(Ordering::SeqCst) {
+            return Err(AppError::invalid("git-failed", "git is broken"));
+        }
+        let path = detached_path(&request.root, request.purpose, &request.subject);
+        if self.busy.load(Ordering::SeqCst) {
+            return Ok(DetachedCreated::Busy { path });
+        }
+        self.created.lock().unwrap().push(request.clone());
+        self.folders.lock().unwrap().insert(path.clone());
+        Ok(DetachedCreated::Created {
+            path,
+            long_paths_enabled: false,
+        })
+    }
+
+    async fn remove(&self, request: &DetachedRemove) -> Result<DetachedRemoved, AppError> {
+        if self.keep.load(Ordering::SeqCst) {
+            return Ok(DetachedRemoved::Kept(String::from("a file is locked")));
+        }
+        self.folders.lock().unwrap().remove(&request.path);
+        self.removed.lock().unwrap().push(request.path.clone());
+        Ok(DetachedRemoved::Removed)
+    }
+
+    async fn list(&self, _root: &str, _purpose: DetachedPurpose) -> Result<Vec<String>, AppError> {
+        let mut folders: Vec<String> = self.folders.lock().unwrap().iter().cloned().collect();
+        folders.sort();
+        Ok(folders)
     }
 }
 
@@ -544,6 +594,7 @@ struct Fixture {
     clock: Arc<FakeClock>,
     machine: Arc<Machine>,
     setup: Arc<ScriptedSetup>,
+    detached: Arc<Detached>,
     dispatcher: Dispatcher,
     accounts: Arc<AccountService>,
     limits: Arc<FakeLimits>,
@@ -563,10 +614,14 @@ struct Fixture {
 async fn fixture() -> Fixture {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let signal = ChangeSignal::new();
-    let clock = Arc::new(FakeClock(AtomicI64::new(START)));
+    let clock = Arc::new(FakeClock(
+        AtomicI64::new(START),
+        std::sync::atomic::AtomicI32::new(0),
+    ));
     let ids = Arc::new(UuidV7Generator);
     let machine = Arc::new(Machine::default());
     let setup = Arc::new(ScriptedSetup::default());
+    let detached = Arc::new(Detached::default());
     let runners = Arc::new(
         RunnerService::start(
             store.clone(),
@@ -713,6 +768,9 @@ async fn fixture() -> Fixture {
         pauses: pauses.clone(),
         samples: store.clone(),
         setup: setup.clone(),
+        detached: detached.clone(),
+        tracking: store.clone(),
+        questions: questions.clone(),
         actors: store.clone(),
         boards: store.clone(),
         runners,
@@ -736,6 +794,7 @@ async fn fixture() -> Fixture {
         clock,
         machine,
         setup,
+        detached,
         dispatcher,
         accounts,
         limits,
@@ -3919,6 +3978,549 @@ impl Fixture {
     }
 }
 
+// ---- research ----
+
+const AGENT_Q1: &str = "research-ARC-Q0001";
+
+impl Fixture {
+    async fn open_question(&self, title: &str) -> String {
+        let input = NewQuestion {
+            title: title.to_owned(),
+            ..NewQuestion::default()
+        };
+        self.questions
+            .create(
+                self.board.project(),
+                &input,
+                Author::default(),
+                &self.person,
+            )
+            .await
+            .unwrap()
+            .view
+            .row
+            .question
+            .record()
+            .key
+            .to_string()
+    }
+
+    async fn research_runs(&self, key: &str) -> Vec<Run> {
+        let filter = RunFilter {
+            subject_key: Some(key.to_owned()),
+            kind: Some(nullradix_domain::RunKind::Research),
+            ..RunFilter::default()
+        };
+        nullradix_app::runs::RunRepository::find(self.store.as_ref(), &filter, 20)
+            .await
+            .unwrap()
+    }
+
+    /// The research agent saves its result with `research submit`.
+    async fn submit_research(&self, key: &str, agent: &str, recommended: bool) {
+        let option = |title: &str, recommended| nullradix_domain::OptionDraft {
+            title: title.to_owned(),
+            text: String::from("Do this."),
+            recommended,
+            ..nullradix_domain::OptionDraft::default()
+        };
+        let input = nullradix_app::questions::NewResearch {
+            context: Some(String::from("Today the code does X.")),
+            options: vec![option("Keep", recommended), option("Change", false)],
+        };
+        let author = Author {
+            by_person: false,
+            name: Some(agent),
+            session: Some("s-research"),
+        };
+        self.questions
+            .add_research(key, &input, author, &self.person)
+            .await
+            .unwrap();
+    }
+
+    async fn tracked(&self, key: &str) -> Option<nullradix_app::dispatch::tracking::Tracked> {
+        use nullradix_app::dispatch::tracking::{AutoRunRepository, TrackKind};
+        let detail = self.questions.get(key).await.unwrap();
+        let id = detail.view.row.question.record().id.as_uuid();
+        AutoRunRepository::get(self.store.as_ref(), TrackKind::Research, id)
+            .await
+            .unwrap()
+    }
+
+    async fn error_code(&self, key: &str) -> &'static str {
+        self.dispatcher
+            .service
+            .start_research(key)
+            .await
+            .unwrap_err()
+            .code()
+    }
+
+    async fn other_project_question(&self) {
+        let projects = nullradix_app::projects::ProjectService::new(
+            self.store.clone(),
+            self.clock.clone(),
+            Arc::new(nullradix_app::UuidV7Generator),
+            ChangeSignal::new(),
+        );
+        let other = projects.create("OTH", "Others").await.unwrap();
+        let input = NewQuestion {
+            title: String::from("Where?"),
+            ..NewQuestion::default()
+        };
+        self.questions
+            .create(other.id(), &input, Author::default(), &self.person)
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_person_starts_the_research_of_an_open_question_in_a_detached_worktree() {
+    let f = fixture().await;
+    // by hand it runs whatever the switch says, and it takes no place of the ticket limit
+    let key = f.open_question("Which database?").await;
+    assert_eq!(key, "ARC-Q0001");
+    let run = f.dispatcher.service.start_research("arc-q1").await.unwrap();
+    let dispatch = run.dispatch().unwrap();
+    assert_eq!(dispatch.kind, nullradix_domain::RunKind::Research);
+    assert_eq!(dispatch.trigger, nullradix_domain::RunTrigger::Manual);
+    assert_eq!(dispatch.subject_key.as_deref(), Some("ARC-Q0001"));
+    assert_eq!(dispatch.agent.as_deref(), Some(AGENT_Q1));
+    let folder = format!("{ROOT}-worktrees/research-ARC-Q0001");
+    assert_eq!(dispatch.cwd.replace('\\', "/"), folder);
+    let created = f.detached.created.lock().unwrap().clone();
+    assert_eq!(created.len(), 1);
+    assert_eq!(created[0].root, ROOT);
+    assert_eq!(created[0].at, "HEAD");
+    assert_eq!(created[0].purpose, DetachedPurpose::Research);
+    let spec = f.machine.specs.lock().unwrap()[0].clone();
+    let prompt = spec.stdin.unwrap();
+    assert!(prompt.contains("ARC-Q0001") && prompt.contains("Which database?"));
+    assert!(prompt.contains(AGENT_Q1));
+    let at = |flag: &str| spec.args.iter().position(|arg| arg == flag).unwrap();
+    assert!(at("--disallowedTools") < at("--allowedTools"));
+    assert!(spec.args.iter().any(|arg| arg == "Write(./research.json)"));
+    assert!(!spec.args.iter().any(|arg| arg == "Bash(*)"));
+    assert!(spec.env.remove.contains(&String::from("NULLRADIX_TICKET")));
+    let tracked = f.tracked(&key).await.unwrap();
+    assert_eq!(tracked.count, 1);
+    assert_eq!(tracked.auto_at, None);
+    // it does not count for the limit of tickets
+    let status = f.dispatcher.service.status(None).await.unwrap();
+    assert_eq!(status.active, 0);
+}
+
+#[tokio::test]
+async fn a_research_is_refused_for_the_reasons_legacy_gave() {
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    assert_eq!(f.error_code("ARC-Q0099").await, "question-not-found");
+    assert_eq!(f.error_code("ARC-0001").await, "question-id-invalid");
+    // a question of a project without a board with a repository
+    f.other_project_question().await;
+    assert_eq!(f.error_code("OTH-Q0001").await, "board-repo-missing");
+    // a decided question
+    let decided = f.open_question("Decided").await;
+    let answer = nullradix_app::questions::Answer {
+        text: Some(String::from("Yes")),
+        ..nullradix_app::questions::Answer::default()
+    };
+    f.questions
+        .answer(&decided, &answer, Author::default(), &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(f.error_code(&decided).await, "question-not-open");
+    // a folder in the way stays and the start fails
+    f.detached.busy.store(true, Ordering::SeqCst);
+    assert_eq!(f.error_code(&key).await, "research-worktree-busy");
+    f.detached.busy.store(false, Ordering::SeqCst);
+    assert!(f.machine.specs.lock().unwrap().is_empty());
+    // a pause holds it back
+    f.dispatcher
+        .service
+        .pause(nullradix_app::dispatch::control::PauseFor::Minutes(30))
+        .await
+        .unwrap();
+    assert_eq!(f.error_code(&key).await, "dispatch-paused");
+    f.dispatcher.service.resume().await.unwrap();
+    // a second start of a question that is being researched
+    f.dispatcher.service.start_research(&key).await.unwrap();
+    assert_eq!(f.error_code(&key).await, "research-running");
+    assert_eq!(f.research_runs(&key).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_failed_start_removes_its_worktree_again() {
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    f.machine.fail_start.store(true, Ordering::SeqCst);
+    assert_eq!(f.error_code(&key).await, "claude-missing");
+    let removed = f.detached.removed.lock().unwrap().clone();
+    assert_eq!(removed, [format!("{ROOT}-worktrees/research-ARC-Q0001")]);
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    assert_eq!(f.tracked(&key).await, None);
+}
+
+#[tokio::test]
+async fn two_starts_of_one_question_make_one_run() {
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    let gate = Arc::new(Notify::new());
+    *f.machine.hold_start.lock().unwrap() = Some(gate.clone());
+    let first = {
+        let service = f.dispatcher.service.clone();
+        let key = key.clone();
+        tokio::spawn(async move { service.start_research(&key).await })
+    };
+    f.machine.start_entered.notified().await;
+    let second = {
+        let service = f.dispatcher.service.clone();
+        let key = key.clone();
+        tokio::spawn(async move { service.start_research(&key).await })
+    };
+    tokio::task::yield_now().await;
+    gate.notify_one();
+    let first = first.await.unwrap();
+    let second = second.await.unwrap();
+    assert!(first.is_ok(), "{first:?}");
+    assert_eq!(second.unwrap_err().code(), "research-running");
+    assert_eq!(f.research_runs(&key).await.len(), 1);
+    assert_eq!(f.detached.created.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_stored_research_settles_the_run_and_removes_the_worktree() {
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    f.dispatcher.service.start_research(&key).await.unwrap();
+    f.submit_research(&key, AGENT_Q1, false).await;
+    let run = f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(
+        f.outcome(run).await,
+        Some(DispatchOutcome::Research),
+        "{report:?}"
+    );
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    let detail = f.questions.get(&key).await.unwrap();
+    assert_eq!(detail.research.len(), 1);
+    assert_eq!(detail.research[0].options.len(), 2);
+    assert!(detail.comments.is_empty());
+}
+
+#[tokio::test]
+async fn a_run_that_leaves_no_research_comments_the_question_once() {
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    f.dispatcher.service.start_research(&key).await.unwrap();
+    // a research of someone else in the meantime is not the agent's
+    f.submit_research(&key, "someone-else", false).await;
+    let abort = abort_of(AbortCategory::Timeout, TIMEOUT_REASON);
+    let run = f
+        .end_run(&key, RunOutcome::TimedOut, None, Some(abort))
+        .await;
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Other));
+    let detail = f.questions.get(&key).await.unwrap();
+    assert_eq!(detail.comments.len(), 1);
+    let comment = detail.comments[0].comment.record();
+    assert_eq!(comment.system_marker, Some(SystemMarker::ResearchEmpty));
+    assert_eq!(comment.run, Some(run));
+    assert_eq!(detail.comments[0].author_kind, ActorKind::Dispatcher);
+    let body = comment.body.as_str();
+    assert!(
+        body.starts_with("[dispatch] research-empty: time limit of 90 min reached, run stopped."),
+        "{body}"
+    );
+    let record = detail.view.row.question.record();
+    assert_eq!(record.state, nullradix_domain::QuestionState::Open);
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_usage_limit_in_a_research_pauses_the_dispatcher_and_leaves_the_question_to_start_again()
+{
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    f.dispatcher.service.start_research(&key).await.unwrap();
+    let run = f
+        .end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+        .await;
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::PauseLimit));
+    assert_eq!(
+        f.paused_until().await.map(Timestamp::as_millis),
+        Some(START + 60 * MINUTE)
+    );
+    let detail = f.questions.get(&key).await.unwrap();
+    assert_eq!(detail.comments.len(), 1);
+    let comment = detail.comments[0].comment.record();
+    assert_eq!(comment.system_marker, Some(SystemMarker::ResearchEmpty));
+    let body = comment.body.as_str();
+    assert!(
+        body.starts_with("[dispatch] research-empty: usage limit reached, research not stored."),
+        "{body}"
+    );
+    assert!(
+        body.contains("Start the research again afterwards."),
+        "{body}"
+    );
+    assert_eq!(f.notice_kinds(), [NoticeKind::Paused]);
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    // the pause starts nothing new
+    assert_eq!(f.research_runs(&key).await.len(), 1);
+}
+
+#[tokio::test]
+async fn missing_claude_in_a_research_pauses_the_dispatcher() {
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    f.dispatcher.service.start_research(&key).await.unwrap();
+    let missing = abort_of(
+        AbortCategory::StartFailed,
+        "claude could not be started: not found",
+    );
+    let run = f
+        .end_run(&key, RunOutcome::Failed, Some(127), Some(missing))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(
+        f.outcome(run).await,
+        Some(DispatchOutcome::PauseClaudeMissing)
+    );
+    assert_eq!(
+        f.paused_until().await.map(Timestamp::as_millis),
+        Some(START + 60 * MINUTE)
+    );
+    let detail = f.questions.get(&key).await.unwrap();
+    assert_eq!(detail.comments.len(), 1);
+    let body = detail.comments[0].comment.record().body.as_str();
+    assert!(
+        body.contains("Claude Code was not found (command \"claude\")"),
+        "{body}"
+    );
+    assert_eq!(f.notice_kinds(), [NoticeKind::Paused]);
+}
+
+#[tokio::test]
+async fn a_worktree_that_stays_is_removed_by_a_later_pass_but_not_while_its_run_lives() {
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    f.dispatcher.service.start_research(&key).await.unwrap();
+    let folder = format!("{ROOT}-worktrees/research-ARC-Q0001");
+    // the run is alive: the folder is not an orphan
+    f.dispatcher.pass.run().await;
+    assert!(f.detached.folders.lock().unwrap().contains(&folder));
+    f.detached.keep.store(true, Ordering::SeqCst);
+    let run = f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Other));
+    assert!(f.detached.folders.lock().unwrap().contains(&folder));
+    f.detached.keep.store(false, Ordering::SeqCst);
+    f.dispatcher.pass.run().await;
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    // a new research of the question may start again
+    assert!(f.dispatcher.service.start_research(&key).await.is_ok());
+}
+
+impl Fixture {
+    async fn auto_research(&self, max_per_day: i64, wip: i64) {
+        self.configure(|config| {
+            config.research.auto = true;
+            config.research.max_per_day = max_per_day;
+            config.research.wip = wip;
+        })
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn the_automation_takes_up_only_questions_that_came_after_it_was_switched_on() {
+    let f = fixture().await;
+    let old = f.open_question("Old").await;
+    f.advance(1);
+    f.auto_research(5, 5).await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.research.is_empty(), "{report:?}");
+    f.advance(1);
+    let fresh = f.open_question("Fresh").await;
+    // the dispatcher is off: the automation does not need the switch
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [fresh.clone()], "{report:?}");
+    assert!(f.research_runs(&old).await.is_empty());
+    let tracked = f.tracked(&fresh).await.unwrap();
+    assert_eq!(tracked.count, 1);
+    assert!(tracked.auto_at.is_some());
+    // already under way or done: no second start
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    f.end_run(&fresh, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    f.dispatcher.pass.run().await;
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    assert_eq!(f.research_runs(&fresh).await.len(), 1);
+    // switched off and on again: the clock starts anew
+    f.configure(|config| config.research.auto = false).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    f.auto_research(5, 5).await;
+    f.dispatcher.pass.run().await;
+    assert!(f.research_runs(&old).await.is_empty());
+}
+
+#[tokio::test]
+async fn the_automation_keeps_to_its_places_and_to_the_starts_of_a_day() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_research(2, 1).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let first = f.open_question("First").await;
+    f.advance(1);
+    let second = f.open_question("Second").await;
+    f.advance(1);
+    let third = f.open_question("Third").await;
+    // one place: the oldest goes first
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [first.clone()], "{report:?}");
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    f.end_run(&first, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [second.clone()], "{report:?}");
+    f.end_run(&second, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    // two starts today are the cap
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    assert!(f.research_runs(&third).await.is_empty());
+    f.advance(24 * 60);
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [third], "{report:?}");
+}
+
+#[tokio::test]
+async fn a_change_of_the_clock_inside_a_day_does_not_reset_the_starts_of_the_day() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_research(2, 1).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let first = f.open_question("First").await;
+    f.advance(1);
+    let second = f.open_question("Second").await;
+    f.advance(1);
+    let third = f.open_question("Third").await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [first.clone()], "{report:?}");
+    f.end_run(&first, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    // daylight saving moves the local clock by an hour, still the same calendar day
+    f.clock.1.store(60, Ordering::SeqCst);
+    f.advance(1);
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [second.clone()], "{report:?}");
+    f.end_run(&second, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    assert!(f.research_runs(&third).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_manual_research_keeps_a_question_out_of_the_automation() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_research(5, 5).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let key = f.open_question("By hand").await;
+    f.dispatcher.service.start_research(&key).await.unwrap();
+    f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    assert_eq!(f.research_runs(&key).await.len(), 1);
+}
+
+#[tokio::test]
+async fn the_automation_stands_down_while_paused_or_outside_the_window() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_research(5, 5).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let key = f.open_question("Later").await;
+    f.dispatcher
+        .service
+        .pause(nullradix_app::dispatch::control::PauseFor::Minutes(15))
+        .await
+        .unwrap();
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    f.dispatcher.service.resume().await.unwrap();
+    f.configure(|config| {
+        config.window = Some(nullradix_domain::TimeWindow {
+            from: String::from("13:00"),
+            to: String::from("14:00"),
+        });
+    })
+    .await;
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    f.configure(|config| config.window = None).await;
+    assert_eq!(f.dispatcher.pass.run().await.research, [key]);
+}
+
+#[tokio::test]
+async fn a_repository_fault_pauses_the_automation_for_thirty_minutes() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_research(5, 5).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let key = f.open_question("Broken").await;
+    f.detached.fail_create.store(true, Ordering::SeqCst);
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.research.is_empty());
+    assert_eq!(report.errors.len(), 1, "{report:?}");
+    assert!(report.errors[0].contains("git is broken"), "{report:?}");
+    // within the pause nothing is tried, so nothing is reported again
+    f.detached.fail_create.store(false, Ordering::SeqCst);
+    f.advance(29);
+    let report = f.dispatcher.pass.run().await;
+    assert!(
+        report.research.is_empty() && report.errors.is_empty(),
+        "{report:?}"
+    );
+    f.advance(2);
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [key], "{report:?}");
+}
+
+#[tokio::test]
+async fn projects_without_a_repository_are_never_candidates() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_research(5, 5).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    f.other_project_question().await;
+    f.advance(1);
+    let key = f.open_question("Fine").await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [key], "{report:?}");
+    assert!(report.errors.is_empty(), "{report:?}");
+}
+
+impl Fixture {
+    async fn autopilot_question(&self) -> (String, String) {
+        self.configure(|config| config.autopilot.enabled = true)
+            .await;
+        let ticket = self.ready("Build", &["auto"]).await;
+        self.ask_as_agent(&ticket).await;
+        (ticket, String::from("ARC-Q0001"))
+    }
+}
+
 #[tokio::test]
 async fn a_finished_ticket_is_held_for_review_with_the_tests_of_its_run() {
     let f = fixture().await;
@@ -4297,4 +4899,149 @@ async fn the_patch_and_the_file_of_a_held_ticket_come_from_the_runner() {
     assert!(patch.patch.contains("+b"));
     let file = f.reviews.file(&key, "src/a.ts").await.unwrap();
     assert_eq!(file.text.as_deref(), Some("b\n"));
+}
+
+#[tokio::test]
+async fn an_autopilot_question_is_researched_first_and_answered_with_the_recommendation() {
+    let f = fixture().await;
+    let (ticket, key) = f.autopilot_question().await;
+    // neither the switch of the research automation nor the daily cap are needed
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [key.clone()], "{report:?}");
+    f.submit_research(&key, AGENT_Q1, true).await;
+    f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    let detail = f.questions.get(&key).await.unwrap();
+    let record = detail.view.row.question.record();
+    assert_eq!(record.state, nullradix_domain::QuestionState::Answered);
+    let decision = record.decision.as_ref().unwrap();
+    assert!(decision.by_autopilot());
+    assert_eq!(
+        decision.reason.as_deref(),
+        Some("Autopilot: recommendation of the research adopted")
+    );
+    let notes = f
+        .comments
+        .list(&ticket)
+        .await
+        .unwrap()
+        .iter()
+        .filter(|line| line.comment.body().starts_with("Autopilot: question"))
+        .count();
+    assert_eq!(notes, 1);
+}
+
+#[tokio::test]
+async fn without_a_recommendation_the_autopilot_tries_larger_and_then_blocks_the_ticket() {
+    let f = fixture().await;
+    let (ticket, key) = f.autopilot_question().await;
+    f.advance(1);
+    f.dispatcher.pass.run().await;
+    let first = f.research_runs(&key).await.remove(0);
+    f.submit_research(&key, AGENT_Q1, false).await;
+    f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    // the pass that settles the first research starts the second on a higher profile
+    f.advance(1);
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [key.clone()], "{report:?}");
+    let runs = f.research_runs(&key).await;
+    assert_eq!(runs.len(), 2);
+    let second = runs.iter().find(|run| run.id() != first.id()).unwrap();
+    let low = f.profile_of(first.id()).await.name;
+    let high = f.profile_of(second.id()).await.name;
+    assert_ne!(low, high);
+    f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    let record = f.record(&ticket).await;
+    assert_eq!(record.status, TicketStatus::Blocked);
+    assert_eq!(
+        record.blocked_reason.as_deref(),
+        Some("Autopilot: no recommendation for ARC-Q0001")
+    );
+    // no third research
+    f.advance(1);
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    assert_eq!(f.research_runs(&key).await.len(), 2);
+}
+
+impl Fixture {
+    async fn autopilot_tries(&self, key: &str) -> u32 {
+        use nullradix_app::dispatch::tracking::{AutoRunRepository, TrackKind};
+        let detail = self.questions.get(key).await.unwrap();
+        let id = detail.view.row.question.record().id.as_uuid();
+        AutoRunRepository::get(self.store.as_ref(), TrackKind::AutopilotResearch, id)
+            .await
+            .unwrap()
+            .map_or(0, |row| row.count)
+    }
+}
+
+#[tokio::test]
+async fn a_limit_in_an_autopilot_research_counts_no_try_and_blocks_nothing() {
+    let f = fixture().await;
+    let (ticket, key) = f.autopilot_question().await;
+    f.advance(1);
+    f.dispatcher.pass.run().await;
+    let run = f
+        .end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::PauseLimit));
+    assert_eq!(f.autopilot_tries(&key).await, 0);
+    assert_ne!(f.record(&ticket).await.status, TicketStatus::Blocked);
+}
+
+#[tokio::test]
+async fn an_autopilot_research_is_counted_once_however_often_it_is_settled() {
+    let f = fixture().await;
+    let (_, key) = f.autopilot_question().await;
+    f.advance(1);
+    f.dispatcher.pass.run().await;
+    f.submit_research(&key, AGENT_Q1, false).await;
+    f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.autopilot_tries(&key).await, 1);
+    // a pass that lost its work after the count settles the same run again
+    let run = f.research_runs(&key).await.remove(0);
+    let config = f.config.get().await.unwrap().config;
+    let pauses = nullradix_app::dispatch::pause::NoPauseHook;
+    f.dispatcher
+        .research
+        .settle(&run, &config, &pauses)
+        .await
+        .unwrap();
+    assert_eq!(f.autopilot_tries(&key).await, 1);
+}
+
+#[tokio::test]
+async fn an_autopilot_that_gives_up_tells_the_person_it_is_stuck() {
+    let f = fixture().await;
+    let (ticket, key) = f.autopilot_question().await;
+    for _ in 0..2 {
+        f.advance(1);
+        f.dispatcher.pass.run().await;
+        f.submit_research(&key, AGENT_Q1, false).await;
+        f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+        f.advance(1);
+        f.dispatcher.pass.run().await;
+    }
+    assert_eq!(f.record(&ticket).await.status, TicketStatus::Blocked);
+    assert!(f.notice_kinds().contains(&NoticeKind::Stuck));
+}
+
+#[tokio::test]
+async fn questions_of_people_are_not_autopilot_questions() {
+    let f = fixture().await;
+    f.configure(|config| config.autopilot.enabled = true).await;
+    let ticket = f.ready("Build", &["auto"]).await;
+    let input = NewQuestion {
+        title: String::from("Asked by a person"),
+        tickets: vec![ticket],
+        ..NewQuestion::default()
+    };
+    f.questions
+        .create(f.board.project(), &input, Author::default(), &f.person)
+        .await
+        .unwrap();
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
 }

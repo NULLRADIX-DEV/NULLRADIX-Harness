@@ -35,6 +35,36 @@ struct Posted {
     toast: String,
 }
 
+/// What a pause ends: a ticket that goes back or a research that waits for a new start.
+#[derive(Clone, Copy)]
+enum Paused {
+    Ticket,
+    Research,
+}
+
+impl Paused {
+    fn back(self) -> &'static str {
+        match self {
+            Self::Ticket => "ticket back to planned",
+            Self::Research => "research not stored",
+        }
+    }
+
+    fn next(self) -> &'static str {
+        match self {
+            Self::Ticket => "The ticket starts on the next pass with another free account.",
+            Self::Research => "Start the research again to use another free account.",
+        }
+    }
+
+    fn counting(self) -> &'static str {
+        match self {
+            Self::Ticket => "Does not count as an attempt.",
+            Self::Research => "Start the research again afterwards.",
+        }
+    }
+}
+
 pub struct DispatchPauses {
     tickets: Arc<TicketService>,
     comments: Arc<CommentService>,
@@ -250,6 +280,7 @@ impl DispatchPauses {
         &self,
         run: &Run,
         config: &DispatcherConfig,
+        what: Paused,
     ) -> Result<Posted, AppError> {
         let now = self.clock.now();
         let all = self.accounts.list().await?;
@@ -311,14 +342,18 @@ impl DispatchPauses {
                     format!("The dispatcher starts nothing new until {text}.")
                 }
             }
-            None => String::from("The ticket starts on the next pass with another free account."),
+            None => String::from(what.next()),
         };
         let body = match (&own_pause, &own_text, multi) {
             (Some((slug, _)), Some(text), true) => format!(
-                "[dispatch] pause: usage limit of account {slug} reached, ticket back to planned. Account {slug} paused until {text}. {rest} Does not count as an attempt."
+                "[dispatch] pause: usage limit of account {slug} reached, {}. Account {slug} paused until {text}. {rest} {}",
+                what.back(),
+                what.counting()
             ),
             _ => format!(
-                "[dispatch] pause: usage limit reached, ticket back to planned. {rest} Does not count as an attempt."
+                "[dispatch] pause: usage limit reached, {}. {rest} {}",
+                what.back(),
+                what.counting()
             ),
         };
         let toast = match (&own_pause, own_text) {
@@ -328,7 +363,11 @@ impl DispatchPauses {
         Ok(Posted { body, toast })
     }
 
-    async fn pause_for_missing(&self, config: &DispatcherConfig) -> Result<Posted, AppError> {
+    async fn pause_for_missing(
+        &self,
+        config: &DispatcherConfig,
+        what: Paused,
+    ) -> Result<Posted, AppError> {
         let seen = self.state.get().await?.record().paused_until;
         let until = self.default_until(config);
         let applied = self.state.pause_unless_changed(until, seen).await?;
@@ -344,8 +383,10 @@ impl DispatchPauses {
             ),
         };
         let body = format!(
-            "[dispatch] pause: Claude Code was not found (command \"{}\"), ticket back to planned. {tail} Please install Claude Code or check the command in the settings. Does not count as an attempt.",
-            config.claude.command
+            "[dispatch] pause: Claude Code was not found (command \"{}\"), {}. {tail} Please install Claude Code or check the command in the settings. {}",
+            config.claude.command,
+            what.back(),
+            what.counting()
         );
         Ok(Posted {
             body,
@@ -375,8 +416,8 @@ impl PauseHook for DispatchPauses {
         // a comment of this run means an earlier pass paused and stopped before it was done
         if !pause_posted(&detail, run) {
             let posted = match kind {
-                PauseKind::UsageLimit => self.pause_for_limit(run, config).await?,
-                PauseKind::ClaudeMissing => self.pause_for_missing(config).await?,
+                PauseKind::UsageLimit => self.pause_for_limit(run, config, Paused::Ticket).await?,
+                PauseKind::ClaudeMissing => self.pause_for_missing(config, Paused::Ticket).await?,
             };
             self.comments
                 .add_system(
@@ -411,14 +452,40 @@ impl PauseHook for DispatchPauses {
             PauseKind::ClaudeMissing => DispatchOutcome::PauseClaudeMissing,
         }))
     }
+
+    async fn paused_research(
+        &self,
+        run: &Run,
+        title: &str,
+        kind: PauseKind,
+        config: &DispatcherConfig,
+    ) -> Result<Option<String>, AppError> {
+        let posted = match kind {
+            PauseKind::UsageLimit => self.pause_for_limit(run, config, Paused::Research).await?,
+            PauseKind::ClaudeMissing => self.pause_for_missing(config, Paused::Research).await?,
+        };
+        self.log.info(&posted.body, None).await;
+        self.notify(None, title, posted.toast).await;
+        // the comment of the question is the marker of an empty research
+        Ok(Some(posted.body.replacen(
+            "[dispatch] pause:",
+            "[dispatch] research-empty:",
+            1,
+        )))
+    }
 }
 
 impl DispatchPauses {
     async fn toast(&self, ticket: &TicketRecord, text: String) {
+        self.notify(Some(ticket.key.to_string()), ticket.title.as_str(), text)
+            .await;
+    }
+
+    async fn notify(&self, ticket: Option<String>, title: &str, text: String) {
         let notice = Notice {
             kind: NoticeKind::Paused,
-            ticket: Some(ticket.key.to_string()),
-            title: ticket.title.as_str().to_owned(),
+            ticket,
+            title: title.to_owned(),
             text,
         };
         if let Err(error) = self.notifier.notify(&notice).await {

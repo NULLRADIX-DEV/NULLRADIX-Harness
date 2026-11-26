@@ -5,6 +5,7 @@ mod catalog_fetch;
 mod claude_login;
 mod cleanup;
 mod curl;
+mod detached;
 mod ensure;
 mod git;
 // only Windows starts through it; its rules are tested everywhere
@@ -24,6 +25,7 @@ mod worktree;
 pub use accounts::LocalAccountFolders;
 pub use catalog_fetch::CurlCatalogFetcher;
 pub use claude_login::LocalClaudeLogins;
+pub use detached::LocalDetached;
 pub use local::{LocalRunner, SupervisorCommand};
 pub use login_process::LocalLoginRunner;
 pub use oauth_refresh::{

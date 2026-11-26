@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO auto_run_tracking (kind, subject_id, count, last_started_at, auto_at)\n             VALUES (?, ?, 1, ?, ?)\n             ON CONFLICT (kind, subject_id) DO UPDATE SET\n               count = count + 1,\n               last_started_at = excluded.last_started_at,\n               auto_at = COALESCE(excluded.auto_at, auto_at)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "3d0d5762307a8d673f48d261133628b6fc5c53ae30d4dfc2f36da0598e22bd54"
+}

@@ -2,6 +2,7 @@
 
 mod accounts;
 mod auth;
+mod auto_runs;
 mod boards;
 mod change_feed;
 mod claude_theme;

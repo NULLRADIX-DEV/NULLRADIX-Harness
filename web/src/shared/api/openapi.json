@@ -4801,6 +4801,178 @@
         }
       }
     },
+    "/api/v1/questions/{questionKey}/research": {
+      "post": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "submit_research",
+        "parameters": [
+          {
+            "name": "questionKey",
+            "in": "path",
+            "description": "Question key such as `ARC-Q0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitResearch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the question"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Neither context nor options, or too many, too long or several recommended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/questions/{questionKey}/research-runs": {
+      "post": {
+        "tags": [
+          "questions"
+        ],
+        "operationId": "start_research_run",
+        "parameters": [
+          {
+            "name": "questionKey",
+            "in": "path",
+            "description": "Question key such as `ARC-Q0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The research runs; progress arrives as events",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the run"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Researching already, or the dispatcher is paused or has no account free",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The question is not open or has no board with a repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner could not start it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repositories": {
       "get": {
         "tags": [
@@ -12500,6 +12672,13 @@
               "type": "string"
             }
           },
+          "research": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Questions whose research started."
+          },
           "started": {
             "type": "array",
             "items": {
@@ -15240,6 +15419,41 @@
           "running",
           "ended"
         ]
+      },
+      "SubmitResearch": {
+        "type": "object",
+        "description": "A round of context and options for a question; options count on after the earlier rounds.",
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `research-ARC-Q0007`; the acting person when left out."
+          },
+          "context": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Markdown with what the code does today and the recommendation."
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewOption"
+            },
+            "description": "Up to five options; at most one recommended."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller."
+          }
+        },
+        "additionalProperties": false
       },
       "SystemLevelDto": {
         "type": "string",

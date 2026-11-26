@@ -1,0 +1,1060 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "a project without a board",
+    "request": {
+      "body": {
+        "key": "OTH",
+        "name": "Others"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-4>",
+        "key": "OTH",
+        "name": "Others",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git init",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "name": "first commit",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "init"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git commit",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-6>",
+        "label": "git commit",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-6>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "committed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-6>"
+  },
+  {
+    "name": "long paths on already, so every platform prints the same",
+    "request": {
+      "body": {
+        "args": [
+          "config",
+          "core.longpaths",
+          "true"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git config",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-7>",
+        "label": "git config",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-7>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "configured",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-7>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "question",
+      "add",
+      "Does the discount apply to shipping too?",
+      "--project",
+      "ARC",
+      "--description",
+      "The price list names both apart."
+    ],
+    "exitCode": 0,
+    "name": "an open question",
+    "stderr": "",
+    "stdout": "Question ARC-Q0001 created: Does the discount apply to shipping too?\n"
+  },
+  {
+    "cli": [
+      "question",
+      "add",
+      "Which currency abroad?",
+      "--project",
+      "ARC"
+    ],
+    "exitCode": 0,
+    "name": "a question that gets decided",
+    "stderr": "",
+    "stdout": "Question ARC-Q0002 created: Which currency abroad?\n"
+  },
+  {
+    "name": "decide it",
+    "request": {
+      "body": {
+        "reason": "All prices are in euro.",
+        "text": "Always euro."
+      },
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q2/answer"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "question": {
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "decision": {
+            "at": "<TIME>",
+            "autopilot": false,
+            "byName": "tester",
+            "option": null,
+            "reason": "All prices are in euro.",
+            "text": "Always euro."
+          },
+          "dependsOn": [],
+          "description": "",
+          "id": "<ID-8>",
+          "key": "ARC-Q0002",
+          "number": 2,
+          "occasion": null,
+          "optionCount": 0,
+          "originKind": "human",
+          "originName": "tester",
+          "originSession": null,
+          "projectId": "<ID-1>",
+          "ready": false,
+          "researched": false,
+          "state": "answered",
+          "tags": [],
+          "tickets": [],
+          "title": "Which currency abroad?",
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waitingOn": []
+        },
+        "research": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "question",
+      "add",
+      "Who maintains the price list?",
+      "--project",
+      "ARC"
+    ],
+    "exitCode": 0,
+    "name": "a third question for the failure paths",
+    "stderr": "",
+    "stdout": "Question ARC-Q0003 created: Who maintains the price list?\n"
+  },
+  {
+    "cli": [
+      "question",
+      "add",
+      "Where does it run?",
+      "--project",
+      "OTH"
+    ],
+    "exitCode": 0,
+    "name": "a question of the project without a board",
+    "stderr": "",
+    "stdout": "Question OTH-Q0001 created: Where does it run?\n"
+  },
+  {
+    "name": "research an unknown question",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q99/research-runs"
+    },
+    "response": {
+      "json": {
+        "code": "question-not-found",
+        "detail": "question ARC-Q0099 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:question-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "research something that is no question key",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-1/research-runs"
+    },
+    "response": {
+      "json": {
+        "code": "question-id-invalid",
+        "detail": "ARC-1 is no question key, expected something like ARC-Q0007",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:question-id-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "research a decided question",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q2/research-runs"
+    },
+    "response": {
+      "json": {
+        "code": "question-not-open",
+        "detail": "question ARC-Q0002 is not open - only open questions are researched",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:question-not-open"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "research a question of a project without a repository",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/questions/OTH-Q1/research-runs"
+    },
+    "response": {
+      "json": {
+        "code": "board-repo-missing",
+        "detail": "question OTH-Q0001 has no board with a repository - link it to a ticket of such a board or set the repository of a board of its project",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:board-repo-missing"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the state before the research",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?questionKey=ARC-Q1&kind=research"
+    },
+    "response": {
+      "json": {
+        "items": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "research",
+      "start",
+      "arc-q1"
+    ],
+    "exitCode": 0,
+    "name": "start the research by hand, the dispatcher being off",
+    "stderr": "",
+    "stdout": "Research started: run <ID-9>.\n"
+  },
+  {
+    "name": "the run is there",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?questionKey=ARC-Q1&kind=research"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "research",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-11>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-Q0001",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": null,
+            "finishedAt": null,
+            "id": "<ID-9>",
+            "label": "research ARC-Q0001",
+            "result": null,
+            "startedAt": "<TIME>",
+            "status": "running",
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "field": "items.0.status",
+    "name": "the run ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs?questionKey=ARC-Q1&kind=research"
+  },
+  {
+    "name": "start it a second time while the first is not settled",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q1/research-runs"
+    },
+    "response": {
+      "json": {
+        "code": "research-running",
+        "detail": "a research of question ARC-Q0001 is running already",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:research-running"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "pause",
+      "--minutes",
+      "30"
+    ],
+    "exitCode": 0,
+    "name": "a pause holds a research back",
+    "stderr": "",
+    "stdout": "off: The dispatcher is off\n0 of 1 places in use, 0 planning\n"
+  },
+  {
+    "name": "research during the pause",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q3/research-runs"
+    },
+    "response": {
+      "json": {
+        "code": "dispatch-paused",
+        "detail": "the dispatcher is paused - resume it or wait for the pause to end",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:dispatch-paused"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "resume"
+    ],
+    "exitCode": 0,
+    "name": "lift the pause",
+    "stderr": "",
+    "stdout": "off: The dispatcher is off\n0 of 1 places in use, 0 planning\n"
+  },
+  {
+    "file": "<WORK>/research.json",
+    "lines": 0,
+    "name": "the research file the agent writes"
+  },
+  {
+    "cli": [
+      "research",
+      "submit",
+      "ARC-Q1",
+      "--file",
+      "<WORK>/research.json",
+      "--author",
+      "research-ARC-Q0001"
+    ],
+    "exitCode": 0,
+    "name": "the agent saves it",
+    "stderr": "",
+    "stdout": "Research saved on ARC-Q0001: 2 option(s).\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass settles the run",
+    "stderr": "",
+    "stdout": "idle: The dispatcher is off\n"
+  },
+  {
+    "name": "the run with its outcome",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?questionKey=ARC-Q1&kind=research"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "research",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-11>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-Q0001",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": 0,
+            "finishedAt": "<TIME>",
+            "id": "<ID-9>",
+            "label": "research ARC-Q0001",
+            "result": {
+              "abort": null,
+              "claudeSessionId": null,
+              "deniedCount": 0,
+              "outcome": "research",
+              "usage": null
+            },
+            "startedAt": "<TIME>",
+            "status": "succeeded",
+            "version": 4
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the question with the research",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/questions/ARC-Q1"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "question": {
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "decision": null,
+          "dependsOn": [],
+          "description": "The price list names both apart.",
+          "id": "<ID-12>",
+          "key": "ARC-Q0001",
+          "number": 1,
+          "occasion": null,
+          "optionCount": 2,
+          "originKind": "human",
+          "originName": "tester",
+          "originSession": null,
+          "projectId": "<ID-1>",
+          "ready": true,
+          "researched": true,
+          "state": "open",
+          "tags": [],
+          "tickets": [],
+          "title": "Does the discount apply to shipping too?",
+          "updatedAt": "<TIME>",
+          "version": 2,
+          "waitingOn": []
+        },
+        "research": [
+          {
+            "context": "**Today** the discount applies to goods only.",
+            "createdAt": "<TIME>",
+            "id": "<ID-13>",
+            "options": [
+              {
+                "cons": [
+                  "Customers ask"
+                ],
+                "key": "O1",
+                "pros": [
+                  "No change"
+                ],
+                "recommended": true,
+                "text": "Keep it. Effort: small",
+                "title": "Goods only"
+              },
+              {
+                "cons": [],
+                "key": "O2",
+                "pros": [
+                  "Simple to explain"
+                ],
+                "recommended": false,
+                "text": "Extend it. Effort: medium",
+                "title": "Goods and shipping"
+              }
+            ]
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "question",
+      "show",
+      "ARC-Q1"
+    ],
+    "exitCode": 0,
+    "name": "the research in the CLI",
+    "stderr": "",
+    "stdout": "ARC-Q0001  Does the discount apply to shipping too?\nState: open (ready to decide) | version 2\nTags: -\nAsked by: tester (person)\nOccasion: -\nAbout: -\nDepends on: -\nWaits on: -\n\nThe price list names both apart.\n\nOptions:\n    **Today** the discount applies to goods only.\n  O1 (recommended): Goods only - Keep it. Effort: small\n      + No change\n      - Customers ask\n  O2: Goods and shipping - Extend it. Effort: medium\n      + Simple to explain\n\nComments:\n  (none)\n"
+  },
+  {
+    "name": "the research folder is gone, only the main folder is left",
+    "request": {
+      "body": {
+        "args": [
+          "worktree",
+          "list",
+          "--porcelain"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git worktree list",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-14>",
+        "label": "git worktree list",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-14>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "listed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-14>"
+  },
+  {
+    "name": "the list",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-14>/output"
+    },
+    "response": {
+      "json": {
+        "finished": true,
+        "lines": [
+          {
+            "seq": 1,
+            "stream": "stdout",
+            "text": "worktree <WORK>/arches"
+          },
+          {
+            "seq": 2,
+            "stream": "stdout",
+            "text": "HEAD <COMMIT>"
+          },
+          {
+            "seq": 3,
+            "stream": "stdout",
+            "text": "branch refs/heads/main"
+          },
+          {
+            "seq": 4,
+            "stream": "stdout",
+            "text": ""
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "research the third question, which stays without a result",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q3/research-runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": {
+          "accountId": "<ID-10>",
+          "configHash": "be69cf85d1a6fc2f",
+          "kind": "research",
+          "profile": {
+            "effort": "high",
+            "id": "<ID-11>",
+            "maxTurns": 80,
+            "model": "opus",
+            "name": "medium",
+            "timeoutMinutes": 90
+          },
+          "subjectKey": "ARC-Q0003",
+          "trigger": "manual"
+        },
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-15>",
+        "label": "research ARC-Q0003",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-15>",
+      "status": 202
+    }
+  },
+  {
+    "field": "items.0.status",
+    "name": "the second run ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs?questionKey=ARC-Q3&kind=research"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass settles it",
+    "stderr": "",
+    "stdout": "idle: The dispatcher is off\n"
+  },
+  {
+    "name": "the run is settled",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?questionKey=ARC-Q3&kind=research"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "research",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-11>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-Q0003",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": 0,
+            "finishedAt": "<TIME>",
+            "id": "<ID-15>",
+            "label": "research ARC-Q0003",
+            "result": {
+              "abort": null,
+              "claudeSessionId": null,
+              "deniedCount": 0,
+              "outcome": "other",
+              "usage": null
+            },
+            "startedAt": "<TIME>",
+            "status": "succeeded",
+            "version": 4
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the question says so and stays open",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/questions/ARC-Q3/comments"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "authorId": "<ID-16>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] research-empty: the run ended without saving a research on the question.\nNo automatic retry - \"Research\" on the question starts a new one.\n\nRun: <ID-15>",
+            "createdAt": "<TIME>",
+            "id": "<ID-17>",
+            "questionKey": "ARC-Q0003"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a research without anything is refused",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q3/research"
+    },
+    "response": {
+      "json": {
+        "code": "research-invalid",
+        "detail": "a research needs a context or at least one option",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:research-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a research of an unknown question is refused",
+    "request": {
+      "body": {
+        "context": "x"
+      },
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q99/research"
+    },
+    "response": {
+      "json": {
+        "code": "question-not-found",
+        "detail": "question ARC-Q0099 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:question-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "file": "<WORK>/auto.json",
+    "lines": 1,
+    "name": "the automation takes up only questions that come after it is switched on"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/auto.json"
+    ],
+    "exitCode": 0,
+    "name": "switch it on",
+    "stderr": "",
+    "stdout": "saved dispatcher configuration, version 2 (be69cf85d1a6fc2f)\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass starts nothing, the open questions are older",
+    "stderr": "",
+    "stdout": "idle: The dispatcher is off\n"
+  },
+  {
+    "cli": [
+      "question",
+      "add",
+      "Is the price list public?",
+      "--project",
+      "ARC"
+    ],
+    "exitCode": 0,
+    "name": "a new question",
+    "stderr": "",
+    "stdout": "Question ARC-Q0004 created: Is the price list public?\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass starts its research",
+    "stderr": "",
+    "stdout": "idle: The dispatcher is off\nresearch started: ARC-Q0004\n"
+  },
+  {
+    "name": "the run of the new question",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?questionKey=ARC-Q4&kind=research"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "research",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-11>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-Q0004",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": null,
+            "finishedAt": null,
+            "id": "<ID-18>",
+            "label": "research ARC-Q0004",
+            "result": null,
+            "startedAt": "<TIME>",
+            "status": "running",
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the older question was left alone",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?questionKey=ARC-Q3&kind=research"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "research",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-11>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-Q0003",
+              "trigger": "manual"
+            },
+            "error": null,
+            "exitCode": 0,
+            "finishedAt": "<TIME>",
+            "id": "<ID-15>",
+            "label": "research ARC-Q0003",
+            "result": {
+              "abort": null,
+              "claudeSessionId": null,
+              "deniedCount": 0,
+              "outcome": "other",
+              "usage": null
+            },
+            "startedAt": "<TIME>",
+            "status": "succeeded",
+            "version": 4
+          }
+        ]
+      },
+      "status": 200
+    }
+  }
+]

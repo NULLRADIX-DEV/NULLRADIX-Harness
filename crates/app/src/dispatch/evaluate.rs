@@ -16,6 +16,7 @@ use super::log::{DispatchLog, LogLevel};
 use super::outcome::{Decision, Ended, decide, question_comment};
 use super::pass::{PassContext, PassReport, PassStep};
 use super::pause::{NoPauseHook, PauseHook, PauseKind};
+use super::research::ResearchRuns;
 use super::start::TicketStarter;
 use crate::comments::CommentService;
 use crate::notifier::{NoNotifier, Notice, NoticeKind, Notifier};
@@ -67,6 +68,7 @@ pub struct EvaluateRuns {
     aborts: Arc<AbortAttempts>,
     gate: Arc<dyn DoneGate>,
     accounts: Option<Arc<AccountPicker>>,
+    research: Option<Arc<ResearchRuns>>,
     pauses: RwLock<Arc<dyn PauseHook>>,
     notifier: Arc<dyn Notifier>,
 }
@@ -102,6 +104,7 @@ impl EvaluateRuns {
             aborts,
             gate: Arc::new(NoDoneGate),
             accounts: None,
+            research: None,
             pauses: RwLock::new(Arc::new(NoPauseHook)),
             notifier: Arc::new(NoNotifier),
         }
@@ -142,6 +145,44 @@ impl EvaluateRuns {
     pub fn with_accounts(mut self, accounts: Arc<AccountPicker>) -> Self {
         self.accounts = Some(accounts);
         self
+    }
+
+    /// Has research runs settled too; without it they wait.
+    #[must_use]
+    pub fn with_research(mut self, research: Arc<ResearchRuns>) -> Self {
+        self.research = Some(research);
+        self
+    }
+
+    /// Settles a research run: its question gets the research or the comment that it left none.
+    async fn settle_research(
+        &self,
+        run: &Run,
+        key: &str,
+        config: &DispatcherConfig,
+        report: &mut PassReport,
+    ) {
+        let Some(research) = &self.research else {
+            return;
+        };
+        match research.settle(run, config, &*self.pause_hook()).await {
+            Ok(outcome) => match self.runs.settle_outcome(run.id(), outcome).await {
+                Ok(_) => {
+                    self.record_end(run).await;
+                    self.log
+                        .write(
+                            LogLevel::Info,
+                            &format!("settled {key}: {}", outcome.as_str()),
+                            Some(key),
+                            Some(run.id()),
+                        )
+                        .await;
+                }
+                Err(error) if error.kind() == ErrorKind::Conflict => {}
+                Err(error) => report.errors.push(format!("{key}: {}", error.message())),
+            },
+            Err(error) => report.errors.push(format!("{key}: {}", error.message())),
+        }
     }
 
     /// Keeps the usage of the account at the end of the run; repeating it changes nothing.
@@ -484,7 +525,12 @@ impl PassStep for EvaluateRuns {
             let Some(key) = dispatch.subject_key.as_deref() else {
                 continue;
             };
-            // research, plan and merge runs have their own slices; a ticket with a live run waits
+            if dispatch.kind == RunKind::Research {
+                self.settle_research(run, key, &context.config, report)
+                    .await;
+                continue;
+            }
+            // plan and merge runs have their own slices; a ticket with a live run waits
             if dispatch.kind != RunKind::Work || working.contains(key) || launching.contains(key) {
                 continue;
             }

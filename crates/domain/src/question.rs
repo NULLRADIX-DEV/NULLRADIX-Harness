@@ -14,6 +14,12 @@ pub const OCCASION_MAX: usize = 400;
 pub const OPTION_TITLE_MAX: usize = 400;
 /// Options one round may propose, as legacy `MAX_OPTIONS`.
 pub const OPTIONS_MAX: usize = 5;
+/// Longest context of a research round, in UTF-16 units.
+pub const RESEARCH_CONTEXT_MAX: usize = 20_000;
+pub const OPTION_TEXT_MAX: usize = 4_000;
+/// Pros and cons an option may list each.
+pub const OPTION_POINTS_MAX: usize = 10;
+pub const OPTION_POINT_MAX: usize = 400;
 pub const SESSION_MAX: usize = 100;
 /// The only answer no person gives: the dispatcher's autopilot takes a recommended option.
 pub const AUTOPILOT_PREFIX: &str = "Autopilot:";
@@ -46,6 +52,16 @@ pub enum ResearchError {
     OptionIncomplete,
     #[error("the title of an option has more than {OPTION_TITLE_MAX} characters")]
     OptionTitleTooLong,
+    #[error("the text of an option has more than {OPTION_TEXT_MAX} characters")]
+    OptionTextTooLong,
+    #[error("an option lists at most {OPTION_POINTS_MAX} pros and {OPTION_POINTS_MAX} cons")]
+    TooManyPoints,
+    #[error("a pro or con has more than {OPTION_POINT_MAX} characters")]
+    PointTooLong,
+    #[error("the context has more than {RESEARCH_CONTEXT_MAX} characters")]
+    ContextTooLong,
+    #[error("a research needs a context or at least one option")]
+    Empty,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -260,16 +276,39 @@ pub fn number_options(
         if utf16_len(title) > OPTION_TITLE_MAX {
             return Err(ResearchError::OptionTitleTooLong);
         }
+        if utf16_len(text) > OPTION_TEXT_MAX {
+            return Err(ResearchError::OptionTextTooLong);
+        }
+        let (pros, cons) = (texts(&draft.pros), texts(&draft.cons));
+        if pros.len() > OPTION_POINTS_MAX || cons.len() > OPTION_POINTS_MAX {
+            return Err(ResearchError::TooManyPoints);
+        }
+        if pros
+            .iter()
+            .chain(&cons)
+            .any(|point| utf16_len(point) > OPTION_POINT_MAX)
+        {
+            return Err(ResearchError::PointTooLong);
+        }
         options.push(QuestionOption {
             number,
             title: title.to_owned(),
             text: text.to_owned(),
-            pros: texts(&draft.pros),
-            cons: texts(&draft.cons),
+            pros,
+            cons,
             recommended: draft.recommended,
         });
     }
     Ok(options)
+}
+
+/// The context of a research round, trimmed; empty when none was given.
+pub fn research_context(text: Option<&str>) -> Result<String, ResearchError> {
+    let context = text.map_or("", str::trim);
+    if utf16_len(context) > RESEARCH_CONTEXT_MAX {
+        return Err(ResearchError::ContextTooLong);
+    }
+    Ok(context.to_owned())
 }
 
 /// What an answer chose: an option of the newest round or an own text.
@@ -739,6 +778,43 @@ mod tests {
         assert_eq!(
             number_options(&[draft(&"t".repeat(401))], &[]),
             Err(ResearchError::OptionTitleTooLong)
+        );
+    }
+
+    #[test]
+    fn option_texts_and_points_are_capped() {
+        let mut long = draft("A");
+        long.text = "x".repeat(OPTION_TEXT_MAX + 1);
+        assert_eq!(
+            number_options(&[long], &[]),
+            Err(ResearchError::OptionTextTooLong)
+        );
+        let mut exact = draft("A");
+        exact.text = "x".repeat(OPTION_TEXT_MAX);
+        exact.pros = vec!["p".repeat(OPTION_POINT_MAX); OPTION_POINTS_MAX];
+        assert!(number_options(&[exact], &[]).is_ok());
+        let mut many = draft("A");
+        many.cons = vec![String::from("c"); OPTION_POINTS_MAX + 1];
+        assert_eq!(
+            number_options(&[many], &[]),
+            Err(ResearchError::TooManyPoints)
+        );
+        let mut wide = draft("A");
+        wide.pros = vec!["p".repeat(OPTION_POINT_MAX + 1)];
+        assert_eq!(
+            number_options(&[wide], &[]),
+            Err(ResearchError::PointTooLong)
+        );
+    }
+
+    #[test]
+    fn the_context_is_trimmed_and_capped() {
+        assert_eq!(research_context(Some("  Today.  ")).unwrap(), "Today.");
+        assert_eq!(research_context(None).unwrap(), "");
+        assert!(research_context(Some(&"c".repeat(RESEARCH_CONTEXT_MAX))).is_ok());
+        assert_eq!(
+            research_context(Some(&"c".repeat(RESEARCH_CONTEXT_MAX + 1))),
+            Err(ResearchError::ContextTooLong)
         );
     }
 
