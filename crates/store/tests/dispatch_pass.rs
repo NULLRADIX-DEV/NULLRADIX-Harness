@@ -81,8 +81,11 @@ const ROOT: &str = if cfg!(windows) {
     "/work/arches"
 };
 
-/// The moment, and the offset of the local time from UTC in minutes.
-struct FakeClock(AtomicI64, std::sync::atomic::AtomicI32);
+/// The moment, the offset of the local time from UTC in minutes, and a switch of that offset.
+struct FakeClock(AtomicI64, std::sync::atomic::AtomicI32, Switch);
+
+/// From the moment on the offset is the second value; no switch while the moment is `MAX`.
+struct Switch(AtomicI64, std::sync::atomic::AtomicI32);
 
 impl Clock for FakeClock {
     fn now(&self) -> Timestamp {
@@ -92,8 +95,12 @@ impl Clock for FakeClock {
 
 #[async_trait]
 impl LocalTime for FakeClock {
-    async fn offset_minutes(&self, _at: Timestamp) -> i32 {
-        self.1.load(Ordering::SeqCst)
+    async fn offset_minutes(&self, at: Timestamp) -> i32 {
+        if at.as_millis() >= self.2.0.load(Ordering::SeqCst) {
+            self.2.1.load(Ordering::SeqCst)
+        } else {
+            self.1.load(Ordering::SeqCst)
+        }
     }
 }
 
@@ -719,6 +726,10 @@ async fn fixture() -> Fixture {
     let clock = Arc::new(FakeClock(
         AtomicI64::new(START),
         std::sync::atomic::AtomicI32::new(0),
+        Switch(
+            AtomicI64::new(i64::MAX),
+            std::sync::atomic::AtomicI32::new(0),
+        ),
     ));
     let ids = Arc::new(UuidV7Generator);
     let machine = Arc::new(Machine::default());
@@ -3842,6 +3853,10 @@ async fn a_manual_resume_while_the_reset_is_read_is_not_undone() {
     assert_eq!(pauses[0].until.as_millis(), START + 60 * MINUTE);
     let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
     assert!(body.contains("changed by hand"), "{body}");
+    assert_eq!(
+        f.notice_texts(),
+        ["usage limit default - pause stays as set by hand"]
+    );
     assert_eq!(f.record(&key).await.status, TicketStatus::Planned);
 }
 
@@ -3910,6 +3925,28 @@ async fn the_shown_pause_date_follows_the_real_utc_offset() {
         let expected = format!("nothing new until {shown}.");
         assert!(body.contains(&expected), "offset {offset}: {body}");
     }
+}
+
+#[tokio::test]
+async fn the_shown_pause_time_uses_the_offset_at_its_own_moment() {
+    let f = fixture().await;
+    // daylight saving starts between now and the end of the pause
+    f.clock.1.store(60, Ordering::SeqCst);
+    f.clock.2.0.store(START + 12 * HOUR, Ordering::SeqCst);
+    f.clock.2.1.store(120, Ordering::SeqCst);
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    let account = f.accounts.find("default").await.unwrap();
+    f.limits.set(account.id(), 95, 10, Fixture::resets_in(30));
+    f.end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+        .await;
+    f.dispatcher.pass.run().await;
+    let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
+    assert!(
+        body.contains("nothing new until 2027-01-16 10:00."),
+        "{body}"
+    );
 }
 
 #[tokio::test]

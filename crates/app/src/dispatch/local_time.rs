@@ -24,13 +24,6 @@ pub fn minute_with_offset(at: Timestamp, offset_minutes: i32) -> u32 {
     u32::try_from(minutes.rem_euclid(DAY_MINUTES)).unwrap_or(0)
 }
 
-/// The local day number since 1970-01-01 of a moment at a fixed offset from UTC.
-#[must_use]
-pub fn local_day(at: Timestamp, offset_minutes: i32) -> i64 {
-    let minutes = at.as_millis().div_euclid(MINUTE_MS) + i64::from(offset_minutes);
-    minutes.div_euclid(DAY_MINUTES)
-}
-
 /// A day number as `YYYY-MM-DD`.
 #[must_use]
 pub fn day_text(day: i64) -> String {
@@ -63,6 +56,8 @@ impl LocalTime for UtcTime {
 
 #[cfg(test)]
 mod tests {
+    use nullradix_domain::local_day_of;
+
     use super::*;
 
     fn at(hours: i64, minutes: i64) -> Timestamp {
@@ -73,13 +68,16 @@ mod tests {
     fn the_local_day_follows_the_offset() {
         // 2026-11-26 23:30 UTC
         let moment = Timestamp::from_millis(1_795_735_800_000);
-        assert_eq!(day_text(local_day(moment, 0)), "2026-11-26");
-        assert_eq!(day_text(local_day(moment, 60)), "2026-11-27");
-        assert_eq!(day_text(local_day(moment, -300)), "2026-11-26");
+        assert_eq!(day_text(local_day_of(moment, 0)), "2026-11-26");
+        assert_eq!(day_text(local_day_of(moment, 60)), "2026-11-27");
+        assert_eq!(day_text(local_day_of(moment, -300)), "2026-11-26");
         // UTC-10 and UTC+14 show the same clock but are a day apart
-        assert_eq!(day_text(local_day(moment, -600)), "2026-11-26");
-        assert_eq!(day_text(local_day(moment, 14 * 60)), "2026-11-27");
-        assert_eq!(day_text(local_day(moment, -(23 * 60 + 31))), "2026-11-25");
+        assert_eq!(day_text(local_day_of(moment, -600)), "2026-11-26");
+        assert_eq!(day_text(local_day_of(moment, 14 * 60)), "2026-11-27");
+        assert_eq!(
+            day_text(local_day_of(moment, -(23 * 60 + 31))),
+            "2026-11-25"
+        );
         assert_eq!(day_text(0), "1970-01-01");
         assert_eq!(day_text(11_016), "2000-02-29");
     }

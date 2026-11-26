@@ -254,18 +254,22 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// Local time as the machine tells it, read afresh because daylight saving moves it.
+/// Local time as the machine tells it, per moment because daylight saving moves it.
 struct OsLocalTime;
+
+/// The failure to read the offset is reported once per process.
+static OFFSET_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[async_trait::async_trait]
 impl LocalTime for OsLocalTime {
-    async fn offset_minutes(&self, _at: Timestamp) -> i32 {
-        let offset = task::spawn_blocking(nullradix_os::local_utc_offset_minutes)
+    async fn offset_minutes(&self, at: Timestamp) -> i32 {
+        let millis = at.as_millis();
+        let offset = task::spawn_blocking(move || nullradix_os::local_utc_offset_minutes(millis))
             .await
             .ok()
             .flatten();
-        if offset.is_none() {
-            tracing::warn!("cannot read the local time offset, the time window uses UTC");
+        if offset.is_none() && !OFFSET_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            tracing::warn!("cannot read the local time offset, local times are shown in UTC");
         }
         offset.unwrap_or(0)
     }

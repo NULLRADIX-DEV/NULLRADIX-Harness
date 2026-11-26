@@ -6,12 +6,12 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nullradix_domain::{
     Account, DispatchOutcome, DispatcherConfig, Id, Run, RunKind, SystemMarker, TicketRecord,
-    TicketStatus, Timestamp,
+    TicketStatus, Timestamp, local_day_of,
 };
 
 use super::accounts::{AccountLimits, AccountPauses, MAX_PAUSE_DAYS, PauseReason};
 use super::evaluate::agent_of;
-use super::local_time::{LocalTime, day_text, local_day};
+use super::local_time::{LocalTime, day_text, minute_with_offset};
 use super::log::DispatchLog;
 use super::pause::{PauseHook, PauseKind};
 use super::start::TicketStarter;
@@ -162,9 +162,10 @@ impl DispatchPauses {
     /// The local time of a moment, with the date when it is not today.
     async fn when(&self, at: Timestamp) -> String {
         let now = self.clock.now();
-        let minute = self.local.minute_of_day(at).await;
-        let day = local_day(at, self.local.offset_minutes(at).await);
-        let today = local_day(now, self.local.offset_minutes(now).await);
+        let offset = self.local.offset_minutes(at).await;
+        let day = local_day_of(at, offset);
+        let today = local_day_of(now, self.local.offset_minutes(now).await);
+        let minute = minute_with_offset(at, offset);
         let clock = clock_text(minute);
         if day == today {
             clock
@@ -363,25 +364,31 @@ impl DispatchPauses {
         };
         // the account's own end is the one that matters only next to other accounts
         let shown = if let (Some(text), true) = (&own_text, multi) {
-            text.clone()
+            Some(text.clone())
         } else {
             let holding = match held {
-                Some(Some(at)) => at,
-                // a person changed it meanwhile: theirs is the one that holds
+                Some(Some(at)) => Some(at),
+                // a person changed it meanwhile: theirs holds, if one is still set
                 Some(None) => self
                     .state
                     .get()
-                    .await?
-                    .record()
-                    .paused_until
-                    .unwrap_or(until),
-                None => until,
+                    .await
+                    .ok()
+                    .and_then(|state| state.record().paused_until)
+                    .filter(|at| *at > now),
+                None => Some(until),
             };
-            self.when(holding).await
+            match holding {
+                Some(at) => Some(self.when(at).await),
+                None => None,
+            }
         };
-        let toast = match &own_pause {
-            Some((slug, _)) => format!("usage limit {slug} - pause until {shown}"),
-            None => format!("usage limit - pause until {shown}"),
+        let name = own_pause
+            .as_ref()
+            .map_or_else(String::new, |(slug, _)| format!(" {slug}"));
+        let toast = match shown {
+            Some(text) => format!("usage limit{name} - pause until {text}"),
+            None => format!("usage limit{name} - pause stays as set by hand"),
         };
         Ok(Posted { body, toast })
     }
@@ -418,7 +425,8 @@ impl DispatchPauses {
                     self.when(at).await
                 )
             }
-            _ => format!("Claude Code not found - pause {minutes} min"),
+            None => String::from("Claude Code not found - pause stays as set by hand"),
+            Some(_) => format!("Claude Code not found - pause {minutes} min"),
         };
         Ok(Posted { body, toast })
     }
