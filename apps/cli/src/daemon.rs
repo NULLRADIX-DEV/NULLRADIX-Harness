@@ -17,6 +17,7 @@ use nullradix_app::dispatch::assemble::{DispatcherDeps, assemble};
 use nullradix_app::dispatch::control::DispatcherService;
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
 use nullradix_app::dispatch::pass::DispatchPass;
+use nullradix_app::dispatch::review_decide::ReviewDecisions;
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
 use nullradix_app::dispatch::scheduler::{PASS_INTERVAL, spawn_scheduler};
 use nullradix_app::dispatch::start::TicketStarter;
@@ -159,7 +160,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
-    let (dispatcher, account_pauses, dispatching) = start_dispatcher(
+    let (dispatcher, account_pauses, decisions, dispatching) = start_dispatcher(
         &store,
         &signal,
         &shutdown,
@@ -197,6 +198,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         questions: board.questions,
         worktrees: board.worktrees,
         reviews: board.reviews,
+        decisions,
         notes: board.notes,
         inbox: board.inbox,
         runners,
@@ -312,7 +314,12 @@ fn start_dispatcher(
     signal: &ChangeSignal,
     shutdown: &CancellationToken,
     parts: DispatcherParts<'_>,
-) -> (Arc<DispatcherService>, Arc<AccountPauses>, Dispatching) {
+) -> (
+    Arc<DispatcherService>,
+    Arc<AccountPauses>,
+    Arc<ReviewDecisions>,
+    Dispatching,
+) {
     let dispatcher = assemble(DispatcherDeps {
         config: parts.config,
         states: Arc::new(store.clone()),
@@ -352,7 +359,12 @@ fn start_dispatcher(
         pass: dispatcher.pass,
         starter: dispatcher.starter,
     };
-    (dispatcher.service, dispatcher.pauses, dispatching)
+    (
+        dispatcher.service,
+        dispatcher.pauses,
+        dispatcher.decisions,
+        dispatching,
+    )
 }
 
 fn dispatcher_config_service(store: &Store, signal: &ChangeSignal) -> Arc<DispatcherConfigService> {

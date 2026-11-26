@@ -53,6 +53,7 @@ use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::CustomizationService;
 use nullradix_app::dispatch::accounts::AccountPauses;
 use nullradix_app::dispatch::control::DispatcherService;
+use nullradix_app::dispatch::review_decide::ReviewDecisions;
 use nullradix_app::dispatch::runs::DispatchRuns;
 use nullradix_app::dispatch::stats::DispatchStatsService;
 use nullradix_app::dispatcher_config::DispatcherConfigService;
@@ -145,7 +146,8 @@ pub use repositories::{
     CheckoutDto, RepositoryDto, RepositoryList, RunnerDto, RunnerList, RunnerOsDto,
 };
 pub use review::{
-    ReviewDto, ReviewFileContentDto, ReviewFileDto, ReviewPatchDto, ReviewStateDto, TestRunDto,
+    AcceptReview, ReturnReview, ReviewDto, ReviewFileContentDto, ReviewFileDto, ReviewPatchDto,
+    ReviewStateDto, TestRunDto,
 };
 pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
@@ -236,6 +238,8 @@ pub struct ApiState {
     pub questions: Arc<QuestionService>,
     pub worktrees: Arc<WorktreeService>,
     pub reviews: Arc<ReviewService>,
+    /// Accept and return of a held review.
+    pub decisions: Arc<ReviewDecisions>,
     pub notes: Arc<NoteService>,
     pub inbox: Arc<InboxService>,
     pub runners: Arc<RunnerService>,
@@ -322,6 +326,15 @@ fn run_routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(dispatch_runs::screenshot))
 }
 
+fn review_routes() -> OpenApiRouter<ApiState> {
+    OpenApiRouter::new()
+        .routes(routes!(review::get_review))
+        .routes(routes!(review::get_review_diff))
+        .routes(routes!(review::get_review_file))
+        .routes(routes!(review::accept_review))
+        .routes(routes!(review::return_review))
+}
+
 fn dispatcher_routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::new()
         .routes(routes!(
@@ -404,9 +417,6 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(worktrees::start_ticket))
         .routes(routes!(worktrees::finish_ticket))
         .routes(routes!(worktrees::resume_ticket))
-        .routes(routes!(review::get_review))
-        .routes(routes!(review::get_review_diff))
-        .routes(routes!(review::get_review_file))
         .routes(routes!(tickets::release_ticket))
         .routes(routes!(tickets::accept_ticket))
         .routes(routes!(tickets::write_plan))
@@ -436,7 +446,8 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events))
         .merge(account_routes())
-        .merge(run_routes());
+        .merge(run_routes())
+        .merge(review_routes());
     let v1 = extension_routes(v1).merge(dispatcher_routes());
     let mut doc = ApiDoc::openapi();
     doc.info.version = API_VERSION.to_string();
@@ -972,6 +983,7 @@ pub(crate) mod tests {
             questions,
             worktrees,
             reviews,
+            decisions: assembled.decisions.clone(),
             notes,
             inbox: Arc::new(InboxService::new(
                 store.clone(),

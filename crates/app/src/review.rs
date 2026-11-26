@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    BRANCH_MAX, Id, Review, ReviewState, Run, TestRun, TicketRecord, Timestamp, Worktree,
-    change_summary,
+    Actor, BRANCH_MAX, Id, Review, ReviewState, Run, TestRun, Ticket, TicketRecord, Timestamp,
+    Worktree, change_summary,
 };
 
 use crate::repositories::RunnerService;
@@ -90,6 +90,16 @@ pub trait ReviewRepository: Send + Sync {
     async fn blocked(&self, run: Id<Run>) -> Result<bool, AppError>;
     /// Notes that the ticket of the run was blocked for the review at this moment.
     async fn mark_blocked(&self, run: Id<Run>, at: Timestamp) -> Result<(), AppError>;
+    /// Decides the pending review of the ticket's worktree; `None` when none waits.
+    async fn decide(
+        &self,
+        ticket: Id<Ticket>,
+        state: ReviewState,
+        by: Id<Actor>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
+    /// The state of the newest review of the ticket's worktree.
+    async fn state_of(&self, ticket: Id<Ticket>) -> Result<Option<ReviewState>, AppError>;
     /// The newest review of the worktree.
     async fn latest(&self, worktree: Id<Worktree>) -> Result<Option<StoredReview>, AppError>;
 }
@@ -429,6 +439,31 @@ impl ReviewService {
         } else {
             Held::Already
         })
+    }
+
+    /// Records the decision of a person on the pending review; false when none waits.
+    pub(crate) async fn decide(
+        &self,
+        ticket: Id<Ticket>,
+        state: ReviewState,
+        by: Id<Actor>,
+    ) -> Result<bool, AppError> {
+        let change = self
+            .reviews
+            .decide(ticket, state, by, self.clock.now())
+            .await?;
+        if let Some(change) = &change {
+            self.signal.notify(change);
+        }
+        Ok(change.is_some())
+    }
+
+    /// The state of the newest review of the ticket's worktree.
+    pub(crate) async fn state_of(
+        &self,
+        ticket: Id<Ticket>,
+    ) -> Result<Option<ReviewState>, AppError> {
+        self.reviews.state_of(ticket).await
     }
 
     /// Whether the run left a review already.

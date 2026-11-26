@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE reviews SET state = ?, decided_by = ?, decided_at = ?, version = version + 1\n             WHERE id = ? AND state = 'pending'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "d9ac4f4c3b7b63f68473f5dce870731f1a177f2c6b3f3d93076c5dcffad3153d"
+}

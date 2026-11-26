@@ -768,10 +768,7 @@ impl TicketStarter {
                 return Ok(Begun::WaitsForAccount(format!("waits - {reason}")));
             }
         };
-        let prompt = self
-            .prompts
-            .work_prompt(&text, &launch.branch, Vec::new())
-            .await?;
+        let prompt = self.prompts.work_prompt(&text, &launch.branch).await?;
         let run = self
             .dispatch
             .start(StartDispatchRun {

@@ -1525,6 +1525,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/review/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["accept_review"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticketKey}/review/diff": {
         parameters: {
             query?: never;
@@ -1551,6 +1567,22 @@ export interface paths {
         get: operations["get_review_file"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{ticketKey}/review/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["return_review"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1653,6 +1685,11 @@ export interface components {
             /** Format: int32 */
             count: number;
             label: string;
+        };
+        /** @description Accepts a ticket held for review; the version guards against a stale view. */
+        AcceptReview: {
+            /** Format: int64 */
+            version?: number | null;
         };
         AcceptTicket: {
             /** Format: int64 */
@@ -3120,6 +3157,13 @@ export interface components {
             /** Format: int64 */
             at: number;
             sessionId: string;
+        };
+        /** @description Sends a ticket held for review back to the agent. */
+        ReturnReview: {
+            /** @description What the agent changes next, at most 10000 characters. */
+            feedback: string;
+            /** Format: int64 */
+            version?: number | null;
         };
         /** @description What a person needs to review a ticket's branch. */
         ReviewDto: {
@@ -10490,6 +10534,68 @@ export interface operations {
             };
         };
     };
+    accept_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptReview"];
+            };
+        };
+        responses: {
+            /** @description Accepted, also when it was before */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The ticket waits for no review */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     get_review_diff: {
         parameters: {
             query: {
@@ -10600,6 +10706,68 @@ export interface operations {
             };
             /** @description The runner is not connected */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    return_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReturnReview"];
+            };
+        };
+        responses: {
+            /** @description Back to planned, also when it was before */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No feedback, too long, or the ticket waits for no review */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -15,6 +15,7 @@ pub mod pass;
 pub mod pause;
 pub mod pauses;
 pub mod research;
+pub mod review_decide;
 pub mod review_gate;
 pub mod runs;
 pub mod scheduler;

@@ -605,6 +605,7 @@ struct Fixture {
     questions: Arc<QuestionService>,
     worktrees: Arc<WorktreeService>,
     reviews: Arc<ReviewService>,
+    prompts: Arc<DispatcherPromptService>,
     local: Id<Runner>,
     person: Actor,
     board: Board,
@@ -776,7 +777,7 @@ async fn fixture() -> Fixture {
         runners,
         runs,
         dispatch,
-        prompts,
+        prompts: prompts.clone(),
         tickets: tickets.clone(),
         comments: comments.clone(),
         worktrees: worktrees.clone(),
@@ -805,6 +806,7 @@ async fn fixture() -> Fixture {
         questions,
         worktrees,
         reviews,
+        prompts,
         local,
         person,
         board,
@@ -4974,6 +4976,23 @@ impl Fixture {
             .unwrap()
             .map_or(0, |row| row.count)
     }
+
+    /// A ticket held for its review after one pass.
+    async fn held_for_review(&self) -> String {
+        self.review_on().await;
+        let (key, _) = self.finished_with_tests().await;
+        let report = self.dispatcher.pass.run().await;
+        assert!(report.errors.is_empty(), "{report:?}");
+        assert_eq!(self.record(&key).await.status, TicketStatus::Blocked);
+        key
+    }
+
+    async fn review_state(&self, key: &str) -> Option<nullradix_domain::ReviewState> {
+        let ticket = self.record(key).await;
+        nullradix_app::review::ReviewRepository::state_of(self.store.as_ref(), ticket.id)
+            .await
+            .unwrap()
+    }
 }
 
 #[tokio::test]
@@ -5044,4 +5063,192 @@ async fn questions_of_people_are_not_autopilot_questions() {
         .await
         .unwrap();
     assert!(f.dispatcher.pass.run().await.research.is_empty());
+}
+
+#[tokio::test]
+async fn accepting_a_held_ticket_decides_its_review_and_a_repeat_changes_nothing() {
+    use nullradix_domain::ReviewState;
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Pending));
+    let view = f
+        .dispatcher
+        .decisions
+        .accept(&key, &f.person, None, true)
+        .await
+        .unwrap();
+    assert_eq!(view.ticket.record().status, TicketStatus::Done);
+    assert_eq!(view.ticket.record().blocked_reason, None);
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Approved));
+    // a stale version after the accept is no reason to fail: the review is decided
+    let again = f
+        .dispatcher
+        .decisions
+        .accept(&key, &f.person, Some(Version::INITIAL), true)
+        .await
+        .unwrap();
+    assert_eq!(again.ticket.record().version, view.ticket.record().version);
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Approved));
+    // a return after the accept finds nothing to return
+    let error = f
+        .dispatcher
+        .decisions
+        .return_to_agent(&key, "more", &f.person, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "return-not-possible");
+}
+
+#[tokio::test]
+async fn an_accept_of_a_done_ticket_with_a_lost_decision_decides_it_now() {
+    use nullradix_domain::ReviewState;
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    // the ticket was accepted but the decision never reached the review
+    f.worktrees
+        .accept(&key, &f.person, None, true)
+        .await
+        .unwrap();
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Pending));
+    f.dispatcher
+        .decisions
+        .accept(&key, &f.person, None, true)
+        .await
+        .unwrap();
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Approved));
+}
+
+#[tokio::test]
+async fn an_accept_of_a_ticket_that_waits_for_nothing_is_refused() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    let error = f
+        .dispatcher
+        .decisions
+        .accept(&key, &f.person, None, true)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "accept-not-possible");
+}
+
+#[tokio::test]
+async fn returning_a_held_ticket_notes_it_and_the_next_run_gets_the_feedback() {
+    use nullradix_domain::ReviewState;
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    let view = f
+        .dispatcher
+        .decisions
+        .return_to_agent(&key, "  Please test\nthe error case.  ", &f.person, None)
+        .await
+        .unwrap();
+    let record = view.ticket.record();
+    assert_eq!(record.status, TicketStatus::Planned);
+    assert_eq!(
+        (record.blocked_reason.clone(), record.assignee.clone()),
+        (None, None)
+    );
+    assert!(record.branch.is_some() && record.worktree.is_some());
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Returned));
+    let comments = f.comments.list(&key).await.unwrap();
+    let noted: Vec<_> = comments
+        .iter()
+        .filter(|line| line.comment.record().system_marker == Some(SystemMarker::ReviewReturned))
+        .collect();
+    assert_eq!(noted.len(), 1);
+    assert_eq!(
+        noted[0].comment.body(),
+        "[dispatch] review-returned (by anna): Please test\nthe error case."
+    );
+    assert_eq!(noted[0].author_kind, ActorKind::Dispatcher);
+    // a repeat changes nothing
+    let again = f
+        .dispatcher
+        .decisions
+        .return_to_agent(&key, "other words", &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(again.ticket.record().version, record.version);
+    assert_eq!(f.markers(&key, SystemMarker::ReviewReturned).await, 1);
+    // the next pass starts the agent again with the feedback in its instruction
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started, [key.clone()], "{report:?}");
+    let spec = f.machine.specs.lock().unwrap().last().cloned().unwrap();
+    let prompt = spec.stdin.unwrap();
+    assert!(
+        prompt.contains("- Please test\n  the error case."),
+        "{prompt}"
+    );
+    assert!(!prompt.contains("other words"));
+    // once the agent started, the feedback is spent
+    let spent = f.prompts.work_prompt(&key, "ticket/x").await.unwrap();
+    assert!(!spent.contains("Please test"), "{spent}");
+}
+
+#[tokio::test]
+async fn a_return_is_refused_without_feedback_over_the_cap_or_when_nothing_waits() {
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    let decisions = &f.dispatcher.decisions;
+    for (text, code) in [
+        (String::from("  \n "), "feedback-empty"),
+        ("x".repeat(10_001), "value-too-long"),
+    ] {
+        let error = decisions
+            .return_to_agent(&key, &text, &f.person, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), code);
+    }
+    let stale = decisions
+        .return_to_agent(&key, "x", &f.person, Some(Version::INITIAL))
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code(), "version-conflict");
+    assert_eq!(f.markers(&key, SystemMarker::ReviewReturned).await, 0);
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
+    let other = f.ready("Not held", &[]).await;
+    let error = decisions
+        .return_to_agent(&other, "x", &f.person, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "return-not-possible");
+    // exactly at the cap goes through
+    decisions
+        .return_to_agent(&key, &"x".repeat(10_000), &f.person, None)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_decision_waits_for_the_pass_that_is_under_way() {
+    use nullradix_domain::ReviewState;
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    f.configure(|config| config.wip = 3).await;
+    f.ready("Second", &["auto"]).await;
+    // the pass stops while it starts the second ticket
+    let gate = Arc::new(Notify::new());
+    *f.machine.hold_start.lock().unwrap() = Some(gate.clone());
+    let pass = {
+        let pass = f.dispatcher.pass.clone();
+        tokio::spawn(async move { pass.run().await })
+    };
+    f.machine.start_entered.notified().await;
+    let decisions = f.dispatcher.decisions.clone();
+    let person = f.person.clone();
+    let name = key.clone();
+    let accept = tokio::spawn(async move { decisions.accept(&name, &person, None, true).await });
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!accept.is_finished(), "the accept ran inside the pass");
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Pending));
+    gate.notify_one();
+    pass.await.unwrap();
+    accept.await.unwrap().unwrap();
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Approved));
 }

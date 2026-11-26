@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.state AS \"state!: String\"\n               FROM reviews r JOIN worktree_tickets t ON t.worktree_id = r.worktree_id\n               WHERE t.ticket_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "state!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "reviews",
+            "name": "state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2d397f84b35cd28218497d0378821feb104b5edb72f174f6a91bd268df40405f"
+}

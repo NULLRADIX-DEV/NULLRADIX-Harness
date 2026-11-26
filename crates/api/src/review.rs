@@ -1,13 +1,15 @@
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Extension, State};
+use nullradix_app::AppError;
+use nullradix_app::auth::Principal;
 use nullradix_app::review::{BranchFile, ChangedFile, FilePatch, ReviewView};
-use nullradix_domain::{ReviewState, TestRun};
+use nullradix_domain::{ReviewState, TestRun, Version};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::tickets::TicketPath;
-use crate::{ApiError, ApiPath, ApiQuery, ApiState, Problem};
+use crate::tickets::{TicketDto, TicketPath};
+use crate::{ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
 /// A file the ticket's branch changed against its target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -242,6 +244,88 @@ pub(crate) async fn get_review_file(
     Ok(Json(content_dto(path.path, file)))
 }
 
+/// Accepts a ticket held for review; the version guards against a stale view.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AcceptReview {
+    pub version: Option<i64>,
+}
+
+/// Sends a ticket held for review back to the agent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReturnReview {
+    /// What the agent changes next, at most 10000 characters.
+    pub feedback: String,
+    pub version: Option<i64>,
+}
+
+fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
+    value.map(AppError::client_version).transpose()
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/review/accept",
+    tag = "review",
+    params(TicketPath),
+    request_body = AcceptReview,
+    responses(
+        (status = 200, description = "Accepted, also when it was before", body = TicketDto),
+        (status = 401, body = Problem),
+        (status = 404, description = "Unknown ticket", body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, description = "The ticket waits for no review", body = Problem),
+    )
+)]
+pub(crate) async fn accept_review(
+    State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<AcceptReview>,
+) -> Result<Json<TicketDto>, ApiError> {
+    let view = state
+        .decisions
+        .accept(
+            &path.ticket_key,
+            &state.person,
+            version(input.version)?,
+            matches!(principal, Principal::Session { .. }),
+        )
+        .await?;
+    Ok(Json(view.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/review/return",
+    tag = "review",
+    params(TicketPath),
+    request_body = ReturnReview,
+    responses(
+        (status = 200, description = "Back to planned, also when it was before", body = TicketDto),
+        (status = 401, body = Problem),
+        (status = 404, description = "Unknown ticket", body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, description = "No feedback, too long, or the ticket waits for no review", body = Problem),
+    )
+)]
+pub(crate) async fn return_review(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<ReturnReview>,
+) -> Result<Json<TicketDto>, ApiError> {
+    let view = state
+        .decisions
+        .return_to_agent(
+            &path.ticket_key,
+            &input.feedback,
+            &state.person,
+            version(input.version)?,
+        )
+        .await?;
+    Ok(Json(view.into()))
+}
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -313,6 +397,125 @@ mod tests {
         let (status, _) = post(api, &tickets, &json!({ "title": "Fix it" })).await;
         assert_eq!(status, StatusCode::CREATED);
         (dir, cwd, runner.as_uuid())
+    }
+
+    async fn patch(api: &TestApi, path: &str, body: &Value) -> (StatusCode, Value) {
+        let request = bearer(Request::patch(path), &api.token)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn a_ticket_that_waits_for_no_review_can_be_neither_accepted_nor_returned() {
+        let api = test_api().await;
+        let (_dir, _cwd, _runner) = bound_repository(&api).await;
+        let (status, problem) = post(&api, "/api/v1/tickets/arc-1/review/accept", &json!({})).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Some("accept-not-possible")
+            )
+        );
+        let body = json!({ "feedback": "more tests" });
+        let (status, problem) = post(&api, "/api/v1/tickets/arc-1/review/return", &body).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Some("return-not-possible")
+            )
+        );
+        let (status, problem) = post(&api, "/api/v1/tickets/arc-9/review/accept", &json!({})).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (StatusCode::NOT_FOUND, Some("ticket-not-found"))
+        );
+        let (status, _) = post(&api, "/api/v1/tickets/arc-1/review/return", &json!({})).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        for path in ["accept", "return"] {
+            let request = local(Request::post(format!(
+                "/api/v1/tickets/arc-1/review/{path}"
+            )))
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+            let (status, _, _) = send(&api.router, request).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}");
+        }
+    }
+
+    /// The ticket ARC-1 started on a branch and blocked for a person; returns its version.
+    async fn held(api: &TestApi) -> (tempfile::TempDir, i64) {
+        let (dir, cwd, runner) = bound_repository(api).await;
+        let body = json!({ "runnerId": runner, "cwd": cwd });
+        let (status, started) = post(api, "/api/v1/tickets/arc-1/start", &body).await;
+        assert_eq!(status, StatusCode::OK, "{started}");
+        let version = started["ticket"]["version"].as_i64().unwrap();
+        let blocked = json!({
+            "version": version,
+            "status": "blocked",
+            "blockedReason": "Human Interaction: review before merge",
+            "acceptance": "It works",
+        });
+        let (status, ticket) = patch(api, "/api/v1/tickets/arc-1", &blocked).await;
+        assert_eq!(status, StatusCode::OK, "{ticket}");
+        (dir, ticket["ticket"]["version"].as_i64().unwrap())
+    }
+
+    #[tokio::test]
+    async fn returning_a_held_ticket_sends_it_back_to_planned_with_a_marker_comment() {
+        let api = test_api().await;
+        let (_dir, version) = held(&api).await;
+        let path = "/api/v1/tickets/arc-1/review/return";
+        let (status, problem) = post(&api, path, &json!({ "feedback": "  " })).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (StatusCode::UNPROCESSABLE_ENTITY, Some("feedback-empty"))
+        );
+        let long = "x".repeat(10_001);
+        let (status, problem) = post(&api, path, &json!({ "feedback": long })).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (StatusCode::UNPROCESSABLE_ENTITY, Some("value-too-long"))
+        );
+        let stale = json!({ "feedback": "x", "version": version - 1 });
+        let (status, problem) = post(&api, path, &stale).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (StatusCode::CONFLICT, Some("version-conflict"))
+        );
+        let body = json!({ "feedback": "Add a test", "version": version });
+        let (status, ticket) = post(&api, path, &body).await;
+        assert_eq!(status, StatusCode::OK, "{ticket}");
+        assert_eq!(ticket["status"], "planned");
+        assert_eq!(ticket["blockedReason"], Value::Null);
+        let (_, comments) = get(&api, "/api/v1/tickets/arc-1/comments").await;
+        let last = comments["items"].as_array().unwrap().last().unwrap();
+        assert_eq!(last["systemMarker"], "review-returned", "{comments}");
+        assert!(
+            last["body"]
+                .as_str()
+                .is_some_and(|text| text.starts_with("[dispatch] review-returned (by ")
+                    && text.ends_with("): Add a test")),
+            "{last}"
+        );
+    }
+
+    #[tokio::test]
+    async fn accepting_a_held_ticket_finishes_it() {
+        let api = test_api().await;
+        let (_dir, version) = held(&api).await;
+        let stale = json!({ "version": version - 1 });
+        let (status, _) = post(&api, "/api/v1/tickets/arc-1/review/accept", &stale).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let body = json!({ "version": version });
+        let (status, ticket) = post(&api, "/api/v1/tickets/arc-1/review/accept", &body).await;
+        assert_eq!(status, StatusCode::OK, "{ticket}");
+        assert_eq!(ticket["status"], "done");
     }
 
     #[tokio::test]

@@ -2,7 +2,7 @@
 
 use strum::{EnumString, IntoStaticStr};
 
-use crate::{Actor, HUMAN_INTERACTION, Id, Run, Timestamp, Version, Worktree};
+use crate::{Actor, HUMAN_INTERACTION, Id, Run, SystemMarker, Timestamp, Version, Worktree};
 
 /// Block reason of a ticket that waits for a review before the merge.
 pub const REVIEW_REASON: &str = "review before merge";
@@ -12,6 +12,11 @@ pub const REVIEW_REASON: &str = "review before merge";
 pub fn review_reason() -> String {
     format!("{HUMAN_INTERACTION} {REVIEW_REASON}")
 }
+
+/// Most UTF-16 units of the feedback a person returns a ticket with.
+pub const REVIEW_FEEDBACK_MAX: usize = 10_000;
+/// Start of the comment that notes a return to the agent.
+pub const REVIEW_RETURNED_PREFIX: &str = "[dispatch] review-returned";
 
 /// Most test runs a review keeps.
 pub const REVIEW_TESTS_MAX: usize = 50;
@@ -142,9 +147,70 @@ pub fn change_summary(files: usize, additions: u64, deletions: u64) -> String {
     format!("{files} {word} changed (+{additions}/-{deletions})")
 }
 
+/// The comment that notes a ticket went back to the agent, written by `by`.
+#[must_use]
+pub fn returned_comment(by: &str, feedback: &str) -> String {
+    format!("{REVIEW_RETURNED_PREFIX} (by {by}): {feedback}")
+}
+
+/// The feedback of a return comment: the text after the author and the colon.
+fn returned_text(body: &str) -> Option<&str> {
+    let rest = body.strip_prefix(REVIEW_RETURNED_PREFIX)?.trim_start();
+    let rest = match rest.strip_prefix('(') {
+        Some(inner) => inner.split_once(')')?.1.trim_start(),
+        None => rest,
+    };
+    let text = rest.strip_prefix(':')?.trim();
+    (!text.is_empty()).then_some(text)
+}
+
+/// The feedback returned since the last start of the agent, oldest first.
+#[must_use]
+pub fn pending_feedback<'a>(
+    comments: impl IntoIterator<Item = (Option<SystemMarker>, &'a str)>,
+) -> Vec<String> {
+    let mut feedback = Vec::new();
+    for (marker, body) in comments {
+        match marker {
+            Some(SystemMarker::Start) => feedback.clear(),
+            Some(SystemMarker::ReviewReturned) => {
+                feedback.extend(returned_text(body).map(str::to_owned));
+            }
+            _ => {}
+        }
+    }
+    feedback
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feedback_counts_from_the_last_start_and_only_with_the_marker() {
+        let old = returned_comment("Anna", "old");
+        let first = returned_comment("Anna", "add a test\nfor the error case");
+        let second = returned_comment("Ben", "rename it");
+        let forged = returned_comment("Eve", "no marker");
+        let comments = [
+            (Some(SystemMarker::Start), "[dispatch] start: x"),
+            (Some(SystemMarker::ReviewReturned), old.as_str()),
+            (Some(SystemMarker::Start), "[dispatch] start: y"),
+            (Some(SystemMarker::Review), "[dispatch] review: waiting"),
+            (Some(SystemMarker::ReviewReturned), first.as_str()),
+            (None, forged.as_str()),
+            (Some(SystemMarker::ReviewReturned), second.as_str()),
+            (
+                Some(SystemMarker::ReviewReturned),
+                "[dispatch] review-returned (by X):  ",
+            ),
+        ];
+        assert_eq!(
+            pending_feedback(comments),
+            ["add a test\nfor the error case", "rename it"]
+        );
+        assert_eq!(pending_feedback([]), Vec::<String>::new());
+    }
 
     fn test(ok: Option<bool>) -> TestRun {
         TestRun {

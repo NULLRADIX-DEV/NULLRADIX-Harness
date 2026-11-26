@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.id AS \"id: Uuid\", r.worktree_id AS \"worktree_id: Uuid\"\n               FROM reviews r JOIN worktree_tickets t ON t.worktree_id = r.worktree_id\n               WHERE t.ticket_id = ? AND r.state = 'pending' LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "reviews",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "worktree_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "reviews",
+            "name": "worktree_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "29f22cc8fb0f16616f874e5d2bc31209f7465ee950281d0024b0bea18fc57365"
+}
