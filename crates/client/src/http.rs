@@ -82,6 +82,7 @@ pub struct Client {
     address: SocketAddr,
     token: Option<Secret>,
     connect_timeout: Option<Duration>,
+    timeout: Duration,
 }
 
 impl Client {
@@ -99,6 +100,7 @@ impl Client {
             address,
             token: None,
             connect_timeout: Some(connect_timeout),
+            timeout,
         }
     }
 
@@ -123,6 +125,7 @@ impl Client {
             address: self.address,
             token: self.token.clone(),
             connect_timeout: self.connect_timeout,
+            timeout,
         }
     }
 
@@ -133,7 +136,8 @@ impl Client {
 
     pub fn health(&self) -> Result<Health, ClientError> {
         // a daemon that accepts but never answers is reported soon, not after the long limit
-        let mut response = self.get_within(&self.url("/health"), None, Some(HEALTH_TIMEOUT))?;
+        let limit = self.timeout.min(HEALTH_TIMEOUT);
+        let mut response = self.get_within(&self.url("/health"), None, Some(limit))?;
         decode(&mut response, 200)
     }
 
