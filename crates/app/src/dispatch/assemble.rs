@@ -130,13 +130,16 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
     );
     pass.set_step(
         PassPhase::Evaluate,
-        Arc::new(EvaluateRuns::new(
-            deps.tickets.clone(),
-            deps.comments.clone(),
-            deps.runs.clone(),
-            starter.clone(),
-            log.clone(),
-        )),
+        Arc::new(
+            EvaluateRuns::new(
+                deps.tickets.clone(),
+                deps.comments.clone(),
+                deps.runs.clone(),
+                starter.clone(),
+                log.clone(),
+            )
+            .with_accounts(accounts.clone()),
+        ),
     );
     pass.set_step(
         PassPhase::ReleaseStale,

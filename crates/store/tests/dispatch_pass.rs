@@ -2470,3 +2470,34 @@ async fn start_and_end_rows_older_than_the_retention_go_with_the_next_poll() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn a_settled_run_writes_one_end_sample_even_when_the_pass_repeats() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max"]).await;
+    let max = &accounts[0];
+    f.limits.set(max.id(), 10, 20, Fixture::resets_in(4));
+    let key = f.start_tickets(1).await.remove(0);
+    f.agent_changes(&key, "done", None).await;
+    let run = f.finish_run(&key).await;
+    let samples = f.store.as_ref();
+    assert!(
+        UsageSampleRepository::history(samples, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    f.limits.set(max.id(), 16, 25, Fixture::resets_in(4));
+    f.dispatcher.pass.run().await;
+    assert!(f.outcome(run).await.is_some());
+    let history = UsageSampleRepository::history(samples, 10).await.unwrap();
+    assert_eq!(history.len(), 1, "{history:?}");
+    f.dispatcher.pass.run().await;
+    assert_eq!(
+        UsageSampleRepository::history(samples, 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
