@@ -618,7 +618,20 @@ impl TicketStarter {
                 extra_tools: Vec::new(),
             })
             .await?;
-        if !self.still_ours(&launch.key, config).await? {
+        // the run is live now: a failed check keeps it rather than giving the claim back
+        let ours = match self.still_ours(&launch.key, config).await {
+            Ok(ours) => ours,
+            Err(error) => {
+                self.log
+                    .error(
+                        &format!("cannot check the claim of {text}: {}", error.message()),
+                        Some(&text),
+                    )
+                    .await;
+                true
+            }
+        };
+        if !ours {
             if let Err(error) = self.runs.cancel(run.id()).await {
                 self.log
                     .error(
