@@ -30,16 +30,18 @@ use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
+use nullradix_app::theme_catalog::CatalogService;
 use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
-use nullradix_domain::{Actor, ConfigDir, Timestamp};
+use nullradix_domain::{Actor, ConfigDir, Reach, Timestamp};
 use nullradix_runner::{
-    CurlTokenEndpoint, CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalLoginRenewal,
-    LocalLoginRunner, LocalRunner, LocalSetup, SupervisorCommand, TranscriptRoots,
+    CurlCatalogFetcher, CurlTokenEndpoint, CurlUsageApi, LocalAccountFolders, LocalClaudeLogins,
+    LocalLoginRenewal, LocalLoginRunner, LocalRunner, LocalSetup, SupervisorCommand,
+    TranscriptRoots,
 };
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -144,7 +146,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         &signal,
     )
     .await?;
-    let (themes, customizations) = start_extensions(config, &store, &signal);
+    let (themes, catalog, customizations) = start_extensions(config, &store, &signal);
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
@@ -185,6 +187,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         sessions,
         favorites,
         themes,
+        catalog,
         customizations,
         changes: Arc::new(store.clone()),
         signal,
@@ -446,13 +449,30 @@ fn start_extensions(
     config: &Config,
     store: &Store,
     signal: &ChangeSignal,
-) -> (Arc<ThemeService>, Arc<CustomizationService>) {
+) -> (
+    Arc<ThemeService>,
+    Arc<CatalogService>,
+    Arc<CustomizationService>,
+) {
     let themes = Arc::new(ThemeService::new(
         Arc::new(store.clone()),
         Arc::new(FolderThemes::new(config.paths.themes())),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),
+    ));
+    let reach = if config.theme_catalog_local {
+        Reach::Anywhere
+    } else {
+        Reach::Public
+    };
+    let catalog = Arc::new(CatalogService::new(
+        Arc::new(store.clone()),
+        Arc::new(CurlCatalogFetcher::new(reach)),
+        themes.clone(),
+        Arc::new(SystemClock),
+        signal.clone(),
+        reach,
     ));
     let customizations = Arc::new(CustomizationService::new(
         Arc::new(store.clone()),
@@ -461,7 +481,7 @@ fn start_extensions(
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    (themes, customizations)
+    (themes, catalog, customizations)
 }
 
 struct BoardServices {

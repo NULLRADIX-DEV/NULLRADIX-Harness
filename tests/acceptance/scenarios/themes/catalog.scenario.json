@@ -1,0 +1,85 @@
+{
+  "title": "Catalog sources are added over https only, listed, refused when unsafe and removed",
+  "steps": [
+    {
+      "name": "no source yet",
+      "http": { "method": "GET", "path": "/api/v1/theme-catalog/sources" }
+    },
+    {
+      "name": "an empty catalog offers nothing",
+      "http": { "method": "GET", "path": "/api/v1/theme-catalog/themes" }
+    },
+    {
+      "name": "plain http is refused over the cli",
+      "cli": { "args": ["theme", "catalog", "add", "http://themes.example.com/index.json"] }
+    },
+    {
+      "name": "a local address is refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/theme-catalog/sources",
+        "body": { "url": "https://127.0.0.1/index.json" }
+      }
+    },
+    {
+      "name": "the cloud metadata address is refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/theme-catalog/sources",
+        "body": { "url": "https://169.254.169.254/latest/meta-data" }
+      }
+    },
+    {
+      "name": "credentials in the address are refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/theme-catalog/sources",
+        "body": { "url": "https://user:secret@themes.example.com/index.json" }
+      }
+    },
+    {
+      "name": "add a source over the cli",
+      "cli": { "args": ["theme", "catalog", "add", "https://themes.example.com/index.json"] }
+    },
+    {
+      "name": "the same address again conflicts",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/theme-catalog/sources",
+        "body": { "url": "HTTPS://Themes.Example.com/index.json" }
+      }
+    },
+    {
+      "name": "the cli lists the sources",
+      "cli": { "args": ["theme", "catalog", "sources"] }
+    },
+    {
+      "name": "the list has a version",
+      "http": { "method": "GET", "path": "/api/v1/theme-catalog/sources" },
+      "save": { "id": "json.items.0.id" }
+    },
+    {
+      "name": "removing from a stale version conflicts",
+      "http": { "method": "DELETE", "path": "/api/v1/theme-catalog/sources/{{id}}?version=7" }
+    },
+    {
+      "name": "an unknown source cannot be installed from",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/theme-catalog/sources/000000000000/themes/night-blue/install"
+      }
+    },
+    {
+      "name": "remove the source over the cli",
+      "cli": { "args": ["theme", "catalog", "remove", "{{id}}"] }
+    },
+    {
+      "name": "the list is empty again",
+      "http": { "method": "GET", "path": "/api/v1/theme-catalog/sources" }
+    },
+    {
+      "name": "the routes need a token",
+      "http": { "method": "GET", "path": "/api/v1/theme-catalog/sources", "auth": "none" }
+    }
+  ]
+}

@@ -1,0 +1,243 @@
+[
+  {
+    "name": "no source yet",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "items": [],
+        "version": 0
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "an empty catalog offers nothing",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/themes"
+    },
+    "response": {
+      "json": {
+        "items": [],
+        "sources": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "catalog",
+      "add",
+      "http://themes.example.com/index.json"
+    ],
+    "exitCode": 1,
+    "name": "plain http is refused over the cli",
+    "stderr": "error: the daemon refused the request: the address must start with https:// (catalog-source-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "name": "a local address is refused",
+    "request": {
+      "body": {
+        "url": "https://127.0.0.1/index.json"
+      },
+      "method": "POST",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "code": "catalog-source-invalid",
+        "detail": "the address points to a local or private host",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:catalog-source-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the cloud metadata address is refused",
+    "request": {
+      "body": {
+        "url": "https://169.254.169.254/latest/meta-data"
+      },
+      "method": "POST",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "code": "catalog-source-invalid",
+        "detail": "the address points to a local or private host",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:catalog-source-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "credentials in the address are refused",
+    "request": {
+      "body": {
+        "url": "https://user:secret@themes.example.com/index.json"
+      },
+      "method": "POST",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "code": "catalog-source-invalid",
+        "detail": "the address holds credentials",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:catalog-source-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "catalog",
+      "add",
+      "https://themes.example.com/index.json"
+    ],
+    "exitCode": 0,
+    "name": "add a source over the cli",
+    "stderr": "",
+    "stdout": "added 6450515911e9 https://themes.example.com/index.json\n"
+  },
+  {
+    "name": "the same address again conflicts",
+    "request": {
+      "body": {
+        "url": "HTTPS://Themes.Example.com/index.json"
+      },
+      "method": "POST",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "code": "catalog-source-exists",
+        "detail": "this address is already a source",
+        "existing": "6450515911e9",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:catalog-source-exists"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "catalog",
+      "sources"
+    ],
+    "exitCode": 0,
+    "name": "the cli lists the sources",
+    "stderr": "",
+    "stdout": "6450515911e9 https://themes.example.com/index.json\n"
+  },
+  {
+    "name": "the list has a version",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "addedAt": "<TIME>",
+            "id": "6450515911e9",
+            "url": "https://themes.example.com/index.json"
+          }
+        ],
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "removing from a stale version conflicts",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/theme-catalog/sources/6450515911e9?version=7"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "catalog sources 6450515911e9 was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "an unknown source cannot be installed from",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/theme-catalog/sources/000000000000/themes/night-blue/install"
+    },
+    "response": {
+      "json": {
+        "code": "catalog-source-not-found",
+        "detail": "no such catalog source",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:catalog-source-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "catalog",
+      "remove",
+      "6450515911e9"
+    ],
+    "exitCode": 0,
+    "name": "remove the source over the cli",
+    "stderr": "",
+    "stdout": "removed 6450515911e9\n"
+  },
+  {
+    "name": "the list is empty again",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "items": [],
+        "version": 2
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the routes need a token",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "code": "credentials-missing",
+        "detail": "this route needs a token or a session",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:credentials-missing"
+      },
+      "status": 401
+    }
+  }
+]

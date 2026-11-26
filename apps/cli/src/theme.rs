@@ -35,6 +35,11 @@ pub(crate) enum ThemeCommand {
         #[command(subcommand)]
         action: Option<SettingsAction>,
     },
+    /// Find themes in catalogs and install them
+    Catalog {
+        #[command(subcommand)]
+        action: crate::theme_catalog::CatalogCommand,
+    },
     /// Check a theme folder and pack it into a `.nullradix` package; needs no daemon
     Pack {
         /// Folder with manifest.json and theme.css
@@ -87,6 +92,7 @@ pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<Exit
             println!("removed {id}");
         }
         ThemeCommand::Settings { id, action } => settings(client, &id, action)?,
+        ThemeCommand::Catalog { action } => crate::theme_catalog::run(action, client)?,
         ThemeCommand::Pack { .. } => bail!("pack runs without a daemon"),
     }
     Ok(ExitCode::SUCCESS)

@@ -230,8 +230,29 @@ impl ThemeService {
 
     /// Installs the package, or replaces the installed theme with the same id.
     pub async fn install(&self, archive: Vec<u8>) -> Result<InstalledTheme, AppError> {
+        self.install_expecting(archive, None).await
+    }
+
+    /// Like `install`, but refuses a package whose manifest is not the theme and version expected.
+    pub async fn install_expecting(
+        &self,
+        archive: Vec<u8>,
+        expected: Option<(&ThemeId, &str)>,
+    ) -> Result<InstalledTheme, AppError> {
         let files = self.files.unpack(archive).await?;
         let manifest = check_package(&files, false)?;
+        if let Some((id, version)) = expected
+            && (manifest.id() != id || manifest.record().version != version)
+        {
+            return Err(AppError::invalid(
+                "theme-package-mismatch",
+                format!(
+                    "the package holds {} {}, not {id} {version}",
+                    manifest.id(),
+                    manifest.record().version
+                ),
+            ));
+        }
         if manifest.id().is_builtin() {
             return Err(AppError::invalid(
                 "theme-id-reserved",

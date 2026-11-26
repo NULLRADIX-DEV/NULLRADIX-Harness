@@ -21,6 +21,7 @@ mod session;
 pub mod step;
 mod text;
 mod theme;
+mod theme_catalog;
 mod theme_settings;
 mod ticket;
 mod ticket_values;
@@ -106,6 +107,11 @@ pub use theme::{
     SelectOption, SettingSpec, ThemeError, ThemeId, ThemeManifest, asset_segments,
     check_claude_files, check_entry_path, check_theme_css, content_type, host_allowed,
     is_allowed_extension, is_claude_path, is_hidden,
+};
+pub use theme_catalog::{
+    Availability, CatalogEntry, CatalogError, CatalogSource, CatalogUrl, Endpoint, EndpointHost,
+    EntryDraft, MAX_DESCRIPTION_CHARS, MAX_INDEX_BYTES, MAX_INDEX_ENTRIES, MAX_SOURCES,
+    MAX_URL_CHARS, Reach, SourceId, THEME_SDK_VERSION, is_public_address,
 };
 pub use theme_settings::{SETTING_VALUE_MAX, SettingValue, ThemeSettingValues};
 pub use ticket::{

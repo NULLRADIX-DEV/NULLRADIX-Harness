@@ -1124,6 +1124,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/theme-catalog/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_catalog_sources"];
+        put?: never;
+        post: operations["add_catalog_source"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/theme-catalog/sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_catalog_source"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/theme-catalog/sources/{id}/themes/{theme}/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["install_catalog_theme"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/theme-catalog/themes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["browse_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/themes": {
         parameters: {
             query?: never;
@@ -1518,6 +1582,10 @@ export interface components {
         AccountStrategyDto: "most-free" | "order";
         /** @enum {string} */
         ActorKindDto: "human" | "session" | "subagent" | "dispatcher" | "system";
+        AddCatalogSource: {
+            /** @description An https address of an index file, a JSON list of themes. */
+            url: string;
+        };
         /** @description A new comment; leading and trailing whitespace is dropped. */
         AddComment: {
             /** @description Name to write under, such as `claude`; the acting person when left out. */
@@ -1621,6 +1689,58 @@ export interface components {
         };
         BoardList: {
             items: components["schemas"]["BoardDto"][];
+        };
+        CatalogDto: {
+            /** @description Sorted by name, then id, then source. */
+            items: components["schemas"]["CatalogThemeDto"][];
+            sources: components["schemas"]["CatalogSourceStatusDto"][];
+        };
+        CatalogProblemDto: {
+            /** @description Stable code such as `catalog-timeout` or `catalog-index-invalid`. */
+            code: string;
+            message: string;
+        };
+        CatalogSourceDto: {
+            /** Format: int64 */
+            addedAt: number;
+            /** @description Stable id derived from the address. */
+            id: string;
+            url: string;
+        };
+        CatalogSourceListDto: {
+            /** @description In the order they were added. */
+            items: components["schemas"]["CatalogSourceDto"][];
+            /**
+             * Format: int64
+             * @description Version of the list for removing; 0 while no source was ever added.
+             */
+            version: number;
+        };
+        CatalogSourceStatusDto: {
+            /** @description Valid entries of the source. */
+            offered: number;
+            problem?: components["schemas"]["CatalogProblemDto"] | null;
+            skipped: components["schemas"]["SkippedEntryDto"][];
+            source: components["schemas"]["CatalogSourceDto"];
+        };
+        /**
+         * @description What a catalog theme means for this installation.
+         * @enum {string}
+         */
+        CatalogStateDto: "available" | "installed" | "update";
+        CatalogThemeDto: {
+            /** @description Whether the theme fits this version; incompatible themes cannot be installed. */
+            compatible: boolean;
+            description?: string | null;
+            id: string;
+            /** @description The installed version when the theme is installed. */
+            installedVersion?: string | null;
+            name: string;
+            /** @description Range of SDK versions the theme runs with. */
+            sdkVersion: string;
+            sourceId: string;
+            state: components["schemas"]["CatalogStateDto"];
+            version: string;
         };
         /** @description Data of a `change` event; the event id carries `seq`. */
         ChangeDto: {
@@ -3056,6 +3176,12 @@ export interface components {
             /** @description Key of the ticket it was promoted to. */
             ticketKey?: string | null;
             title: string;
+        };
+        SkippedEntryDto: {
+            id?: string | null;
+            /** @description Position of the entry in the index. */
+            index: number;
+            reason: string;
         };
         /** @enum {string} */
         SourceDto: "custom" | "standard";
@@ -8163,6 +8289,251 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_catalog_sources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogSourceListDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    add_catalog_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCatalogSource"];
+            };
+        };
+        responses: {
+            /** @description Added */
+            201: {
+                headers: {
+                    /** @description URL of the source list */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogSourceDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `catalog-source-exists` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `catalog-source-invalid` (not https, private host, credentials, too long) or `catalog-source-limit` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    remove_catalog_source: {
+        parameters: {
+            query: {
+                /** @description Version of the source list the removal is based on. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                /** @description Source id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `catalog-source-not-found` */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version of the list */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    install_catalog_theme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Source id. */
+                id: string;
+                /** @description Theme id as the source offers it. */
+                theme: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Replaced the installed theme with the same id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeDto"];
+                };
+            };
+            /** @description Installed */
+            201: {
+                headers: {
+                    /** @description URL of the stylesheet */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `catalog-source-not-found` or `catalog-theme-not-found` */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `catalog-theme-incompatible` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `catalog-checksum-mismatch`, `theme-package-mismatch`, `catalog-too-large`, `catalog-address-refused`, or the package is invalid as an uploaded one */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The source cannot be reached: `catalog-timeout`, `catalog-unreachable`, `catalog-http-error` */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    browse_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The themes of every source; a source that fails is reported in `sources` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogDto"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
