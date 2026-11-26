@@ -13,6 +13,7 @@ mod git;
 mod launch;
 mod local;
 mod login_process;
+mod merge;
 mod oauth_refresh;
 mod protocol;
 mod review;
@@ -28,6 +29,7 @@ pub use claude_login::LocalClaudeLogins;
 pub use detached::LocalDetached;
 pub use local::{LocalRunner, SupervisorCommand};
 pub use login_process::LocalLoginRunner;
+pub use merge::LocalMergeGit;
 pub use oauth_refresh::{
     CLIENT_ID, CurlTokenEndpoint, LocalLoginRenewal, TOKEN_URL, TokenEndpoint, TokenReply,
 };

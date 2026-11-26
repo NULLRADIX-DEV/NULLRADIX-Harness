@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO merge_jobs (id, worktree_id, phase, target_branch, strategy, since, version)\n             VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "a6e0ee76e5000b96fbcc74867c191d4a9716bd4b69704723845da499e0c4eb99"
+}

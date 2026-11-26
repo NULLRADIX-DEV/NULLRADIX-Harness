@@ -1,0 +1,455 @@
+{
+  "title": "An accepted ticket is merged into the main branch with a merge commit, its worktree and branch are removed and the merge is listed",
+  "env": {
+    "FAKE_CLAUDE_MODE": "review",
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@example.com",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@example.com"
+  },
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": {
+          "key": "ARC",
+          "name": "Arches"
+        }
+      },
+      "save": {
+        "project": "json.id"
+      }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": {
+          "name": "Main"
+        }
+      },
+      "save": {
+        "board": "json.id"
+      }
+    },
+    {
+      "name": "init a repository",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git init",
+          "program": "git",
+          "args": ["init", "-q", "-b", "main", "arches"],
+          "cwd": "{{WORK}}",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": {
+        "init": "json.id"
+      }
+    },
+    {
+      "name": "initialized",
+      "wait": {
+        "path": "/api/v1/runs/{{init}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "the readme",
+      "file": {
+        "path": "{{WORK}}/arches/README.md",
+        "text": "# Arches\n"
+      }
+    },
+    {
+      "name": "the price module",
+      "file": {
+        "path": "{{WORK}}/arches/src/price.ts",
+        "text": "export const price = (net: number) => net;\n"
+      }
+    },
+    {
+      "name": "a module that goes away",
+      "file": {
+        "path": "{{WORK}}/arches/src/old.ts",
+        "text": "export const OLD = true;\n"
+      }
+    },
+    {
+      "name": "a note that moves",
+      "file": {
+        "path": "{{WORK}}/arches/docs/note.md",
+        "text": "The prices\nare in\nsrc/price.ts\nand nowhere else\nat all.\n"
+      }
+    },
+    {
+      "name": "stage the files",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git add",
+          "program": "git",
+          "args": ["add", "-A"],
+          "cwd": "{{WORK}}/arches",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": {
+        "add": "json.id"
+      }
+    },
+    {
+      "name": "staged",
+      "wait": {
+        "path": "/api/v1/runs/{{add}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "first commit",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git commit",
+          "program": "git",
+          "args": [
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "init"
+          ],
+          "cwd": "{{WORK}}/arches",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": {
+        "commit": "json.id"
+      }
+    },
+    {
+      "name": "committed",
+      "wait": {
+        "path": "/api/v1/runs/{{commit}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "long paths on already, so every platform prints the same",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git config",
+          "program": "git",
+          "args": ["config", "core.longpaths", "true"],
+          "cwd": "{{WORK}}/arches",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": {
+        "config": "json.id"
+      }
+    },
+    {
+      "name": "configured",
+      "wait": {
+        "path": "/api/v1/runs/{{config}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "bind the board",
+      "cli": {
+        "args": ["board", "repo", "{{board}}", "{{WORK}}/arches"]
+      }
+    },
+    {
+      "name": "a ready ticket",
+      "cli": {
+        "args": [
+          "ticket",
+          "create",
+          "Build the discount",
+          "--board",
+          "{{board}}",
+          "--label",
+          "auto",
+          "--acceptance",
+          "The price drops by the discount",
+          "--planned"
+        ]
+      }
+    },
+    {
+      "name": "a ticket the dispatcher never takes",
+      "cli": {
+        "args": ["ticket", "create", "Check the shipping", "--board", "{{board}}"]
+      }
+    },
+    {
+      "name": "plan the first",
+      "cli": {
+        "args": ["plan", "write", "ARC-1", "--plan", "Apply it", "--handbook", "npx vitest run"]
+      }
+    },
+    {
+      "name": "switch on",
+      "cli": {
+        "args": ["dispatcher", "enable"]
+      }
+    },
+    {
+      "name": "a pass starts the ticket",
+      "cli": {
+        "args": ["dispatcher", "run"]
+      }
+    },
+    {
+      "name": "the run ended",
+      "wait": {
+        "path": "/api/v1/runs?ticketKey=ARC-0001&kind=work",
+        "field": "items.0.status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "the agent finishes its ticket",
+      "cli": {
+        "args": [
+          "ticket",
+          "move",
+          "ARC-1",
+          "done",
+          "--acceptance",
+          "The price drops by the discount",
+          "--author",
+          "worker-ARC-0001"
+        ]
+      }
+    },
+    {
+      "name": "the next pass holds the finished ticket for review",
+      "cli": {
+        "args": ["dispatcher", "run"]
+      }
+    },
+    {
+      "name": "the ticket waits for a person",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1"
+      }
+    },
+    {
+      "name": "merges of an unknown ticket",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-99/merges"
+      }
+    },
+    {
+      "name": "nothing is queued while the ticket waits for its review",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1/merges"
+      }
+    },
+    {
+      "name": "a pass merges nothing yet",
+      "cli": {
+        "args": ["dispatcher", "run"]
+      }
+    },
+    {
+      "name": "accept the held ticket",
+      "cli": {
+        "args": ["ticket", "accept", "ARC-1"]
+      }
+    },
+    {
+      "name": "the merge is queued",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1/merges"
+      }
+    },
+    {
+      "name": "the next pass merges the branch and cleans up",
+      "cli": {
+        "args": ["dispatcher", "run"]
+      }
+    },
+    {
+      "name": "the ticket is merged and its branch and worktree are cleared",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1"
+      }
+    },
+    {
+      "name": "the merge is done",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1/merges"
+      }
+    },
+    {
+      "name": "the merges of a ticket that never had a branch",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-2/merges"
+      }
+    },
+    {
+      "name": "a pass after the merge changes nothing",
+      "cli": {
+        "args": ["dispatcher", "run"]
+      }
+    },
+    {
+      "name": "the branches left",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git branch",
+          "program": "git",
+          "args": ["branch", "--list"],
+          "cwd": "{{WORK}}/arches",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": {
+        "branches": "json.id"
+      }
+    },
+    {
+      "name": "the branches left finished",
+      "wait": {
+        "path": "/api/v1/runs/{{branches}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "the branches left printed",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{branches}}/output"
+      }
+    },
+    {
+      "name": "the worktrees left",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git worktree",
+          "program": "git",
+          "args": ["worktree", "list", "--porcelain"],
+          "cwd": "{{WORK}}/arches",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": {
+        "worktrees": "json.id"
+      }
+    },
+    {
+      "name": "the worktrees left finished",
+      "wait": {
+        "path": "/api/v1/runs/{{worktrees}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "the worktrees left printed",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{worktrees}}/output"
+      }
+    },
+    {
+      "name": "the merge commit",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git log",
+          "program": "git",
+          "args": ["log", "-1", "--format=%s", "--first-parent"],
+          "cwd": "{{WORK}}/arches",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": {
+        "subject": "json.id"
+      }
+    },
+    {
+      "name": "the merge commit finished",
+      "wait": {
+        "path": "/api/v1/runs/{{subject}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "the merge commit printed",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{subject}}/output"
+      }
+    },
+    {
+      "name": "the files of main",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/runs",
+        "body": {
+          "label": "git ls-files",
+          "program": "git",
+          "args": ["ls-files"],
+          "cwd": "{{WORK}}/arches",
+          "timeoutSeconds": 30
+        }
+      },
+      "save": {
+        "files": "json.id"
+      }
+    },
+    {
+      "name": "the files of main finished",
+      "wait": {
+        "path": "/api/v1/runs/{{files}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "the files of main printed",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{files}}/output"
+      }
+    }
+  ]
+}

@@ -1,0 +1,242 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT j.id AS \"id: Uuid\", j.worktree_id AS \"worktree_id: Uuid\", j.phase,\n                      j.target_branch, j.target_head, j.strategy, j.conflict_sessions,\n                      j.session_used, j.conflict_seen, j.wait_noted, j.held_by, j.hold_noticed,\n                      j.problem, j.merged_into, j.merged_commit, j.since, j.finished_at,\n                      j.version, w.branch AS \"branch!\"\n               FROM merge_jobs j\n               JOIN worktrees w ON w.id = j.worktree_id\n               WHERE j.worktree_id IN (SELECT worktree_id FROM worktree_tickets WHERE ticket_id = ?)\n               ORDER BY j.since DESC, j.id DESC LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "worktree_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "worktree_id"
+          }
+        }
+      },
+      {
+        "name": "phase",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "phase"
+          }
+        }
+      },
+      {
+        "name": "target_branch",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "target_branch"
+          }
+        }
+      },
+      {
+        "name": "target_head",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "target_head"
+          }
+        }
+      },
+      {
+        "name": "strategy",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "strategy"
+          }
+        }
+      },
+      {
+        "name": "conflict_sessions",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "conflict_sessions"
+          }
+        }
+      },
+      {
+        "name": "session_used",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "session_used"
+          }
+        }
+      },
+      {
+        "name": "conflict_seen",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "conflict_seen"
+          }
+        }
+      },
+      {
+        "name": "wait_noted",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "wait_noted"
+          }
+        }
+      },
+      {
+        "name": "held_by",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "held_by"
+          }
+        }
+      },
+      {
+        "name": "hold_noticed",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "hold_noticed"
+          }
+        }
+      },
+      {
+        "name": "problem",
+        "ordinal": 12,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "problem"
+          }
+        }
+      },
+      {
+        "name": "merged_into",
+        "ordinal": 13,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "merged_into"
+          }
+        }
+      },
+      {
+        "name": "merged_commit",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "merged_commit"
+          }
+        }
+      },
+      {
+        "name": "since",
+        "ordinal": 15,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "since"
+          }
+        }
+      },
+      {
+        "name": "finished_at",
+        "ordinal": 16,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 17,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "name": "branch!",
+        "ordinal": 18,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "branch"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a5f34e6ba2313746ac1f0a36fd645209c24288b0c2a36a66eef723355a0a0ecb"
+}

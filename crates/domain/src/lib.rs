@@ -13,6 +13,7 @@ mod favorite;
 mod hook;
 mod id;
 mod inbox;
+mod merge;
 mod note;
 mod project;
 mod question;
@@ -86,6 +87,10 @@ pub use id::{Id, ParseIdError};
 pub use inbox::{
     INBOX_DETAIL_MAX, INBOX_ORDER_MAX, INBOX_TITLE_MAX, InboxCounts, InboxError, InboxItem,
     InboxKind, InboxRef, SETUP_REASON, apply_order, clip, compare, note_text, order,
+};
+pub use merge::{
+    MERGE_PROBLEM_MAX, MERGE_REASON_MAX, MergeJob, MergeJobRecord, MergePhase, SQUASH_LIST_MAX,
+    conflict_problem, merge_block_reason, merge_message,
 };
 pub use note::{
     NOTE_LABELS_MAX, NOTE_REASON_MAX, NOTE_SEEN_IN_MAX, NOTE_TITLE_MAX, Note, NoteDraft, NoteError,

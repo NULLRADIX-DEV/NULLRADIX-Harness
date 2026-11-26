@@ -7893,6 +7893,65 @@
         }
       }
     },
+    "/api/v1/tickets/{ticketKey}/merges": {
+      "get": {
+        "tags": [
+          "merge"
+        ],
+        "operationId": "list_merges",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MergeJobList"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A malformed ticket key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticketKey}/move": {
       "post": {
         "tags": [
@@ -12357,6 +12416,105 @@
           }
         }
       },
+      "MergeJobDto": {
+        "type": "object",
+        "description": "The merge of a worktree's branch into its target.",
+        "required": [
+          "id",
+          "branch",
+          "phase",
+          "strategy",
+          "conflictSeen",
+          "queuedAt",
+          "version"
+        ],
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "conflictSeen": {
+            "type": "boolean",
+            "description": "A merge conflict was found and undone."
+          },
+          "finishedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mergedCommit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mergedInto": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "$ref": "#/components/schemas/MergePhaseDto"
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the merge failed, or the files it conflicts in."
+          },
+          "queuedAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds the merge was queued."
+          },
+          "strategy": {
+            "$ref": "#/components/schemas/MergeStrategyDto"
+          },
+          "targetBranch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "None: the branch the main checkout has checked out."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "MergeJobList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MergeJobDto"
+            }
+          }
+        }
+      },
+      "MergePhaseDto": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "waiting",
+          "conflict-session",
+          "merged",
+          "failed",
+          "cancelled"
+        ]
+      },
       "MergeStrategyDto": {
         "type": "string",
         "enum": [
@@ -12810,6 +12968,7 @@
         "required": [
           "at",
           "started",
+          "merged",
           "queued",
           "released",
           "errors"
@@ -12832,6 +12991,13 @@
               "null"
             ],
             "description": "Why nothing new could start, in words."
+          },
+          "merged": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tickets whose branch went into its target."
           },
           "queued": {
             "type": "array",

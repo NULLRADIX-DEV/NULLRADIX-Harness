@@ -160,7 +160,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
-    let (dispatcher, account_pauses, decisions, dispatching) = start_dispatcher(
+    let (dispatcher, account_pauses, decisions, merges, dispatching) = start_dispatcher(
         &store,
         &signal,
         &shutdown,
@@ -199,6 +199,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         worktrees: board.worktrees,
         reviews: board.reviews,
         decisions,
+        merges,
         notes: board.notes,
         inbox: board.inbox,
         runners,
@@ -318,6 +319,7 @@ fn start_dispatcher(
     Arc<DispatcherService>,
     Arc<AccountPauses>,
     Arc<ReviewDecisions>,
+    Arc<nullradix_app::dispatch::merge_jobs::MergeQueue>,
     Dispatching,
 ) {
     let dispatcher = assemble(DispatcherDeps {
@@ -341,6 +343,9 @@ fn start_dispatcher(
         tickets: parts.board.tickets.clone(),
         comments: parts.board.comments.clone(),
         worktrees: parts.board.worktrees.clone(),
+        worktree_repository: Arc::new(store.clone()),
+        merge_jobs: Arc::new(store.clone()),
+        merge_git: Arc::new(nullradix_runner::LocalMergeGit),
         reviews: parts.board.reviews.clone(),
         clock: Arc::new(SystemClock),
         ids: Arc::new(UuidV7Generator),
@@ -363,6 +368,7 @@ fn start_dispatcher(
         dispatcher.service,
         dispatcher.pauses,
         dispatcher.decisions,
+        dispatcher.merges,
         dispatching,
     )
 }

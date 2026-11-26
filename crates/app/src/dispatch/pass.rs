@@ -82,6 +82,9 @@ pub struct PassReport {
     /// Questions whose research started.
     #[serde(default)]
     pub research: Vec<String>,
+    /// Tickets whose branch went into its target.
+    #[serde(default)]
+    pub merged: Vec<String>,
     /// Ready tickets that wait for a free place.
     pub queued: Vec<String>,
     pub released: Vec<String>,
@@ -102,6 +105,7 @@ impl PassReport {
     pub fn worth_keeping(&self) -> bool {
         !(self.started.is_empty()
             && self.research.is_empty()
+            && self.merged.is_empty()
             && self.released.is_empty()
             && self.errors.is_empty())
     }

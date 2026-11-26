@@ -11,6 +11,9 @@ static UUID: LazyLock<Option<Regex>> = LazyLock::new(|| {
 static SECRET: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{64}\b").ok());
 /// A full git object name, as `git -c core.abbrev=40` prints commits.
 static COMMIT: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{40}\b").ok());
+/// The short commit a merge note names, such as `merged into main (7b8d004)`.
+static MERGED: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"(into \S+ \()[0-9a-f]{7,12}(\))").ok());
 /// A moment as the CLI prints it, such as `2026-11-25T10:00:00.000Z`.
 static MOMENT: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\b").ok());
@@ -108,6 +111,9 @@ impl Normalizer {
         if let Some(commit) = COMMIT.as_ref() {
             text = commit.replace_all(&text, "<COMMIT>").into_owned();
         }
+        if let Some(merged) = MERGED.as_ref() {
+            text = merged.replace_all(&text, "$1<COMMIT>$2").into_owned();
+        }
         if let Some(moment) = MOMENT.as_ref() {
             text = moment.replace_all(&text, "<TIME>").into_owned();
         }
@@ -138,6 +144,8 @@ impl Normalizer {
             let moment = key == "at" || key.ends_with("At") || key.ends_with("Until");
             if moment && field.is_number() {
                 *field = Value::from("<TIME>");
+            } else if key == "mergedCommit" && field.is_string() {
+                *field = Value::from("<COMMIT>");
             } else if key == "runtimeMs" && field.is_number() {
                 *field = Value::from("<DURATION>");
             } else if matches!(key.as_str(), "pid" | "port") && field.is_number() {
@@ -234,6 +242,10 @@ mod tests {
         assert_eq!(
             normalizer.text(&format!("x {} [main]", "c".repeat(40))),
             "x <COMMIT> [main]"
+        );
+        assert_eq!(
+            normalizer.text("[dispatch] merged into main (7b8d004). Branch"),
+            "[dispatch] merged into main (<COMMIT>). Branch"
         );
         if home.to_string_lossy().contains('\\') {
             let escaped = format!("{}\\\\data", home.to_string_lossy().replace('\\', "\\\\"));
