@@ -115,9 +115,9 @@ fn deny(root: &Path) -> Outcome {
         &[
             "deny",
             "--all-features",
-            "check",
             "--config",
             ".config/deny.toml",
+            "check",
         ],
     )
 }
@@ -169,7 +169,13 @@ pub(crate) fn gate(root: &Path, skip_web: bool) -> ExitCode {
         run(
             root,
             "cargo",
-            &["nextest", "run", "--workspace", "--locked"],
+            &[
+                "nextest",
+                "run",
+                "--workspace",
+                "--locked",
+                "--no-fail-fast",
+            ],
         )
     });
     if skip_web {
