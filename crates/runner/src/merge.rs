@@ -720,6 +720,10 @@ mod tests {
         let root = dir.path().join("arches");
         fs::create_dir_all(&root).unwrap();
         git_sync(&root, &["init", "-q", "-b", "main"]);
+        // the merge itself commits with the repository's identity, which CI does not have
+        git_sync(&root, &["config", "user.name", "t"]);
+        git_sync(&root, &["config", "user.email", "t@example.com"]);
+        git_sync(&root, &["config", "commit.gpgsign", "false"]);
         commit(&root, "a.txt", "base\n", "init");
         git_sync(&root, &["branch", "ticket/x"]);
         git_sync(&root, &["checkout", "-q", "ticket/x"]);
