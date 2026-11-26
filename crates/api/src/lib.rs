@@ -344,6 +344,8 @@ fn dispatcher_routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(dispatcher_control::pause_dispatcher))
         .routes(routes!(dispatcher_control::resume_dispatcher))
         .routes(routes!(dispatcher_control::run_pass))
+        .routes(routes!(questions::submit_research))
+        .routes(routes!(dispatch_runs::start_research_run))
 }
 
 fn routes() -> OpenApiRouter<ApiState> {
@@ -391,8 +393,6 @@ fn routes() -> OpenApiRouter<ApiState> {
             questions::create_question
         ))
         .routes(routes!(questions::get_question))
-        .routes(routes!(questions::submit_research))
-        .routes(routes!(dispatch_runs::start_research_run))
         .routes(routes!(questions::answer_question))
         .routes(routes!(questions::discard_question))
         .routes(routes!(questions::reopen_question))

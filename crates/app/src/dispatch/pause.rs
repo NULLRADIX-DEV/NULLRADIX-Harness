@@ -29,8 +29,7 @@ pub trait PauseHook: Send + Sync {
         config: &DispatcherConfig,
     ) -> Result<Option<DispatchOutcome>, AppError>;
 
-    /// Pauses for a research run, which has no ticket; the text goes to its question.
-    /// `None` when no hook pauses.
+    /// The comment of a research run paused like a ticket run; `None` when no hook pauses.
     async fn paused_research(
         &self,
         _run: &Run,
