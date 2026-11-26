@@ -37,7 +37,7 @@ pub trait DoneGate: Send + Sync {
         config: &DispatcherConfig,
     ) -> Result<DispatchOutcome, AppError>;
     /// Whether the gate already took this run, so that settling it again gives the same outcome.
-    async fn held(&self, _run: &Run) -> Result<bool, AppError> {
+    async fn held(&self, _ticket: &TicketRecord, _run: &Run) -> Result<bool, AppError> {
         Ok(false)
     }
 }
@@ -166,7 +166,8 @@ impl EvaluateRuns {
             Err(error) => return Err(error),
         };
         // a pass lost after the hold settles the run as held, unless the ticket is still done
-        if detail.view.ticket.record().status != TicketStatus::Done && self.gate.held(run).await? {
+        let current = detail.view.ticket.record();
+        if current.status != TicketStatus::Done && self.gate.held(current, run).await? {
             return Ok(Settled::Yes(DispatchOutcome::Review));
         }
         let record = detail.view.ticket.record();

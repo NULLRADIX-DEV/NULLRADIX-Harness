@@ -128,8 +128,8 @@ impl ReviewGate {
         ticket: &TicketRecord,
         run: &Run,
         tests: &[TestRun],
-        changes: &str,
     ) -> Result<(), AppError> {
+        let changes = self.review.summary(ticket).await?;
         let body = format!(
             "[dispatch] review: waiting for approval - {changes}, tests: {}.\nAccept it or return it to the agent in the review panel.",
             test_summary(tests)
@@ -143,7 +143,17 @@ impl ReviewGate {
                 Some(run.id()),
                 actor,
             )
-            .await
+            .await?;
+        let notice = Notice {
+            kind: NoticeKind::Review,
+            ticket: Some(ticket.key.to_string()),
+            title: ticket.title.as_str().to_owned(),
+            text: format!("waiting for approval - {changes}"),
+        };
+        if let Err(error) = self.notifier.notify(&notice).await {
+            tracing::warn!(ticket = %ticket.key, "cannot show the review notice: {}", error.message());
+        }
+        Ok(())
     }
 
     /// Blocks the ticket on the review and clears its assignee, unless it is not done any more.
@@ -208,22 +218,23 @@ impl DoneGate for ReviewGate {
             }
             Held::New | Held::Already => {}
         }
-        let changes = self.review.summary(ticket).await?;
-        self.comment(ticket, run, &tests, &changes).await?;
+        // blocked before commented, so a lost pass never leaves a done ticket held for review
         self.block(ticket).await?;
-        let notice = Notice {
-            kind: NoticeKind::Review,
-            ticket: Some(ticket.key.to_string()),
-            title: ticket.title.as_str().to_owned(),
-            text: format!("waiting for approval - {changes}"),
-        };
-        if let Err(error) = self.notifier.notify(&notice).await {
-            tracing::warn!(ticket = %ticket.key, "cannot show the review notice: {}", error.message());
-        }
+        self.comment(ticket, run, &tests).await?;
         Ok(DispatchOutcome::Review)
     }
 
-    async fn held(&self, run: &Run) -> Result<bool, AppError> {
-        self.review.held(run.id()).await
+    async fn held(&self, ticket: &TicketRecord, run: &Run) -> Result<bool, AppError> {
+        if !self.review.held(run.id()).await? {
+            return Ok(false);
+        }
+        // blocked for the review but not commented: a pass was lost, so the comment is posted now
+        let waiting = ticket.status == TicketStatus::Blocked
+            && ticket.blocked_reason.as_deref() == Some(review_reason().as_str());
+        if waiting && !self.commented(ticket, run).await? {
+            let tests = self.tests_of(run).await?;
+            self.comment(ticket, run, &tests).await?;
+        }
+        Ok(true)
     }
 }

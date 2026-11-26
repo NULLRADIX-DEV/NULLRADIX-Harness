@@ -4053,35 +4053,70 @@ async fn a_held_run_with_its_comment_is_not_blocked_again_after_a_person_accepte
     assert_eq!(f.record(&key).await.status, TicketStatus::Done);
     assert_eq!(f.markers(&key, SystemMarker::Review).await, 1);
 }
+impl Fixture {
+    /// A ticket whose first pass was lost after blocking it, with the comment as given.
+    async fn lost_after_blocking(&self, commented: bool) -> (String, Id<Run>) {
+        let key = self.start_tickets(1).await.remove(0);
+        let run = self.run_id(&key).await;
+        self.agent_changes(
+            &key,
+            "blocked",
+            Some("Human Interaction: review before merge"),
+        )
+        .await;
+        let version = self.record(&key).await.version;
+        let patch = TicketPatch {
+            assignee: Some(None),
+            ..TicketPatch::default()
+        };
+        self.tickets
+            .update(&key, &patch, &self.person, version, FORCE)
+            .await
+            .unwrap();
+        self.earlier_review(&key, run, START).await;
+        if commented {
+            let ticket = self.record(&key).await;
+            self.comments
+                .add_system(
+                    &ticket.key,
+                    "[dispatch] review: waiting for approval",
+                    Some(SystemMarker::Review),
+                    Some(run),
+                    &self.person,
+                )
+                .await
+                .unwrap();
+        }
+        self.finish_run(&key).await;
+        (key, run)
+    }
+}
 
 #[tokio::test]
-async fn a_pass_that_stopped_after_blocking_the_ticket_settles_the_run_as_held() {
+async fn a_pass_that_stopped_after_commenting_the_hold_settles_the_run_as_held() {
     let f = fixture().await;
     f.review_on().await;
-    let key = f.start_tickets(1).await.remove(0);
-    let run = f.run_id(&key).await;
-    // the first pass blocked the ticket for the review and was lost before it settled the run
-    f.agent_changes(
-        &key,
-        "blocked",
-        Some("Human Interaction: review before merge"),
-    )
-    .await;
-    let version = f.record(&key).await.version;
-    let patch = TicketPatch {
-        assignee: Some(None),
-        ..TicketPatch::default()
-    };
-    f.tickets
-        .update(&key, &patch, &f.person, version, FORCE)
-        .await
-        .unwrap();
-    f.earlier_review(&key, run, START).await;
-    f.finish_run(&key).await;
+    let (key, run) = f.lost_after_blocking(true).await;
     let comments = f.comment_count(&key).await;
     f.dispatcher.pass.run().await;
     assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Review));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
     assert_eq!(f.comment_count(&key).await, comments);
+}
+
+#[tokio::test]
+async fn a_pass_that_stopped_after_blocking_the_ticket_posts_the_missing_comment() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, run) = f.lost_after_blocking(false).await;
+    assert_eq!(f.markers(&key, SystemMarker::Review).await, 0);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Review));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
+    assert_eq!(f.markers(&key, SystemMarker::Review).await, 1);
+    // a second pass adds nothing
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.markers(&key, SystemMarker::Review).await, 1);
 }
 
 #[tokio::test]
