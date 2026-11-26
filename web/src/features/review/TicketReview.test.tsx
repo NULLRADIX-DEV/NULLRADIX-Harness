@@ -250,4 +250,67 @@ describe('ticket Review tab', () => {
       expect(server.api.requests(`GET ${BASE}/review`).length).toBeGreaterThan(before);
     });
   });
+
+  it('accepts the held ticket with the version the panel shows', async () => {
+    const server = serve({
+      [`POST ${BASE}/review/accept`]: () => json(200, ticket({ status: 'done', column: 'done' })),
+    });
+    renderApp('/board');
+    const view = await openReview();
+    await userEvent.click(await view.findByRole('button', { name: 'Accept' }));
+    await waitFor(() => {
+      expect(server.api.requests(`POST ${BASE}/review/accept`)).toHaveLength(1);
+    });
+    const sent = (await server.api.requests(`POST ${BASE}/review/accept`)[0]?.json()) as unknown;
+    expect(sent).toEqual({ version: 1 });
+  });
+
+  it('returns the ticket with feedback, which cannot be empty', async () => {
+    const server = serve({
+      [`POST ${BASE}/review/return`]: () => json(200, ticket({ status: 'planned' })),
+    });
+    renderApp('/board');
+    const view = await openReview();
+    await userEvent.click(await view.findByRole('button', { name: 'Return to agent' }));
+    const send = view.getByRole('button', { name: 'Return with feedback' });
+    expect(send).toBeDisabled();
+    const field = view.getByLabelText('Feedback for the agent');
+    expect(field).toHaveAttribute('maxlength', '10000');
+    await userEvent.type(field, '  Please test the error case.  ');
+    expect(send).toBeEnabled();
+    await userEvent.click(send);
+    await waitFor(() => {
+      expect(server.api.requests(`POST ${BASE}/review/return`)).toHaveLength(1);
+    });
+    const sent = (await server.api.requests(`POST ${BASE}/review/return`)[0]?.json()) as unknown;
+    expect(sent).toEqual({ version: 1, feedback: 'Please test the error case.' });
+  });
+
+  it('says why a decision was refused and lets a person cancel the feedback', async () => {
+    serve({
+      [`POST ${BASE}/review/accept`]: () =>
+        problem(409, 'version-conflict', 'ticket ARC-0001 was changed'),
+    });
+    renderApp('/board');
+    const view = await openReview();
+    await userEvent.click(await view.findByRole('button', { name: 'Accept' }));
+    expect(await view.findByRole('alert')).toHaveTextContent(
+      'The ticket changed meanwhile. Reload it and try again.',
+    );
+    await userEvent.click(view.getByRole('button', { name: 'Return to agent' }));
+    expect(view.queryByRole('alert')).not.toBeInTheDocument();
+    await userEvent.click(view.getByRole('button', { name: 'Cancel' }));
+    expect(view.getByRole('button', { name: 'Accept' })).toBeInTheDocument();
+  });
+
+  it('offers no decision once the review is decided', async () => {
+    serve({
+      [`GET ${BASE}/review`]: () => json(200, review({ state: 'approved' })),
+    });
+    renderApp('/board');
+    const view = await openReview();
+    await view.findByText(BRANCH);
+    expect(view.queryByRole('button', { name: 'Accept' })).not.toBeInTheDocument();
+    expect(view.queryByRole('button', { name: 'Return to agent' })).not.toBeInTheDocument();
+  });
 });

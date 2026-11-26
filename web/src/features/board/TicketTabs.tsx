@@ -72,7 +72,10 @@ export function TicketTabs({ detail, actions }: { detail: TicketDetail; actions:
             label: 'Review',
             filled: false,
             // the review reads git, so it loads only while it is shown
-            content: active === 'review' ? <TicketReview ticketKey={ticket.key} /> : null,
+            content:
+              active === 'review' ? (
+                <TicketReview ticketKey={ticket.key} version={ticket.version} />
+              ) : null,
           },
         ]
       : []),

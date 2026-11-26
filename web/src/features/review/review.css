@@ -131,3 +131,15 @@
 .review-badge.none {
   color: var(--muted);
 }
+
+.review-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-decision form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
