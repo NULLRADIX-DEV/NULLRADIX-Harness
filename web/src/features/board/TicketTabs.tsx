@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ticketRunsQuery } from '../runs/dispatchQueries';
 import { TicketRuns } from '../runs/TicketRuns';
+import { TicketReview } from '../review/TicketReview';
 import type { TicketDetail } from '../tickets/queries';
 import { TextTab, type TextField } from './TextTab';
 import { TicketComments } from './TicketComments';
@@ -9,7 +10,7 @@ import { TicketHistory } from './TicketHistory';
 import { TicketSteps } from './TicketSteps';
 import type { TicketActions } from './useTicketActions';
 
-type TabKey = TextField | 'steps' | 'comments' | 'runs' | 'history';
+type TabKey = TextField | 'steps' | 'comments' | 'review' | 'runs' | 'history';
 
 interface Tab {
   key: TabKey;
@@ -64,6 +65,17 @@ export function TicketTabs({ detail, actions }: { detail: TicketDetail; actions:
       filled: false,
       content: <TicketComments comments={comments} actions={actions} />,
     },
+    ...(ticket.branch
+      ? [
+          {
+            key: 'review' as const,
+            label: 'Review',
+            filled: false,
+            // the review reads git, so it loads only while it is shown
+            content: active === 'review' ? <TicketReview ticketKey={ticket.key} /> : null,
+          },
+        ]
+      : []),
     {
       key: 'runs',
       label: runs.length > 0 ? `Runs (${String(runs.length)})` : 'Runs',

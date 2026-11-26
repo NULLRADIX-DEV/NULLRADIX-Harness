@@ -1,0 +1,133 @@
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review h4 {
+  margin: 0;
+}
+
+.review-head {
+  margin: 0;
+  font-weight: 500;
+}
+
+.review-files,
+.review-tests {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review-file-item > summary,
+.review-test > summary,
+.review-dir > summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.review-path {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+
+.review-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-status {
+  min-width: 6em;
+  color: var(--muted);
+}
+
+.review-level {
+  display: flex;
+  flex-direction: column;
+}
+
+.review-dir > .review-level {
+  margin-left: 3px;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+
+.review-folder {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.12s;
+}
+
+.review-dir[open] > summary .review-folder {
+  transform: rotate(45deg);
+}
+
+.review-switch {
+  margin: 4px 0;
+}
+
+.review-patch,
+.review-output {
+  margin: 4px 0 8px;
+  padding: 8px;
+  max-height: 480px;
+  overflow: auto;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  white-space: pre;
+}
+
+/* lines as wide as the longest, so the backgrounds run on when scrolling */
+.review-patch {
+  display: grid;
+  grid-template-columns: minmax(100%, max-content);
+}
+
+.review-patch .add {
+  background: var(--diff-add-bg);
+  color: var(--diff-add-fg);
+}
+
+.review-patch .del {
+  background: var(--diff-del-bg);
+  color: var(--diff-del-fg);
+}
+
+.review-patch .hunk {
+  color: var(--diff-hunk-fg);
+}
+
+.review-patch .meta {
+  color: var(--code-muted);
+}
+
+.review-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid currentcolor;
+  font-size: 12px;
+}
+
+.review-badge.ok {
+  color: var(--test-ok);
+}
+
+.review-badge.fail {
+  color: var(--test-fail);
+}
+
+.review-badge.none {
+  color: var(--muted);
+}

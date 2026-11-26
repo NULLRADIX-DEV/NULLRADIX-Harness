@@ -5,6 +5,7 @@ import { inboxLive } from '../features/inbox/queries';
 import { notesLive } from '../features/notes/queries';
 import { projectsLive } from '../features/projects/queries';
 import { questionsLive } from '../features/questions/queries';
+import { reviewLive } from '../features/review/queries';
 import { runsLive } from '../features/runs/queries';
 import { catalogLive } from '../shared/query/themeCatalog';
 import { themesLive } from '../shared/query/themes';
@@ -24,6 +25,7 @@ export const liveRegistry = defineChangeRegistry(
   questionsLive,
   inboxLive,
   runsLive,
+  reviewLive,
   sessionsLive,
   favoritesLive,
   themesLive,
