@@ -14,6 +14,7 @@ use nullradix_app::customizations::{CustomizationService, NoStandards};
 use nullradix_app::dispatch::assemble::{DispatcherDeps, assemble};
 use nullradix_app::dispatch::control::DispatcherService;
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
+use nullradix_app::dispatch::pass::DispatchPass;
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
 use nullradix_app::dispatch::scheduler::{PASS_INTERVAL, spawn_scheduler};
 use nullradix_app::dispatch::start::TicketStarter;
@@ -255,17 +256,25 @@ struct DispatcherParts<'a> {
 /// What runs for the dispatcher and must end before the store closes.
 struct Dispatching {
     scheduler: task::JoinHandle<()>,
+    pass: Arc<DispatchPass>,
     starter: Arc<TicketStarter>,
 }
 
 impl Dispatching {
-    /// Waits for the pass under way, then stops the setups and waits for them.
+    /// Waits for the passes under way, then stops the setups and waits for them.
     async fn stop(self) {
         if tokio::time::timeout(SHUTDOWN_GRACE, self.scheduler)
             .await
             .is_err()
         {
             tracing::warn!("the dispatcher pass did not end in time");
+        }
+        // a pass that outlived its caller may still start setups
+        if tokio::time::timeout(SHUTDOWN_GRACE, self.pass.settle())
+            .await
+            .is_err()
+        {
+            tracing::warn!("a dispatcher pass did not end in time");
         }
         self.starter.shutdown(SHUTDOWN_GRACE).await;
     }
@@ -305,6 +314,7 @@ fn start_dispatcher(
     );
     let dispatching = Dispatching {
         scheduler,
+        pass: dispatcher.pass,
         starter: dispatcher.starter,
     };
     (dispatcher.service, dispatching)

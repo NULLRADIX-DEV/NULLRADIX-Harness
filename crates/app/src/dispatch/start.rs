@@ -250,6 +250,13 @@ impl TicketStarter {
                 "the worktree is busy with a run",
             )));
         }
+        if let Some(path) = &record.worktree
+            && self.sets_up_in(path)
+        {
+            return Ok(StartOutcome::Skipped(String::from(
+                "a setup runs in the worktree",
+            )));
+        }
         let choice = choose_profile(config, &record.labels, record.priority, &record.plan);
         let actor = self.actor().await?;
         let text = key.to_string();
@@ -413,10 +420,16 @@ impl TicketStarter {
             )));
         }
         if self.needs_setup(config, created, &text).await? {
-            self.defer(config.clone(), launch);
-            return Ok(StartOutcome::SettingUp);
+            return Ok(if self.defer(config.clone(), launch) {
+                StartOutcome::SettingUp
+            } else {
+                StartOutcome::Skipped(String::from("shutting down"))
+            });
         }
-        Ok(StartOutcome::Started(self.begin_run(&launch).await?.id()))
+        Ok(match self.begin_run(&launch, config).await? {
+            Some(run) => StartOutcome::Started(run.id()),
+            None => StartOutcome::Skipped(String::from("the ticket changed while the run started")),
+        })
     }
 
     /// Setup runs for a new worktree and for one whose setup did not finish.
@@ -442,12 +455,17 @@ impl TicketStarter {
         Ok(false)
     }
 
-    /// Runs the setup apart from the pass, so a long install does not hold it up.
-    fn defer(self: &Arc<Self>, config: DispatcherConfig, launch: Launch) {
+    /// Runs the setup apart from the pass; false when shutting down, then nothing runs.
+    fn defer(self: &Arc<Self>, config: DispatcherConfig, launch: Launch) -> bool {
         let text = launch.key.to_string();
-        self.launching
-            .lock()
-            .insert(text.clone(), launch.cwd.clone());
+        {
+            // checked under the lock that wait_idle reads, so no setup starts after it
+            let mut launching = self.launching.lock();
+            if self.cancel.is_cancelled() {
+                return false;
+            }
+            launching.insert(text.clone(), launch.cwd.clone());
+        }
         let this = Arc::clone(self);
         tokio::spawn(async move {
             if let Err(error) = this.set_up(&config, &launch).await {
@@ -458,6 +476,7 @@ impl TicketStarter {
             }
             this.launching.lock().remove(&text);
         });
+        true
     }
 
     async fn set_up(&self, config: &DispatcherConfig, launch: &Launch) -> Result<(), AppError> {
@@ -497,7 +516,7 @@ impl TicketStarter {
                         .await;
                     return Ok(());
                 }
-                self.begin_run(launch).await?;
+                self.begin_run(launch, config).await?;
                 Ok(())
             }
             SetupOutcome::Cancelled => {
@@ -508,6 +527,18 @@ impl TicketStarter {
                 self.worktrees
                     .mark_setup(worktree, SetupState::Failed)
                     .await?;
+                // a ticket that changed during the setup is not blocked for it
+                if !self.still_ours(&launch.key, config).await? {
+                    self.log
+                        .write(
+                            super::log::LogLevel::Info,
+                            &format!("skipped blocking {text}: the ticket changed during setup"),
+                            Some(&text),
+                            None,
+                        )
+                        .await;
+                    return Ok(());
+                }
                 self.block_for_setup(launch, &failure.step(), &failure.cause(), &failure.output)
                     .await
             }
@@ -563,8 +594,12 @@ impl TicketStarter {
         Ok(())
     }
 
-    /// The instruction, the run and the comment that tells the ticket who has it.
-    async fn begin_run(&self, launch: &Launch) -> Result<Run, AppError> {
+    /// Starts the run and notes it; none, with the run stopped, when the ticket changed meanwhile.
+    async fn begin_run(
+        &self,
+        launch: &Launch,
+        config: &DispatcherConfig,
+    ) -> Result<Option<Run>, AppError> {
         let text = launch.key.to_string();
         let prompt = self
             .prompts
@@ -583,6 +618,17 @@ impl TicketStarter {
                 extra_tools: Vec::new(),
             })
             .await?;
+        if !self.still_ours(&launch.key, config).await? {
+            if let Err(error) = self.runs.cancel(run.id()).await {
+                self.log
+                    .error(
+                        &format!("cannot stop the run of {text}: {}", error.message()),
+                        Some(&text),
+                    )
+                    .await;
+            }
+            return Ok(None);
+        }
         let profile = run.dispatch().map(|dispatch| &dispatch.profile);
         let mut body = format!(
             "[dispatch] start: handed to {}. Branch {}, profile {} (model {}, effort {}, max {} turns, {} min). Reason: {}.",
@@ -613,7 +659,7 @@ impl TicketStarter {
                 Some(run.id()),
             )
             .await;
-        Ok(run)
+        Ok(Some(run))
     }
 
     /// A comment on the ticket; failing to write it never undoes a run that started.

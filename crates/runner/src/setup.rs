@@ -134,7 +134,12 @@ fn drain(pipe: Option<impl Read + Send + 'static>) -> thread::JoinHandle<Vec<u8>
 }
 
 fn tail(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
+    // a cut in the middle of a character leaves continuation bytes first
+    let start = bytes
+        .iter()
+        .position(|byte| byte & 0xC0 != 0x80)
+        .unwrap_or(bytes.len());
+    let text = String::from_utf8_lossy(&bytes[start..]);
     let count = text.chars().count();
     if count <= OUTPUT_KEPT {
         return text.into_owned();
@@ -378,6 +383,41 @@ mod tests {
         };
         assert_eq!(found.code, None);
         assert!(found.output.contains("Git Bash"));
+    }
+
+    fn background_command() -> &'static str {
+        if cfg!(windows) {
+            "start /b ping -n 30 127.0.0.1 > nul"
+        } else {
+            "sleep 30 &"
+        }
+    }
+
+    #[tokio::test]
+    async fn a_background_child_does_not_hold_the_step_open() {
+        let temp = tempfile::tempdir().unwrap();
+        let asked = request(
+            temp.path(),
+            &[(".", background_command())],
+            Duration::from_secs(120),
+        );
+        let outcome = tokio::time::timeout(Duration::from_secs(15), run(&asked))
+            .await
+            .expect("the step must end once its main process ended");
+        assert_eq!(outcome, SetupOutcome::Done);
+    }
+
+    #[test]
+    fn a_cut_in_the_middle_of_a_character_does_not_leave_a_replacement() {
+        let mut bytes = "\u{e9}".as_bytes()[1..].to_vec();
+        bytes.extend_from_slice(b"rest");
+        assert_eq!(tail(&bytes), "rest");
+    }
+
+    #[test]
+    fn a_missing_git_bash_error_names_the_path() {
+        let error = configured_bash(Some("/no/such/bash")).unwrap_err();
+        assert!(error.contains("/no/such/bash"), "{error}");
     }
 
     #[tokio::test]

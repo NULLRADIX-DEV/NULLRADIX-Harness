@@ -30,7 +30,10 @@ use nullradix_app::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
     TranscriptSource, TranscriptSummary, change_not_found,
 };
-use nullradix_app::tickets::{NewTicket, TicketPatch, TicketService, WriteOptions};
+use nullradix_app::tickets::{
+    NewTicket, TicketPatch, TicketRead, TicketRepository, TicketScope, TicketService,
+    TicketSnapshot, TicketWrite, WriteOptions,
+};
 use nullradix_app::worktrees::{
     CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, StartMode,
     WorktreeRemoval, WorktreeService,
@@ -81,6 +84,10 @@ struct Machine {
     hold_create: Mutex<Option<Arc<Notify>>>,
     create_entered: Notify,
     fail_create: std::sync::atomic::AtomicBool,
+    /// The next run start waits for this gate when set.
+    hold_start: Mutex<Option<Arc<Notify>>>,
+    start_entered: Notify,
+    cancelled: Mutex<Vec<Id<Run>>>,
 }
 
 #[async_trait]
@@ -91,10 +98,16 @@ impl RunnerPort for Machine {
 
     async fn start(&self, _run: Id<Run>, spec: &RunSpec) -> Result<u32, AppError> {
         self.specs.lock().unwrap().push(spec.clone());
+        let gate = self.hold_start.lock().unwrap().take();
+        if let Some(gate) = gate {
+            self.start_entered.notify_one();
+            gate.notified().await;
+        }
         Ok(4242)
     }
 
-    async fn cancel(&self, _run: Id<Run>) -> Result<(), AppError> {
+    async fn cancel(&self, run: Id<Run>) -> Result<(), AppError> {
+        self.cancelled.lock().unwrap().push(run);
         Ok(())
     }
 
@@ -264,7 +277,43 @@ impl WorktreeSetupPort for ScriptedSetup {
     }
 }
 
+/// Ticket reads that change one ticket right after the next list, as a person would.
+struct Hooked {
+    inner: Arc<Store>,
+    bump: Mutex<Option<String>>,
+    plain: TicketService,
+    actor: Actor,
+}
+
+#[async_trait]
+impl TicketRepository for Hooked {
+    async fn begin(&self) -> Result<Box<dyn TicketWrite>, AppError> {
+        self.inner.begin().await
+    }
+
+    async fn list(&self, scope: TicketScope) -> Result<TicketSnapshot, AppError> {
+        let snapshot = self.inner.list(scope).await?;
+        let key = self.bump.lock().unwrap().take();
+        if let Some(key) = key {
+            let version = self.plain.get(&key).await?.view.ticket.record().version;
+            let patch = TicketPatch {
+                title: Some(String::from("Renamed")),
+                ..TicketPatch::default()
+            };
+            self.plain
+                .update(&key, &patch, &self.actor, version, FORCE)
+                .await?;
+        }
+        Ok(snapshot)
+    }
+
+    async fn get(&self, key: &nullradix_domain::TicketKey) -> Result<Option<TicketRead>, AppError> {
+        self.inner.get(key).await
+    }
+}
+
 struct Fixture {
+    hook: Arc<Hooked>,
     clock: Arc<FakeClock>,
     machine: Arc<Machine>,
     setup: Arc<ScriptedSetup>,
@@ -325,8 +374,20 @@ async fn fixture() -> Fixture {
         .await
         .unwrap()
         .board;
+    let hook = Arc::new(Hooked {
+        inner: store.clone(),
+        bump: Mutex::new(None),
+        plain: TicketService::new(
+            store.clone(),
+            store.clone(),
+            clock.clone(),
+            ids.clone(),
+            signal.clone(),
+        ),
+        actor: person.clone(),
+    });
     let tickets = Arc::new(TicketService::new(
-        store.clone(),
+        hook.clone(),
         store.clone(),
         clock.clone(),
         ids.clone(),
@@ -415,6 +476,7 @@ async fn fixture() -> Fixture {
         interval: None,
     });
     Fixture {
+        hook,
         clock,
         machine,
         setup,
@@ -1109,4 +1171,219 @@ async fn a_pass_removes_log_lines_older_than_thirty_days() {
     assert_eq!(f.store.recent(10).await.unwrap().len(), 1);
     f.dispatcher.pass.run().await;
     assert!(f.store.recent(10).await.unwrap().is_empty());
+}
+
+/// A pass step that waits for its test, or panics.
+struct Gated {
+    entered: Notify,
+    gate: Notify,
+    starts: std::sync::atomic::AtomicUsize,
+    panics: bool,
+}
+
+#[async_trait]
+impl nullradix_app::dispatch::pass::PassStep for Gated {
+    async fn run(
+        &self,
+        _context: &nullradix_app::dispatch::pass::PassContext,
+        _report: &mut nullradix_app::dispatch::pass::PassReport,
+    ) -> Result<(), AppError> {
+        self.starts.fetch_add(1, Ordering::SeqCst);
+        assert!(!self.panics, "the step is broken");
+        self.entered.notify_one();
+        self.gate.notified().await;
+        Ok(())
+    }
+}
+
+fn gated(panics: bool) -> Arc<Gated> {
+    Arc::new(Gated {
+        entered: Notify::new(),
+        gate: Notify::new(),
+        starts: std::sync::atomic::AtomicUsize::new(0),
+        panics,
+    })
+}
+
+#[tokio::test]
+async fn a_setup_that_fails_after_the_ticket_changed_does_not_block_it() {
+    let f = fixture().await;
+    f.configure(setup_config).await;
+    *f.setup.failure.lock().unwrap() = Some(SetupFailure {
+        cwd: String::from("."),
+        run: String::from("npm ci"),
+        code: Some(1),
+        timed_out: false,
+        output: String::from("ERESOLVE"),
+    });
+    let gate = Arc::new(Notify::new());
+    *f.setup.release.lock().unwrap() = Some(gate.clone());
+    let key = f.ready("Build", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started, [key.clone()]);
+    f.setup.entered.notified().await;
+    f.tickets
+        .release(&key, Some("planned"), &f.person, None)
+        .await
+        .unwrap();
+    gate.notify_one();
+    f.dispatcher.starter.wait_idle().await;
+    let record = f.record(&key).await;
+    assert_eq!(record.status, nullradix_domain::TicketStatus::Planned);
+    assert_eq!(record.blocked_reason, None);
+    assert_eq!(record.assignee, None);
+}
+
+#[tokio::test]
+async fn a_run_for_a_ticket_that_changed_while_it_started_is_stopped() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.ready("Build", &["auto"]).await;
+    let gate = Arc::new(Notify::new());
+    *f.machine.hold_start.lock().unwrap() = Some(gate.clone());
+    let pass = tokio::spawn({
+        let pass = f.dispatcher.pass.clone();
+        async move { pass.run().await }
+    });
+    f.machine.start_entered.notified().await;
+    f.tickets
+        .release(&key, Some("planned"), &f.person, None)
+        .await
+        .unwrap();
+    gate.notify_one();
+    let report = pass.await.unwrap();
+    assert!(report.started.is_empty(), "{report:?}");
+    assert_eq!(f.machine.cancelled.lock().unwrap().len(), 1);
+    let comments = f.comments.list(&key).await.unwrap();
+    assert!(comments.iter().all(|line| {
+        line.comment.record().system_marker != Some(nullradix_domain::SystemMarker::Start)
+    }));
+}
+
+#[tokio::test]
+async fn a_ticket_whose_worktree_is_being_set_up_is_not_claimed() {
+    let f = fixture().await;
+    f.configure(|config| {
+        setup_config(config);
+        config.wip = 2;
+        config.join_worktrees = nullradix_domain::JoinWorktrees::SameSpec;
+    })
+    .await;
+    let gate = Arc::new(Notify::new());
+    *f.setup.release.lock().unwrap() = Some(gate.clone());
+    let first = f.ready("Build", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started, [first.clone()]);
+    f.setup.entered.notified().await;
+    // a person joined the second ticket to that worktree and gave it back
+    let second = f.ready("Same folder", &["auto"]).await;
+    f.worktrees
+        .start(
+            &second,
+            f.local,
+            ROOT,
+            StartMode::AutoJoin,
+            false,
+            &f.person,
+        )
+        .await
+        .unwrap();
+    f.tickets
+        .release(&second, Some("planned"), &f.person, None)
+        .await
+        .unwrap();
+    let before = f.record(&second).await;
+    assert!(before.worktree.is_some());
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.started.is_empty(), "{report:?}");
+    assert_eq!(f.record(&second).await, before, "not even claimed");
+    gate.notify_one();
+    f.dispatcher.starter.wait_idle().await;
+}
+
+#[tokio::test]
+async fn a_conflict_while_giving_back_a_stale_claim_is_skipped_not_reported() {
+    let f = fixture().await;
+    let key = f.ready("Build", &["auto"]).await;
+    let version = f.record(&key).await.version;
+    let patch = TicketPatch {
+        assignee: Some(Some(String::from("worker-ARC-0001"))),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    f.advance(6);
+    *f.hook.bump.lock().unwrap() = Some(key.clone());
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.released.is_empty(), "{report:?}");
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert!(f.record(&key).await.assignee.is_some());
+}
+
+#[tokio::test]
+async fn a_pass_that_panics_gives_a_waiter_a_report_with_the_error() {
+    use nullradix_app::dispatch::pass::PassPhase;
+    let f = fixture().await;
+    let step = gated(true);
+    f.dispatcher
+        .pass
+        .set_step(PassPhase::RecorderFlush, step.clone());
+    let report = f.dispatcher.pass.run().await;
+    assert!(!report.errors.is_empty(), "{report:?}");
+    assert_eq!(step.starts.load(Ordering::SeqCst), 2, "retried once");
+}
+
+#[tokio::test]
+async fn settle_waits_for_a_pass_that_lost_its_caller() {
+    use nullradix_app::dispatch::pass::PassPhase;
+    let f = fixture().await;
+    let step = gated(false);
+    f.dispatcher
+        .pass
+        .set_step(PassPhase::RecorderFlush, step.clone());
+    let caller = tokio::spawn({
+        let pass = f.dispatcher.pass.clone();
+        async move { pass.run().await }
+    });
+    step.entered.notified().await;
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    let settled = tokio::spawn({
+        let pass = f.dispatcher.pass.clone();
+        async move { pass.settle().await }
+    });
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!settled.is_finished(), "the pass is still running");
+    step.gate.notify_one();
+    settled.await.unwrap();
+    // nothing runs any more, so settling again returns at once
+    f.dispatcher.pass.settle().await;
+}
+
+#[tokio::test]
+async fn a_pass_that_was_under_way_cannot_add_a_setup_after_shutdown() {
+    let f = fixture().await;
+    f.configure(setup_config).await;
+    let key = f.ready("Build", &["auto"]).await;
+    let gate = Arc::new(Notify::new());
+    *f.machine.hold_create.lock().unwrap() = Some(gate.clone());
+    let pass = tokio::spawn({
+        let pass = f.dispatcher.pass.clone();
+        async move { pass.run().await }
+    });
+    f.machine.create_entered.notified().await;
+    f.dispatcher
+        .starter
+        .shutdown(std::time::Duration::from_secs(30))
+        .await;
+    gate.notify_one();
+    let report = pass.await.unwrap();
+    assert!(report.started.is_empty(), "{report:?}");
+    assert!(f.setup.runs.lock().unwrap().is_empty(), "no setup began");
+    assert_eq!(f.dispatcher.starter.launching(), 0);
+    let record = f.record(&key).await;
+    assert_eq!(record.assignee, None);
+    assert_eq!(record.status, nullradix_domain::TicketStatus::Planned);
 }

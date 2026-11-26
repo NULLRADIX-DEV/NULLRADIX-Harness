@@ -8,10 +8,10 @@ use nullradix_domain::{Run, SystemMarker, TicketStatus};
 
 use super::pass::{PassContext, PassReport, PassStep};
 use super::start::TicketStarter;
-use crate::AppError;
 use crate::comments::CommentService;
 use crate::runs::RunService;
 use crate::tickets::{TicketFilter, TicketService};
+use crate::{AppError, ErrorKind};
 
 const MINUTE_MS: i64 = 60_000;
 /// A claim on a planned ticket without a run is given back after this long, as in legacy.
@@ -109,6 +109,8 @@ impl PassStep for ReleaseStale {
                             .await;
                     }
                 }
+                // someone changed the ticket since the list: it is not stale after all
+                Err(error) if error.kind() == ErrorKind::Conflict => {}
                 Err(error) => report.errors.push(format!("{key}: {}", error.message())),
             }
         }

@@ -219,17 +219,32 @@ impl DispatchPass {
         let Some(this) = self.me.upgrade() else {
             return self.exclusive(|| self.pass()).await;
         };
-        loop {
+        // a pass that ended without a result (it panicked) is tried once more
+        for _ in 0..2 {
             let mut receiver = Self::join_or_start(&this);
             loop {
                 if let Some(report) = receiver.borrow_and_update().clone() {
                     return report;
                 }
-                // the pass ended without a result, so the next round starts one
                 if receiver.changed().await.is_err() {
                     break;
                 }
             }
+        }
+        let mut report = PassReport::new(self.clock.now());
+        report
+            .errors
+            .push(String::from("the dispatcher pass stopped without a result"));
+        report
+    }
+
+    /// Waits until the pass under way, if any, has ended.
+    pub async fn settle(&self) {
+        loop {
+            let Some(mut receiver) = self.flight.lock().clone() else {
+                return;
+            };
+            while receiver.borrow_and_update().is_none() && receiver.changed().await.is_ok() {}
         }
     }
 
