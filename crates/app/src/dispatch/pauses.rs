@@ -11,7 +11,7 @@ use nullradix_domain::{
 
 use super::accounts::{AccountLimits, AccountPauses, MAX_PAUSE_DAYS, PauseReason};
 use super::evaluate::agent_of;
-use super::local_time::LocalTime;
+use super::local_time::{LocalTime, day_text, local_day};
 use super::log::DispatchLog;
 use super::pause::{PauseHook, PauseKind};
 use super::start::TicketStarter;
@@ -28,6 +28,12 @@ pub const LIMIT_PAUSES_FREE: usize = 2;
 
 /// How many earlier runs of a ticket the streak reads at most.
 const STREAK_RUNS: u32 = 50;
+
+/// The comment of a pause and the text of its notice.
+struct Posted {
+    body: String,
+    toast: String,
+}
 
 pub struct DispatchPauses {
     tickets: Arc<TicketService>,
@@ -119,8 +125,17 @@ impl DispatchPauses {
         }
     }
 
-    async fn hhmm(&self, at: Timestamp) -> String {
-        clock_text(self.local.minute_of_day(at).await)
+    /// The local time of a moment, with the date when it is not today.
+    async fn when(&self, at: Timestamp) -> String {
+        let now = self.clock.now();
+        let minute = self.local.minute_of_day(at).await;
+        let today = self.local.minute_of_day(now).await;
+        let clock = clock_text(minute);
+        if local_day(at, minute) == local_day(now, today) {
+            clock
+        } else {
+            format!("{} {clock}", day_text(local_day(at, minute)))
+        }
     }
 
     fn default_until(&self, config: &DispatcherConfig) -> Timestamp {
@@ -193,11 +208,49 @@ impl DispatchPauses {
         ])
     }
 
+    /// The end of the account's pause: one that runs already, else a new one until `until`.
+    async fn account_pause(
+        &self,
+        run: &Run,
+        account: &Account,
+        until: Timestamp,
+    ) -> Result<Timestamp, AppError> {
+        let held = self
+            .pauses
+            .active()
+            .await?
+            .into_iter()
+            .find(|pause| pause.account == account.id());
+        if let Some(held) = held {
+            return Ok(held.until);
+        }
+        // a person may have paused it while the reset was read
+        let latest = self.pauses.active().await?;
+        if let Some(pause) = latest.iter().find(|pause| pause.account == account.id()) {
+            return Ok(pause.until);
+        }
+        let limit = self
+            .clock
+            .now()
+            .checked_add(Duration::from_hours(MAX_PAUSE_DAYS * 24))
+            .unwrap_or(until);
+        let pause = self
+            .pauses
+            .pause_account(
+                account.id(),
+                until.min(limit),
+                PauseReason::UsageLimit,
+                Some(run.id()),
+            )
+            .await?;
+        Ok(pause.until)
+    }
+
     async fn pause_for_limit(
         &self,
         run: &Run,
         config: &DispatcherConfig,
-    ) -> Result<String, AppError> {
+    ) -> Result<Posted, AppError> {
         let now = self.clock.now();
         let all = self.accounts.list().await?;
         let enabled: Vec<&Account> = all.iter().filter(|account| account.enabled()).collect();
@@ -209,43 +262,15 @@ impl DispatchPauses {
             .and_then(|id| all.iter().find(|account| account.id() == id));
         let seen = self.state.get().await?.record().paused_until;
         let mut until = self.default_until(config);
-        let mut slug = None;
+        let mut own_pause = None;
         let mut whole = true;
         if let Some(account) = chosen {
             if let Some(reset) = self.reset_of(account, config).await.filter(|at| *at > now) {
                 until = reset;
             }
-            let held = self
-                .pauses
-                .active()
-                .await?
-                .into_iter()
-                .find(|pause| pause.account == account.id());
-            let own = if let Some(held) = held {
-                held.until
-            } else {
-                // a person may have paused it while the reset was read
-                let latest = self.pauses.active().await?;
-                if let Some(pause) = latest.iter().find(|pause| pause.account == account.id()) {
-                    pause.until
-                } else {
-                    let limit = now
-                        .checked_add(Duration::from_hours(MAX_PAUSE_DAYS * 24))
-                        .unwrap_or(until);
-                    let pause = self
-                        .pauses
-                        .pause_account(
-                            account.id(),
-                            until.min(limit),
-                            PauseReason::UsageLimit,
-                            Some(run.id()),
-                        )
-                        .await?;
-                    pause.until
-                }
-            };
+            let own = self.account_pause(run, account, until).await?;
             until = own;
-            slug = Some(account.slug().as_str().to_owned());
+            own_pause = Some((account.slug().as_str().to_owned(), own));
             if multi {
                 let active = self.pauses.active().await?;
                 let paused: Vec<Timestamp> = enabled
@@ -263,50 +288,69 @@ impl DispatchPauses {
                 }
             }
         }
-        let bis = self.hhmm(until).await;
-        let applied = if whole {
-            self.state.pause_unless_changed(until, seen).await?
+        let held = if whole {
+            Some(self.state.pause_unless_changed(until, seen).await?)
         } else {
-            true
+            None
         };
-        let rest = match (&slug, multi, whole, applied) {
-            (_, _, true, false) => String::from(
+        let own_text = match &own_pause {
+            Some((_, at)) => Some(self.when(*at).await),
+            None => None,
+        };
+        let rest = match held {
+            Some(None) => String::from(
                 "The pause of the dispatcher was changed by hand meanwhile and stays as set.",
             ),
-            (Some(_), true, true, true) => {
-                format!("All accounts are paused - the dispatcher starts nothing new until {bis}.")
+            Some(Some(at)) => {
+                let text = self.when(at).await;
+                if own_pause.is_some() && multi {
+                    format!(
+                        "All accounts are paused - the dispatcher starts nothing new until {text}."
+                    )
+                } else {
+                    format!("The dispatcher starts nothing new until {text}.")
+                }
             }
-            (Some(_), true, false, _) => {
-                String::from("The ticket starts on the next pass with another free account.")
-            }
-            _ => format!("The dispatcher starts nothing new until {bis}."),
+            None => String::from("The ticket starts on the next pass with another free account."),
         };
-        Ok(match (slug, multi) {
-            (Some(slug), true) => format!(
-                "[dispatch] pause: usage limit of account {slug} reached, ticket back to planned. Account {slug} paused until {bis}. {rest} Does not count as an attempt."
+        let body = match (&own_pause, &own_text, multi) {
+            (Some((slug, _)), Some(text), true) => format!(
+                "[dispatch] pause: usage limit of account {slug} reached, ticket back to planned. Account {slug} paused until {text}. {rest} Does not count as an attempt."
             ),
             _ => format!(
                 "[dispatch] pause: usage limit reached, ticket back to planned. {rest} Does not count as an attempt."
             ),
-        })
+        };
+        let toast = match (&own_pause, own_text) {
+            (Some((slug, _)), Some(text)) => format!("usage limit {slug} - pause until {text}"),
+            _ => format!("usage limit - pause until {}", self.when(until).await),
+        };
+        Ok(Posted { body, toast })
     }
 
-    async fn pause_for_missing(&self, config: &DispatcherConfig) -> Result<String, AppError> {
+    async fn pause_for_missing(&self, config: &DispatcherConfig) -> Result<Posted, AppError> {
         let seen = self.state.get().await?.record().paused_until;
         let until = self.default_until(config);
         let applied = self.state.pause_unless_changed(until, seen).await?;
         let minutes = config.pause_minutes_on_limit;
-        let tail = if applied {
-            format!("The dispatcher starts nothing new for {minutes} min.")
-        } else {
-            String::from(
+        let tail = match applied {
+            Some(at) if at > until => format!(
+                "The dispatcher starts nothing new until {}, as paused by hand.",
+                self.when(at).await
+            ),
+            Some(_) => format!("The dispatcher starts nothing new for {minutes} min."),
+            None => String::from(
                 "The pause of the dispatcher was changed by hand meanwhile and stays as set.",
-            )
+            ),
         };
-        Ok(format!(
+        let body = format!(
             "[dispatch] pause: Claude Code was not found (command \"{}\"), ticket back to planned. {tail} Please install Claude Code or check the command in the settings. Does not count as an attempt.",
             config.claude.command
-        ))
+        );
+        Ok(Posted {
+            body,
+            toast: format!("Claude Code not found - pause {minutes} min"),
+        })
     }
 }
 
@@ -330,27 +374,21 @@ impl PauseHook for DispatchPauses {
         let detail = self.tickets.get(&text).await?;
         // a comment of this run means an earlier pass paused and stopped before it was done
         if !pause_posted(&detail, run) {
-            let body = match kind {
+            let posted = match kind {
                 PauseKind::UsageLimit => self.pause_for_limit(run, config).await?,
                 PauseKind::ClaudeMissing => self.pause_for_missing(config).await?,
             };
             self.comments
                 .add_system(
                     &ticket.key,
-                    &body,
+                    &posted.body,
                     Some(SystemMarker::Pause),
                     Some(run.id()),
                     actor,
                 )
                 .await?;
-            self.log.info(&body, Some(&text)).await;
-            let short = body
-                .trim_start_matches("[dispatch] pause: ")
-                .split(". ")
-                .next()
-                .unwrap_or_default()
-                .to_owned();
-            self.toast(ticket, short).await;
+            self.log.info(&posted.body, Some(&text)).await;
+            self.toast(ticket, posted.toast).await;
         }
         let fresh = self.tickets.get(&text).await?;
         let current = fresh.view.ticket.record();

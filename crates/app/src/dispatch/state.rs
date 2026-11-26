@@ -161,12 +161,12 @@ impl DispatcherStateService {
         .await
     }
 
-    /// Pauses until a moment, cut to the longest pause, unless the pause changed since `seen`.
+    /// Pauses until `until` unless the pause changed since `seen`; never shortens a running pause.
     pub async fn pause_unless_changed(
         &self,
         until: Timestamp,
         seen: Option<Timestamp>,
-    ) -> Result<bool, AppError> {
+    ) -> Result<Option<Timestamp>, AppError> {
         let now = self.clock.now();
         let latest = now
             .checked_add(Duration::from_secs(u64::from(MAX_PAUSE_MINUTES) * 60))
@@ -175,18 +175,31 @@ impl DispatcherStateService {
         if until <= now {
             return Err(pause_in_the_past());
         }
-        let applied = std::sync::atomic::AtomicBool::new(true);
+        let held = std::sync::Mutex::new(None);
         self.change(|state| {
             let current = state.record().paused_until;
-            applied.store(current == seen, std::sync::atomic::Ordering::SeqCst);
-            if current != seen || current == Some(until) {
+            if current != seen {
+                *held
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                return state.clone();
+            }
+            let target = current
+                .filter(|at| *at > now)
+                .map_or(until, |at| at.max(until));
+            *held
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(target);
+            if current == Some(target) {
                 state.clone()
             } else {
-                state.paused(until)
+                state.paused(target)
             }
         })
         .await?;
-        Ok(applied.load(std::sync::atomic::Ordering::SeqCst))
+        Ok(held
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
     }
 
     pub async fn resume(&self) -> Result<DispatcherState, AppError> {

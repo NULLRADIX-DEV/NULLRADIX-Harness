@@ -16,7 +16,7 @@ static MOMENT: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\b").ok());
 /// A local clock time in a pause comment, which follows the wall clock.
 static CLOCK: LazyLock<Option<Regex>> =
-    LazyLock::new(|| Regex::new(r"(until|from) \d{2}:\d{2}").ok());
+    LazyLock::new(|| Regex::new(r"(until|from) (\d{4}-\d{2}-\d{2} )?\d{2}:\d{2}").ok());
 static PID: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\bpid \d+").ok());
 /// The rest of a path behind a placeholder, so Windows and Unix record the same separators.
 static PATH_TAIL: LazyLock<Option<Regex>> =

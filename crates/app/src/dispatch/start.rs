@@ -715,7 +715,9 @@ impl TicketStarter {
         let text = launch.key.to_string();
         let short: String = step.chars().take(STEP_REASON_CHARS).collect();
         let reason = format!("{SETUP_REASON} {short}");
-        let version = self.tickets.get(&text).await?.view.ticket.record().version;
+        let read = self.tickets.get(&text).await?;
+        let version = read.view.ticket.record().version;
+        let title = read.view.ticket.record().title.as_str().to_owned();
         let patch = TicketPatch {
             status: Some(String::from("blocked")),
             blocked_reason: Some(Some(reason.clone())),
@@ -736,16 +738,6 @@ impl TicketStarter {
         self.log
             .error(&format!("setup of {text} failed: {reason}"), Some(&text))
             .await;
-        let title = self
-            .tickets
-            .get(&text)
-            .await?
-            .view
-            .ticket
-            .record()
-            .title
-            .as_str()
-            .to_owned();
         let notice = Notice::blocked(false, &text, &title, &reason);
         if let Err(error) = self.notifier.notify(&notice).await {
             self.log

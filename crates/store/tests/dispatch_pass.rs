@@ -402,6 +402,8 @@ struct Hooked {
     bump: Mutex<Option<String>>,
     /// A person renames this ticket right after its nth read from now, which stays stale.
     rename_on_get: Mutex<Option<(String, usize)>>,
+    /// Reads of a ticket blocked by a failed setup, comment included, fail while set.
+    fail_setup_block_reads: std::sync::atomic::AtomicBool,
     plain: TicketService,
     actor: Actor,
 }
@@ -430,6 +432,16 @@ impl TicketRepository for Hooked {
 
     async fn get(&self, key: &nullradix_domain::TicketKey) -> Result<Option<TicketRead>, AppError> {
         let read = self.inner.get(key).await?;
+        let blocked = read.as_ref().is_some_and(|read| {
+            read.row.ticket.record().status == nullradix_domain::TicketStatus::Blocked
+                && read.comments.iter().any(|line| {
+                    line.comment.record().system_marker
+                        == Some(nullradix_domain::SystemMarker::Setup)
+                })
+        });
+        if blocked && self.fail_setup_block_reads.load(Ordering::SeqCst) {
+            return Err(AppError::unavailable("read-failed", "the read failed"));
+        }
         let rename = {
             let mut armed = self.rename_on_get.lock().unwrap();
             match armed.as_mut() {
@@ -538,6 +550,7 @@ async fn fixture() -> Fixture {
         inner: store.clone(),
         bump: Mutex::new(None),
         rename_on_get: Mutex::new(None),
+        fail_setup_block_reads: std::sync::atomic::AtomicBool::new(false),
         plain: TicketService::new(
             store.clone(),
             store.clone(),
@@ -2369,6 +2382,10 @@ async fn a_runner_that_cannot_start_counts_no_attempt_and_the_ticket_waits() {
         Some(DispatchOutcome::PauseClaudeMissing)
     );
     assert!(f.abort_bodies(&key).await.is_empty());
+    // not Claude missing: the dispatcher keeps running and says nothing of it
+    assert_eq!(f.paused_until().await, None);
+    assert!(f.marked(&key, SystemMarker::Pause).await.is_empty());
+    assert!(f.notice_kinds().is_empty());
     f.dispatcher.pass.run().await;
     assert_eq!(f.machine.specs.lock().unwrap().len(), 1, "not tried again");
     f.machine.fail_start.store(false, Ordering::SeqCst);
@@ -3461,6 +3478,9 @@ async fn when_every_account_is_paused_the_dispatcher_pauses_until_the_first_retu
     );
     let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
     assert!(body.contains("All accounts are paused"), "{body}");
+    // the account's own time (09:00) differs from the dispatcher's (08:20)
+    assert!(body.contains(" paused until 09:00. All"), "{body}");
+    assert!(body.contains("nothing new until 08:20."), "{body}");
 }
 
 #[tokio::test]
@@ -3563,6 +3583,9 @@ async fn a_manual_resume_while_the_reset_is_read_is_not_undone() {
     gate.notify_one();
     running.await.unwrap();
     assert_eq!(f.paused_until().await, None);
+    let pauses = f.dispatcher.pauses.active().await.unwrap();
+    assert_eq!(pauses.len(), 1, "the account stays paused");
+    assert_eq!(pauses[0].until.as_millis(), START + 60 * MINUTE);
     let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
     assert!(body.contains("changed by hand"), "{body}");
     assert_eq!(f.record(&key).await.status, TicketStatus::Planned);
@@ -3583,4 +3606,127 @@ async fn questions_and_blocked_tickets_are_noticed() {
     let mut kinds = f.notice_kinds();
     kinds.sort_by_key(|kind| kind.as_str());
     assert_eq!(kinds, [NoticeKind::Blocked, NoticeKind::Question]);
+}
+
+#[tokio::test]
+async fn a_pause_never_shortens_a_longer_pause_a_person_set() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    f.dispatcher
+        .service
+        .pause(nullradix_app::dispatch::control::PauseFor::Minutes(20 * 60))
+        .await
+        .unwrap();
+    f.end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(
+        f.paused_until().await.map(Timestamp::as_millis),
+        Some(START + 20 * HOUR)
+    );
+    let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
+    assert!(!body.contains("changed by hand"), "{body}");
+}
+
+#[tokio::test]
+async fn limit_pauses_of_another_account_do_not_count_in_the_streak() {
+    let f = fixture().await;
+    f.with_accounts(&["Max", "Pro"]).await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    let mut runs = Vec::new();
+    for round in 0..3 {
+        runs.push(
+            f.end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+                .await,
+        );
+        f.dispatcher.pass.run().await;
+        assert_eq!(
+            f.outcome(runs[round]).await,
+            Some(DispatchOutcome::PauseLimit),
+            "round {round}"
+        );
+        if round < 2 {
+            if round == 1 {
+                // both accounts are paused now; resuming ends the pauses of both
+                f.dispatcher.service.resume().await.unwrap();
+            }
+            f.dispatcher.service.set_enabled(true).await.unwrap();
+            let report = f.dispatcher.pass.run().await;
+            assert_eq!(report.started.len(), 1, "{report:?}");
+            f.stop_starting().await;
+        }
+    }
+    let first = f.run_of(runs[0]).await.dispatch().unwrap().account;
+    let second = f.run_of(runs[1]).await.dispatch().unwrap().account;
+    assert_ne!(first, second, "the second run used the other account");
+    assert!(f.abort_bodies(&key).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_reset_beyond_a_day_keeps_the_account_paused_past_the_dispatcher_pause() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    let account = f.accounts.find("default").await.unwrap();
+    f.limits.set(account.id(), 95, 10, Fixture::resets_in(30));
+    f.end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+        .await;
+    f.dispatcher.pass.run().await;
+    let pauses = f.dispatcher.pauses.active().await.unwrap();
+    assert_eq!(pauses.len(), 1);
+    assert_eq!(pauses[0].until.as_millis(), START + 30 * HOUR);
+    assert_eq!(
+        f.paused_until().await.map(Timestamp::as_millis),
+        Some(START + 24 * HOUR)
+    );
+    let body = f.marked(&key, SystemMarker::Pause).await.remove(0);
+    assert!(
+        body.contains("nothing new until 2027-01-16 08:00."),
+        "{body}"
+    );
+    // the dispatcher is free again, the account is not
+    f.advance(25 * 60);
+    f.dispatcher.service.set_enabled(true).await.unwrap();
+    let waiting = f.dispatcher.pass.run().await;
+    assert!(waiting.started.is_empty(), "{waiting:?}");
+    assert_eq!(f.record(&key).await.status, TicketStatus::Planned);
+    f.limits.set(account.id(), 10, 10, None);
+    f.advance(6 * 60);
+    assert_eq!(f.dispatcher.pass.run().await.started, [key]);
+}
+
+#[tokio::test]
+async fn a_read_that_fails_after_a_setup_block_still_shows_the_notice() {
+    let f = fixture().await;
+    f.configure(|config| {
+        config.enabled = true;
+        config.worktree_setup = vec![WorktreeSetupStep {
+            cwd: String::from("web"),
+            run: String::from("npm ci"),
+        }];
+    })
+    .await;
+    *f.setup.failure.lock().unwrap() = Some(SetupFailure {
+        cwd: String::from("web"),
+        run: String::from("npm ci"),
+        code: Some(1),
+        timed_out: false,
+        output: String::new(),
+    });
+    let key = f.ready("Build", &["auto"]).await;
+    f.hook.fail_setup_block_reads.store(true, Ordering::SeqCst);
+    f.dispatcher.pass.run().await;
+    f.dispatcher.starter.wait_idle().await;
+    f.hook.fail_setup_block_reads.store(false, Ordering::SeqCst);
+    assert_eq!(
+        f.record(&key).await.status,
+        nullradix_domain::TicketStatus::Blocked
+    );
+    let notices = f.notices.0.lock().unwrap().clone();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].title, "Build");
 }

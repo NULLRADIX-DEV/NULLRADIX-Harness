@@ -222,7 +222,7 @@ impl EvaluateRuns {
         self.pauses.read().clone()
     }
 
-    /// A run that never spawned is an environment fault: no attempt, the pause hook or a wait.
+    /// A run that never spawned does not show that Claude is missing: no attempt, no pause, a wait.
     async fn start_failed(
         &self,
         run: &Run,
@@ -230,9 +230,6 @@ impl EvaluateRuns {
         config: &DispatcherConfig,
     ) -> Result<Settled, AppError> {
         let kind = PauseKind::ClaudeMissing;
-        if let Some(outcome) = self.pause_hook().paused(run, record, kind, config).await? {
-            return Ok(Settled::Yes(outcome));
-        }
         // its start gave the claim back already, and a newer one may be there now
         self.wait_out(run, record, kind, config, false, true).await
     }
