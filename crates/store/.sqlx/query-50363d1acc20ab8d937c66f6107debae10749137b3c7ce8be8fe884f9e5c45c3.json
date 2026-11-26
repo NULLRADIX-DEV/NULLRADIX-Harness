@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO account_pauses (account_id, until, reason, run_id, created_at)\n             VALUES (?, ?, ?, ?, ?)\n             ON CONFLICT (account_id) DO UPDATE SET\n               until = excluded.until, reason = excluded.reason, run_id = excluded.run_id,\n               created_at = excluded.created_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "50363d1acc20ab8d937c66f6107debae10749137b3c7ce8be8fe884f9e5c45c3"
+}

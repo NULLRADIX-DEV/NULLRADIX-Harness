@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM account_usage_samples\n             WHERE at < ? OR (phase <> 'poll' AND run_id IS NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "ec967b80149152e358d3e8c5e96d630dc1a187e32b7d2c624c0bb348a28fd268"
+}

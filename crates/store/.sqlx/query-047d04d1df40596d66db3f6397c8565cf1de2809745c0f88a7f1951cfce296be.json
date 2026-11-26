@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT account_id AS \"account_id: Uuid\", until, reason,\n                      run_id AS \"run_id?: Uuid\", created_at\n               FROM account_pauses ORDER BY until, account_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "account_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "account_pauses",
+            "name": "account_id"
+          }
+        }
+      },
+      {
+        "name": "until",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "account_pauses",
+            "name": "until"
+          }
+        }
+      },
+      {
+        "name": "reason",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "account_pauses",
+            "name": "reason"
+          }
+        }
+      },
+      {
+        "name": "run_id?: Uuid",
+        "ordinal": 3,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "account_pauses",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "account_pauses",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "047d04d1df40596d66db3f6397c8565cf1de2809745c0f88a7f1951cfce296be"
+}
