@@ -1,13 +1,15 @@
 use axum::Json;
 use axum::extract::State;
+use nullradix_app::AppError;
 use nullradix_app::dispatch::merge_jobs::StoredMergeJob;
+use nullradix_app::dispatch::merge_retry::RetryOutcome;
 use nullradix_domain::MergePhase;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::tickets::TicketPath;
-use crate::{ApiError, ApiPath, ApiState, Problem};
+use crate::tickets::{TicketDto, TicketPath};
+use crate::{ApiError, ApiJson, ApiPath, ApiState, Problem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -102,5 +104,75 @@ pub(crate) async fn list_merges(
     let jobs = state.merges.of_ticket(detail.view.ticket.id()).await?;
     Ok(Json(MergeJobList {
         items: jobs.into_iter().map(Into::into).collect(),
+    }))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum MergeOutcomeDto {
+    Merged,
+    Blocked,
+    Waiting,
+    Session,
+    Pending,
+}
+
+impl From<RetryOutcome> for MergeOutcomeDto {
+    fn from(outcome: RetryOutcome) -> Self {
+        match outcome {
+            RetryOutcome::Merged => Self::Merged,
+            RetryOutcome::Blocked => Self::Blocked,
+            RetryOutcome::Waiting => Self::Waiting,
+            RetryOutcome::Session => Self::Session,
+            RetryOutcome::Pending => Self::Pending,
+        }
+    }
+}
+
+/// Tries the merge of a done or merge-blocked ticket again; the version guards a stale view.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RetryMerge {
+    pub version: Option<i64>,
+}
+
+/// What the retried merge came to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeRetryDto {
+    pub outcome: MergeOutcomeDto,
+    /// One line for the person, such as `ARC-0001 merged into main (abc1234).`
+    pub text: String,
+    pub ticket: TicketDto,
+}
+
+#[utoipa::path(
+    post,
+    path = "/tickets/{ticketKey}/merge",
+    tag = "merge",
+    params(TicketPath),
+    request_body = RetryMerge,
+    responses(
+        (status = 200, description = "Queued again and tried; a repeat changes nothing", body = MergeRetryDto),
+        (status = 401, body = Problem),
+        (status = 404, description = "Unknown ticket", body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, description = "The ticket waits for no merge", body = Problem),
+    )
+)]
+pub(crate) async fn retry_merge(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<TicketPath>,
+    ApiJson(input): ApiJson<RetryMerge>,
+) -> Result<Json<MergeRetryDto>, ApiError> {
+    let version = input.version.map(AppError::client_version).transpose()?;
+    let retried = state
+        .retries
+        .retry(&path.ticket_key, &state.person, version)
+        .await?;
+    Ok(Json(MergeRetryDto {
+        outcome: retried.outcome.into(),
+        text: retried.text,
+        ticket: retried.view.into(),
     }))
 }

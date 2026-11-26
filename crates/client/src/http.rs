@@ -11,16 +11,16 @@ use nullradix_api::{
     DispatcherConfigView, DispatcherStatusDto, DropNote, EffectiveDto, ExtensionPointDto,
     FavoriteDto, FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health,
     HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto,
-    MarkFavorite, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList,
-    PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto, ProjectList, PromoteNote,
-    PromotedNote, PromptDetail, PromptKindDto, PromptListDto, PromptPreviewDto, QuestionCommentDto,
-    QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket, RenameBoard,
-    RenameProject, RepositoryList, ReturnReview, RunDto, RunList, RunOutput, RunnerList,
-    SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList,
-    SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
-    SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto,
-    TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
-    UpdateDispatcherConfig, UpdateTicket, WritePlan,
+    MarkFavorite, MergeRetryDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto,
+    NoteList, PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto, ProjectList,
+    PromoteNote, PromotedNote, PromptDetail, PromptKindDto, PromptListDto, PromptPreviewDto,
+    QuestionCommentDto, QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket,
+    RenameBoard, RenameProject, RepositoryList, RetryMerge, ReturnReview, RunDto, RunList,
+    RunOutput, RunnerList, SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto,
+    SessionDto, SessionList, SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun,
+    StartTicket, StartedTicket, SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto,
+    TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization,
+    UpdateDispatcher, UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -81,6 +81,7 @@ pub struct Client {
     agent: Agent,
     address: SocketAddr,
     token: Option<Secret>,
+    connect_timeout: Option<Duration>,
 }
 
 impl Client {
@@ -97,6 +98,7 @@ impl Client {
             agent,
             address,
             token: None,
+            connect_timeout: Some(connect_timeout),
         }
     }
 
@@ -104,6 +106,24 @@ impl Client {
     pub fn with_token(mut self, token: Secret) -> Self {
         self.token = Some(token);
         self
+    }
+
+    /// The same client with another limit for a whole request.
+    #[must_use]
+    pub fn with_timeout(&self, timeout: Duration) -> Self {
+        let agent = Agent::config_builder()
+            .timeout_connect(self.connect_timeout)
+            .timeout_global(Some(timeout))
+            .http_status_as_error(false)
+            .proxy(None)
+            .build()
+            .into();
+        Self {
+            agent,
+            address: self.address,
+            token: self.token.clone(),
+            connect_timeout: self.connect_timeout,
+        }
     }
 
     #[must_use]
@@ -1198,6 +1218,17 @@ impl Client {
         self.ticket_action(key, "accept", input)
     }
 
+    /// Queues the merge of a done or merge-blocked ticket again and tries it.
+    pub fn retry_merge(&self, key: &str, input: &RetryMerge) -> Result<MergeRetryDto, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(&format!("/tickets/{key}/merge")))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
     pub fn return_ticket(&self, key: &str, input: &ReturnReview) -> Result<TicketDto, ClientError> {
         self.ticket_action(key, "review/return", input)
     }
@@ -1819,6 +1850,7 @@ mod tests {
             reviews,
             decisions: assembled.decisions,
             merges: assembled.merges,
+            retries: assembled.retries,
             notes,
             inbox: inbox_service(&store, &signal),
             runners,
@@ -2113,5 +2145,20 @@ mod tests {
         };
         let error = Client::new(address, FAST, FAST).health().unwrap_err();
         assert!(matches!(error, ClientError::Unreachable { .. }));
+    }
+
+    #[test]
+    fn another_timeout_keeps_the_address_and_the_token() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let slow =
+            Client::new(address, FAST, PATIENT).with_token(Secret::parse(&"c".repeat(64)).unwrap());
+        let quick = slow.with_timeout(Duration::from_millis(200));
+        assert_eq!(quick.address(), address);
+        assert!(quick.token.is_some());
+        // nobody answers: the new limit ends the call long before the old one
+        let started = std::time::Instant::now();
+        assert!(quick.health().is_err());
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 }

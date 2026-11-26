@@ -1429,6 +1429,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_merge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticketKey}/merges": {
         parameters: {
             query?: never;
@@ -2720,7 +2736,16 @@ export interface components {
             items: components["schemas"]["MergeJobDto"][];
         };
         /** @enum {string} */
+        MergeOutcomeDto: "merged" | "blocked" | "waiting" | "session" | "pending";
+        /** @enum {string} */
         MergePhaseDto: "pending" | "waiting" | "conflict-session" | "merged" | "failed" | "cancelled";
+        /** @description What the retried merge came to. */
+        MergeRetryDto: {
+            outcome: components["schemas"]["MergeOutcomeDto"];
+            /** @description One line for the person, such as `ARC-0001 merged into main (abc1234).` */
+            text: string;
+            ticket: components["schemas"]["TicketDto"];
+        };
         /** @enum {string} */
         MergeStrategyDto: "merge" | "squash";
         ModelUsageDto: {
@@ -3223,6 +3248,11 @@ export interface components {
             /** Format: int64 */
             at: number;
             sessionId: string;
+        };
+        /** @description Tries the merge of a done or merge-blocked ticket again; the version guards a stale view. */
+        RetryMerge: {
+            /** Format: int64 */
+            version?: number | null;
         };
         /** @description Sends a ticket held for review back to the agent. */
         ReturnReview: {
@@ -10206,6 +10236,68 @@ export interface operations {
             };
             /** @description The runner is not connected */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    retry_merge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryMerge"];
+            };
+        };
+        responses: {
+            /** @description Queued again and tried; a repeat changes nothing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeRetryDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The ticket waits for no merge */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -13,6 +13,7 @@ pub mod log;
 pub mod merge;
 pub mod merge_git;
 pub mod merge_jobs;
+pub mod merge_retry;
 pub mod outcome;
 pub mod pass;
 pub mod pause;

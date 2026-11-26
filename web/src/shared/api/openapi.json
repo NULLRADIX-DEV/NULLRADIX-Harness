@@ -7893,6 +7893,86 @@
         }
       }
     },
+    "/api/v1/tickets/{ticketKey}/merge": {
+      "post": {
+        "tags": [
+          "merge"
+        ],
+        "operationId": "retry_merge",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryMerge"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Queued again and tried; a repeat changes nothing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MergeRetryDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The ticket waits for no merge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticketKey}/merges": {
       "get": {
         "tags": [
@@ -12591,6 +12671,16 @@
           }
         }
       },
+      "MergeOutcomeDto": {
+        "type": "string",
+        "enum": [
+          "merged",
+          "blocked",
+          "waiting",
+          "session",
+          "pending"
+        ]
+      },
       "MergePhaseDto": {
         "type": "string",
         "enum": [
@@ -12601,6 +12691,27 @@
           "failed",
           "cancelled"
         ]
+      },
+      "MergeRetryDto": {
+        "type": "object",
+        "description": "What the retried merge came to.",
+        "required": [
+          "outcome",
+          "text",
+          "ticket"
+        ],
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/MergeOutcomeDto"
+          },
+          "text": {
+            "type": "string",
+            "description": "One line for the person, such as `ARC-0001 merged into main (abc1234).`"
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/TicketDto"
+          }
+        }
       },
       "MergeStrategyDto": {
         "type": "string",
@@ -14192,6 +14303,20 @@
             "type": "string"
           }
         }
+      },
+      "RetryMerge": {
+        "type": "object",
+        "description": "Tries the merge of a done or merge-blocked ticket again; the version guards a stale view.",
+        "properties": {
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "ReturnReview": {
         "type": "object",
