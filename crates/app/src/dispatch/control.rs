@@ -8,7 +8,7 @@ use nullradix_domain::{
     idle_reason, phase,
 };
 
-use super::accounts::{AccountPick, AccountPicker, AccountRequest, PickMode};
+use super::accounts::{AccountPick, AccountPicker, AccountRequest, PickContext, PickMode};
 use super::candidates::{Candidate, Candidates};
 use super::local_time::LocalTime;
 use super::pass::{DispatchPass, PassReport, counts_for_wip, idle_message};
@@ -131,6 +131,7 @@ impl DispatcherService {
     /// Why no account is free for a ready ticket, in the words of the start; none when one is.
     async fn waits_for_account(
         &self,
+        context: &PickContext,
         config: &DispatcherConfig,
         candidate: &Candidate,
     ) -> Result<Option<String>, AppError> {
@@ -140,7 +141,7 @@ impl DispatcherService {
         Ok(
             match self
                 .accounts
-                .pick(&request, config, PickMode::Preview)
+                .pick_in(context, &request, config, PickMode::Preview)
                 .await?
             {
                 AccountPick::Waiting { reason, .. } => Some(format!("waits - {reason}")),
@@ -176,12 +177,16 @@ impl DispatcherService {
             .count();
         let mut free = config.wip - i64::try_from(active).unwrap_or(i64::MAX);
         let mut tickets = Vec::new();
+        let context = self.accounts.load(None, PickMode::Preview).await?;
         for candidate in self.candidates.scan(&config, board).await? {
             let record = candidate.ticket().record();
             let reason = match &candidate.not_ready {
                 Some(reason) => reason.to_string(),
                 // with no account free the ticket waits without taking a place
-                None => match self.waits_for_account(&config, &candidate).await? {
+                None => match self
+                    .waits_for_account(&context, &config, &candidate)
+                    .await?
+                {
                     Some(waits) => waits,
                     None if free > 0 => {
                         free -= 1;

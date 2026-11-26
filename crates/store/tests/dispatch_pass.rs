@@ -257,6 +257,10 @@ struct FakeLimits {
     /// The next reading waits for this gate when set.
     hold: Mutex<Option<Arc<Notify>>>,
     entered: Notify,
+    /// The `fresh` flag of every reading asked for.
+    fresh: Mutex<Vec<bool>>,
+    /// Accounts whose folder has no login.
+    logged_out: Mutex<HashSet<Id<Account>>>,
 }
 
 impl FakeLimits {
@@ -282,7 +286,16 @@ impl FakeLimits {
 
 #[async_trait]
 impl AccountLimits for FakeLimits {
-    async fn status(&self, accounts: &[Account], _fresh: bool) -> Vec<AccountStatus> {
+    async fn logged_in(&self, accounts: &[Account]) -> HashMap<Id<Account>, bool> {
+        let out = self.logged_out.lock().unwrap();
+        accounts
+            .iter()
+            .map(|account| (account.id(), !out.contains(&account.id())))
+            .collect()
+    }
+
+    async fn status(&self, accounts: &[Account], fresh: bool) -> Vec<AccountStatus> {
+        self.fresh.lock().unwrap().push(fresh);
         let gate = self.hold.lock().unwrap().take();
         if let Some(gate) = gate {
             self.entered.notify_one();
@@ -2331,4 +2344,129 @@ async fn the_reserve_comes_from_the_history_of_finished_runs_instead_of_the_buff
     let blocked = f.ready("Blocked", &["auto"]).await;
     let row = f.status_row(&blocked).await;
     assert!(row.contains("tight (5 h 85 % + 11 % expected"), "{row}");
+}
+
+#[tokio::test]
+async fn starting_tickets_reads_the_cached_limits_and_never_asks_afresh() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    f.configure(|config| config.wip = 20).await;
+    f.limits
+        .set(accounts[0].id(), 10, 10, Fixture::resets_in(4));
+    f.limits
+        .set(accounts[1].id(), 20, 10, Fixture::resets_in(4));
+    for n in 0..3 {
+        f.ready(&format!("Build {n}"), &["auto"]).await;
+    }
+    assert_eq!(f.dispatcher.pass.run().await.started.len(), 3);
+    let asked = f.limits.fresh.lock().unwrap().clone();
+    assert!(!asked.is_empty());
+    assert!(asked.iter().all(|fresh| !fresh), "{asked:?}");
+}
+
+#[tokio::test]
+async fn two_starts_with_setup_in_one_pass_do_not_share_a_nearly_full_account() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    let (max, pro) = (&accounts[0], &accounts[1]);
+    f.configure(setup_config).await;
+    f.configure(|config| config.wip = 20).await;
+    // the buffer of 10 fits once on max (75 + 10) but not twice (75 + 10 + 10 > 90)
+    f.limits.set(max.id(), 75, 10, Fixture::resets_in(4));
+    f.limits.set(pro.id(), 78, 10, Fixture::resets_in(4));
+    let gate = Arc::new(Notify::new());
+    *f.setup.release.lock().unwrap() = Some(gate.clone());
+    f.ready("First", &["auto"]).await;
+    f.ready("Second", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started.len(), 2);
+    // on the single-threaded runtime both setups wait at the gate once they are listed
+    while f.setup.runs.lock().unwrap().len() < 2 {
+        tokio::task::yield_now().await;
+    }
+    gate.notify_waiters();
+    f.dispatcher.starter.wait_idle().await;
+    let mut used = f.run_accounts().await;
+    used.sort();
+    let mut both = vec![Some(max.id().as_uuid()), Some(pro.id().as_uuid())];
+    both.sort();
+    assert_eq!(used, both);
+}
+
+#[tokio::test]
+async fn a_single_account_folder_without_a_login_waits_for_one() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max"]).await;
+    f.limits.logged_out.lock().unwrap().insert(accounts[0].id());
+    let key = f.ready("Build", &["auto"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.started.is_empty(), "{report:?}");
+    let idle = report.idle.unwrap();
+    assert!(idle.contains("max: not logged in"), "{idle}");
+    assert!(f.status_row(&key).await.contains("not logged in"));
+    // no reading of the limits was asked for with one account and no ceiling
+    assert!(f.limits.fresh.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_status_reads_the_accounts_once_for_all_its_tickets() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    f.limits
+        .set(accounts[0].id(), 10, 10, Fixture::resets_in(4));
+    f.limits
+        .set(accounts[1].id(), 20, 10, Fixture::resets_in(4));
+    for n in 0..3 {
+        f.ready(&format!("Build {n}"), &["auto"]).await;
+    }
+    f.limits.fresh.lock().unwrap().clear();
+    f.dispatcher.service.status(None).await.unwrap();
+    assert_eq!(f.limits.fresh.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn start_and_end_rows_older_than_the_retention_go_with_the_next_poll() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max"]).await;
+    let max = &accounts[0];
+    f.limits.set(max.id(), 10, 20, Fixture::resets_in(4));
+    let patch = nullradix_app::accounts::AccountPatch {
+        limit_five_hour: Some(Some(90)),
+        ..Default::default()
+    };
+    f.accounts
+        .update(max.id(), patch, max.version())
+        .await
+        .unwrap();
+    finished_runs(&f, max, 1, 6).await;
+    let samples = f.store.as_ref();
+    assert_eq!(
+        UsageSampleRepository::history(samples, 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let later = f.clock.now().as_millis() + 91 * 24 * 60 * MINUTE;
+    let poll = nullradix_app::dispatch::accounts::NewSample {
+        id: uuid::Uuid::now_v7(),
+        account: max.id(),
+        run: None,
+        phase: nullradix_app::dispatch::accounts::SamplePhase::Poll,
+        usage: nullradix_domain::UsageSnapshot {
+            five_hour: Some(1),
+            ..Default::default()
+        },
+        at: Timestamp::from_millis(later),
+    };
+    assert!(
+        UsageSampleRepository::record_poll(samples, &poll)
+            .await
+            .unwrap()
+    );
+    assert!(
+        UsageSampleRepository::history(samples, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

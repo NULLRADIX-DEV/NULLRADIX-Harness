@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::error::database;
 use crate::{Store, StoreError, change_feed};
 
-/// Polls older than this are dropped whenever a new one is kept.
+/// Samples older than this are dropped whenever a new poll is kept.
 const POLL_KEPT_MILLIS: i64 = 90 * 24 * 60 * 60 * 1000;
 
 fn corrupt(what: &str) -> StoreError {
@@ -188,11 +188,15 @@ impl UsageSampleRepository for Store {
             return Ok(false);
         }
         insert_sample(&mut tx, sample).await.map_err(database)?;
-        sqlx::query("DELETE FROM account_usage_samples WHERE phase = 'poll' AND at < ?")
-            .bind(sample.at.as_millis().saturating_sub(POLL_KEPT_MILLIS))
-            .execute(&mut *tx)
-            .await
-            .map_err(database)?;
+        // start and end rows go with their run; older ones age out like polls
+        sqlx::query(
+            "DELETE FROM account_usage_samples
+             WHERE at < ? OR (phase <> 'poll' AND run_id IS NULL)",
+        )
+        .bind(sample.at.as_millis().saturating_sub(POLL_KEPT_MILLIS))
+        .execute(&mut *tx)
+        .await
+        .map_err(database)?;
         tx.commit().await.map_err(database)?;
         Ok(true)
     }

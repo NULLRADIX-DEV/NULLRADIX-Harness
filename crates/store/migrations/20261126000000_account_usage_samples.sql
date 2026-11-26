@@ -12,5 +12,6 @@ CREATE TABLE account_usage_samples (
 ) STRICT;
 
 CREATE INDEX ix_usage_samples_account_at ON account_usage_samples (account_id, at);
+CREATE INDEX ix_usage_samples_phase_at ON account_usage_samples (phase, at);
 CREATE UNIQUE INDEX ux_usage_samples_run_phase ON account_usage_samples (run_id, phase)
   WHERE run_id IS NOT NULL AND phase <> 'poll';

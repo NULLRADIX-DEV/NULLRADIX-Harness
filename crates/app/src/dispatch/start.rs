@@ -507,6 +507,9 @@ impl TicketStarter {
                 return false;
             }
             launching.insert(text.clone(), launch.cwd.clone());
+            // the run does not exist yet, so the pick must count as work under way meanwhile
+            self.accounts
+                .hold(&text, &launch.picked.account, &launch.picked.request);
         }
         let this = Arc::clone(self);
         tokio::spawn(async move {
@@ -516,6 +519,7 @@ impl TicketStarter {
                 this.give_back(&launch.key, &config, launch.version).await;
                 this.remember_failure(&text).await;
             }
+            this.accounts.release(&text);
             this.launching.lock().remove(&text);
         });
         true

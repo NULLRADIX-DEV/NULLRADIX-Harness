@@ -11,6 +11,7 @@ use nullradix_domain::{
     RunningWork, Timestamp, UsageSample, UsageSnapshot, allowed_accounts, choose_account,
     estimate_reserve, pending_reserve,
 };
+use parking_lot::Mutex;
 use strum::{EnumString, IntoStaticStr};
 use uuid::Uuid;
 
@@ -110,12 +111,18 @@ pub trait UsageSampleRepository: Send + Sync {
 #[async_trait]
 pub trait AccountLimits: Send + Sync {
     async fn status(&self, accounts: &[Account], fresh: bool) -> Vec<AccountStatus>;
+    /// Whether each account has a login, read from Claude's files without asking Anthropic.
+    async fn logged_in(&self, accounts: &[Account]) -> HashMap<Id<Account>, bool>;
 }
 
 #[async_trait]
 impl AccountLimits for UsageService {
     async fn status(&self, accounts: &[Account], fresh: bool) -> Vec<AccountStatus> {
         UsageService::status(self, accounts, fresh).await
+    }
+
+    async fn logged_in(&self, accounts: &[Account]) -> HashMap<Id<Account>, bool> {
+        UsageService::logged_in(self, accounts).await
     }
 }
 
@@ -267,7 +274,7 @@ pub enum AccountPick {
     },
 }
 
-/// A start asks Anthropic afresh and keeps the readings; a preview reads without writing.
+/// A start keeps the readings; a preview reads without writing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickMode {
     Start,
@@ -282,6 +289,16 @@ pub struct AccountPicker {
     runs: Arc<RunService>,
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
+    /// Picks whose run does not exist yet, by ticket; they count as work under way.
+    held: Mutex<HashMap<String, RunningWork>>,
+}
+
+/// What one or many choices of a pass read: accounts, readings, history and work under way.
+pub struct PickContext {
+    accounts: Vec<Account>,
+    states: HashMap<Id<Account>, AccountState>,
+    samples: Vec<UsageSample>,
+    running: Vec<RunningWork>,
 }
 
 impl std::fmt::Debug for AccountPicker {
@@ -325,13 +342,71 @@ impl AccountPicker {
             runs: parts.runs,
             clock: parts.clock,
             ids: parts.ids,
+            held: Mutex::default(),
         }
+    }
+
+    /// Counts a pick whose run starts later, as work under way until `release`.
+    pub fn hold(&self, ticket: &str, chosen: &Chosen, request: &AccountRequest) {
+        let Some(profile) = &request.profile else {
+            return;
+        };
+        self.held.lock().insert(
+            ticket.to_owned(),
+            RunningWork {
+                account: chosen.account,
+                profile: profile.clone(),
+                model: request.model.clone(),
+                effort: request.effort.clone(),
+                start: chosen.snapshot,
+            },
+        );
+    }
+
+    /// Ends the hold of a ticket.
+    pub fn release(&self, ticket: &str) {
+        self.held.lock().remove(ticket);
     }
 
     /// The pauses, for callers that show or set them.
     #[must_use]
     pub const fn pauses(&self) -> &Arc<AccountPauses> {
         &self.pauses
+    }
+
+    /// Reads what choices need; with a request only its accounts are asked, else all.
+    pub async fn load(
+        &self,
+        request: Option<&AccountRequest>,
+        mode: PickMode,
+    ) -> Result<PickContext, AppError> {
+        let accounts = self.accounts.list().await?;
+        let asked: Vec<Account> = accounts
+            .iter()
+            .filter(|account| request.is_none_or(|request| allows(request, account)))
+            .cloned()
+            .collect();
+        let states = self.read_states(&accounts, &asked, mode).await;
+        // a failed read falls back to the fixed buffer rather than failing the start
+        let samples = self
+            .samples
+            .history(SAMPLE_LIMIT)
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, "cannot read the usage history");
+                Vec::new()
+            });
+        let mut running = self.running_work().await.unwrap_or_else(|error| {
+            tracing::warn!(%error, "cannot read the runs under way");
+            Vec::new()
+        });
+        running.extend(self.held.lock().values().cloned());
+        Ok(PickContext {
+            accounts,
+            states,
+            samples,
+            running,
+        })
     }
 
     /// Picks the account of a run, or says why none is free.
@@ -341,21 +416,21 @@ impl AccountPicker {
         config: &DispatcherConfig,
         mode: PickMode,
     ) -> Result<AccountPick, AppError> {
-        let accounts = self.accounts.list().await?;
-        let asked: Vec<Account> = accounts
-            .iter()
-            .filter(|account| {
-                request.allowed.slugs.is_empty()
-                    || request
-                        .allowed
-                        .slugs
-                        .iter()
-                        .any(|slug| slug == account.slug().as_str())
-            })
-            .cloned()
-            .collect();
-        let mut states = self.read_states(&accounts, &asked, mode).await;
-        let (reserve, estimate, pending) = self.reserves(request, config, &states).await?;
+        let context = self.load(Some(request), mode).await?;
+        self.pick_in(&context, request, config, mode).await
+    }
+
+    /// Picks from what `load` read.
+    pub async fn pick_in(
+        &self,
+        context: &PickContext,
+        request: &AccountRequest,
+        config: &DispatcherConfig,
+        mode: PickMode,
+    ) -> Result<AccountPick, AppError> {
+        let accounts = &context.accounts;
+        let mut states = context.states.clone();
+        let (reserve, estimate, pending) = Self::reserves(request, config, context);
         for _ in 0..CHOICE_ATTEMPTS {
             let pauses = self.pauses.active().await?;
             for pause in &pauses {
@@ -363,7 +438,7 @@ impl AccountPicker {
             }
             let choice = choose_account(&AccountChoiceInput {
                 allowed: &request.allowed,
-                accounts: &accounts,
+                accounts,
                 states: &states,
                 strategy: config.account_strategy,
                 limit_percent: config.account_limit_percent,
@@ -450,12 +525,26 @@ impl AccountPicker {
             });
         let mut states = HashMap::new();
         if !multi {
+            // a folder without a login must not start a run; the default has the server's
+            let own: Vec<Account> = asked
+                .iter()
+                .filter(|account| account.enabled() && account.config_dir().is_some())
+                .cloned()
+                .collect();
+            for (account, logged_in) in self.limits.logged_in(&own).await {
+                states.insert(
+                    account,
+                    AccountState {
+                        logged_in: Some(logged_in),
+                        ..AccountState::default()
+                    },
+                );
+            }
             return states;
         }
-        let fresh = mode == PickMode::Start;
-        for status in self.limits.status(asked, fresh).await {
+        for status in self.limits.status(asked, false).await {
             let usage = snapshot_of(&status.usage);
-            if fresh && status.usage.available() {
+            if mode == PickMode::Start && status.usage.available() {
                 self.record(None, status.account, SamplePhase::Poll, usage)
                     .await;
             }
@@ -472,29 +561,24 @@ impl AccountPicker {
     }
 
     /// The reserve of the run, how it was estimated, and what runs under way still need.
-    async fn reserves(
-        &self,
+    fn reserves(
         request: &AccountRequest,
         config: &DispatcherConfig,
-        states: &HashMap<Id<Account>, AccountState>,
-    ) -> Result<
-        (
-            AccountReserve,
-            Option<EstimatedReserve>,
-            HashMap<Id<Account>, AccountReserve>,
-        ),
-        AppError,
-    > {
+        context: &PickContext,
+    ) -> (
+        AccountReserve,
+        Option<EstimatedReserve>,
+        HashMap<Id<Account>, AccountReserve>,
+    ) {
         let Some(profile) = &request.profile else {
-            return Ok((AccountReserve::default(), None, HashMap::new()));
+            return (AccountReserve::default(), None, HashMap::new());
         };
-        let samples = self.samples.history(SAMPLE_LIMIT).await?;
         let fallback = AccountReserve {
             five_hour: config.account_reserve_five_hour,
             week: config.account_reserve_week,
         };
         let own = estimate_reserve(
-            &samples,
+            &context.samples,
             &ReserveFor {
                 profile,
                 model: request.model.as_deref(),
@@ -502,9 +586,13 @@ impl AccountPicker {
             },
             fallback,
         );
-        let running = self.running_work().await?;
-        let pending = pending_reserve(&running, &samples, fallback, states);
-        Ok((own.reserve, Some(own), pending))
+        let pending = pending_reserve(
+            &context.running,
+            &context.samples,
+            fallback,
+            &context.states,
+        );
+        (own.reserve, Some(own), pending)
     }
 
     /// Work runs under way with the use of their account at their start.
@@ -588,6 +676,15 @@ impl AccountPicker {
             tracing::warn!(%error, "cannot keep a usage sample");
         }
     }
+}
+
+fn allows(request: &AccountRequest, account: &Account) -> bool {
+    request.allowed.slugs.is_empty()
+        || request
+            .allowed
+            .slugs
+            .iter()
+            .any(|slug| slug == account.slug().as_str())
 }
 
 /// The reason text with the reserve and expected duration the ticket view reads.
