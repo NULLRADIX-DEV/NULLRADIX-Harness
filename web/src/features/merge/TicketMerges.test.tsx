@@ -9,6 +9,7 @@ import type { MergeJob } from './queries';
 
 const KEY = 'ARC-0001';
 const BASE = `/api/v1/tickets/${KEY}`;
+const DETAIL = `${KEY} cannot be merged again: a merge session is still running`;
 const BRANCH = 'ticket/ARC-0001-show-the-board';
 
 function job(overrides: Partial<MergeJob> = {}): MergeJob {
@@ -72,13 +73,11 @@ describe('ticket Merges tab', () => {
 
   it('says what went wrong when the retry is refused', async () => {
     const server = serve([job()]);
-    server.api.set(`POST ${BASE}/merge`, () => problem(422, 'merge-not-possible', 'x'));
+    server.api.set(`POST ${BASE}/merge`, () => problem(422, 'merge-not-possible', DETAIL));
     renderApp('/board');
     const merges = await openMerges();
     await userEvent.click(await merges.findByRole('button', { name: 'Retry merge' }));
-    expect(await merges.findByRole('alert')).toHaveTextContent(
-      'This ticket waits for no merge any more.',
-    );
+    expect(await merges.findByRole('alert')).toHaveTextContent(DETAIL);
   });
 
   it('offers a retry only for a done or merge-blocked ticket with a branch', () => {

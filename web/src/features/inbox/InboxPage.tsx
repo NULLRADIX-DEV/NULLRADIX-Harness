@@ -124,6 +124,7 @@ function InboxRow({
           {` / since ${new Date(item.sinceAt).toLocaleString()}`}
         </span>
         {item.detail && <p className="inbox-detail muted">{item.detail}</p>}
+        {action.data && <p role="status">{action.data}</p>}
         {action.error && <FormError message={action.error.message} />}
       </div>
       <div className="inbox-actions">

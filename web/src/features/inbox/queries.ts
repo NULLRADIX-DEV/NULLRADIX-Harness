@@ -133,11 +133,11 @@ export function useResetOrder() {
   });
 }
 
-// Accepting or merging a ticket, or promoting a note, takes the entry out of the inbox.
+// Accepting or merging a ticket, or promoting a note, takes the entry out; a retry says what came.
 export function useInboxAction() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (item: InboxItem) => {
+    mutationFn: async (item: InboxItem): Promise<string | undefined> => {
       if (item.type === 'note') {
         unwrap(
           await api.POST('/api/v1/notes/{noteNumber}/promote', {
@@ -146,12 +146,13 @@ export function useInboxAction() {
           }),
         );
       } else if (item.kind === 'merge') {
-        unwrap(
+        const retried = unwrap(
           await api.POST('/api/v1/tickets/{ticketKey}/merge', {
             params: { path: { ticketKey: item.key } },
             body: {},
           }),
         );
+        return retried.text;
       } else {
         unwrap(
           await api.POST('/api/v1/tickets/{ticketKey}/accept', {

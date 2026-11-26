@@ -393,6 +393,18 @@ describe('InboxPage', () => {
     expect(sent).toEqual({});
   });
 
+  it('shows what a retry came to when the row stays', async () => {
+    const { api } = server();
+    const text = 'ARC-0001: merge conflict - the merge waits for a merge session.';
+    api.set('POST /api/v1/tickets/ARC-0001/merge', () =>
+      json(200, { outcome: 'pending', text, ticket: {} }),
+    );
+    renderApp('/inbox');
+    await screen.findByText('Which store?');
+    await userEvent.click(screen.getByRole('button', { name: 'Retry merge' }));
+    expect(await screen.findByText(text)).toBeInTheDocument();
+  });
+
   it('says when nothing waits', async () => {
     server([]);
     renderApp('/inbox');

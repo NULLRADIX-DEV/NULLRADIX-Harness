@@ -3,7 +3,6 @@ import { problemMessage, type ProblemMessages } from '../../shared/api/problemMe
 const FALLBACK = 'Could not start the merge.';
 
 const MESSAGES: ProblemMessages = {
-  'merge-not-possible': 'This ticket waits for no merge any more.',
   'version-conflict': 'The ticket changed meanwhile. Reload it and try again.',
   'ticket-not-found': 'This ticket no longer exists.',
 };
