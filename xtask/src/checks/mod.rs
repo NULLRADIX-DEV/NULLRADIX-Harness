@@ -8,6 +8,7 @@ use crate::files;
 
 mod comments;
 mod layers;
+mod release_lock;
 mod unsafe_code;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -77,6 +78,7 @@ pub(crate) fn run(root: &Path) -> Result<Vec<Violation>> {
         }
     }
     violations.extend(layers::run(root)?);
+    violations.extend(release_lock::run(root)?);
     Ok(violations)
 }
 

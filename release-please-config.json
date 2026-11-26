@@ -26,87 +26,87 @@
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-acceptance')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-acceptance')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-api')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-api')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-app')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-app')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-cli')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-cli')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-client')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-client')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-domain')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-domain')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-fake-claude')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-fake-claude')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-os')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-os')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-runner')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-runner')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-store')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-store')].version"
         },
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='xtask')].version"
+          "jsonpath": "$.package[?(@.name.value=='xtask')].version"
         },
         {
           "type": "toml",
           "path": "apps/desktop/Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-api')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-api')].version"
         },
         {
           "type": "toml",
           "path": "apps/desktop/Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-app')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-app')].version"
         },
         {
           "type": "toml",
           "path": "apps/desktop/Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-client')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-client')].version"
         },
         {
           "type": "toml",
           "path": "apps/desktop/Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-desktop')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-desktop')].version"
         },
         {
           "type": "toml",
           "path": "apps/desktop/Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-domain')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-domain')].version"
         },
         {
           "type": "toml",
           "path": "apps/desktop/Cargo.lock",
-          "jsonpath": "$.package[?(@.name=='nullradix-os')].version"
+          "jsonpath": "$.package[?(@.name.value=='nullradix-os')].version"
         }
       ]
     }

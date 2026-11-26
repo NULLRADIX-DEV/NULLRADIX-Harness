@@ -40,5 +40,15 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # only the digest moves; the Rust version follows rust-toolchain.toml by hand
+      - dependency-name: rust
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
     commit-message:
       prefix: build
