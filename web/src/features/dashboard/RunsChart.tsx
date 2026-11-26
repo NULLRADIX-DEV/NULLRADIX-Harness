@@ -14,7 +14,7 @@ function bucketTotal(point: { done: number; aborted: number; other: number }): n
   return point.done + point.aborted + point.other;
 }
 
-// Stacked columns per day or week: done, aborted, waiting for a person; numbers on hover and in the text alternative.
+// Stacked columns per day or week; numbers show on hover and in the text alternative.
 export function RunsChart({ series }: { series: DispatchStats['series'] }) {
   const [hover, setHover] = useState(-1);
   const { points, unit } = series;

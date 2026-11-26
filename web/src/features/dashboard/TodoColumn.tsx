@@ -80,7 +80,7 @@ function TodoRow({ item, now, flag }: { item: InboxItem; now: number; flag: bool
   );
 }
 
-// What waits for the person, in four groups that open when they hold entries; of the board filter or all boards.
+// What waits for the person, in four groups that open when they hold entries.
 export function TodoColumn({ boardId, now }: { boardId: string | null; now: number }) {
   const inbox = useQuery(inboxQuery(boardId));
   // groups opened or closed by hand; otherwise those with entries are open

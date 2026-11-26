@@ -228,7 +228,7 @@ interface Obstacle {
   sub: string;
 }
 
-// What slows the dispatcher: ticket readiness from the live state, pauses and lost runs from the stats.
+// What slows the dispatcher: readiness from the live state, pauses and lost runs from stats.
 export function obstacles(status: DispatcherStatus | undefined, stats: DispatchStats): Obstacle[] {
   const tickets = status?.tickets ?? null;
   const waiting = tickets?.filter((ticket) => WAITING.test(ticket.reason)) ?? [];
