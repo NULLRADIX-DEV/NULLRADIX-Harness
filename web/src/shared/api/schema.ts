@@ -1108,6 +1108,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/themes/{id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["theme_settings"];
+        put: operations["save_theme_settings"];
+        post?: never;
+        delete: operations["reset_theme_settings"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets": {
         parameters: {
             query?: never;
@@ -2745,6 +2761,17 @@ export interface components {
         };
         /** @enum {string} */
         RunnerOsDto: "windows" | "linux" | "macos";
+        SaveThemeSettings: {
+            /** @description All values of the theme; they replace the saved ones. */
+            values: {
+                [key: string]: components["schemas"]["ThemeSettingValueDto"];
+            };
+            /**
+             * Format: int64
+             * @description Version the save is based on; 0 when nothing was saved yet.
+             */
+            version: number;
+        };
         ScreenshotDto: {
             /** Format: int64 */
             bytes: number;
@@ -3038,6 +3065,20 @@ export interface components {
             options: components["schemas"]["ThemeOptionDto"][];
             /** @enum {string} */
             type: "select";
+        };
+        /** @description A switch or the value of one option. */
+        ThemeSettingValueDto: boolean | string;
+        /** @description The values chosen for the settings of a theme. */
+        ThemeSettingsDto: {
+            /** @description Chosen values by setting key; a key without a value uses the default of the manifest. */
+            values: {
+                [key: string]: components["schemas"]["ThemeSettingValueDto"];
+            };
+            /**
+             * Format: int64
+             * @description Row version for saving and resetting; 0 while nothing was saved.
+             */
+            version: number;
         };
         TicketDetailDto: {
             /** @description Oldest first. */
@@ -7971,6 +8012,172 @@ export interface operations {
             };
             /** @description No such file inside the installed theme */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    theme_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Theme id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeSettingsDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The theme is not installed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    save_theme_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Theme id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveThemeSettings"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeSettingsDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The theme is not installed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `theme-settings-invalid` with the refused keys as fields */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reset_theme_settings: {
+        parameters: {
+            query: {
+                /** @description Version the reset is based on; 0 when nothing was saved. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                /** @description Theme id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Back to the defaults of the manifest, also when nothing was saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The theme is not installed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

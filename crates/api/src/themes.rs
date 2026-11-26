@@ -1,13 +1,17 @@
 //! Themes: installed packages, the chosen theme and the files a theme serves.
 
+use std::collections::BTreeMap;
+
 use axum::Json;
 use axum::body::{Body, to_bytes};
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use nullradix_app::AppError;
-use nullradix_app::themes::ThemeList;
-use nullradix_domain::{ColorScheme, InstalledTheme, MAX_PACKAGE_BYTES, STYLE_FILE, SettingSpec};
+use nullradix_app::themes::{ThemeList, ThemeSettings};
+use nullradix_domain::{
+    ColorScheme, InstalledTheme, MAX_PACKAGE_BYTES, STYLE_FILE, SettingSpec, SettingValue, Version,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -175,6 +179,80 @@ pub struct ChooseTheme {
     pub theme: String,
 }
 
+/// A switch or the value of one option.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum ThemeSettingValueDto {
+    Switch(bool),
+    Choice(String),
+}
+
+impl From<ThemeSettingValueDto> for SettingValue {
+    fn from(value: ThemeSettingValueDto) -> Self {
+        match value {
+            ThemeSettingValueDto::Switch(on) => Self::Switch(on),
+            ThemeSettingValueDto::Choice(text) => Self::Choice(text),
+        }
+    }
+}
+
+impl From<&SettingValue> for ThemeSettingValueDto {
+    fn from(value: &SettingValue) -> Self {
+        match value {
+            SettingValue::Switch(on) => Self::Switch(*on),
+            SettingValue::Choice(text) => Self::Choice(text.clone()),
+        }
+    }
+}
+
+/// The values chosen for the settings of a theme.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeSettingsDto {
+    /// Chosen values by setting key; a key without a value uses the default of the manifest.
+    pub values: BTreeMap<String, ThemeSettingValueDto>,
+    /// Row version for saving and resetting; 0 while nothing was saved.
+    pub version: i64,
+}
+
+impl From<&ThemeSettings> for ThemeSettingsDto {
+    fn from(settings: &ThemeSettings) -> Self {
+        Self {
+            values: settings
+                .values
+                .values()
+                .iter()
+                .map(|(key, value)| (key.clone(), ThemeSettingValueDto::from(value)))
+                .collect(),
+            version: settings.version.map_or(0, Version::value),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveThemeSettings {
+    /// All values of the theme; they replace the saved ones.
+    pub values: BTreeMap<String, ThemeSettingValueDto>,
+    /// Version the save is based on; 0 when nothing was saved yet.
+    pub version: i64,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ResetSettingsQuery {
+    /// Version the reset is based on; 0 when nothing was saved.
+    version: i64,
+}
+
+/// 0 means nothing saved; anything else is a version a client read.
+fn expected_version(value: i64) -> Result<Option<Version>, AppError> {
+    if value == 0 {
+        return Ok(None);
+    }
+    AppError::client_version(value).map(Some)
+}
+
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct RemoveThemeQuery {
@@ -296,6 +374,81 @@ pub(crate) async fn remove_theme(
         .themes
         .remove(&path.id, AppError::client_version(query.version)?)
         .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    get,
+    path = "/themes/{id}/settings",
+    tag = "themes",
+    params(ThemePath),
+    responses(
+        (status = 200, body = ThemeSettingsDto),
+        (status = 401, body = Problem),
+        (status = 404, description = "The theme is not installed", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn theme_settings(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<ThemePath>,
+) -> Result<Json<ThemeSettingsDto>, ApiError> {
+    let settings = state.themes.settings(&path.id).await?;
+    Ok(Json(ThemeSettingsDto::from(&settings)))
+}
+
+#[utoipa::path(
+    put,
+    path = "/themes/{id}/settings",
+    tag = "themes",
+    params(ThemePath),
+    request_body = SaveThemeSettings,
+    responses(
+        (status = 200, body = ThemeSettingsDto),
+        (status = 401, body = Problem),
+        (status = 404, description = "The theme is not installed", body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, description = "`theme-settings-invalid` with the refused keys as fields", body = Problem),
+    )
+)]
+pub(crate) async fn save_theme_settings(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<ThemePath>,
+    ApiJson(input): ApiJson<SaveThemeSettings>,
+) -> Result<Json<ThemeSettingsDto>, ApiError> {
+    let expected = expected_version(input.version)?;
+    let values = input
+        .values
+        .into_iter()
+        .map(|(key, value)| (key, SettingValue::from(value)))
+        .collect();
+    let saved = state
+        .themes
+        .save_settings(&path.id, values, expected)
+        .await?;
+    Ok(Json(ThemeSettingsDto::from(&saved)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/themes/{id}/settings",
+    tag = "themes",
+    params(ThemePath, ResetSettingsQuery),
+    responses(
+        (status = 204, description = "Back to the defaults of the manifest, also when nothing was saved"),
+        (status = 401, body = Problem),
+        (status = 404, description = "The theme is not installed", body = Problem),
+        (status = 409, description = "Stale version", body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn reset_theme_settings(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<ThemePath>,
+    ApiQuery(query): ApiQuery<ResetSettingsQuery>,
+) -> Result<StatusCode, ApiError> {
+    let expected = expected_version(query.version)?;
+    state.themes.reset_settings(&path.id, expected).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -626,6 +779,147 @@ mod tests {
         assert_eq!(list["active"], "nullradix");
         let (status, _) = call(&api, "DELETE", "/api/v1/themes/night-blue", None).await;
         assert_eq!(status, 422);
+    }
+
+    fn with_mode() -> Vec<u8> {
+        let mode = r#""dim": { "type": "boolean", "label": "Dim", "default": true },
+            "mode": { "type": "select", "label": "Mode", "default": "a",
+                      "options": [{ "value": "a", "label": "A" }, { "value": "b", "label": "B" }] }"#;
+        let manifest = MANIFEST.replace(
+            r#""dim": { "type": "boolean", "label": "Dim", "default": true }"#,
+            mode,
+        );
+        package(&manifest)
+    }
+
+    const SETTINGS: &str = "/api/v1/themes/night-blue/settings";
+
+    #[tokio::test]
+    async fn settings_are_read_saved_with_a_version_and_reset() {
+        let api = test_api().await;
+        upload(&api, with_mode()).await;
+        let (status, empty) = call(&api, "GET", SETTINGS, None).await;
+        assert_eq!(
+            (status, &empty),
+            (200, &json!({ "values": {}, "version": 0 }))
+        );
+
+        let body = json!({ "values": { "dim": false, "mode": "b" }, "version": 0 });
+        let (status, saved) = call(&api, "PUT", SETTINGS, Some(body)).await;
+        let expected = json!({ "values": { "dim": false, "mode": "b" }, "version": 1 });
+        assert_eq!((status, &saved), (200, &expected));
+        let (_, read) = call(&api, "GET", SETTINGS, None).await;
+        assert_eq!(read, expected);
+
+        let body = json!({ "values": { "mode": "a" }, "version": 1 });
+        let (_, saved) = call(&api, "PUT", SETTINGS, Some(body)).await;
+        assert_eq!(saved, json!({ "values": { "mode": "a" }, "version": 2 }));
+
+        let (status, _) = call(&api, "DELETE", &format!("{SETTINGS}?version=2"), None).await;
+        assert_eq!(status, 204);
+        let (_, read) = call(&api, "GET", SETTINGS, None).await;
+        assert_eq!(read, empty);
+        let (status, _) = call(&api, "DELETE", &format!("{SETTINGS}?version=0"), None).await;
+        assert_eq!(status, 204);
+    }
+
+    #[tokio::test]
+    async fn stale_versions_are_conflicts_for_saving_and_resetting() {
+        let api = test_api().await;
+        upload(&api, with_mode()).await;
+        let body = json!({ "values": { "dim": true }, "version": 0 });
+        call(&api, "PUT", SETTINGS, Some(body.clone())).await;
+        for body in [body, json!({ "values": { "dim": true }, "version": 7 })] {
+            let (status, problem) = call(&api, "PUT", SETTINGS, Some(body)).await;
+            assert_eq!(
+                (status, &problem["code"]),
+                (409, &json!("version-conflict"))
+            );
+        }
+        for query in ["version=0", "version=3"] {
+            let (status, problem) =
+                call(&api, "DELETE", &format!("{SETTINGS}?{query}"), None).await;
+            assert_eq!(
+                (status, &problem["code"]),
+                (409, &json!("version-conflict"))
+            );
+        }
+        let (status, problem) = call(&api, "DELETE", &format!("{SETTINGS}?version=-1"), None).await;
+        assert_eq!((status, &problem["code"]), (422, &json!("version-invalid")));
+        let (status, _) = call(&api, "DELETE", SETTINGS, None).await;
+        assert_eq!(status, 422);
+        let (_, read) = call(&api, "GET", SETTINGS, None).await;
+        assert_eq!(read["version"], 1);
+    }
+
+    #[tokio::test]
+    async fn refused_values_name_the_field_that_caused_them() {
+        let api = test_api().await;
+        upload(&api, with_mode()).await;
+        let values = json!({ "dim": "yes", "mode": "z", "other": true });
+        let body = json!({ "values": values, "version": 0 });
+        let (status, problem) = call(&api, "PUT", SETTINGS, Some(body)).await;
+        assert_eq!(
+            (status, &problem["code"]),
+            (422, &json!("theme-settings-invalid"))
+        );
+        let fields: Vec<&str> = problem["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|error| error["field"].as_str().unwrap())
+            .collect();
+        assert_eq!(fields, ["dim", "mode", "other"]);
+        for body in [
+            json!({ "values": { "dim": 1 }, "version": 0 }),
+            json!({ "values": { "dim": null }, "version": 0 }),
+            json!({ "values": [], "version": 0 }),
+            json!({ "values": {} }),
+            json!({ "values": {}, "version": 0, "extra": 1 }),
+        ] {
+            let (status, _) = call(&api, "PUT", SETTINGS, Some(body)).await;
+            assert_eq!(status, 422);
+        }
+        let many: serde_json::Map<String, Value> = (0..51)
+            .map(|index| (format!("k{index}"), json!(true)))
+            .collect();
+        let body = json!({ "values": many, "version": 0 });
+        let (status, problem) = call(&api, "PUT", SETTINGS, Some(body)).await;
+        assert_eq!(
+            (status, &problem["errors"][0]["field"]),
+            (422, &json!("values"))
+        );
+        let (_, read) = call(&api, "GET", SETTINGS, None).await;
+        assert_eq!(read["version"], 0);
+    }
+
+    #[tokio::test]
+    async fn settings_of_themes_that_are_not_installed_are_not_found() {
+        let api = test_api().await;
+        let body = json!({ "values": {}, "version": 0 });
+        let (status, problem) = call(&api, "PUT", SETTINGS, Some(body)).await;
+        assert_eq!((status, &problem["code"]), (404, &json!("theme-not-found")));
+        let (status, _) = call(&api, "GET", SETTINGS, None).await;
+        assert_eq!(status, 404);
+        let (status, _) = call(&api, "DELETE", &format!("{SETTINGS}?version=0"), None).await;
+        assert_eq!(status, 404);
+        let (status, problem) = call(&api, "GET", "/api/v1/themes/No%20Good/settings", None).await;
+        assert_eq!(
+            (status, &problem["code"]),
+            (422, &json!("theme-id-invalid"))
+        );
+    }
+
+    #[tokio::test]
+    async fn uninstalling_a_theme_takes_its_settings_along() {
+        let api = test_api().await;
+        upload(&api, with_mode()).await;
+        let body = json!({ "values": { "dim": false }, "version": 0 });
+        call(&api, "PUT", SETTINGS, Some(body)).await;
+        call(&api, "DELETE", "/api/v1/themes/night-blue?version=1", None).await;
+        upload(&api, with_mode()).await;
+        let (_, read) = call(&api, "GET", SETTINGS, None).await;
+        assert_eq!(read, json!({ "values": {}, "version": 0 }));
     }
 
     #[tokio::test]

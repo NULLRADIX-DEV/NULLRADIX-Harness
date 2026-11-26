@@ -1,0 +1,322 @@
+[
+  {
+    "file": "<WORK>/night-blue/manifest.json",
+    "lines": 0,
+    "name": "manifest"
+  },
+  {
+    "file": "<WORK>/night-blue/theme.css",
+    "lines": 0,
+    "name": "stylesheet"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-blue",
+      "--out",
+      "<WORK>/night-blue.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the folder",
+    "stderr": "",
+    "stdout": "packed night-blue 1.2.0 (2 files) into <WORK>/night-blue.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/night-blue.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "install the package",
+    "stderr": "",
+    "stdout": "installed night-blue 1.2.0\n"
+  },
+  {
+    "name": "nothing is saved yet",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/settings"
+    },
+    "response": {
+      "json": {
+        "values": {},
+        "version": 0
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "settings",
+      "night-blue"
+    ],
+    "exitCode": 0,
+    "name": "the cli shows the defaults",
+    "stderr": "",
+    "stdout": "dim                  true             Dim (default true)\nmode                 calm             Mode (default calm)\n"
+  },
+  {
+    "name": "unknown keys and wrong values are refused per field",
+    "request": {
+      "body": {
+        "values": {
+          "dim": "yes",
+          "mode": "loud",
+          "other": true
+        },
+        "version": 0
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-blue/settings"
+    },
+    "response": {
+      "json": {
+        "code": "theme-settings-invalid",
+        "detail": "the values do not match the settings the theme declares",
+        "errors": [
+          {
+            "field": "dim",
+            "message": "the value must be true or false"
+          },
+          {
+            "field": "mode",
+            "message": "the value is none of the options"
+          },
+          {
+            "field": "other",
+            "message": "the theme declares no such setting"
+          }
+        ],
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-settings-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "settings",
+      "night-blue",
+      "set",
+      "dim=off",
+      "mode=bold"
+    ],
+    "exitCode": 0,
+    "name": "set two settings over the cli",
+    "stderr": "",
+    "stdout": "dim                  false            Dim (default true)\nmode                 bold             Mode (default calm)\n"
+  },
+  {
+    "name": "the values are saved with a version",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/settings"
+    },
+    "response": {
+      "json": {
+        "values": {
+          "dim": false,
+          "mode": "bold"
+        },
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "saving from a stale version conflicts",
+    "request": {
+      "body": {
+        "values": {
+          "dim": true
+        },
+        "version": 0
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-blue/settings"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "theme settings night-blue was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "settings",
+      "night-blue",
+      "set",
+      "mode=calm"
+    ],
+    "exitCode": 0,
+    "name": "set one setting and keep the other",
+    "stderr": "",
+    "stdout": "dim                  false            Dim (default true)\nmode                 calm             Mode (default calm)\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "settings",
+      "night-blue",
+      "set",
+      "dim=maybe"
+    ],
+    "exitCode": 1,
+    "name": "a switch takes true or false",
+    "stderr": "error: dim takes true or false\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "theme",
+      "settings",
+      "night-blue",
+      "set",
+      "mode=loud"
+    ],
+    "exitCode": 1,
+    "name": "an option that is not declared is refused",
+    "stderr": "error: the daemon refused the request: the values do not match the settings the theme declares: mode: the value is none of the options (theme-settings-invalid)\n",
+    "stdout": ""
+  },
+  {
+    "name": "resetting with a stale version conflicts",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/themes/night-blue/settings?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "theme settings night-blue was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "settings",
+      "night-blue",
+      "reset"
+    ],
+    "exitCode": 0,
+    "name": "reset over the cli",
+    "stderr": "",
+    "stdout": "reset the settings of night-blue\n"
+  },
+  {
+    "name": "the defaults are back",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/settings"
+    },
+    "response": {
+      "json": {
+        "values": {},
+        "version": 0
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "save again before the uninstall",
+    "request": {
+      "body": {
+        "values": {
+          "dim": false
+        },
+        "version": 0
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-blue/settings"
+    },
+    "response": {
+      "json": {
+        "values": {
+          "dim": false
+        },
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "remove",
+      "night-blue"
+    ],
+    "exitCode": 0,
+    "name": "remove the theme",
+    "stderr": "",
+    "stdout": "removed night-blue\n"
+  },
+  {
+    "name": "settings of a removed theme are not found",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/settings"
+    },
+    "response": {
+      "json": {
+        "code": "theme-not-found",
+        "detail": "the theme night-blue is not installed",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/night-blue.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "install it again",
+    "stderr": "",
+    "stdout": "installed night-blue 1.2.0\n"
+  },
+  {
+    "name": "the reinstalled theme starts with its defaults",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-blue/settings"
+    },
+    "response": {
+      "json": {
+        "values": {},
+        "version": 0
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "settings",
+      "ghost"
+    ],
+    "exitCode": 1,
+    "name": "the cli refuses a theme that is not installed",
+    "stderr": "error: the theme ghost is not installed\n",
+    "stdout": ""
+  }
+]

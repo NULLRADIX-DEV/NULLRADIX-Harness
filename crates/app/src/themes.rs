@@ -4,12 +4,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    BUILTIN_THEMES, DEFAULT_THEME, InstalledTheme, ThemeId, Timestamp, Version, asset_segments,
-    content_type,
+    BUILTIN_THEMES, DEFAULT_THEME, InstalledTheme, SettingValue, ThemeId, ThemeSettingValues,
+    Timestamp, Version, asset_segments, content_type,
 };
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::theme_package::{PackageFile, check_package};
+use crate::theme_settings::settings_invalid;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
 /// Entity id of the chosen theme in the change feed, which only takes UUIDs.
@@ -28,6 +30,35 @@ pub struct ThemeList {
     pub themes: Vec<InstalledTheme>,
     /// A built-in theme or the id of an installed one.
     pub active: String,
+}
+
+/// The values stored for a theme and the version of their row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredSettings {
+    pub values: ThemeSettingValues,
+    pub version: Version,
+}
+
+/// The values a theme runs with; `version` is `None` while nothing was saved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThemeSettings {
+    pub values: ThemeSettingValues,
+    pub version: Option<Version>,
+}
+
+impl From<Option<StoredSettings>> for ThemeSettings {
+    fn from(stored: Option<StoredSettings>) -> Self {
+        match stored {
+            Some(stored) => Self {
+                values: stored.values,
+                version: Some(stored.version),
+            },
+            None => Self {
+                values: ThemeSettingValues::default(),
+                version: None,
+            },
+        }
+    }
 }
 
 /// One write; dropping it without commit rolls back.
@@ -51,6 +82,28 @@ pub trait ThemeWrite: Send {
     async fn selection(&mut self) -> Result<Option<String>, AppError>;
     /// The change is `None` when the choice stays as it is.
     async fn select(&mut self, id: &str, at: Timestamp) -> Result<Option<Change>, AppError>;
+    async fn settings(&mut self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError>;
+    /// Stores the values when the row is at `expected` (`None`: no row yet), else a conflict.
+    async fn put_settings(
+        &mut self,
+        id: &ThemeId,
+        values: &ThemeSettingValues,
+        expected: Option<Version>,
+        at: Timestamp,
+    ) -> Result<(Version, Change), AppError>;
+    /// Drops the values when the row is at `expected`; `None` when nothing was stored.
+    async fn delete_settings(
+        &mut self,
+        id: &ThemeId,
+        expected: Version,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
+    /// Drops the values whatever their version; `None` when nothing was stored.
+    async fn purge_settings(
+        &mut self,
+        id: &ThemeId,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
     async fn commit(self: Box<Self>) -> Result<(), AppError>;
 }
 
@@ -62,6 +115,7 @@ pub trait ThemeRepository: Send + Sync {
     async fn get(&self, id: &ThemeId) -> Result<Option<InstalledTheme>, AppError>;
     /// The chosen theme; `None` while none was chosen.
     async fn selection(&self) -> Result<Option<String>, AppError>;
+    async fn settings(&self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError>;
 }
 
 /// The files of installed themes; adapters report refused packages with `package_invalid`.
@@ -225,10 +279,13 @@ impl ThemeService {
         let _writing = self.writes.lock().await;
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
+        // the values go with the theme, in the same transaction
+        let purged = write.purge_settings(&theme, now).await?;
         let Some(change) = write.delete(&theme, expected, now).await? else {
             return Err(theme_not_found(id));
         };
         let mut changes = vec![change];
+        changes.extend(purged);
         if write.selection().await?.as_deref() == Some(id) {
             changes.extend(write.select(DEFAULT_THEME, now).await?);
         }
@@ -239,6 +296,70 @@ impl ThemeService {
         // the row is gone; leftover files are inert and a later install replaces them
         if let Err(error) = self.files.remove(&theme).await {
             tracing::warn!(%error, theme = id, "cannot remove the files of the theme");
+        }
+        Ok(())
+    }
+
+    /// The values saved for an installed theme; none until something was saved.
+    pub async fn settings(&self, id: &str) -> Result<ThemeSettings, AppError> {
+        let theme = ThemeId::parse(id).map_err(|error| id_invalid(&error))?;
+        self.repository
+            .get(&theme)
+            .await?
+            .ok_or_else(|| theme_not_found(id))?;
+        Ok(self.repository.settings(&theme).await?.into())
+    }
+
+    /// Replaces the saved values after checking them against the settings the theme declares.
+    pub async fn save_settings(
+        &self,
+        id: &str,
+        input: BTreeMap<String, SettingValue>,
+        expected: Option<Version>,
+    ) -> Result<ThemeSettings, AppError> {
+        let theme_id = ThemeId::parse(id).map_err(|error| id_invalid(&error))?;
+        let mut write = self.repository.begin().await?;
+        // the manifest and the row are read in one transaction, so a reinstall cannot slip in
+        let theme = write
+            .theme(&theme_id)
+            .await?
+            .ok_or_else(|| theme_not_found(id))?;
+        let specs = theme.record().manifest.record().settings.as_ref();
+        let values = ThemeSettingValues::check(specs, input).map_err(settings_invalid)?;
+        let (version, change) = write
+            .put_settings(&theme_id, &values, expected, self.clock.now())
+            .await?;
+        write.commit().await?;
+        self.signal.notify(&change);
+        Ok(ThemeSettings {
+            values,
+            version: Some(version),
+        })
+    }
+
+    /// Back to the defaults of the manifest; nothing saved is already reset.
+    pub async fn reset_settings(
+        &self,
+        id: &str,
+        expected: Option<Version>,
+    ) -> Result<(), AppError> {
+        let theme = ThemeId::parse(id).map_err(|error| id_invalid(&error))?;
+        let mut write = self.repository.begin().await?;
+        if write.theme(&theme).await?.is_none() {
+            return Err(theme_not_found(id));
+        }
+        let change = match (write.settings(&theme).await?, expected) {
+            (None, _) => None,
+            (Some(stored), Some(expected)) if stored.version == expected => {
+                write
+                    .delete_settings(&theme, expected, self.clock.now())
+                    .await?
+            }
+            (Some(_), _) => return Err(AppError::version_conflict("theme settings", id)),
+        };
+        write.commit().await?;
+        if let Some(change) = &change {
+            self.signal.notify(change);
         }
         Ok(())
     }
@@ -283,6 +404,7 @@ pub(crate) mod tests {
         themes: Mutex<BTreeMap<String, (InstalledTheme, Uuid)>>,
         selection: Mutex<Option<String>>,
         feed: Mutex<Vec<(Entity, Uuid, ChangeOp)>>,
+        settings: Mutex<BTreeMap<String, StoredSettings>>,
     }
 
     impl Memory {
@@ -380,6 +502,67 @@ pub(crate) mod tests {
             )))
         }
 
+        async fn settings(&mut self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError> {
+            Ok(self.0.settings.lock().get(id.as_str()).cloned())
+        }
+
+        async fn put_settings(
+            &mut self,
+            id: &ThemeId,
+            values: &ThemeSettingValues,
+            expected: Option<Version>,
+            _at: Timestamp,
+        ) -> Result<(Version, Change), AppError> {
+            let feed_id = self.0.themes.lock().get(id.as_str()).map(|entry| entry.1);
+            let feed_id = feed_id.ok_or_else(|| theme_not_found(id.as_str()))?;
+            let mut settings = self.0.settings.lock();
+            let current = settings.get(id.as_str()).map(|stored| stored.version);
+            if current != expected {
+                return Err(AppError::version_conflict("theme settings", id));
+            }
+            let version = current.map_or(Version::INITIAL, Version::next);
+            settings.insert(
+                id.to_string(),
+                StoredSettings {
+                    values: values.clone(),
+                    version,
+                },
+            );
+            drop(settings);
+            Ok((
+                version,
+                self.0.record(Entity::Setting, feed_id, ChangeOp::Update),
+            ))
+        }
+
+        async fn delete_settings(
+            &mut self,
+            id: &ThemeId,
+            expected: Version,
+            at: Timestamp,
+        ) -> Result<Option<Change>, AppError> {
+            let current = self.0.settings.lock().get(id.as_str()).map(|s| s.version);
+            match current {
+                Some(version) if version != expected => {
+                    Err(AppError::version_conflict("theme settings", id))
+                }
+                Some(_) => self.purge_settings(id, at).await,
+                None => Ok(None),
+            }
+        }
+
+        async fn purge_settings(
+            &mut self,
+            id: &ThemeId,
+            _at: Timestamp,
+        ) -> Result<Option<Change>, AppError> {
+            let feed_id = self.0.themes.lock().get(id.as_str()).map(|entry| entry.1);
+            let removed = self.0.settings.lock().remove(id.as_str());
+            Ok(feed_id
+                .filter(|_| removed.is_some())
+                .map(|feed_id| self.0.record(Entity::Setting, feed_id, ChangeOp::Delete)))
+        }
+
         async fn commit(self: Box<Self>) -> Result<(), AppError> {
             Ok(())
         }
@@ -410,6 +593,10 @@ pub(crate) mod tests {
 
         async fn selection(&self) -> Result<Option<String>, AppError> {
             Ok(self.selection.lock().clone())
+        }
+
+        async fn settings(&self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError> {
+            Ok(self.settings.lock().get(id.as_str()).cloned())
         }
     }
 
@@ -507,6 +694,189 @@ pub(crate) mod tests {
 
     fn night_blue() -> Vec<u8> {
         archive(&package())
+    }
+
+    fn with_settings() -> Vec<u8> {
+        let schema = r#""network": [] },
+            "settingsSchema": {
+                "dim": { "type": "boolean", "label": "Dim", "default": true },
+                "mode": { "type": "select", "label": "Mode", "default": "a",
+                          "options": [{ "value": "a", "label": "A" }, { "value": "b", "label": "B" }] }
+            }"#;
+        let mut files = package();
+        files[0] = file(
+            "manifest.json",
+            &MANIFEST.replace(r#""network": [] }"#, schema),
+        );
+        archive(&files)
+    }
+
+    fn input(items: &[(&str, SettingValue)]) -> BTreeMap<String, SettingValue> {
+        items
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), value.clone()))
+            .collect()
+    }
+
+    fn choice(text: &str) -> SettingValue {
+        SettingValue::Choice(text.to_owned())
+    }
+
+    #[tokio::test]
+    async fn settings_start_empty_and_saving_counts_the_version_up() {
+        let fixture = fixture();
+        fixture.service.install(with_settings()).await.unwrap();
+        let none = fixture.service.settings("night-blue").await.unwrap();
+        assert_eq!((none.values.is_empty(), none.version), (true, None));
+        let first = input(&[("dim", SettingValue::Switch(false))]);
+        let saved = fixture
+            .service
+            .save_settings("night-blue", first, None)
+            .await
+            .unwrap();
+        assert_eq!(saved.version, Some(Version::INITIAL));
+        let second = input(&[("mode", choice("b"))]);
+        let saved = fixture
+            .service
+            .save_settings("night-blue", second.clone(), Some(Version::INITIAL))
+            .await
+            .unwrap();
+        assert_eq!(saved.version, Some(Version::from_stored(2)));
+        let read = fixture.service.settings("night-blue").await.unwrap();
+        assert_eq!(read, saved);
+        assert_eq!(read.values.values(), &second);
+        let feed = fixture.memory.feed.lock().clone();
+        assert_eq!(feed[1].0, Entity::Setting);
+        assert_eq!(feed[1].1, feed[0].1);
+    }
+
+    #[tokio::test]
+    async fn saving_refuses_stale_versions_and_bad_values_without_a_change() {
+        let fixture = fixture();
+        fixture.service.install(with_settings()).await.unwrap();
+        let on = input(&[("dim", SettingValue::Switch(true))]);
+        fixture
+            .service
+            .save_settings("night-blue", on.clone(), None)
+            .await
+            .unwrap();
+        for expected in [None, Some(Version::from_stored(5))] {
+            let error = fixture
+                .service
+                .save_settings("night-blue", on.clone(), expected)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), "version-conflict");
+        }
+        let bad = input(&[("mode", choice("z")), ("other", choice("a"))]);
+        let error = fixture
+            .service
+            .save_settings("night-blue", bad, Some(Version::INITIAL))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "theme-settings-invalid");
+        let fields: Vec<_> = error.fields().iter().map(|f| f.field.as_str()).collect();
+        assert_eq!(fields, ["mode", "other"]);
+        assert_eq!(fixture.memory.feed.lock().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn settings_of_an_unknown_theme_are_not_found() {
+        let fixture = fixture();
+        let on = input(&[("dim", SettingValue::Switch(true))]);
+        let error = fixture
+            .service
+            .save_settings("night-blue", on, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "theme-not-found");
+        let error = fixture.service.settings("night-blue").await.unwrap_err();
+        assert_eq!(error.code(), "theme-not-found");
+        let error = fixture.service.settings("Bad Id").await.unwrap_err();
+        assert_eq!(error.code(), "theme-id-invalid");
+        let error = fixture
+            .service
+            .reset_settings("night-blue", None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "theme-not-found");
+    }
+
+    #[tokio::test]
+    async fn a_theme_without_settings_refuses_every_key() {
+        let fixture = fixture();
+        fixture.service.install(night_blue()).await.unwrap();
+        let on = input(&[("dim", SettingValue::Switch(true))]);
+        let error = fixture
+            .service
+            .save_settings("night-blue", on, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "theme-settings-invalid");
+        let empty = fixture
+            .service
+            .save_settings("night-blue", BTreeMap::new(), None)
+            .await
+            .unwrap();
+        assert!(empty.values.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resetting_checks_the_version_and_is_idempotent() {
+        let fixture = fixture();
+        fixture.service.install(with_settings()).await.unwrap();
+        fixture
+            .service
+            .reset_settings("night-blue", None)
+            .await
+            .unwrap();
+        assert_eq!(fixture.memory.feed.lock().len(), 1);
+        let on = input(&[("dim", SettingValue::Switch(false))]);
+        fixture
+            .service
+            .save_settings("night-blue", on, None)
+            .await
+            .unwrap();
+        for expected in [None, Some(Version::from_stored(3))] {
+            let error = fixture
+                .service
+                .reset_settings("night-blue", expected)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), "version-conflict");
+        }
+        fixture
+            .service
+            .reset_settings("night-blue", Some(Version::INITIAL))
+            .await
+            .unwrap();
+        let read = fixture.service.settings("night-blue").await.unwrap();
+        assert_eq!((read.values.is_empty(), read.version), (true, None));
+        assert_eq!(
+            fixture.memory.feed.lock().last().unwrap().2,
+            ChangeOp::Delete
+        );
+    }
+
+    #[tokio::test]
+    async fn removing_a_theme_removes_its_values_and_a_reinstall_starts_clean() {
+        let fixture = fixture();
+        let theme = fixture.service.install(with_settings()).await.unwrap();
+        let on = input(&[("dim", SettingValue::Switch(false))]);
+        fixture
+            .service
+            .save_settings("night-blue", on, None)
+            .await
+            .unwrap();
+        fixture
+            .service
+            .remove("night-blue", theme.record().version)
+            .await
+            .unwrap();
+        assert!(fixture.memory.settings.lock().is_empty());
+        fixture.service.install(with_settings()).await.unwrap();
+        let read = fixture.service.settings("night-blue").await.unwrap();
+        assert_eq!(read.version, None);
     }
 
     #[tokio::test]

@@ -8,8 +8,11 @@ use nullradix_app::AppError;
 use nullradix_app::theme_package::{PackageFile, parse_manifest};
 use nullradix_app::themes::{ThemeFiles, ThemeRepository, ThemeService};
 use nullradix_app::{ChangeFeed, ChangeOp, ChangeSignal, Entity, SystemClock, UuidV7Generator};
-use nullradix_domain::{InstalledTheme, ThemeId, Timestamp, Version};
+use nullradix_domain::{
+    InstalledTheme, SettingValue, ThemeId, ThemeSettingValues, Timestamp, Version,
+};
 use nullradix_store::Store;
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 use uuid::Uuid;
 
@@ -266,4 +269,235 @@ async fn the_service_installs_selects_and_removes_against_the_database() {
             (Entity::Setting, ChangeOp::Update),
         ]
     );
+}
+
+fn input(items: &[(&str, SettingValue)]) -> BTreeMap<String, SettingValue> {
+    items
+        .iter()
+        .map(|(key, value)| ((*key).to_owned(), value.clone()))
+        .collect()
+}
+
+fn values(items: &[(&str, SettingValue)]) -> ThemeSettingValues {
+    ThemeSettingValues::restore(input(items))
+}
+
+fn choice(text: &str) -> SettingValue {
+    SettingValue::Choice(text.to_owned())
+}
+
+#[tokio::test]
+async fn settings_round_trip_with_their_version_and_feed_entries() {
+    let store = Store::in_memory().await.unwrap();
+    let id = ThemeId::parse("night-blue").unwrap();
+    let feed = Uuid::from_u128(7);
+    let at = Timestamp::from_millis(4);
+    let mut write = store.begin().await.unwrap();
+    write.insert(&theme(MANIFEST, 1), feed).await.unwrap();
+    assert_eq!(write.settings(&id).await.unwrap(), None);
+    let first = values(&[("dim", SettingValue::Switch(false))]);
+    let (version, change) = write.put_settings(&id, &first, None, at).await.unwrap();
+    assert_eq!(version, Version::INITIAL);
+    assert_eq!(
+        (change.entity, change.op, change.entity_id),
+        (Entity::Setting, ChangeOp::Insert, feed)
+    );
+    let second = values(&[("mode", choice("b"))]);
+    let (version, change) = write
+        .put_settings(&id, &second, Some(Version::INITIAL), at)
+        .await
+        .unwrap();
+    assert_eq!(
+        (version, change.op),
+        (Version::from_stored(2), ChangeOp::Update)
+    );
+    write.commit().await.unwrap();
+
+    let stored = store.settings(&id).await.unwrap().unwrap();
+    assert_eq!((stored.values, stored.version), (second, version));
+    let mut write = store.begin().await.unwrap();
+    let change = write
+        .delete_settings(&id, version, at)
+        .await
+        .unwrap()
+        .unwrap();
+    write.commit().await.unwrap();
+    assert_eq!(
+        (change.entity, change.op, change.entity_id),
+        (Entity::Setting, ChangeOp::Delete, feed)
+    );
+    assert_eq!(store.settings(&id).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn settings_writes_are_guarded_by_the_version() {
+    let store = Store::in_memory().await.unwrap();
+    let id = ThemeId::parse("night-blue").unwrap();
+    let at = Timestamp::from_millis(4);
+    let on = values(&[("dim", SettingValue::Switch(true))]);
+    let mut write = store.begin().await.unwrap();
+    write
+        .insert(&theme(MANIFEST, 1), Uuid::from_u128(1))
+        .await
+        .unwrap();
+    let missing = Version::from_stored(1);
+    let error = write
+        .put_settings(&id, &on, Some(missing), at)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "version-conflict");
+    write.put_settings(&id, &on, None, at).await.unwrap();
+    let error = write.put_settings(&id, &on, None, at).await.unwrap_err();
+    assert_eq!(error.code(), "version-conflict");
+    let stale = Version::from_stored(4);
+    let error = write
+        .put_settings(&id, &on, Some(stale), at)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "version-conflict");
+    let error = write.delete_settings(&id, stale, at).await.unwrap_err();
+    assert_eq!(error.code(), "version-conflict");
+    let ghost = ThemeId::parse("ghost").unwrap();
+    let error = write.put_settings(&ghost, &on, None, at).await.unwrap_err();
+    assert_eq!(error.code(), "theme-not-found");
+    let none = write.delete_settings(&ghost, stale, at).await.unwrap();
+    assert!(none.is_none());
+    write.commit().await.unwrap();
+    assert_eq!(changes(&store).await.len(), 2);
+}
+
+#[tokio::test]
+async fn purging_drops_the_values_of_one_theme_only() {
+    let store = Store::in_memory().await.unwrap();
+    let at = Timestamp::from_millis(4);
+    let on = values(&[("dim", SettingValue::Switch(true))]);
+    let mut write = store.begin().await.unwrap();
+    for (index, name) in ["night-blue", "other"].into_iter().enumerate() {
+        let json = MANIFEST.replace("night-blue", name);
+        write
+            .insert(&theme(&json, 1), Uuid::from_u128(index as u128 + 1))
+            .await
+            .unwrap();
+        let id = ThemeId::parse(name).unwrap();
+        write.put_settings(&id, &on, None, at).await.unwrap();
+    }
+    let id = ThemeId::parse("night-blue").unwrap();
+    assert!(write.purge_settings(&id, at).await.unwrap().is_some());
+    assert!(write.purge_settings(&id, at).await.unwrap().is_none());
+    write.commit().await.unwrap();
+    assert_eq!(store.settings(&id).await.unwrap(), None);
+    let other = ThemeId::parse("other").unwrap();
+    assert!(store.settings(&other).await.unwrap().is_some());
+}
+
+fn archive() -> Vec<u8> {
+    let hooks = "claude/hooks/hooks.json={}";
+    format!("manifest.json={MANIFEST}\n--\ntheme.css=a {{ color: red }}\n--\n{hooks}").into_bytes()
+}
+
+fn service(store: &Arc<Store>) -> ThemeService {
+    ThemeService::new(
+        store.clone(),
+        Arc::new(Files::default()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        ChangeSignal::new(),
+    )
+}
+
+#[tokio::test]
+async fn the_service_saves_and_drops_settings_with_the_theme() {
+    let store = Arc::new(Store::in_memory().await.unwrap());
+    let service = service(&store);
+    service.install(archive()).await.unwrap();
+    let saved = service
+        .save_settings("night-blue", input(&[("mode", choice("b"))]), None)
+        .await
+        .unwrap();
+    assert_eq!(saved.version, Some(Version::INITIAL));
+    let error = service
+        .save_settings("night-blue", input(&[("mode", choice("c"))]), saved.version)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "theme-settings-invalid");
+    assert_eq!(service.settings("night-blue").await.unwrap(), saved);
+
+    // a reinstall keeps what was chosen
+    let again = service.install(archive()).await.unwrap();
+    assert_eq!(service.settings("night-blue").await.unwrap(), saved);
+
+    // a refused removal leaves the values where they were
+    let error = service
+        .remove("night-blue", Version::from_stored(9))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "version-conflict");
+    assert_eq!(service.settings("night-blue").await.unwrap(), saved);
+
+    service
+        .remove("night-blue", again.record().version)
+        .await
+        .unwrap();
+    let id = ThemeId::parse("night-blue").unwrap();
+    assert_eq!(store.settings(&id).await.unwrap(), None);
+    service.install(archive()).await.unwrap();
+    assert_eq!(service.settings("night-blue").await.unwrap().version, None);
+}
+
+#[tokio::test]
+async fn resetting_removes_the_row_and_reports_a_stale_version() {
+    let store = Arc::new(Store::in_memory().await.unwrap());
+    let service = service(&store);
+    service.install(archive()).await.unwrap();
+    service.reset_settings("night-blue", None).await.unwrap();
+    let off = input(&[("dim", SettingValue::Switch(false))]);
+    let saved = service
+        .save_settings("night-blue", off, None)
+        .await
+        .unwrap();
+    let error = service
+        .reset_settings("night-blue", Some(Version::from_stored(2)))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "version-conflict");
+    service
+        .reset_settings("night-blue", saved.version)
+        .await
+        .unwrap();
+    let id = ThemeId::parse("night-blue").unwrap();
+    assert_eq!(store.settings(&id).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn two_saves_from_the_same_version_let_exactly_one_win() {
+    let store = Arc::new(Store::in_memory().await.unwrap());
+    let service = service(&store);
+    service.install(archive()).await.unwrap();
+    let (first, second) = tokio::join!(
+        service.save_settings("night-blue", input(&[("mode", choice("a"))]), None),
+        service.save_settings("night-blue", input(&[("mode", choice("b"))]), None),
+    );
+    let codes: Vec<_> = [first, second]
+        .into_iter()
+        .map(|result| result.err().map(|error| error.code()))
+        .collect();
+    assert_eq!(codes.iter().filter(|code| code.is_none()).count(), 1);
+    assert!(codes.contains(&Some("version-conflict")));
+}
+
+#[tokio::test]
+async fn a_save_after_the_uninstall_finds_no_theme() {
+    let store = Arc::new(Store::in_memory().await.unwrap());
+    let service = service(&store);
+    let installed = service.install(archive()).await.unwrap();
+    service
+        .remove("night-blue", installed.record().version)
+        .await
+        .unwrap();
+    let on = input(&[("dim", SettingValue::Switch(true))]);
+    let error = service
+        .save_settings("night-blue", on, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "theme-not-found");
 }

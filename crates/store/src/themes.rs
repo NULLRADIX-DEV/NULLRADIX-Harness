@@ -1,8 +1,13 @@
 use async_trait::async_trait;
 use nullradix_app::theme_package::{manifest_json, parse_manifest};
-use nullradix_app::themes::{SELECTION_FEED_ID, ThemeRepository, ThemeWrite};
+use nullradix_app::theme_settings::{parse_settings, settings_json};
+use nullradix_app::themes::{
+    SELECTION_FEED_ID, StoredSettings, ThemeRepository, ThemeWrite, theme_not_found,
+};
 use nullradix_app::{AppError, Change, ChangeOp, Entity};
-use nullradix_domain::{InstalledTheme, InstalledThemeRecord, ThemeId, Timestamp, Version};
+use nullradix_domain::{
+    InstalledTheme, InstalledThemeRecord, ThemeId, ThemeSettingValues, Timestamp, Version,
+};
 use sqlx::{Sqlite, SqliteConnection, Transaction};
 use uuid::Uuid;
 
@@ -11,6 +16,11 @@ use crate::{Store, StoreError, change_feed};
 
 /// Key of the chosen theme in the settings table.
 const SELECTION_KEY: &str = "theme";
+
+/// Settings key of the values chosen for one theme.
+fn settings_key(id: &ThemeId) -> String {
+    format!("theme-settings.{id}")
+}
 
 fn corrupt(what: &str) -> StoreError {
     StoreError::Corrupt(format!("invalid theme {what}"))
@@ -57,6 +67,37 @@ async fn selection(connection: &mut SqliteConnection) -> Result<Option<String>, 
     value
         .map(|text| serde_json::from_str::<String>(&text).map_err(|_| corrupt("selection")))
         .transpose()
+}
+
+async fn stored_settings(
+    connection: &mut SqliteConnection,
+    id: &ThemeId,
+) -> Result<Option<StoredSettings>, StoreError> {
+    let key = settings_key(id);
+    let row = sqlx::query!("SELECT value, version FROM settings WHERE key = ?", key)
+        .fetch_optional(&mut *connection)
+        .await?;
+    row.map(|row| {
+        let values = parse_settings(&row.value).ok_or_else(|| corrupt("settings"))?;
+        Ok(StoredSettings {
+            values,
+            version: Version::from_stored(row.version),
+        })
+    })
+    .transpose()
+}
+
+async fn feed_id_of(
+    connection: &mut SqliteConnection,
+    id: &ThemeId,
+) -> Result<Option<Uuid>, StoreError> {
+    let name = id.as_str();
+    Ok(sqlx::query_scalar!(
+        r#"SELECT feed_id AS "feed_id: Uuid" FROM installed_themes WHERE theme_id = ?"#,
+        name
+    )
+    .fetch_optional(&mut *connection)
+    .await?)
 }
 
 struct Columns {
@@ -250,8 +291,126 @@ impl ThemeWrite for Write {
         ))
     }
 
+    async fn settings(&mut self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError> {
+        Ok(stored_settings(&mut self.0, id).await?)
+    }
+
+    async fn put_settings(
+        &mut self,
+        id: &ThemeId,
+        values: &ThemeSettingValues,
+        expected: Option<Version>,
+        at: Timestamp,
+    ) -> Result<(Version, Change), AppError> {
+        let Some(feed_id) = feed_id_of(&mut self.0, id).await? else {
+            return Err(theme_not_found(id.as_str()));
+        };
+        let key = settings_key(id);
+        let json = settings_json(values).to_string();
+        let millis = at.as_millis();
+        let conflict = || AppError::version_conflict("theme settings", id);
+        let (version, op) = if let Some(expected) = expected {
+            let next = expected.next();
+            let (next_value, expected_value) = (next.value(), expected.value());
+            let updated = sqlx::query!(
+                "UPDATE settings SET value = ?, version = ?, updated_at = ?
+                 WHERE key = ? AND version = ?",
+                json,
+                next_value,
+                millis,
+                key,
+                expected_value,
+            )
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+            if updated.rows_affected() == 0 {
+                return Err(conflict());
+            }
+            (next, ChangeOp::Update)
+        } else {
+            let inserted = sqlx::query!(
+                "INSERT INTO settings (key, value, version, updated_at) VALUES (?, ?, 1, ?)
+                 ON CONFLICT (key) DO NOTHING",
+                key,
+                json,
+                millis,
+            )
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+            if inserted.rows_affected() == 0 {
+                return Err(conflict());
+            }
+            (Version::INITIAL, ChangeOp::Insert)
+        };
+        let change = change_feed::record(&mut self.0, Entity::Setting, feed_id, op, at).await?;
+        Ok((version, change))
+    }
+
+    async fn delete_settings(
+        &mut self,
+        id: &ThemeId,
+        expected: Version,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        let Some(stored) = stored_settings(&mut self.0, id).await? else {
+            return Ok(None);
+        };
+        if stored.version != expected {
+            return Err(AppError::version_conflict("theme settings", id));
+        }
+        let key = settings_key(id);
+        let expected_value = expected.value();
+        let deleted = sqlx::query!(
+            "DELETE FROM settings WHERE key = ? AND version = ?",
+            key,
+            expected_value
+        )
+        .execute(&mut *self.0)
+        .await
+        .map_err(database)?;
+        if deleted.rows_affected() == 0 {
+            return Err(AppError::version_conflict("theme settings", id));
+        }
+        self.settings_removed(id, at).await
+    }
+
+    async fn purge_settings(
+        &mut self,
+        id: &ThemeId,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        let key = settings_key(id);
+        let deleted = sqlx::query!("DELETE FROM settings WHERE key = ?", key)
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?;
+        if deleted.rows_affected() == 0 {
+            return Ok(None);
+        }
+        self.settings_removed(id, at).await
+    }
+
     async fn commit(self: Box<Self>) -> Result<(), AppError> {
         self.0.commit().await.map_err(database)
+    }
+}
+
+impl Write {
+    /// Records the removal of a theme's values under the id the theme has in the feed.
+    async fn settings_removed(
+        &mut self,
+        id: &ThemeId,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        let Some(feed_id) = feed_id_of(&mut self.0, id).await? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            change_feed::record(&mut self.0, Entity::Setting, feed_id, ChangeOp::Delete, at)
+                .await?,
+        ))
     }
 }
 
@@ -274,5 +433,10 @@ impl ThemeRepository for Store {
     async fn selection(&self) -> Result<Option<String>, AppError> {
         let mut read = self.reader.acquire().await.map_err(database)?;
         Ok(selection(&mut read).await?)
+    }
+
+    async fn settings(&self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError> {
+        let mut read = self.reader.acquire().await.map_err(database)?;
+        Ok(stored_settings(&mut read, id).await?)
     }
 }

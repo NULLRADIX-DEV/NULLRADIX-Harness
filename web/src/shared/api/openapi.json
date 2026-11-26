@@ -6108,6 +6108,211 @@
         }
       }
     },
+    "/api/v1/themes/{id}/settings": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "theme_settings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeSettingsDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The theme is not installed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "save_theme_settings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveThemeSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeSettingsDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The theme is not installed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`theme-settings-invalid` with the refused keys as fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "reset_theme_settings",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Version the reset is based on; 0 when nothing was saved.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Back to the defaults of the manifest, also when nothing was saved"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The theme is not installed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets": {
       "get": {
         "tags": [
@@ -12173,6 +12378,31 @@
           "macos"
         ]
       },
+      "SaveThemeSettings": {
+        "type": "object",
+        "required": [
+          "values",
+          "version"
+        ],
+        "properties": {
+          "values": {
+            "type": "object",
+            "description": "All values of the theme; they replace the saved ones.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ThemeSettingValueDto"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version the save is based on; 0 when nothing was saved yet."
+          }
+        },
+        "additionalProperties": false
+      },
       "ScreenshotDto": {
         "type": "object",
         "required": [
@@ -13121,6 +13351,42 @@
           }
         ],
         "description": "A setting the theme offers."
+      },
+      "ThemeSettingValueDto": {
+        "oneOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "A switch or the value of one option."
+      },
+      "ThemeSettingsDto": {
+        "type": "object",
+        "description": "The values chosen for the settings of a theme.",
+        "required": [
+          "values",
+          "version"
+        ],
+        "properties": {
+          "values": {
+            "type": "object",
+            "description": "Chosen values by setting key; a key without a value uses the default of the manifest.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ThemeSettingValueDto"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Row version for saving and resetting; 0 while nothing was saved."
+          }
+        }
       },
       "TicketDetailDto": {
         "type": "object",

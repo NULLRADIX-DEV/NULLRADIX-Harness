@@ -26,6 +26,7 @@ pub mod secrets;
 pub mod session_detail;
 pub mod sessions;
 pub mod theme_package;
+pub mod theme_settings;
 pub mod themes;
 pub mod tickets;
 pub mod usage;

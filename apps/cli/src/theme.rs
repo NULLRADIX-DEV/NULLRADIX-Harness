@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, bail};
 use clap::Subcommand;
+use nullradix_api::{SaveThemeSettings, ThemeDto, ThemeSettingDto, ThemeSettingValueDto};
 use nullradix_app::theme_package::{PackageFile, check_package};
 use nullradix_client::Client;
 use nullradix_domain::{BUILTIN_THEMES, MAX_PACKAGE_BYTES};
@@ -27,6 +29,12 @@ pub(crate) enum ThemeCommand {
     },
     /// Uninstall a theme; when it was chosen the default takes over
     Remove { id: String },
+    /// Show the settings of an installed theme, set some or reset them all
+    Settings {
+        id: String,
+        #[command(subcommand)]
+        action: Option<SettingsAction>,
+    },
     /// Check a theme folder and pack it into a `.nullradix` package; needs no daemon
     Pack {
         /// Folder with manifest.json and theme.css
@@ -35,6 +43,17 @@ pub(crate) enum ThemeCommand {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum SettingsAction {
+    /// Set settings and keep the others as they are
+    Set {
+        #[arg(required = true, value_name = "KEY=VALUE")]
+        pairs: Vec<String>,
+    },
+    /// Back to the defaults of the manifest
+    Reset,
 }
 
 pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<ExitCode> {
@@ -67,9 +86,90 @@ pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<Exit
             client.remove_theme(&id, theme.version)?;
             println!("removed {id}");
         }
+        ThemeCommand::Settings { id, action } => settings(client, &id, action)?,
         ThemeCommand::Pack { .. } => bail!("pack runs without a daemon"),
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn key_of(setting: &ThemeSettingDto) -> &str {
+    match setting {
+        ThemeSettingDto::Boolean { key, .. } | ThemeSettingDto::Select { key, .. } => key,
+    }
+}
+
+/// Reads `key=value`; a switch takes true or false, anything else is text for the server to check.
+fn parse_pair(
+    declared: &[ThemeSettingDto],
+    pair: &str,
+) -> anyhow::Result<(String, ThemeSettingValueDto)> {
+    let Some((key, text)) = pair.split_once('=') else {
+        bail!("{pair} is not KEY=VALUE");
+    };
+    let is_switch = declared.iter().any(|setting| {
+        key_of(setting) == key && matches!(setting, ThemeSettingDto::Boolean { .. })
+    });
+    let value = if is_switch {
+        match text {
+            "true" | "on" => ThemeSettingValueDto::Switch(true),
+            "false" | "off" => ThemeSettingValueDto::Switch(false),
+            _ => bail!("{key} takes true or false"),
+        }
+    } else {
+        ThemeSettingValueDto::Choice(text.to_owned())
+    };
+    Ok((key.to_owned(), value))
+}
+
+fn shown(value: &ThemeSettingValueDto) -> String {
+    match value {
+        ThemeSettingValueDto::Switch(on) => on.to_string(),
+        ThemeSettingValueDto::Choice(text) => text.clone(),
+    }
+}
+
+fn print_settings(theme: &ThemeDto, values: &BTreeMap<String, ThemeSettingValueDto>) {
+    if theme.settings.is_empty() {
+        println!("{} declares no settings", theme.id);
+    }
+    for setting in &theme.settings {
+        let (label, default) = match setting {
+            ThemeSettingDto::Boolean { label, default, .. } => (label, default.to_string()),
+            ThemeSettingDto::Select { label, default, .. } => (label, default.clone()),
+        };
+        let key = key_of(setting);
+        let value = values.get(key).map_or_else(|| default.clone(), shown);
+        println!("{key:<20} {value:<16} {label} (default {default})");
+    }
+}
+
+fn settings(client: &Client, id: &str, action: Option<SettingsAction>) -> anyhow::Result<()> {
+    let themes = client.list_themes()?.items;
+    let Some(theme) = themes.iter().find(|theme| theme.id == id) else {
+        bail!("the theme {id} is not installed");
+    };
+    let current = client.theme_settings(id)?;
+    match action {
+        None => print_settings(theme, &current.values),
+        Some(SettingsAction::Set { pairs }) => {
+            let mut values = current.values;
+            for pair in &pairs {
+                let (key, value) = parse_pair(&theme.settings, pair)?;
+                values.insert(key, value);
+            }
+            let input = SaveThemeSettings {
+                values,
+                version: current.version,
+            };
+            let saved = client.save_theme_settings(id, &input)?;
+            print_settings(theme, &saved.values);
+        }
+        Some(SettingsAction::Reset) => {
+            client.reset_theme_settings(id, current.version)?;
+            println!("reset the settings of {id}");
+        }
+    }
+    Ok(())
 }
 
 fn list(client: &Client, json: bool) -> anyhow::Result<()> {
@@ -155,6 +255,40 @@ mod tests {
             std::fs::write(target, data).unwrap();
         }
         dir
+    }
+
+    fn declared() -> Vec<ThemeSettingDto> {
+        vec![
+            ThemeSettingDto::Boolean {
+                key: String::from("dim"),
+                label: String::from("Dim"),
+                hint: None,
+                default: true,
+            },
+            ThemeSettingDto::Select {
+                key: String::from("mode"),
+                label: String::from("Mode"),
+                hint: None,
+                options: Vec::new(),
+                default: String::from("a"),
+            },
+        ]
+    }
+
+    #[test]
+    fn pairs_are_typed_by_the_declared_setting() {
+        let declared = declared();
+        let (key, value) = parse_pair(&declared, "dim=off").unwrap();
+        assert_eq!(
+            (key.as_str(), value),
+            ("dim", ThemeSettingValueDto::Switch(false))
+        );
+        let (_, value) = parse_pair(&declared, "mode=b").unwrap();
+        assert_eq!(value, ThemeSettingValueDto::Choice(String::from("b")));
+        let (_, value) = parse_pair(&declared, "other=true=x").unwrap();
+        assert_eq!(value, ThemeSettingValueDto::Choice(String::from("true=x")));
+        assert!(parse_pair(&declared, "dim=maybe").is_err());
+        assert!(parse_pair(&declared, "dim").is_err());
     }
 
     #[test]

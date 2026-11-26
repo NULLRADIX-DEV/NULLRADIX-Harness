@@ -12,8 +12,8 @@ pub const BUILTIN_THEMES: [&str; 4] = ["nullradix", "system", "light", "dark"];
 pub const DEFAULT_THEME: &str = "nullradix";
 const THEME_ID_MIN: usize = 2;
 const THEME_ID_MAX: usize = 40;
-const SETTING_KEY_MAX: usize = 40;
-const SETTINGS_MAX: usize = 50;
+pub(crate) const SETTING_KEY_MAX: usize = 40;
+pub(crate) const SETTINGS_MAX: usize = 50;
 /// Largest package and largest sum of its unpacked files.
 pub const MAX_PACKAGE_BYTES: u64 = 20 * 1024 * 1024;
 pub const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;

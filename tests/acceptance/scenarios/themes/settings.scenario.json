@@ -1,0 +1,117 @@
+{
+  "title": "Theme settings are checked against the manifest, saved with a version, reset and removed with the theme",
+  "steps": [
+    {
+      "name": "manifest",
+      "file": {
+        "path": "{{WORK}}/night-blue/manifest.json",
+        "text": "{\"id\":\"night-blue\",\"name\":\"Night Blue\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[]},\"settingsSchema\":{\"dim\":{\"type\":\"boolean\",\"label\":\"Dim\",\"default\":true},\"mode\":{\"type\":\"select\",\"label\":\"Mode\",\"default\":\"calm\",\"options\":[{\"value\":\"calm\",\"label\":\"Calm\"},{\"value\":\"bold\",\"label\":\"Bold\"}]}}}"
+      }
+    },
+    {
+      "name": "stylesheet",
+      "file": {
+        "path": "{{WORK}}/night-blue/theme.css",
+        "text": "[data-theme-mode='night-blue'] { --accent: #6c63ff; }\n"
+      }
+    },
+    {
+      "name": "pack the folder",
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-blue", "--out", "{{WORK}}/night-blue.nullradix"]
+      }
+    },
+    {
+      "name": "install the package",
+      "cli": { "args": ["theme", "install", "{{WORK}}/night-blue.nullradix"] }
+    },
+    {
+      "name": "nothing is saved yet",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/settings" }
+    },
+    {
+      "name": "the cli shows the defaults",
+      "cli": { "args": ["theme", "settings", "night-blue"] }
+    },
+    {
+      "name": "unknown keys and wrong values are refused per field",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-blue/settings",
+        "body": { "values": { "dim": "yes", "mode": "loud", "other": true }, "version": 0 }
+      }
+    },
+    {
+      "name": "set two settings over the cli",
+      "cli": { "args": ["theme", "settings", "night-blue", "set", "dim=off", "mode=bold"] }
+    },
+    {
+      "name": "the values are saved with a version",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/settings" },
+      "save": { "version": "json.version" }
+    },
+    {
+      "name": "saving from a stale version conflicts",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-blue/settings",
+        "body": { "values": { "dim": true }, "version": 0 }
+      }
+    },
+    {
+      "name": "set one setting and keep the other",
+      "cli": { "args": ["theme", "settings", "night-blue", "set", "mode=calm"] }
+    },
+    {
+      "name": "a switch takes true or false",
+      "cli": { "args": ["theme", "settings", "night-blue", "set", "dim=maybe"] }
+    },
+    {
+      "name": "an option that is not declared is refused",
+      "cli": { "args": ["theme", "settings", "night-blue", "set", "mode=loud"] }
+    },
+    {
+      "name": "resetting with a stale version conflicts",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/v1/themes/night-blue/settings?version={{version}}"
+      }
+    },
+    {
+      "name": "reset over the cli",
+      "cli": { "args": ["theme", "settings", "night-blue", "reset"] }
+    },
+    {
+      "name": "the defaults are back",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/settings" }
+    },
+    {
+      "name": "save again before the uninstall",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-blue/settings",
+        "body": { "values": { "dim": false }, "version": 0 }
+      }
+    },
+    {
+      "name": "remove the theme",
+      "cli": { "args": ["theme", "remove", "night-blue"] }
+    },
+    {
+      "name": "settings of a removed theme are not found",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/settings" }
+    },
+    {
+      "name": "install it again",
+      "cli": { "args": ["theme", "install", "{{WORK}}/night-blue.nullradix"] }
+    },
+    {
+      "name": "the reinstalled theme starts with its defaults",
+      "http": { "method": "GET", "path": "/api/v1/themes/night-blue/settings" }
+    },
+    {
+      "name": "the cli refuses a theme that is not installed",
+      "cli": { "args": ["theme", "settings", "ghost"] }
+    }
+  ]
+}
