@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nullradix_domain::WorktreeSetupStep;
+use tokio_util::sync::CancellationToken;
 
 use crate::AppError;
 
@@ -54,12 +55,19 @@ impl SetupFailure {
 pub enum SetupOutcome {
     Done,
     Failed(SetupFailure),
+    /// Stopped on request, for instance at shutdown; no step failed.
+    Cancelled,
 }
 
 #[async_trait]
 pub trait WorktreeSetupPort: Send + Sync {
-    /// Runs the steps one after the other and stops at the first that fails.
-    async fn run(&self, request: &SetupRequest) -> Result<SetupOutcome, AppError>;
+    /// Runs the steps one after the other and stops at the first that fails or at `cancel`,
+    /// which also kills the process tree of the running step.
+    async fn run(
+        &self,
+        request: &SetupRequest,
+        cancel: &CancellationToken,
+    ) -> Result<SetupOutcome, AppError>;
 }
 
 #[cfg(test)]

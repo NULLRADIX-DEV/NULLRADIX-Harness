@@ -11,6 +11,7 @@ use nullradix_app::AppError;
 use nullradix_app::dispatch::setup::{SetupFailure, SetupOutcome, SetupRequest, WorktreeSetupPort};
 use nullradix_domain::WorktreeSetupStep;
 use nullradix_os::ProcessTree;
+use tokio_util::sync::CancellationToken;
 
 /// Characters of a step's output that are kept, from the end.
 const OUTPUT_KEPT: usize = 20_000;
@@ -22,22 +23,38 @@ pub struct LocalSetup;
 
 #[async_trait]
 impl WorktreeSetupPort for LocalSetup {
-    async fn run(&self, request: &SetupRequest) -> Result<SetupOutcome, AppError> {
+    async fn run(
+        &self,
+        request: &SetupRequest,
+        cancel: &CancellationToken,
+    ) -> Result<SetupOutcome, AppError> {
         let request = request.clone();
-        tokio::task::spawn_blocking(move || run_steps(&request))
+        let cancel = cancel.clone();
+        tokio::task::spawn_blocking(move || run_steps(&request, &cancel))
             .await
             .map_err(AppError::internal)
     }
 }
 
-fn run_steps(request: &SetupRequest) -> SetupOutcome {
+fn run_steps(request: &SetupRequest, cancel: &CancellationToken) -> SetupOutcome {
     let root = PathBuf::from(&request.root);
     for step in &request.steps {
-        if let Some(failure) = run_step(&root, step, request) {
-            return SetupOutcome::Failed(failure);
+        if cancel.is_cancelled() {
+            return SetupOutcome::Cancelled;
+        }
+        match run_step(&root, step, request, cancel) {
+            StepEnd::Done => {}
+            StepEnd::Cancelled => return SetupOutcome::Cancelled,
+            StepEnd::Failed(failure) => return SetupOutcome::Failed(failure),
         }
     }
     SetupOutcome::Done
+}
+
+enum StepEnd {
+    Done,
+    Cancelled,
+    Failed(SetupFailure),
 }
 
 fn failure(
@@ -62,33 +79,55 @@ fn folder_in(root: &Path, relative: &str) -> Option<PathBuf> {
     (folder.starts_with(&root) && folder.is_dir()).then_some(folder)
 }
 
-fn shell(run: &str, git_bash: Option<&str>) -> Command {
+/// The configured Git Bash, which must exist when one is configured.
+fn configured_bash(git_bash: Option<&str>) -> Result<Option<&str>, String> {
+    match git_bash {
+        Some(path) if !Path::new(path).exists() => {
+            Err(format!("The configured Git Bash {path} does not exist."))
+        }
+        other => Ok(other),
+    }
+}
+
+fn shell(run: &str, git_bash: Option<&str>) -> Result<Command, String> {
     if cfg!(windows) {
-        if let Some(bash) = git_bash.filter(|path| Path::new(path).exists()) {
+        if let Some(bash) = configured_bash(git_bash)? {
             let mut command = Command::new(bash);
             command.arg("-c").arg(run);
-            return command;
+            return Ok(command);
         }
         let mut command = Command::new("cmd");
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            command.raw_arg("/d /s /c").raw_arg(run);
+            command
+                .args(["/d", "/s", "/c"])
+                .raw_arg(format!("\"{run}\""));
         }
-        return command;
+        return Ok(command);
     }
     let mut command = Command::new("/bin/sh");
     command.arg("-c").arg(run);
-    command
+    Ok(command)
 }
 
+/// Reads a pipe to its end and keeps only the last `OUTPUT_KEPT` bytes.
 fn drain(pipe: Option<impl Read + Send + 'static>) -> thread::JoinHandle<Vec<u8>> {
     thread::spawn(move || {
-        let mut bytes = Vec::new();
+        let mut kept = Vec::new();
         if let Some(mut pipe) = pipe {
-            let _ = pipe.read_to_end(&mut bytes);
+            let mut chunk = [0_u8; 8192];
+            while let Ok(read) = pipe.read(&mut chunk) {
+                if read == 0 {
+                    break;
+                }
+                kept.extend_from_slice(&chunk[..read]);
+                if kept.len() > OUTPUT_KEPT {
+                    kept.drain(..kept.len() - OUTPUT_KEPT);
+                }
+            }
         }
-        bytes
+        kept
     })
 }
 
@@ -101,12 +140,20 @@ fn tail(bytes: &[u8]) -> String {
     text.chars().skip(count - OUTPUT_KEPT).collect()
 }
 
-fn run_step(root: &Path, step: &WorktreeSetupStep, request: &SetupRequest) -> Option<SetupFailure> {
+fn run_step(
+    root: &Path,
+    step: &WorktreeSetupStep,
+    request: &SetupRequest,
+    cancel: &CancellationToken,
+) -> StepEnd {
     let Some(folder) = folder_in(root, &step.cwd) else {
         let output = format!("The folder {} does not exist in the worktree.", step.cwd);
-        return Some(failure(step, None, false, output));
+        return StepEnd::Failed(failure(step, None, false, output));
     };
-    let mut command = shell(&step.run, request.git_bash.as_deref());
+    let mut command = match shell(&step.run, request.git_bash.as_deref()) {
+        Ok(command) => command,
+        Err(message) => return StepEnd::Failed(failure(step, None, false, message)),
+    };
     command
         .current_dir(&folder)
         .stdin(Stdio::null())
@@ -114,7 +161,7 @@ fn run_step(root: &Path, step: &WorktreeSetupStep, request: &SetupRequest) -> Op
         .stderr(Stdio::piped());
     let mut tree = match ProcessTree::spawn(&mut command) {
         Ok(tree) => tree,
-        Err(error) => return Some(failure(step, None, false, error.to_string())),
+        Err(error) => return StepEnd::Failed(failure(step, None, false, error.to_string())),
     };
     let stdout = drain(tree.take_stdout());
     let stderr = drain(tree.take_stderr());
@@ -122,13 +169,20 @@ fn run_step(root: &Path, step: &WorktreeSetupStep, request: &SetupRequest) -> Op
     let (code, timed_out) = loop {
         match tree.try_wait() {
             Ok(Some(status)) => break (status.code(), false),
+            Ok(None) if cancel.is_cancelled() => {
+                let _ = tree.kill();
+                let _ = tree.wait();
+                return StepEnd::Cancelled;
+            }
             Ok(None) if started.elapsed() > request.timeout => {
                 let _ = tree.kill();
                 let _ = tree.wait();
                 break (None, true);
             }
             Ok(None) => thread::sleep(POLL),
-            Err(error) => return Some(failure(step, None, false, error.to_string())),
+            Err(error) => {
+                return StepEnd::Failed(failure(step, None, false, error.to_string()));
+            }
         }
     };
     let mut output = tail(&stdout.join().unwrap_or_default());
@@ -139,7 +193,10 @@ fn run_step(root: &Path, step: &WorktreeSetupStep, request: &SetupRequest) -> Op
         }
         output.push_str(&errors);
     }
-    (code != Some(0) || timed_out).then(|| failure(step, code, timed_out, output))
+    if code != Some(0) || timed_out {
+        return StepEnd::Failed(failure(step, code, timed_out, output));
+    }
+    StepEnd::Done
 }
 
 #[cfg(test)]
@@ -159,6 +216,13 @@ mod tests {
             timeout,
             git_bash: None,
         }
+    }
+
+    async fn run(request: &SetupRequest) -> SetupOutcome {
+        LocalSetup
+            .run(request, &CancellationToken::new())
+            .await
+            .unwrap()
     }
 
     fn failing_command() -> &'static str {
@@ -181,17 +245,14 @@ mod tests {
     async fn steps_run_in_their_folder_one_after_the_other() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join("web")).unwrap();
-        let outcome = LocalSetup
-            .run(&request(
+        let outcome = run(&request(
                 temp.path(),
                 &[
                     ("web", "echo one> marker.txt"),
                     (".", "echo two> second.txt"),
                 ],
                 Duration::from_secs(30),
-            ))
-            .await
-            .unwrap();
+            )).await;
         assert_eq!(outcome, SetupOutcome::Done);
         assert!(temp.path().join("web/marker.txt").is_file());
         assert!(temp.path().join("second.txt").is_file());
@@ -200,14 +261,11 @@ mod tests {
     #[tokio::test]
     async fn the_first_failing_step_stops_the_setup_with_its_output() {
         let temp = tempfile::tempdir().unwrap();
-        let outcome = LocalSetup
-            .run(&request(
+        let outcome = run(&request(
                 temp.path(),
                 &[(".", failing_command()), (".", "echo never> late.txt")],
                 Duration::from_secs(30),
-            ))
-            .await
-            .unwrap();
+            )).await;
         let SetupOutcome::Failed(found) = outcome else {
             panic!("the step must fail");
         };
@@ -219,14 +277,11 @@ mod tests {
     #[tokio::test]
     async fn a_folder_outside_the_worktree_is_refused() {
         let temp = tempfile::tempdir().unwrap();
-        let outcome = LocalSetup
-            .run(&request(
+        let outcome = run(&request(
                 temp.path(),
                 &[("..", "echo x")],
                 Duration::from_secs(30),
-            ))
-            .await
-            .unwrap();
+            )).await;
         let SetupOutcome::Failed(found) = outcome else {
             panic!("the step must fail");
         };
@@ -237,18 +292,84 @@ mod tests {
     #[tokio::test]
     async fn a_step_that_takes_too_long_is_killed() {
         let temp = tempfile::tempdir().unwrap();
-        let outcome = LocalSetup
-            .run(&request(
+        let outcome = run(&request(
                 temp.path(),
                 &[(".", sleep_command())],
                 Duration::from_millis(300),
-            ))
-            .await
-            .unwrap();
+            )).await;
         let SetupOutcome::Failed(found) = outcome else {
             panic!("the step must time out");
         };
         assert!(found.timed_out);
         assert_eq!(found.cause(), "timed out");
+    }
+
+    #[tokio::test]
+    async fn a_command_that_starts_with_a_quote_runs_whole() {
+        let temp = tempfile::tempdir().unwrap();
+        let line = if cfg!(windows) {
+            "\"cmd\" /c echo hi>\"two words.txt\""
+        } else {
+            "\"echo\" hi>\"two words.txt\""
+        };
+        let outcome = run(&request(temp.path(), &[(".", line)], Duration::from_secs(30))).await;
+        assert_eq!(outcome, SetupOutcome::Done);
+        assert!(temp.path().join("two words.txt").is_file());
+    }
+
+    #[tokio::test]
+    async fn only_the_end_of_a_long_output_is_kept() {
+        let temp = tempfile::tempdir().unwrap();
+        let line = if cfg!(windows) {
+            "(for /L %i in (1,1,6000) do @echo line number %i padding padding padding) & exit 1"
+        } else {
+            "i=1; while [ $i -le 6000 ]; do echo line number $i padding padding padding; i=$((i+1)); done; exit 1"
+        };
+        let outcome = run(&request(temp.path(), &[(".", line)], Duration::from_secs(60))).await;
+        let SetupOutcome::Failed(found) = outcome else {
+            panic!("the step must fail");
+        };
+        assert!(found.output.len() <= OUTPUT_KEPT);
+        assert!(found.output.contains("line number 6000"));
+        assert!(!found.output.contains("line number 1 "));
+    }
+
+    #[test]
+    fn a_configured_git_bash_that_is_missing_is_an_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let gone = temp.path().join("no-bash.exe");
+        let gone = gone.to_string_lossy().into_owned();
+        let error = configured_bash(Some(&gone)).unwrap_err();
+        assert!(error.contains("does not exist"), "{error}");
+        assert_eq!(configured_bash(None), Ok(None));
+        let present = temp.path().to_string_lossy().into_owned();
+        assert_eq!(configured_bash(Some(&present)), Ok(Some(present.as_str())));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_missing_git_bash_fails_the_step_instead_of_using_cmd() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut asked = request(temp.path(), &[(".", "echo x")], Duration::from_secs(30));
+        asked.git_bash = Some(temp.path().join("no-bash.exe").to_string_lossy().into_owned());
+        let SetupOutcome::Failed(found) = run(&asked).await else {
+            panic!("the step must fail");
+        };
+        assert_eq!(found.code, None);
+        assert!(found.output.contains("Git Bash"));
+    }
+
+    #[tokio::test]
+    async fn cancelling_kills_the_running_step() {
+        let temp = tempfile::tempdir().unwrap();
+        let cancel = CancellationToken::new();
+        let asked = request(temp.path(), &[(".", sleep_command())], Duration::from_secs(120));
+        let task = tokio::spawn({
+            let cancel = cancel.clone();
+            async move { LocalSetup.run(&asked, &cancel).await.unwrap() }
+        });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        cancel.cancel();
+        assert_eq!(task.await.unwrap(), SetupOutcome::Cancelled);
     }
 }

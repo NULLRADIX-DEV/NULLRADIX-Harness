@@ -16,6 +16,7 @@ use nullradix_app::dispatch::control::DispatcherService;
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
 use nullradix_app::dispatch::scheduler::{PASS_INTERVAL, spawn_scheduler};
+use nullradix_app::dispatch::start::TicketStarter;
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
@@ -146,7 +147,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
-    let dispatcher = start_dispatcher(
+    let (dispatcher, dispatching) = start_dispatcher(
         &store,
         &signal,
         &shutdown,
@@ -211,6 +212,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
             Ok(())
         }
     };
+    dispatching.stop().await;
     account_services.logins.close();
     store.close().await;
     match task::spawn_blocking(move || discovery.remove()).await {
@@ -232,9 +234,11 @@ impl LocalTime for OsLocalTime {
         let offset = task::spawn_blocking(nullradix_os::local_utc_offset_minutes)
             .await
             .ok()
-            .flatten()
-            .unwrap_or(0);
-        minute_with_offset(at, offset)
+            .flatten();
+        if offset.is_none() {
+            tracing::warn!("cannot read the local time offset, the time window uses UTC");
+        }
+        minute_with_offset(at, offset.unwrap_or(0))
     }
 }
 
@@ -248,13 +252,32 @@ struct DispatcherParts<'a> {
     board: &'a BoardServices,
 }
 
+/// What runs for the dispatcher and must end before the store closes.
+struct Dispatching {
+    scheduler: task::JoinHandle<()>,
+    starter: Arc<TicketStarter>,
+}
+
+impl Dispatching {
+    /// Waits for the pass under way, then stops the setups and waits for them.
+    async fn stop(self) {
+        if tokio::time::timeout(SHUTDOWN_GRACE, self.scheduler)
+            .await
+            .is_err()
+        {
+            tracing::warn!("the dispatcher pass did not end in time");
+        }
+        self.starter.shutdown(SHUTDOWN_GRACE).await;
+    }
+}
+
 /// The dispatcher and its beat: a pass every minute until the daemon stops.
 fn start_dispatcher(
     store: &Store,
     signal: &ChangeSignal,
     shutdown: &CancellationToken,
     parts: DispatcherParts<'_>,
-) -> Arc<DispatcherService> {
+) -> (Arc<DispatcherService>, Dispatching) {
     let dispatcher = assemble(DispatcherDeps {
         config: parts.config,
         states: Arc::new(store.clone()),
@@ -275,12 +298,16 @@ fn start_dispatcher(
         local_time: Arc::new(OsLocalTime),
         interval: Some(PASS_INTERVAL),
     });
-    spawn_scheduler(
+    let scheduler = spawn_scheduler(
         dispatcher.pass.clone(),
         PASS_INTERVAL,
         shutdown.clone().cancelled_owned(),
     );
-    dispatcher.service
+    let dispatching = Dispatching {
+        scheduler,
+        starter: dispatcher.starter,
+    };
+    (dispatcher.service, dispatching)
 }
 
 fn dispatcher_config_service(store: &Store, signal: &ChangeSignal) -> Arc<DispatcherConfigService> {
