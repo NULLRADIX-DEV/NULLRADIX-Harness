@@ -9,7 +9,7 @@ use crate::problem;
 /// Largest declared body that is read before the request is routed.
 const BUFFER_LIMIT: usize = 64 * 1024;
 
-/// Reads small bodies up front so a handler that ignores its body never makes hyper reset the connection.
+/// Reads small bodies first so an ignored body never makes hyper reset the connection.
 pub(crate) async fn buffer_small_body(request: Request, next: Next) -> Response {
     if !should_buffer(&request) {
         return next.run(request).await;
@@ -170,12 +170,8 @@ mod tests {
 
     #[tokio::test]
     async fn bodies_above_the_limit_reach_the_handler_unbuffered() {
-        let size = |body: Body| async move {
-            to_bytes(body, usize::MAX)
-                .await
-                .map(|b| b.len().to_string())
-                .unwrap_or_default()
-        };
+        let size =
+            |body: Body| async move { to_bytes(body, usize::MAX).await.unwrap().len().to_string() };
         let router = Router::new()
             .route("/", post(size))
             .layer(axum::middleware::from_fn(buffer_small_body));
