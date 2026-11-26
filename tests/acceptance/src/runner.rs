@@ -141,7 +141,7 @@ fn http_step(
     match reply.payload {
         Payload::Json(json) => {
             result = json!({ "json": json.clone() });
-            response.insert(String::from("json"), json);
+            response.insert(String::from("json"), keep_fields(json, &http.keep));
         }
         Payload::Text(text) => {
             response.insert(String::from("text"), Value::from(text));
@@ -149,6 +149,32 @@ fn http_step(
         Payload::Empty => {}
     }
     Ok((json!({ "request": request, "response": response }), result))
+}
+
+/// Only the dotted paths in `keep`, nested as they were; everything when `keep` is empty.
+fn keep_fields(json: Value, keep: &[String]) -> Value {
+    if keep.is_empty() {
+        return json;
+    }
+    let mut kept = json!({});
+    for path in keep {
+        let Some(found) = field(&json, path) else {
+            continue;
+        };
+        let mut target = &mut kept;
+        let mut keys = path.split('.').peekable();
+        while let Some(key) = keys.next() {
+            let Some(map) = target.as_object_mut() else {
+                break;
+            };
+            if keys.peek().is_none() {
+                map.insert(key.to_owned(), found.clone());
+                break;
+            }
+            target = map.entry(key.to_owned()).or_insert_with(|| json!({}));
+        }
+    }
+    kept
 }
 
 enum Payload {

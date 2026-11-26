@@ -8,6 +8,7 @@ mod claude_theme;
 mod comments;
 mod customizations;
 mod dispatch_accounts;
+mod dispatch_stats;
 mod dispatcher_config;
 mod dispatcher_state;
 mod error;

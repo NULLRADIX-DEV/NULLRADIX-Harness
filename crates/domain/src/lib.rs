@@ -7,6 +7,7 @@ mod comment;
 mod customization;
 mod dispatch_pass;
 mod dispatch_run;
+mod dispatch_stats;
 mod dispatcher_config;
 mod favorite;
 mod hook;
@@ -58,6 +59,12 @@ pub use dispatch_pass::{
 pub use dispatch_run::{
     Abort, AbortCategory, DeniedTool, DispatchOutcome, DispatchRun, ModelUsage, RunKind,
     RunProfile, RunResult, RunTrigger, RunUsage, Screenshot,
+};
+pub use dispatch_stats::{
+    AbortReason, DispatchStats, OutcomeCount, ProfileRow, STATS_DEFAULT_DAYS, STATS_MAX_DAYS,
+    STATS_MAX_RUNS, SeriesPoint, SeriesUnit, StatsError, StatsFacts, StatsKpis, StatsLadder,
+    StatsRange, StatsRun, StatsSeries, StatsUsage, abort_label, calculate_stats, day_label,
+    local_day_of, parse_stats_kind, wants_config,
 };
 pub use dispatcher_config::{
     AccountStrategy, AnsweredQuestion, AutopilotSettings, ClaudeSettings, ConfigError,

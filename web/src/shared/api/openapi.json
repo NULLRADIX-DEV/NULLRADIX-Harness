@@ -6207,6 +6207,93 @@
         }
       }
     },
+    "/api/v1/stats/dispatch": {
+      "get": {
+        "tags": [
+          "dispatcher"
+        ],
+        "operationId": "get_dispatch_stats",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "First day as `YYYY-MM-DD`, or `config`; 56 days before `to` when left out.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Last day as `YYYY-MM-DD` in local time; today when left out. A range has at most 366 days.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "`work` (default), `merge` or `research`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "boardId",
+            "in": "query",
+            "description": "Count the runs of this board's tickets only.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchStatsDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown board",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Bad range or kind, or too many runs in the range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/theme-catalog/sources": {
       "get": {
         "tags": [
@@ -8806,6 +8893,28 @@
           }
         }
       },
+      "AbortReasonDto": {
+        "type": "object",
+        "required": [
+          "category",
+          "label",
+          "count"
+        ],
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "An abort category, or `other` when the run recorded none."
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
       "AcceptTicket": {
         "type": "object",
         "properties": {
@@ -10544,6 +10653,87 @@
           "planned"
         ]
       },
+      "DispatchStatsDto": {
+        "type": "object",
+        "description": "The dashboard numbers of the dispatcher over a range of days.",
+        "required": [
+          "filter",
+          "kpis",
+          "usage",
+          "series",
+          "byProfile",
+          "ladder",
+          "abortReasons",
+          "outcomes",
+          "usagePauses",
+          "staleRuns"
+        ],
+        "properties": {
+          "abortReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AbortReasonDto"
+            },
+            "description": "Aborts by category, the most frequent first."
+          },
+          "byProfile": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileRowDto"
+            }
+          },
+          "configChangedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the newest configuration in force up to the range end first appeared."
+          },
+          "configurableAbortShare": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Share of the aborts caused by turn or time limits or a full context."
+          },
+          "filter": {
+            "$ref": "#/components/schemas/StatsFilterDto"
+          },
+          "kpis": {
+            "$ref": "#/components/schemas/StatsKpisDto"
+          },
+          "ladder": {
+            "$ref": "#/components/schemas/StatsLadderDto"
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutcomeCountDto"
+            },
+            "description": "Every outcome of the runs counted, the most frequent first."
+          },
+          "series": {
+            "$ref": "#/components/schemas/StatsSeriesDto"
+          },
+          "staleRuns": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Runs the worker lost in the range, runs of every kind.",
+            "minimum": 0
+          },
+          "usage": {
+            "$ref": "#/components/schemas/StatsUsageDto"
+          },
+          "usagePauses": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Pauses for a usage limit in the range, runs of every kind.",
+            "minimum": 0
+          }
+        }
+      },
       "DispatcherConfigDto": {
         "type": "object",
         "description": "The dispatcher's whole configuration; a save replaces all of it.",
@@ -12207,6 +12397,23 @@
           }
         }
       },
+      "OutcomeCountDto": {
+        "type": "object",
+        "required": [
+          "outcome",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/DispatchOutcomeDto"
+          }
+        }
+      },
       "OutputLineDto": {
         "type": "object",
         "required": [
@@ -12515,6 +12722,50 @@
           }
         },
         "additionalProperties": false
+      },
+      "ProfileRowDto": {
+        "type": "object",
+        "description": "How the runs of one profile ended.",
+        "required": [
+          "profile",
+          "runs",
+          "done",
+          "escalated",
+          "final",
+          "other"
+        ],
+        "properties": {
+          "done": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "escalated": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Aborted and tried again.",
+            "minimum": 0
+          },
+          "final": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "other": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Question, blocked and runs still open.",
+            "minimum": 0
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runs": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "ProjectDto": {
         "type": "object",
@@ -14085,6 +14336,44 @@
         },
         "additionalProperties": false
       },
+      "SeriesPointDto": {
+        "type": "object",
+        "required": [
+          "start",
+          "done",
+          "aborted",
+          "other"
+        ],
+        "properties": {
+          "aborted": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "done": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "other": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Waiting for a person: question or blocked.",
+            "minimum": 0
+          },
+          "start": {
+            "type": "string",
+            "description": "First day of the bucket, `YYYY-MM-DD`; a Monday for weeks."
+          }
+        }
+      },
+      "SeriesUnitDto": {
+        "type": "string",
+        "enum": [
+          "day",
+          "week"
+        ]
+      },
       "SessionChangesDto": {
         "type": "object",
         "required": [
@@ -14671,6 +14960,199 @@
           "worktree": {
             "type": "string",
             "description": "Folder of the worktree on the runner, with forward slashes."
+          }
+        }
+      },
+      "StatsFilterDto": {
+        "type": "object",
+        "description": "The range and filters the numbers were worked out for.",
+        "required": [
+          "from",
+          "to",
+          "kind"
+        ],
+        "properties": {
+          "boardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "from": {
+            "type": "string",
+            "description": "First day, `YYYY-MM-DD`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RunKindDto"
+          },
+          "to": {
+            "type": "string",
+            "description": "Last day, `YYYY-MM-DD`."
+          }
+        }
+      },
+      "StatsKpisDto": {
+        "type": "object",
+        "required": [
+          "runs",
+          "subjects",
+          "done",
+          "aborted",
+          "solved",
+          "finalFailures"
+        ],
+        "properties": {
+          "aborted": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "done": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "escalationRate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Subjects with a run after an abort."
+          },
+          "finalFailures": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "firstTryRate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Finished subjects solved by the first run, without an abort before."
+          },
+          "runs": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "solved": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Subjects with a successful run.",
+            "minimum": 0
+          },
+          "subjects": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Tickets or questions the runs were about.",
+            "minimum": 0
+          },
+          "successRate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Solved among the subjects that finished."
+          }
+        }
+      },
+      "StatsLadderDto": {
+        "type": "object",
+        "description": "How the finished subjects ended, as shares.",
+        "required": [
+          "finished"
+        ],
+        "properties": {
+          "afterEscalation": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "final": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "finished": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "firstTry": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "StatsSeriesDto": {
+        "type": "object",
+        "description": "Runs over time: a point per day up to 28 days, per week beyond.",
+        "required": [
+          "unit",
+          "points"
+        ],
+        "properties": {
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeriesPointDto"
+            }
+          },
+          "unit": {
+            "$ref": "#/components/schemas/SeriesUnitDto"
+          }
+        }
+      },
+      "StatsUsageDto": {
+        "type": "object",
+        "description": "Cost, tokens and time of the runs counted.",
+        "required": [
+          "costUsd",
+          "inputTokens",
+          "outputTokens",
+          "cacheReadTokens",
+          "cacheWriteTokens"
+        ],
+        "properties": {
+          "averageDurationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Mean over the runs with a known duration."
+          },
+          "cacheReadTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cacheWriteTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "costUsd": {
+            "type": "number",
+            "format": "double"
+          },
+          "inputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "outputTokens": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

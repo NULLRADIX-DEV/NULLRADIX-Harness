@@ -20,6 +20,7 @@ use nullradix_app::dispatch::pass::DispatchPass;
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
 use nullradix_app::dispatch::scheduler::{PASS_INTERVAL, spawn_scheduler};
 use nullradix_app::dispatch::start::TicketStarter;
+use nullradix_app::dispatch::stats::DispatchStatsService;
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
@@ -177,9 +178,16 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         auth,
         projects,
         accounts: account_services.accounts,
-        dispatcher_config,
+        dispatcher_config: dispatcher_config.clone(),
         dispatcher_prompts,
         dispatcher: dispatcher.clone(),
+        dispatch_stats: Arc::new(DispatchStatsService::new(
+            Arc::new(store.clone()),
+            dispatcher_config.clone(),
+            Arc::new(store.clone()),
+            Arc::new(SystemClock),
+            Arc::new(OsLocalTime),
+        )),
         account_pauses,
         usage: account_services.usage,
         logins: account_services.logins.clone(),

@@ -105,7 +105,7 @@ impl fmt::Display for Timestamp {
 }
 
 /// Year, month and day of a day count since 1970-01-01, after Howard Hinnant's algorithm.
-const fn civil_date(days: i64) -> (i64, i64, i64) {
+pub(crate) const fn civil_date(days: i64) -> (i64, i64, i64) {
     let shifted = days + 719_468;
     let era = shifted.div_euclid(146_097);
     let day_of_era = shifted.rem_euclid(146_097);
@@ -169,7 +169,7 @@ fn moment(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64) 
 }
 
 /// Day count since 1970-01-01 of a calendar date, after Howard Hinnant's algorithm.
-const fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+pub(crate) const fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = if month <= 2 { year - 1 } else { year };
     let era = year.div_euclid(400);
     let year_of_era = year.rem_euclid(400);
