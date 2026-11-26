@@ -635,8 +635,7 @@ impl TicketStarter {
         }
     }
 
-    /// Clears the claim; the worktree link stays, the next pass resumes it.
-    /// Only the claim as this start left it goes: if the ticket moved on, it stays as it is.
+    /// Clears the claim only while the ticket is as this start left it; the link stays.
     async fn give_back(&self, key: &TicketKey, config: &DispatcherConfig, version: Version) {
         let Ok(actor) = self.actor().await else {
             return;

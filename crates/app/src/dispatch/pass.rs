@@ -214,8 +214,7 @@ impl DispatchPass {
         work().await
     }
 
-    /// One pass; a caller who comes while one runs gets the result of that one.
-    /// The pass runs on its own task, so a caller that gives up never stops it halfway.
+    /// One pass on its own task; a caller who comes while one runs gets its result.
     pub async fn run(&self) -> PassReport {
         let Some(this) = self.me.upgrade() else {
             return self.exclusive(|| self.pass()).await;

@@ -61,8 +61,7 @@ pub enum SetupOutcome {
 
 #[async_trait]
 pub trait WorktreeSetupPort: Send + Sync {
-    /// Runs the steps one after the other and stops at the first that fails or at `cancel`,
-    /// which also kills the process tree of the running step.
+    /// Runs the steps in order; stops at a failure, or at `cancel`, which kills the step.
     async fn run(
         &self,
         request: &SetupRequest,
