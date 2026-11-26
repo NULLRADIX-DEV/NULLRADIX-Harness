@@ -338,6 +338,7 @@ pub(crate) async fn install_catalog_theme(
         .catalog
         .install(&path.id, &path.theme, query.replace)
         .await?;
+    crate::claude_theme::resync(&state).await;
     let dto = ThemeDto::from(&theme);
     let mut headers = HeaderMap::new();
     if let Ok(value) = HeaderValue::from_str(&dto.style_url) {

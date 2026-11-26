@@ -218,6 +218,7 @@ pub(crate) async fn create_account(
         .accounts
         .create(&input.name, input.config_dir.as_deref())
         .await?;
+    crate::claude_theme::resync(&state).await;
     let account = AccountDto::from(account);
     let mut headers = HeaderMap::new();
     let location = format!("{API_PREFIX}/accounts/{}", account.id);
@@ -287,6 +288,7 @@ pub(crate) async fn delete_account(
         .accounts
         .remove_with(id, expected, query.delete_dir, state.logins.as_ref())
         .await?;
+    crate::claude_theme::resync(&state).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

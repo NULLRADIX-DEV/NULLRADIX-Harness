@@ -7,11 +7,13 @@ import { useInvalidate } from './useInvalidate';
 export type Theme = components['schemas']['ThemeDto'];
 export type ThemeSettingSpec = components['schemas']['ThemeSettingDto'];
 export type ThemeSettings = components['schemas']['ThemeSettingsDto'];
+export type ClaudeTheme = components['schemas']['ClaudeThemeDto'];
 
 export const themeKeys = {
   all: ['themes'] as const,
   list: () => [...themeKeys.all, 'list'] as const,
   settings: (id: string) => [...themeKeys.all, 'settings', id] as const,
+  claude: () => [...themeKeys.all, 'claude'] as const,
 };
 
 // The chosen theme is a setting of the daemon, so its changes arrive as setting changes.
@@ -101,6 +103,26 @@ export function useResetThemeSettings(id: string) {
           params: { path: { id }, query: { version } },
         }),
       );
+    },
+    onSettled: invalidate,
+  });
+}
+
+export function claudeThemeQuery() {
+  return queryOptions({
+    queryKey: themeKeys.claude(),
+    queryFn: async () => unwrap(await api.GET('/api/v1/settings/claude-theme')),
+  });
+}
+
+export function useSetClaudeTheme() {
+  const invalidate = useInvalidate(themeKeys.all);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (enabled: boolean) =>
+      unwrap(await api.PUT('/api/v1/settings/claude-theme', { body: { enabled } })),
+    onSuccess: (status) => {
+      queryClient.setQueryData(themeKeys.claude(), status);
     },
     onSettled: invalidate,
   });

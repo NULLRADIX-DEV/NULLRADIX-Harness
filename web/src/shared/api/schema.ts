@@ -1125,6 +1125,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/claude-theme": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["claude_theme"];
+        put: operations["set_claude_theme"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/theme": {
         parameters: {
             query?: never;
@@ -1850,6 +1866,25 @@ export interface components {
             timeoutMinutes: number;
             /** @description Remove API key variables from the environment of runs. */
             useSubscription: boolean;
+        };
+        ClaudeThemeDto: {
+            /** @description Whether the person turned the switch on; it is off until then. */
+            enabled: boolean;
+            /** @description The worst state of the folders. */
+            state: components["schemas"]["ClaudeThemeStateDto"];
+            targets: components["schemas"]["ClaudeThemeTargetDto"][];
+            /** @description The chosen theme, when it is installed. */
+            themeId?: string | null;
+            themeName?: string | null;
+        };
+        /** @enum {string} */
+        ClaudeThemeStateDto: "active" | "none" | "foreign" | "error";
+        ClaudeThemeTargetDto: {
+            /** @description Why the folder is `foreign` or in `error`. */
+            message?: string | null;
+            /** @description Claude config folder: the default one or the folder of an account. */
+            path: string;
+            state: components["schemas"]["ClaudeThemeStateDto"];
         };
         /** @description A ready worktree the cleanup removed or kept; its branch stays either way. */
         CleanedWorktree: {
@@ -3183,6 +3218,10 @@ export interface components {
              * @description Version the change is based on.
              */
             version: number;
+        };
+        SetClaudeTheme: {
+            /** @description Put the Claude part of the chosen theme into the Claude config folders, or take it out. */
+            enabled: boolean;
         };
         SetPrompt: {
             /** @description The own template; blank goes back to the default. */
@@ -8322,6 +8361,73 @@ export interface operations {
                 };
             };
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    claude_theme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaudeThemeDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_claude_theme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetClaudeTheme"];
+            };
+        };
+        responses: {
+            /** @description The switch is set and the folders are in line; a folder that failed shows in its state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaudeThemeDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
