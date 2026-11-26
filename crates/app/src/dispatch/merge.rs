@@ -177,8 +177,8 @@ impl MergeAll {
         if entry.worktree.record().purpose != WorktreePurpose::Work {
             return self.cancel(job).await;
         }
-        // a running merge session owns the job until its run is settled
-        if record.phase == MergePhase::ConflictSession && self.session_open(&entry).await? {
+        // a merge run of the worktree's tickets owns the folder until its run is settled
+        if self.session_open(&entry).await? {
             return Ok(());
         }
         let branch = self.branch(entry).await?;
@@ -251,6 +251,16 @@ impl MergeAll {
                     return self.block(job, branch, context, &problem).await;
                 }
                 Err(error) => return Err(error),
+            }
+        }
+        // the conflict was solved for another branch than the one checked out now
+        if job.record().session_used {
+            let now = self.parts.git.target_tip(root, target.as_deref()).await?;
+            let head = job.record().target_head.as_deref();
+            if self.target_switched(root, head, now.as_ref()).await? {
+                return self
+                    .block(job, branch, context, session::TARGET_SWITCHED)
+                    .await;
             }
         }
         // the merge is in the target and the branch is gone: finish instead of merging again

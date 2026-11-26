@@ -88,6 +88,7 @@ pub struct MergeJobRecord {
     pub phase: MergePhase,
     pub target_branch: Option<String>,
     pub target_head: Option<String>,
+    pub session_branch_head: Option<String>,
     pub strategy: MergeStrategy,
     pub conflict_sessions: u32,
     pub session_used: bool,
@@ -101,20 +102,6 @@ pub struct MergeJobRecord {
     pub since: Timestamp,
     pub finished_at: Option<Timestamp>,
     pub version: Version,
-}
-
-impl MergeJobRecord {
-    /// The target commit at the session start; `target_head` holds it first.
-    #[must_use]
-    pub fn session_target(&self) -> Option<&str> {
-        self.target_head.as_deref()?.split(' ').next()
-    }
-
-    /// The branch commit at the session start, after the target; none for older jobs.
-    #[must_use]
-    pub fn session_branch_tip(&self) -> Option<&str> {
-        self.target_head.as_deref()?.split(' ').nth(1)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +123,7 @@ impl MergeJob {
             phase: MergePhase::Pending,
             target_branch,
             target_head: None,
+            session_branch_head: None,
             strategy,
             conflict_sessions: 0,
             session_used: false,
@@ -234,7 +222,8 @@ impl MergeJob {
         self.0.phase = MergePhase::ConflictSession;
         self.0.session_used = true;
         self.0.conflict_sessions = sessions;
-        self.0.target_head = Some(format!("{head} {tip}"));
+        self.0.target_head = Some(head.to_owned());
+        self.0.session_branch_head = Some(tip.to_owned());
         self.0.problem = Some(conflict_problem(files));
         self
     }
@@ -248,6 +237,7 @@ impl MergeJob {
             self.0.session_used = false;
             self.0.conflict_sessions = 0;
             self.0.target_head = None;
+            self.0.session_branch_head = None;
         }
         self
     }
@@ -258,6 +248,7 @@ impl MergeJob {
         self.0.phase = MergePhase::Pending;
         self.0.session_used = false;
         self.0.target_head = None;
+        self.0.session_branch_head = None;
         self
     }
 
@@ -299,6 +290,7 @@ impl MergeJob {
             && !record.hold_noticed
             && record.conflict_sessions == 0
             && record.target_head.is_none()
+            && record.session_branch_head.is_none()
             && record.held_by.is_none()
             && record.problem.is_none()
     }
@@ -313,6 +305,7 @@ impl MergeJob {
         self.0.wait_noted = false;
         self.0.hold_noticed = false;
         self.0.target_head = None;
+        self.0.session_branch_head = None;
         self.0.held_by = None;
         self.0.problem = None;
         self
@@ -476,13 +469,14 @@ mod tests {
         assert_eq!(record.phase, MergePhase::ConflictSession);
         assert!(record.phase.active() && record.session_used);
         assert_eq!(record.conflict_sessions, 2);
-        assert_eq!(record.session_target(), Some("abc123"));
-        assert_eq!(record.session_branch_tip(), Some("def456"));
+        assert_eq!(record.target_head.as_deref(), Some("abc123"));
+        assert_eq!(record.session_branch_head.as_deref(), Some("def456"));
         assert_eq!(record.problem.as_deref(), Some("merge conflict in a.rs"));
         let next = started.clone().next_session();
         let record = next.record();
         assert_eq!(record.phase, MergePhase::Pending);
         assert!(!record.session_used && record.target_head.is_none());
+        assert!(record.session_branch_head.is_none());
         assert_eq!(record.conflict_sessions, 2);
     }
 
@@ -498,6 +492,7 @@ mod tests {
         assert!(!moved.record().session_used);
         assert_eq!(moved.record().conflict_sessions, 0);
         assert_eq!(moved.record().target_head, None);
+        assert_eq!(moved.record().session_branch_head, None);
         assert!(moved.pristine());
     }
 

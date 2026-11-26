@@ -951,6 +951,19 @@ impl MergeGit for LocalMergeGit {
         Ok(SessionVerdict::Resolved)
     }
 
+    async fn branch_contains(
+        &self,
+        root: &str,
+        branch: &str,
+        commit: &str,
+    ) -> Result<bool, AppError> {
+        checked(branch)?;
+        if !commit_id(commit) {
+            return Ok(false);
+        }
+        is_ancestor(Path::new(root), commit, &refs(branch)).await
+    }
+
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
         checked(&request.branch)?;
         if let Some(target) = &request.target {
@@ -1320,6 +1333,27 @@ mod tests {
         };
         assert_eq!(files.len(), MARKER_FILES_MAX);
     }
+
+    #[tokio::test]
+    async fn a_branch_contains_a_commit_only_as_an_ancestor() {
+        let (_dir, root) = repository();
+        let at = slashed(&root);
+        let main = git_sync(&root, &["rev-parse", "refs/heads/main"]);
+        let ticket = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
+        let contains = |branch: &'static str, commit: String| {
+            let at = at.clone();
+            async move {
+                LocalMergeGit
+                    .branch_contains(&at, branch, &commit)
+                    .await
+                    .unwrap()
+            }
+        };
+        assert!(contains("ticket/x", main.clone()).await);
+        assert!(!contains("main", ticket).await);
+        assert!(!contains("main", String::from("--all")).await);
+    }
+
     #[tokio::test]
     async fn a_merge_that_someone_else_started_holds_the_merge_and_is_left_alone() {
         let (_dir, root) = repository();

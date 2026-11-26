@@ -509,8 +509,12 @@ struct ScriptedGit {
     resolved: std::sync::atomic::AtomicBool,
     /// The commit and the folder each resolved check was asked about.
     checked: Mutex<Vec<(String, String, Option<String>)>>,
+    /// The flag the next target read sets, to fail the write after it.
+    arm: Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>,
     /// A verdict that replaces the resolved flag.
     verdict: Mutex<Option<SessionVerdict>>,
+    /// The target stands on another branch than the session solved for.
+    switched: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -549,6 +553,9 @@ impl MergeGit for ScriptedGit {
         target: Option<&str>,
     ) -> Result<Option<TargetTip>, AppError> {
         let tip = self.tip.lock().unwrap().clone();
+        if let Some(flag) = self.arm.lock().unwrap().take() {
+            flag.store(true, Ordering::SeqCst);
+        }
         Ok(Some(TargetTip {
             into: target.unwrap_or("main").to_owned(),
             tip: tip.unwrap_or_else(|| String::from("head0001")),
@@ -569,6 +576,15 @@ impl MergeGit for ScriptedGit {
         } else {
             SessionVerdict::TargetMissing
         })
+    }
+
+    async fn branch_contains(
+        &self,
+        _root: &str,
+        _branch: &str,
+        _commit: &str,
+    ) -> Result<bool, AppError> {
+        Ok(!self.switched.load(Ordering::SeqCst))
     }
 
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
@@ -649,6 +665,8 @@ struct Hooked {
     rename_on_get: Mutex<Option<(String, usize)>>,
     /// Reads of a ticket blocked by a failed setup, comment included, fail while set.
     fail_setup_block_reads: std::sync::atomic::AtomicBool,
+    /// The next write fails once.
+    fail_next_begin: Arc<std::sync::atomic::AtomicBool>,
     plain: TicketService,
     actor: Actor,
 }
@@ -656,6 +674,9 @@ struct Hooked {
 #[async_trait]
 impl TicketRepository for Hooked {
     async fn begin(&self) -> Result<Box<dyn TicketWrite>, AppError> {
+        if self.fail_next_begin.swap(false, Ordering::SeqCst) {
+            return Err(AppError::unavailable("write-failed", "the write failed"));
+        }
         self.inner.begin().await
     }
 
@@ -806,6 +827,7 @@ async fn fixture() -> Fixture {
         bump: Mutex::new(None),
         rename_on_get: Mutex::new(None),
         fail_setup_block_reads: std::sync::atomic::AtomicBool::new(false),
+        fail_next_begin: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         plain: TicketService::new(
             store.clone(),
             store.clone(),
@@ -823,7 +845,7 @@ async fn fixture() -> Fixture {
         signal.clone(),
     ));
     let comments = Arc::new(CommentService::new(
-        store.clone(),
+        hook.clone(),
         store.clone(),
         store.clone(),
         clock.clone(),
@@ -5985,8 +6007,8 @@ async fn a_conflict_starts_a_merge_session_in_the_worktree_and_the_job_waits_for
     assert_eq!(job.phase, nullradix_domain::MergePhase::ConflictSession);
     assert!(job.session_used && !job.conflict_seen);
     assert_eq!(job.conflict_sessions, 1);
-    assert_eq!(job.session_target(), Some("head0001"));
-    assert_eq!(job.session_branch_tip(), Some("tip0001"));
+    assert_eq!(job.target_head.as_deref(), Some("head0001"));
+    assert_eq!(job.session_branch_head.as_deref(), Some("tip0001"));
     assert_eq!(job.problem.as_deref(), Some("merge conflict in a.rs, b.rs"));
     // the ticket stays done with its branch; the conflict is told once, with the profile
     assert_eq!(record.status, TicketStatus::Done);
@@ -6281,7 +6303,7 @@ async fn a_target_that_moved_on_during_a_resolved_session_gives_a_new_conflict_a
     assert_eq!(f.sessions_of(&key).await, 2);
     let job = f.job(&key).await;
     assert_eq!(job.conflict_sessions, 1);
-    assert_eq!(job.session_target(), Some("head0002"));
+    assert_eq!(job.target_head.as_deref(), Some("head0002"));
     assert_eq!(f.record(&key).await.status, TicketStatus::Done);
 }
 
@@ -6346,6 +6368,62 @@ async fn a_session_whose_ticket_moved_on_is_not_evaluated() {
 }
 
 impl Fixture {
+    /// A merge run of the ticket that the dispatcher did not start just now.
+    async fn merge_run(
+        &self,
+        key: &str,
+        trigger: nullradix_domain::RunTrigger,
+        created: i64,
+        ended_with: Option<i32>,
+    ) -> Id<Run> {
+        // the profile and configuration of the running session, which the store knows
+        let mut dispatch = self.session_of(key).await.dispatch().unwrap().clone();
+        dispatch.trigger = trigger;
+        dispatch.agent = None;
+        let label = nullradix_domain::RunLabel::parse("merge run").unwrap();
+        let mut run = Run::new(self.runs.next_id(), label, Timestamp::from_millis(created))
+            .with_dispatch(dispatch);
+        nullradix_app::runs::RunRepository::insert(self.store.as_ref(), &run)
+            .await
+            .unwrap();
+        if let Some(code) = ended_with {
+            let end = RunEnd {
+                exit_code: Some(code),
+                error: None,
+            };
+            let next = run
+                .finished(
+                    RunOutcome::Succeeded,
+                    end,
+                    Timestamp::from_millis(created + 1),
+                )
+                .unwrap();
+            nullradix_app::runs::RunRepository::update(self.store.as_ref(), &next, run.version())
+                .await
+                .unwrap();
+            run = next;
+        }
+        run.id()
+    }
+
+    /// Writes the job with this change, as another writer would.
+    async fn rewrite_job(
+        &self,
+        key: &str,
+        change: impl FnOnce(nullradix_domain::MergeJob) -> nullradix_domain::MergeJob,
+    ) {
+        let job = self.jobs_of(key).await.remove(0).job;
+        let version = job.record().version;
+        nullradix_app::dispatch::merge_jobs::MergeJobRepository::save(
+            self.store.as_ref(),
+            &change(job),
+            version,
+            Timestamp::from_millis(START),
+        )
+        .await
+        .unwrap();
+    }
+
     /// A conflict whose session is running, ready to end.
     async fn running_session(&self) -> String {
         let key = self.finished_ticket().await;
@@ -6353,6 +6431,151 @@ impl Fixture {
         self.dispatcher.pass.run().await;
         key
     }
+}
+
+#[tokio::test]
+async fn a_live_merge_run_holds_a_job_that_is_not_in_the_session_phase() {
+    let f = fixture().await;
+    let key = f.running_session().await;
+    // the daemon died between the start and the save: the run lives, the job does not know it
+    f.rewrite_job(&key, nullradix_domain::MergeJob::pending_again)
+        .await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(
+        report.merged.is_empty() && report.errors.is_empty(),
+        "{report:?}"
+    );
+    assert_eq!(f.sessions_of(&key).await, 1);
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+    assert_eq!(
+        f.job(&key).await.phase,
+        nullradix_domain::MergePhase::Pending
+    );
+}
+
+#[tokio::test]
+async fn a_merge_run_a_person_started_is_not_judged_as_the_session_of_the_job() {
+    let f = fixture().await;
+    let key = f.running_session().await;
+    f.git.resolved.store(true, Ordering::SeqCst);
+    let manual = f
+        .merge_run(
+            &key,
+            nullradix_domain::RunTrigger::Manual,
+            START + MINUTE,
+            Some(0),
+        )
+        .await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.outcome(manual).await, Some(DispatchOutcome::MergeSession));
+    assert!(f.git.checked.lock().unwrap().is_empty());
+    assert_eq!(
+        f.job(&key).await.phase,
+        nullradix_domain::MergePhase::ConflictSession
+    );
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_session_that_ends_late_is_not_judged_against_the_newer_one() {
+    let f = fixture().await;
+    let key = f.running_session().await;
+    f.git.resolved.store(true, Ordering::SeqCst);
+    let late = f
+        .merge_run(
+            &key,
+            nullradix_domain::RunTrigger::Dispatcher,
+            START - 10 * MINUTE,
+            Some(0),
+        )
+        .await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.outcome(late).await, Some(DispatchOutcome::MergeSession));
+    assert!(f.git.checked.lock().unwrap().is_empty());
+    assert_eq!(
+        f.job(&key).await.phase,
+        nullradix_domain::MergePhase::ConflictSession
+    );
+}
+
+#[tokio::test]
+async fn a_target_switched_during_the_session_blocks_instead_of_merging_into_the_other_branch() {
+    let f = fixture().await;
+    let key = f.running_session().await;
+    f.end_session(&key, 0).await;
+    f.git.resolved.store(true, Ordering::SeqCst);
+    f.git.switched.store(true, Ordering::SeqCst);
+    *f.git.tip.lock().unwrap() = Some(String::from("other001"));
+    let report = f.dispatcher.pass.run().await;
+    assert!(
+        report.merged.is_empty() && report.errors.is_empty(),
+        "{report:?}"
+    );
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Blocked);
+    assert_eq!(
+        record.blocked_reason.as_deref(),
+        Some("Merge: target branch switched - retry the merge")
+    );
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+    let job = f.job(&key).await;
+    assert_eq!(job.phase, nullradix_domain::MergePhase::Failed);
+    assert!(job.session_used);
+}
+
+#[tokio::test]
+async fn a_target_switched_after_the_session_blocks_the_merge() {
+    let f = fixture().await;
+    let key = f.running_session().await;
+    // the session is resolved and settled; the next merge has not run yet
+    f.rewrite_job(&key, |job| job.session_resolved(false)).await;
+    f.end_session(&key, 0).await;
+    f.git.switched.store(true, Ordering::SeqCst);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+    assert_eq!(
+        f.record(&key).await.blocked_reason.as_deref(),
+        Some("Merge: target branch switched - retry the merge")
+    );
+}
+
+#[tokio::test]
+async fn a_failed_note_does_not_block_the_tickets_of_a_session_that_started() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.conflict_in(&["a.rs"]);
+    // the first write after the job is saved is the note on the ticket
+    *f.git.arm.lock().unwrap() = Some(f.hook.fail_next_begin.clone());
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.sessions_of(&key).await, 1);
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(
+        f.job(&key).await.phase,
+        nullradix_domain::MergePhase::ConflictSession
+    );
+}
+
+#[tokio::test]
+async fn the_log_of_a_started_session_names_a_bounded_number_of_files() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    let names: Vec<String> = (0..12).map(|number| format!("f{number:02}.rs")).collect();
+    let files: Vec<&str> = names.iter().map(String::as_str).collect();
+    f.conflict_in(&files);
+    f.dispatcher.pass.run().await;
+    let lines = nullradix_app::dispatch::log::DispatcherLogRepository::recent(f.store.as_ref(), 50)
+        .await
+        .unwrap();
+    let line = lines
+        .iter()
+        .find(|line| line.message.ends_with("merge session started"))
+        .unwrap();
+    assert!(line.message.contains("f09.rs and 2 more"), "{line:?}");
+    assert!(!line.message.contains("f10.rs"), "{line:?}");
+    assert_eq!(f.sessions_of(&key).await, 1);
 }
 
 #[tokio::test]

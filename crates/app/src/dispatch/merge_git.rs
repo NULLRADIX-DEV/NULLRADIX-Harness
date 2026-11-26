@@ -133,6 +133,13 @@ pub trait MergeGit: Send + Sync {
     ) -> Result<Option<TargetTip>, AppError>;
     /// Whether a merge session left the branch with the target in it, its work kept and no markers.
     async fn session_resolved(&self, check: &SessionCheck<'_>) -> Result<SessionVerdict, AppError>;
+    /// Whether the commit is in the branch.
+    async fn branch_contains(
+        &self,
+        root: &str,
+        branch: &str,
+        commit: &str,
+    ) -> Result<bool, AppError>;
     /// Merges where the target is checked out, or in a merge worktree; a conflict is undone.
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError>;
     /// Deletes the branch when it is merged, still at `tip` and checked out nowhere.

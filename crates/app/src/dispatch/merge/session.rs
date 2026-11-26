@@ -18,11 +18,35 @@ use crate::dispatch::merge_jobs::merge_session_open;
 use crate::dispatch::pass::{PassContext, idle_message};
 use crate::dispatch::runs::StartDispatchRun;
 use crate::repositories::runner_unreachable;
+use crate::runs::RunFilter;
 use crate::tickets::TicketDetail;
 use crate::worktrees::WorktreeEntry;
 use crate::{AppError, ErrorKind};
 
-use nullradix_domain::MergeJob;
+use nullradix_domain::{Id, MergeJob};
+
+/// Why a job whose session solved the conflict for another branch ends.
+pub(super) const TARGET_SWITCHED: &str = "target branch switched - retry the merge";
+
+/// What a session that did not resolve the conflict did wrong, and the same with how it ended.
+fn failure_text(verdict: &SessionVerdict, ended: &str) -> (String, String) {
+    match verdict {
+        SessionVerdict::WorkLost => {
+            let what = String::from("dropped the work of the branch");
+            let detail = format!("{what}, {ended}");
+            (what, detail)
+        }
+        SessionVerdict::Markers(files) => {
+            let what = format!("left conflict markers in {}", hold_files(files));
+            let detail = format!("{what}, {ended}");
+            (what, detail)
+        }
+        _ => (
+            String::from("could not resolve the conflict"),
+            ended.to_owned(),
+        ),
+    }
+}
 
 /// Errors that say nothing about the merge itself: the next pass tries the same step again.
 fn transient(error: &AppError) -> bool {
@@ -63,6 +87,42 @@ impl MergeAll {
             .map(|link| link.key.to_string())
             .collect();
         merge_session_open(&self.parts.runs, subjects).await
+    }
+
+    /// The newest merge run of the worktree's tickets, whichever ticket it ran for.
+    async fn newest_session(&self, entry: &WorktreeEntry) -> Result<Option<Id<Run>>, AppError> {
+        let mut newest: Option<(nullradix_domain::Timestamp, Id<Run>)> = None;
+        for link in entry.tickets.iter().filter(|link| link.live()) {
+            let filter = RunFilter {
+                subject_key: Some(link.key.to_string()),
+                kind: Some(RunKind::Merge),
+                ..RunFilter::default()
+            };
+            let found = self.parts.runs.find(&filter, 1).await?;
+            if let Some(run) = found.first()
+                && newest.is_none_or(|(at, _)| run.created_at() > at)
+            {
+                newest = Some((run.created_at(), run.id()));
+            }
+        }
+        Ok(newest.map(|(_, id)| id))
+    }
+
+    /// Whether the target is another branch than at the session start.
+    pub(super) async fn target_switched(
+        &self,
+        root: &str,
+        head: Option<&str>,
+        now: Option<&TargetTip>,
+    ) -> Result<bool, AppError> {
+        let (Some(head), Some(now)) = (head, now) else {
+            return Ok(false);
+        };
+        Ok(!self
+            .parts
+            .git
+            .branch_contains(root, &now.into, head)
+            .await?)
     }
 
     /// The merge was undone: a session resolves the conflict, or the job waits for one.
@@ -253,14 +313,18 @@ impl MergeAll {
         self.parts.accounts.record_start(run.id(), &chosen).await;
         let numbered = autopilot.then_some((sessions, max));
         let body = session_started_note(files, &tip.into, &choice.profile, numbered);
-        let names = self.note_run(&done, &body, run.id()).await?;
+        // the job is saved: a failed note must not block a running session
+        if let Err(error) = self.note_run(&done, &body, run.id()).await {
+            tracing::warn!("cannot note the merge session: {}", error.message());
+        }
+        let names = key_list(&done);
         self.parts
             .log
             .write(
                 LogLevel::Info,
                 &format!(
                     "merge conflict {names} ({}) - merge session started",
-                    files.join(", ")
+                    hold_files(files)
                 ),
                 Some(&key),
                 Some(run.id()),
@@ -269,13 +333,13 @@ impl MergeAll {
         Ok(())
     }
 
-    /// A conflict comment on every finished ticket; says which tickets it reached.
+    /// A conflict comment on every finished ticket.
     async fn note_run(
         &self,
         records: &[&nullradix_domain::TicketRecord],
         body: &str,
         run: nullradix_domain::Id<Run>,
-    ) -> Result<String, AppError> {
+    ) -> Result<(), AppError> {
         let actor = self.parts.starter.actor().await?;
         for record in records {
             self.parts
@@ -289,7 +353,7 @@ impl MergeAll {
                 )
                 .await?;
         }
-        Ok(key_list(records))
+        Ok(())
     }
 
     /// A session ended without a solution: autopilot tries again up to its limit, else a person.
@@ -366,6 +430,12 @@ impl MergeAll {
         else {
             return Ok(outcome);
         };
+        // only the session the dispatcher started last belongs to the job
+        if run.dispatch().map(|dispatch| dispatch.trigger) != Some(RunTrigger::Dispatcher)
+            || self.newest_session(&entry).await? != Some(run.id())
+        {
+            return Ok(outcome);
+        }
         // a retry or a cancel took the job from this session meanwhile
         if job.record().phase != MergePhase::ConflictSession {
             return Ok(outcome);
@@ -430,8 +500,8 @@ impl MergeAll {
             .await?;
         let record = job.record();
         let target = record.target_branch.clone();
-        let stored = record.session_target().map(str::to_owned);
-        let before = record.session_branch_tip().map(str::to_owned);
+        let stored = record.target_head.clone();
+        let before = record.session_branch_head.clone();
         let version = record.version;
         let cwd = run
             .dispatch()
@@ -440,6 +510,13 @@ impl MergeAll {
             Some(root) => {
                 let now: Option<TargetTip> =
                     self.parts.git.target_tip(root, target.as_deref()).await?;
+                // a person switched the main checkout: the conflict was solved for another branch
+                if self
+                    .target_switched(root, stored.as_deref(), now.as_ref())
+                    .await?
+                {
+                    return self.block(job, branch, context, TARGET_SWITCHED).await;
+                }
                 let head = stored
                     .clone()
                     .or_else(|| now.as_ref().map(|found| found.tip.clone()));
@@ -468,22 +545,7 @@ impl MergeAll {
         }
         if verdict != SessionVerdict::Resolved {
             let ended = ending(run);
-            let (what, detail) = match &verdict {
-                SessionVerdict::WorkLost => {
-                    let what = String::from("dropped the work of the branch");
-                    let detail = format!("{what}, {ended}");
-                    (what, detail)
-                }
-                SessionVerdict::Markers(files) => {
-                    let what = format!("left conflict markers in {}", hold_files(files));
-                    let detail = format!("{what}, {ended}");
-                    (what, detail)
-                }
-                _ => (
-                    String::from("could not resolve the conflict"),
-                    ended.clone(),
-                ),
-            };
+            let (what, detail) = failure_text(&verdict, &ended);
             let problem = format!("the merge session {what} ({ended}).");
             return self
                 .session_failed(job, branch, context, &problem, &detail)

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id: Uuid\", worktree_id AS \"worktree_id: Uuid\", phase, target_branch,\n                      target_head, strategy, conflict_sessions, session_used, conflict_seen,\n                      wait_noted, held_by, hold_noticed, problem, merged_into, merged_commit,\n                      since, finished_at, version\n               FROM merge_jobs\n               WHERE worktree_id = ? AND phase IN ('pending', 'waiting', 'conflict_session')",
+  "query": "SELECT j.id AS \"id: Uuid\", j.worktree_id AS \"worktree_id: Uuid\", j.phase,\n                      j.target_branch, j.target_head, j.session_branch_head, j.strategy,\n                      j.conflict_sessions, j.session_used, j.conflict_seen, j.wait_noted, j.held_by, j.hold_noticed,\n                      j.problem, j.merged_into, j.merged_commit, j.since, j.finished_at,\n                      j.version, w.branch AS \"branch!\"\n               FROM merge_jobs j\n               JOIN worktrees w ON w.id = j.worktree_id\n               WHERE j.worktree_id IN (SELECT worktree_id FROM worktree_tickets WHERE ticket_id = ?)\n               ORDER BY j.since DESC, j.id DESC LIMIT ?",
   "describe": {
     "columns": [
       {
@@ -59,8 +59,19 @@
         }
       },
       {
-        "name": "strategy",
+        "name": "session_branch_head",
         "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "session_branch_head"
+          }
+        }
+      },
+      {
+        "name": "strategy",
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,7 +82,7 @@
       },
       {
         "name": "conflict_sessions",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "session_used",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "conflict_seen",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "wait_noted",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       },
       {
         "name": "held_by",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "hold_noticed",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "problem",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -148,7 +159,7 @@
       },
       {
         "name": "merged_into",
-        "ordinal": 13,
+        "ordinal": 14,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -159,7 +170,7 @@
       },
       {
         "name": "merged_commit",
-        "ordinal": 14,
+        "ordinal": 15,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -170,7 +181,7 @@
       },
       {
         "name": "since",
-        "ordinal": 15,
+        "ordinal": 16,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -181,7 +192,7 @@
       },
       {
         "name": "finished_at",
-        "ordinal": 16,
+        "ordinal": 17,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -192,7 +203,7 @@
       },
       {
         "name": "version",
-        "ordinal": 17,
+        "ordinal": 18,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -200,10 +211,21 @@
             "name": "version"
           }
         }
+      },
+      {
+        "name": "branch!",
+        "ordinal": 19,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "worktrees",
+            "name": "branch"
+          }
+        }
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false,
@@ -211,6 +233,7 @@
       false,
       true,
       true,
+      true,
       false,
       false,
       false,
@@ -223,8 +246,9 @@
       true,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "6cfffcb834faac60a48e04a6cdaea0f58b7414f2521e755839a8ec6355989601"
+  "hash": "e2e7b10b286f1e6abdcf46c028f4773c6554528a63d00cb1bbca16fc7bd34c5d"
 }
