@@ -1207,6 +1207,7 @@ dependencies = [
  "parking_lot 0.13.0",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -1274,6 +1275,7 @@ version = "0.1.0"
 dependencies = [
  "nullradix-api",
  "nullradix-app",
+ "nullradix-domain",
  "nullradix-os",
  "nullradix-runner",
  "nullradix-store",
@@ -1295,6 +1297,7 @@ dependencies = [
  "sha2",
  "strum",
  "thiserror",
+ "url",
  "uuid",
 ]
 

@@ -1,0 +1,240 @@
+import { screen, waitFor, within } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
+import { describe, expect, it } from 'vitest';
+import type {
+  CatalogSource,
+  CatalogSourceStatus,
+  CatalogTheme,
+} from '../../shared/query/themeCatalog';
+import { fakeApi, json, problem } from '../../test/fakeApi';
+import { renderApp } from '../../test/renderApp';
+
+const URL_A = 'https://themes.example.com/index.json';
+
+function source(id: string, url: string): CatalogSource {
+  return { id, url, addedAt: 1 };
+}
+
+function offered(overrides: Partial<CatalogTheme> = {}): CatalogTheme {
+  return {
+    sourceId: 'aaaaaaaaaaaa',
+    id: 'night-blue',
+    name: 'Night Blue',
+    version: '1.2.0',
+    sdkVersion: '^1.3',
+    compatible: true,
+    description: 'A dark theme',
+    state: 'available',
+    installedVersion: null,
+    ...overrides,
+  };
+}
+
+function status(overrides: Partial<CatalogSourceStatus> = {}): CatalogSourceStatus {
+  return {
+    source: source('aaaaaaaaaaaa', URL_A),
+    problem: null,
+    offered: 1,
+    skipped: [],
+    ...overrides,
+  };
+}
+
+interface Options {
+  sources?: CatalogSource[];
+  themes?: CatalogTheme[];
+  statuses?: CatalogSourceStatus[];
+  addProblem?: Response;
+  installProblem?: Response;
+}
+
+// In-memory daemon for the catalog routes.
+function catalogServer(options: Options = {}) {
+  let sources = options.sources ?? [];
+  let version = sources.length;
+  let themes = options.themes ?? [];
+  const api = fakeApi({
+    'GET /api/v1/themes': () => json(200, { items: [], active: 'nullradix' }),
+    'GET /api/v1/theme-catalog/sources': () => json(200, { items: sources, version }),
+    'GET /api/v1/theme-catalog/themes': () =>
+      json(200, {
+        items: themes,
+        sources: options.statuses ?? sources.map((s) => status({ source: s })),
+      }),
+    'POST /api/v1/theme-catalog/sources': async (request) => {
+      if (options.addProblem) return options.addProblem;
+      const body = (await request.json()) as { url: string };
+      const added = source('bbbbbbbbbbbb', body.url);
+      sources = [...sources, added];
+      version += 1;
+      return json(201, added);
+    },
+    'DELETE /api/v1/theme-catalog/sources/aaaaaaaaaaaa': (request) => {
+      const sent = Number(new URL(request.url).searchParams.get('version'));
+      if (sent !== version) return problem(409, 'version-conflict', 'stale');
+      sources = sources.filter((entry) => entry.id !== 'aaaaaaaaaaaa');
+      version += 1;
+      return new Response(null, { status: 204 });
+    },
+    'POST /api/v1/theme-catalog/sources/aaaaaaaaaaaa/themes/night-blue/install': () => {
+      if (options.installProblem) return options.installProblem;
+      themes = themes.map((theme) =>
+        theme.id === 'night-blue'
+          ? { ...theme, state: 'installed', installedVersion: '1.2.0' }
+          : theme,
+      );
+      return json(201, {});
+    },
+  });
+  return api;
+}
+
+describe('CatalogSection', () => {
+  it('says so when there is no source and offers no theme list', async () => {
+    const api = catalogServer();
+    renderApp('/settings');
+    expect(await screen.findByText(/No source yet/)).toBeInTheDocument();
+    expect(screen.queryByText('Available themes')).not.toBeInTheDocument();
+    expect(api.requests('GET /api/v1/theme-catalog/themes')).toHaveLength(0);
+  });
+
+  it('adds a source with the typed address and clears the field', async () => {
+    const api = catalogServer();
+    renderApp('/settings');
+    const input = await screen.findByLabelText('Add a source');
+    await userEvent.type(input, URL_A);
+    await userEvent.click(screen.getByRole('button', { name: 'Add source' }));
+    const list = screen.getByRole('list', { name: 'Catalog sources' });
+    expect(await within(list).findByText(URL_A)).toBeInTheDocument();
+    const [request] = api.requests('POST /api/v1/theme-catalog/sources');
+    expect(await request?.json()).toEqual({ url: URL_A });
+    expect(input).toHaveValue('');
+  });
+
+  it('shows why an address was refused and says when it is a repeat', async () => {
+    catalogServer({
+      addProblem: problem(422, 'catalog-source-invalid', 'the address must start with https://'),
+    });
+    renderApp('/settings');
+    await userEvent.type(await screen.findByLabelText('Add a source'), 'http://x.example.com/i');
+    await userEvent.click(screen.getByRole('button', { name: 'Add source' }));
+    expect(await screen.findByText('the address must start with https://')).toBeInTheDocument();
+  });
+
+  it('knows a repeated address', async () => {
+    catalogServer({ addProblem: problem(409, 'catalog-source-exists', 'exists') });
+    renderApp('/settings');
+    await userEvent.type(await screen.findByLabelText('Add a source'), URL_A);
+    await userEvent.click(screen.getByRole('button', { name: 'Add source' }));
+    expect(await screen.findByText('This address is already a source.')).toBeInTheDocument();
+  });
+
+  it('lists the offered themes with their state and installs one', async () => {
+    const api = catalogServer({
+      sources: [source('aaaaaaaaaaaa', URL_A)],
+      themes: [
+        offered(),
+        offered({ id: 'old-gold', name: 'Old Gold', compatible: false, sdkVersion: '^9.0' }),
+        offered({ id: 'sea', name: 'Sea', state: 'update', installedVersion: '1.0.0' }),
+      ],
+    });
+    renderApp('/settings');
+    const list = await screen.findByRole('list', { name: 'Available themes' });
+    expect(within(list).getAllByText('v1.2.0 - Not installed')).toHaveLength(2);
+    expect(within(list).getByText('v1.2.0 - Update from v1.0.0')).toBeInTheDocument();
+    expect(within(list).getByText('Needs SDK ^9.0.')).toBeInTheDocument();
+    expect(
+      within(list).queryByRole('button', { name: 'Install Old Gold' }),
+    ).not.toBeInTheDocument();
+    expect(within(list).getByRole('button', { name: 'Update Sea' })).toBeInTheDocument();
+
+    await userEvent.click(within(list).getByRole('button', { name: 'Install Night Blue' }));
+    await waitFor(() => {
+      expect(
+        api.requests('POST /api/v1/theme-catalog/sources/aaaaaaaaaaaa/themes/night-blue/install'),
+      ).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(within(list).getByText('v1.2.0 - Installed v1.2.0')).toBeInTheDocument();
+    });
+    expect(
+      within(list).queryByRole('button', { name: 'Install Night Blue' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('asks before replacing a theme installed from another source', async () => {
+    const api = catalogServer({
+      sources: [source('aaaaaaaaaaaa', URL_A)],
+      themes: [offered({ state: 'other-source', installedVersion: '1.0.0' })],
+    });
+    renderApp('/settings');
+    expect(await screen.findByText('v1.2.0 - Installed v1.0.0 from another source')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Replace Night Blue' }));
+    const confirm = within(screen.getByRole('group', { name: 'Replace Night Blue' }));
+    await userEvent.click(confirm.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('group', { name: 'Replace Night Blue' })).not.toBeInTheDocument();
+    const path = 'POST /api/v1/theme-catalog/sources/aaaaaaaaaaaa/themes/night-blue/install';
+    expect(api.requests(path)).toHaveLength(0);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Replace Night Blue' }));
+    const again = within(screen.getByRole('group', { name: 'Replace Night Blue' }));
+    await userEvent.click(again.getByRole('button', { name: 'Replace' }));
+    await waitFor(() => {
+      expect(api.requests(path)).toHaveLength(1);
+    });
+    expect(new URL(api.requests(path)[0]?.url ?? '').searchParams.get('replace')).toBe('true');
+  });
+
+  it('explains a failed install', async () => {
+    catalogServer({
+      sources: [source('aaaaaaaaaaaa', URL_A)],
+      themes: [offered()],
+      installProblem: problem(422, 'catalog-checksum-mismatch', 'mismatch'),
+    });
+    renderApp('/settings');
+    await userEvent.click(await screen.findByRole('button', { name: 'Install Night Blue' }));
+    expect(
+      await screen.findByText('The download does not match the catalog and was not installed.'),
+    ).toBeInTheDocument();
+  });
+
+  it('reports a source that failed and the entries it skipped', async () => {
+    catalogServer({
+      sources: [source('aaaaaaaaaaaa', URL_A)],
+      themes: [],
+      statuses: [
+        status({
+          problem: { code: 'catalog-timeout', message: 'the source did not answer in time' },
+          offered: 0,
+          skipped: [{ index: 2, id: 'broken', reason: 'sha256 must be 64 hex characters' }],
+        }),
+      ],
+    });
+    renderApp('/settings');
+    expect(
+      await screen.findByText(`${URL_A}: the source did not answer in time.`),
+    ).toBeInTheDocument();
+    expect(screen.getByText(`1 entries of ${URL_A} were skipped`)).toBeInTheDocument();
+    expect(screen.getByText(/#2 \(broken\): sha256 must be 64 hex characters/)).toBeInTheDocument();
+  });
+
+  it('removes a source with the version of the list it showed', async () => {
+    const api = catalogServer({ sources: [source('aaaaaaaaaaaa', URL_A)], themes: [] });
+    renderApp('/settings');
+    await userEvent.click(await screen.findByRole('button', { name: `Remove source ${URL_A}` }));
+    await screen.findByText(/No source yet/);
+    const [request] = api.requests('DELETE /api/v1/theme-catalog/sources/aaaaaaaaaaaa');
+    expect(new URL(request?.url ?? '').searchParams.get('version')).toBe('1');
+  });
+
+  it('fetches the catalog again only on request', async () => {
+    const api = catalogServer({ sources: [source('aaaaaaaaaaaa', URL_A)], themes: [offered()] });
+    renderApp('/settings');
+    await screen.findByRole('list', { name: 'Available themes' });
+    expect(api.requests('GET /api/v1/theme-catalog/themes')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => {
+      expect(api.requests('GET /api/v1/theme-catalog/themes')).toHaveLength(2);
+    });
+  });
+});

@@ -1,6 +1,7 @@
 //! Executes runs on this machine under detached supervisors.
 
 mod accounts;
+mod catalog_fetch;
 mod claude_login;
 mod cleanup;
 mod curl;
@@ -20,6 +21,7 @@ mod usage_api;
 mod worktree;
 
 pub use accounts::LocalAccountFolders;
+pub use catalog_fetch::CurlCatalogFetcher;
 pub use claude_login::LocalClaudeLogins;
 pub use local::{LocalRunner, SupervisorCommand};
 pub use login_process::LocalLoginRunner;

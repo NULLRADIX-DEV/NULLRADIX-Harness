@@ -6082,6 +6082,316 @@
         }
       }
     },
+    "/api/v1/theme-catalog/sources": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "list_catalog_sources",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogSourceListDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "add_catalog_source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCatalogSource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Added",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the source list"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogSourceDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`catalog-source-exists`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`catalog-source-invalid` (not https, private host, credentials, too long) or `catalog-source-limit`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/theme-catalog/sources/{id}": {
+      "delete": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "remove_catalog_source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Source id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Version of the source list the removal is based on.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`catalog-source-not-found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version of the list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/theme-catalog/sources/{id}/themes/{theme}/install": {
+      "post": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "install_catalog_theme",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Source id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "theme",
+            "in": "path",
+            "description": "Theme id as the source offers it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "replace",
+            "in": "query",
+            "description": "Replace a theme of the same id that was installed from another source or by upload.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replaced the installed theme with the same id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Installed",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the stylesheet"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`catalog-source-not-found` or `catalog-theme-not-found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`catalog-theme-incompatible` or `catalog-theme-installed-elsewhere` (retry with `replace=true`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`catalog-checksum-mismatch`, `theme-package-mismatch`, `catalog-too-large`, `catalog-address-refused`, or the package is invalid as an uploaded one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The source cannot be reached: `catalog-timeout`, `catalog-unreachable`, `catalog-http-error`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/theme-catalog/themes": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "browse_catalog",
+        "responses": {
+          "200": {
+            "description": "The themes of every source; a source that fails is reported in `sources`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/themes": {
       "get": {
         "tags": [
@@ -8346,6 +8656,19 @@
           "system"
         ]
       },
+      "AddCatalogSource": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "An https address of an index file, a JSON list of themes."
+          }
+        },
+        "additionalProperties": false
+      },
       "AddComment": {
         "type": "object",
         "description": "A new comment; leading and trailing whitespace is dropped.",
@@ -8629,6 +8952,181 @@
             "items": {
               "$ref": "#/components/schemas/BoardDto"
             }
+          }
+        }
+      },
+      "CatalogDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "sources"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogThemeDto"
+            },
+            "description": "Sorted by name, then id, then source."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogSourceStatusDto"
+            }
+          }
+        }
+      },
+      "CatalogProblemDto": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable code such as `catalog-timeout` or `catalog-index-invalid`."
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CatalogSourceDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "url",
+          "addedAt"
+        ],
+        "properties": {
+          "addedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable id derived from the address."
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "CatalogSourceListDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "version"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogSourceDto"
+            },
+            "description": "In the order they were added."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version of the list for removing; 0 while no source was ever added."
+          }
+        }
+      },
+      "CatalogSourceStatusDto": {
+        "type": "object",
+        "required": [
+          "source",
+          "offered",
+          "skipped"
+        ],
+        "properties": {
+          "offered": {
+            "type": "integer",
+            "description": "Valid entries of the source.",
+            "minimum": 0
+          },
+          "problem": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CatalogProblemDto",
+                "description": "Why the source could not be read; its themes are missing then."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkippedEntryDto"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/CatalogSourceDto"
+          }
+        }
+      },
+      "CatalogStateDto": {
+        "type": "string",
+        "description": "What a catalog theme means for this installation.",
+        "enum": [
+          "available",
+          "installed",
+          "update",
+          "other-source"
+        ]
+      },
+      "CatalogThemeDto": {
+        "type": "object",
+        "required": [
+          "sourceId",
+          "id",
+          "name",
+          "version",
+          "sdkVersion",
+          "compatible",
+          "state"
+        ],
+        "properties": {
+          "compatible": {
+            "type": "boolean",
+            "description": "Whether the theme fits this version; incompatible themes cannot be installed."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "installedVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The installed version when the theme is installed."
+          },
+          "name": {
+            "type": "string"
+          },
+          "sdkVersion": {
+            "type": "string",
+            "description": "Range of SDK versions the theme runs with."
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CatalogStateDto"
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -13274,6 +13772,29 @@
             "description": "Key of the ticket it was promoted to."
           },
           "title": {
+            "type": "string"
+          }
+        }
+      },
+      "SkippedEntryDto": {
+        "type": "object",
+        "required": [
+          "index",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": "integer",
+            "description": "Position of the entry in the index.",
+            "minimum": 0
+          },
+          "reason": {
             "type": "string"
           }
         }

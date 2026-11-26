@@ -25,6 +25,7 @@ mod repositories;
 mod runs;
 mod session_detail;
 mod sessions;
+mod theme_catalog;
 mod themes;
 mod tickets;
 mod usage;
@@ -60,6 +61,7 @@ use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
+use nullradix_app::theme_catalog::CatalogService;
 use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
@@ -143,6 +145,10 @@ pub use sessions::{
     DisplayStateDto, SessionClientDto, SessionDto, SessionList, SessionStateDto, SessionTicketDto,
     SubagentDto, SubagentStateDto,
 };
+pub use theme_catalog::{
+    AddCatalogSource, CatalogDto, CatalogProblemDto, CatalogSourceDto, CatalogSourceListDto,
+    CatalogSourceStatusDto, CatalogStateDto, CatalogThemeDto, SkippedEntryDto,
+};
 pub use themes::{
     ChooseTheme, ColorSchemeDto, SaveThemeSettings, ThemeDto, ThemeListDto, ThemeOptionDto,
     ThemeSettingDto, ThemeSettingValueDto, ThemeSettingsDto,
@@ -223,6 +229,7 @@ pub struct ApiState {
     pub sessions: Arc<SessionService>,
     pub favorites: Arc<FavoriteService>,
     pub themes: Arc<ThemeService>,
+    pub catalog: Arc<CatalogService>,
     pub customizations: Arc<CustomizationService>,
     pub changes: Arc<dyn ChangeFeed>,
     pub signal: ChangeSignal,
@@ -260,6 +267,13 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
         ))
         .routes(routes!(themes::theme_file))
         .routes(routes!(themes::choose_theme))
+        .routes(routes!(
+            theme_catalog::list_catalog_sources,
+            theme_catalog::add_catalog_source
+        ))
+        .routes(routes!(theme_catalog::remove_catalog_source))
+        .routes(routes!(theme_catalog::browse_catalog))
+        .routes(routes!(theme_catalog::install_catalog_theme))
         .routes(routes!(
             customizations::list_customizations,
             customizations::create_customization
@@ -520,6 +534,7 @@ pub(crate) mod tests {
         pub(crate) shutdown: CancellationToken,
         pub(crate) accounts: Arc<AccountService>,
         pub(crate) logins: Arc<LoginService>,
+        pub(crate) fetcher: Arc<crate::theme_catalog::fake::Fetcher>,
         pub(crate) _accounts_dir: tempfile::TempDir,
     }
 
@@ -837,6 +852,15 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let fetcher = Arc::new(crate::theme_catalog::fake::Fetcher::default());
+        let catalog = Arc::new(CatalogService::new(
+            store.clone(),
+            fetcher.clone(),
+            themes.clone(),
+            Arc::new(SystemClock),
+            signal.clone(),
+            nullradix_domain::Reach::Public,
+        ));
         let dispatcher_config = Arc::new(DispatcherConfigService::new(
             store.clone(),
             store.clone(),
@@ -900,6 +924,7 @@ pub(crate) mod tests {
             sessions,
             favorites,
             themes,
+            catalog,
             customizations,
             changes: changes.clone(),
             signal,
@@ -920,6 +945,7 @@ pub(crate) mod tests {
             shutdown,
             accounts,
             logins,
+            fetcher,
             _accounts_dir: accounts_dir,
         }
     }

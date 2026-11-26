@@ -43,3 +43,19 @@
   gap: 8px;
   font-size: 13px;
 }
+
+.catalog-add {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-top: 12px;
+}
+
+.catalog-add .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.catalog-skipped {
+  font-size: 13px;
+}

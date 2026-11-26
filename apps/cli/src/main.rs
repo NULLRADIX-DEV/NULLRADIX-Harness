@@ -25,6 +25,7 @@ mod session;
 mod status;
 mod step;
 mod theme;
+mod theme_catalog;
 mod themes;
 mod ticket;
 mod token;
@@ -127,6 +128,9 @@ struct ServeArgs {
     /// Built web UI to serve, such as `web/dist`
     #[arg(long, env = "NULLRADIX_WEB_DIR")]
     web_dir: Option<PathBuf>,
+    /// Let theme catalogs use http and local or private hosts
+    #[arg(long, env = "NULLRADIX_THEME_CATALOG_LOCAL")]
+    theme_catalog_local: bool,
 }
 
 fn main() -> ExitCode {
@@ -158,6 +162,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 port: args.port,
                 log: args.log,
                 web_dir: args.web_dir,
+                theme_catalog_local: args.theme_catalog_local,
             };
             let config = Config::load(profile, cli.home.as_deref(), overrides)?;
             daemon::run(&config)?;

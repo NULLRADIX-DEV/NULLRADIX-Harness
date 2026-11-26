@@ -3,23 +3,24 @@ use std::time::Duration;
 
 use nullradix_api::{
     API_PREFIX, API_VERSION, AcceptTicket, AccountDto, AccountList, AccountLoginDto,
-    AccountStatusList, AddComment, AddQuestionComment, AddStep, AnswerQuestion, BoardDeleted,
-    BoardDto, BoardList, ChangeStep, ChooseTheme, ClaimPlanning, ClaimSession, ClaimTicket,
-    CommentDto, CommentList, CreateAccount, CreateAccountLogin, CreateBoard, CreateCustomization,
-    CreateNote, CreateProject, CreateQuestion, CreateTicket, CustomizationDto, CustomizationList,
-    DecideQuestion, DispatcherConfigView, DispatcherStatusDto, DropNote, EffectiveDto,
-    ExtensionPointDto, FavoriteDto, FavoriteList, FileDiffDto, FinishTicket, FinishedTicket,
-    Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode,
-    LoginDto, MarkFavorite, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto,
-    NoteList, PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto, ProjectList,
-    PromoteNote, PromotedNote, PromptDetail, PromptKindDto, PromptListDto, PromptPreviewDto,
-    QuestionCommentDto, QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket,
-    RenameBoard, RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList,
-    SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList,
-    SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
-    ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList,
-    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
-    UpdateDispatcherConfig, UpdateTicket, WritePlan,
+    AccountStatusList, AddCatalogSource, AddComment, AddQuestionComment, AddStep, AnswerQuestion,
+    BoardDeleted, BoardDto, BoardList, CatalogDto, CatalogSourceDto, CatalogSourceListDto,
+    ChangeStep, ChooseTheme, ClaimPlanning, ClaimSession, ClaimTicket, CommentDto, CommentList,
+    CreateAccount, CreateAccountLogin, CreateBoard, CreateCustomization, CreateNote, CreateProject,
+    CreateQuestion, CreateTicket, CustomizationDto, CustomizationList, DecideQuestion,
+    DispatcherConfigView, DispatcherStatusDto, DropNote, EffectiveDto, ExtensionPointDto,
+    FavoriteDto, FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health,
+    HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto,
+    MarkFavorite, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto, NoteList,
+    PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto, ProjectList, PromoteNote,
+    PromotedNote, PromptDetail, PromptKindDto, PromptListDto, PromptPreviewDto, QuestionCommentDto,
+    QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket, RenameBoard,
+    RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SaveThemeSettings,
+    SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository,
+    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, ThemeDto,
+    ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto,
+    UpdateAccount, UpdateCustomization, UpdateDispatcher, UpdateDispatcherConfig, UpdateTicket,
+    WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -48,6 +49,9 @@ pub enum ClientError {
     #[error("unexpected response from the daemon: {0}")]
     Protocol(String),
 }
+
+/// Longer than the daemon's own limit for downloading from a catalog.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(150);
 
 /// Blocking HTTP client for short-lived callers such as the CLI and hooks.
 #[derive(Debug, Clone)]
@@ -583,6 +587,73 @@ impl Client {
             .header("Authorization", &self.authorization()?)
             .header("Content-Type", "application/octet-stream")
             .send(package)
+            .map_err(|source| self.unreachable(source))?;
+        let expected = if response.status().as_u16() == 200 {
+            200
+        } else {
+            201
+        };
+        decode(&mut response, expected)
+    }
+
+    /// The addresses the person added to look for themes.
+    pub fn catalog_sources(&self) -> Result<CatalogSourceListDto, ClientError> {
+        self.get_json("/theme-catalog/sources")
+    }
+
+    pub fn add_catalog_source(&self, url: &str) -> Result<CatalogSourceDto, ClientError> {
+        let input = AddCatalogSource {
+            url: url.to_owned(),
+        };
+        self.post_json("/theme-catalog/sources", &input, 201)
+    }
+
+    pub fn remove_catalog_source(&self, id: &str, version: i64) -> Result<(), ClientError> {
+        let route = format!("/theme-catalog/sources/{}?version={version}", segment(id));
+        let mut response = self
+            .agent
+            .delete(&self.url(&route))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    /// The themes of every source; the daemon downloads the indexes, which can take a while.
+    pub fn browse_catalog(&self) -> Result<CatalogDto, ClientError> {
+        let mut response = self
+            .agent
+            .get(&self.url("/theme-catalog/themes"))
+            .config()
+            .timeout_global(Some(DOWNLOAD_TIMEOUT))
+            .build()
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    /// Installs a theme a source offers; `replace` takes over one from elsewhere.
+    pub fn install_from_catalog(
+        &self,
+        source: &str,
+        theme: &str,
+        replace: bool,
+    ) -> Result<ThemeDto, ClientError> {
+        let query = if replace { "?replace=true" } else { "" };
+        let route = format!(
+            "/theme-catalog/sources/{}/themes/{}/install{query}",
+            segment(source),
+            segment(theme)
+        );
+        let mut response = self
+            .agent
+            .post(&self.url(&route))
+            .config()
+            .timeout_global(Some(DOWNLOAD_TIMEOUT))
+            .build()
+            .header("Authorization", &self.authorization()?)
+            .send_empty()
             .map_err(|source| self.unreachable(source))?;
         let expected = if response.status().as_u16() == 200 {
             200
@@ -1462,6 +1533,21 @@ mod tests {
         ))
     }
 
+    fn catalog_service(
+        store: &Arc<Store>,
+        themes: &Arc<nullradix_app::themes::ThemeService>,
+        signal: &ChangeSignal,
+    ) -> Arc<nullradix_app::theme_catalog::CatalogService> {
+        Arc::new(nullradix_app::theme_catalog::CatalogService::new(
+            store.clone(),
+            Arc::new(nullradix_app::theme_catalog::NoNetwork),
+            themes.clone(),
+            Arc::new(SystemClock),
+            signal.clone(),
+            nullradix_domain::Reach::Public,
+        ))
+    }
+
     #[allow(clippy::too_many_lines, reason = "wires every service")]
     async fn test_state(ready: std::sync::mpsc::Sender<Secret>) -> ApiState {
         let store = Arc::new(Store::in_memory().await.unwrap());
@@ -1575,6 +1661,7 @@ mod tests {
             },
         )
         .service;
+        let themes = theme_service(&store, &signal);
         ApiState {
             auth,
             projects,
@@ -1598,7 +1685,8 @@ mod tests {
             hooks,
             sessions,
             favorites,
-            themes: theme_service(&store, &signal),
+            themes: themes.clone(),
+            catalog: catalog_service(&store, &themes, &signal),
             customizations: customization_service(&store, &signal),
             changes: store,
             signal,
@@ -1722,6 +1810,35 @@ mod tests {
         let stranger = Secret::parse(&"c".repeat(64)).unwrap();
         let refused = client.with_token(stranger).create_handoff().unwrap_err();
         assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
+    }
+
+    #[test]
+    fn manages_catalog_sources_and_reports_an_unreachable_one() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        assert_eq!(client.catalog_sources().unwrap().version, 0);
+        let refused = client
+            .add_catalog_source("http://127.0.0.1/i.json")
+            .unwrap_err();
+        assert!(matches!(refused, ClientError::Refused { status: 422, .. }));
+
+        let source = client
+            .add_catalog_source("https://themes.example.com/index.json")
+            .unwrap();
+        let list = client.catalog_sources().unwrap();
+        assert_eq!((list.items.len(), list.version), (1, 1));
+        let catalog = client.browse_catalog().unwrap();
+        assert_eq!(catalog.items.len(), 0);
+        assert_eq!(
+            catalog.sources[0].problem.as_ref().map(|p| p.code.as_str()),
+            Some("catalog-unreachable")
+        );
+        let missing = client
+            .install_from_catalog(&source.id, "night-blue", false)
+            .unwrap_err();
+        assert!(matches!(missing, ClientError::Refused { status: 503, .. }));
+        client.remove_catalog_source(&source.id, 1).unwrap();
+        assert_eq!(client.catalog_sources().unwrap().items.len(), 0);
     }
 
     #[test]

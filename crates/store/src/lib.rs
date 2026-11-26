@@ -18,6 +18,7 @@ mod questions;
 mod repositories;
 mod runs;
 mod sessions;
+mod theme_catalog;
 mod themes;
 mod tickets;
 mod worktrees;
