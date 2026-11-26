@@ -130,6 +130,8 @@ impl DispatcherService {
         let paused_until = state.paused_until(now);
         let minute = self.local.minute_of_day(now).await;
         let idle = idle_reason(enabled, paused_until, config.window.as_ref(), now, minute);
+        // read first: a setup that ends meanwhile has its run in the list read afterwards
+        let launching = self.starter.launching();
         let runs: Vec<Run> = self
             .runs
             .active()
@@ -138,7 +140,7 @@ impl DispatcherService {
             .filter(|run| run.dispatch().is_some())
             .collect();
         let working = runs.iter().filter(|run| counts_for_wip(run)).count();
-        let active = working + self.starter.launching();
+        let active = working + launching;
         let planning = runs
             .iter()
             .filter_map(Run::dispatch)
@@ -218,9 +220,8 @@ impl DispatcherService {
         self.status(None).await
     }
 
-    /// Runs one pass now, or joins the one that runs, and reports what it did.
-    pub async fn run_pass(&self, board: Option<Id<Board>>) -> Result<PassReport, AppError> {
-        self.check_board(board).await?;
-        Ok(self.pass.run().await)
+    /// Runs one pass now, or joins the one that runs; a pass serves every board.
+    pub async fn run_pass(&self) -> PassReport {
+        self.pass.run().await
     }
 }

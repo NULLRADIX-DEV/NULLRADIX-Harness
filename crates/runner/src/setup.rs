@@ -246,13 +246,14 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join("web")).unwrap();
         let outcome = run(&request(
-                temp.path(),
-                &[
-                    ("web", "echo one> marker.txt"),
-                    (".", "echo two> second.txt"),
-                ],
-                Duration::from_secs(30),
-            )).await;
+            temp.path(),
+            &[
+                ("web", "echo one> marker.txt"),
+                (".", "echo two> second.txt"),
+            ],
+            Duration::from_secs(30),
+        ))
+        .await;
         assert_eq!(outcome, SetupOutcome::Done);
         assert!(temp.path().join("web/marker.txt").is_file());
         assert!(temp.path().join("second.txt").is_file());
@@ -262,10 +263,11 @@ mod tests {
     async fn the_first_failing_step_stops_the_setup_with_its_output() {
         let temp = tempfile::tempdir().unwrap();
         let outcome = run(&request(
-                temp.path(),
-                &[(".", failing_command()), (".", "echo never> late.txt")],
-                Duration::from_secs(30),
-            )).await;
+            temp.path(),
+            &[(".", failing_command()), (".", "echo never> late.txt")],
+            Duration::from_secs(30),
+        ))
+        .await;
         let SetupOutcome::Failed(found) = outcome else {
             panic!("the step must fail");
         };
@@ -278,10 +280,11 @@ mod tests {
     async fn a_folder_outside_the_worktree_is_refused() {
         let temp = tempfile::tempdir().unwrap();
         let outcome = run(&request(
-                temp.path(),
-                &[("..", "echo x")],
-                Duration::from_secs(30),
-            )).await;
+            temp.path(),
+            &[("..", "echo x")],
+            Duration::from_secs(30),
+        ))
+        .await;
         let SetupOutcome::Failed(found) = outcome else {
             panic!("the step must fail");
         };
@@ -293,10 +296,11 @@ mod tests {
     async fn a_step_that_takes_too_long_is_killed() {
         let temp = tempfile::tempdir().unwrap();
         let outcome = run(&request(
-                temp.path(),
-                &[(".", sleep_command())],
-                Duration::from_millis(300),
-            )).await;
+            temp.path(),
+            &[(".", sleep_command())],
+            Duration::from_millis(300),
+        ))
+        .await;
         let SetupOutcome::Failed(found) = outcome else {
             panic!("the step must time out");
         };
@@ -312,7 +316,12 @@ mod tests {
         } else {
             "\"echo\" hi>\"two words.txt\""
         };
-        let outcome = run(&request(temp.path(), &[(".", line)], Duration::from_secs(30))).await;
+        let outcome = run(&request(
+            temp.path(),
+            &[(".", line)],
+            Duration::from_secs(30),
+        ))
+        .await;
         assert_eq!(outcome, SetupOutcome::Done);
         assert!(temp.path().join("two words.txt").is_file());
     }
@@ -325,7 +334,12 @@ mod tests {
         } else {
             "i=1; while [ $i -le 6000 ]; do echo line number $i padding padding padding; i=$((i+1)); done; exit 1"
         };
-        let outcome = run(&request(temp.path(), &[(".", line)], Duration::from_secs(60))).await;
+        let outcome = run(&request(
+            temp.path(),
+            &[(".", line)],
+            Duration::from_secs(60),
+        ))
+        .await;
         let SetupOutcome::Failed(found) = outcome else {
             panic!("the step must fail");
         };
@@ -351,7 +365,12 @@ mod tests {
     async fn a_missing_git_bash_fails_the_step_instead_of_using_cmd() {
         let temp = tempfile::tempdir().unwrap();
         let mut asked = request(temp.path(), &[(".", "echo x")], Duration::from_secs(30));
-        asked.git_bash = Some(temp.path().join("no-bash.exe").to_string_lossy().into_owned());
+        asked.git_bash = Some(
+            temp.path()
+                .join("no-bash.exe")
+                .to_string_lossy()
+                .into_owned(),
+        );
         let SetupOutcome::Failed(found) = run(&asked).await else {
             panic!("the step must fail");
         };
@@ -363,7 +382,11 @@ mod tests {
     async fn cancelling_kills_the_running_step() {
         let temp = tempfile::tempdir().unwrap();
         let cancel = CancellationToken::new();
-        let asked = request(temp.path(), &[(".", sleep_command())], Duration::from_secs(120));
+        let asked = request(
+            temp.path(),
+            &[(".", sleep_command())],
+            Duration::from_secs(120),
+        );
         let task = tokio::spawn({
             let cancel = cancel.clone();
             async move { LocalSetup.run(&asked, &cancel).await.unwrap() }

@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AppProviders } from '../../app/providers';
 import { createQueryClient } from '../../app/queryClient';
 import { liveRegistry } from '../../app/liveRegistry';
@@ -104,6 +104,38 @@ describe('the dispatcher status live keys', () => {
   it('refreshes the status on dispatcher state, run and ticket changes', () => {
     for (const entity of ['dispatcher-state', 'run', 'ticket']) {
       expect(liveRegistry[entity]).toContainEqual(dispatcherKeys.status());
+    }
+  });
+
+  it('refetches the state when the pause has ended', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const paused = statusDto({ state: 'paused', pausedUntil: Date.now() + 60_000 });
+      const api = renderIndicator({
+        'GET /api/v1/dispatcher': () => json(200, paused),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.requests('GET /api/v1/dispatcher')).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(api.requests('GET /api/v1/dispatcher')).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(api.requests('GET /api/v1/dispatcher')).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not poll without a pause or a window', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const api = renderIndicator({
+        'GET /api/v1/dispatcher': () => json(200, statusDto()),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(3_600_000);
+      expect(api.requests('GET /api/v1/dispatcher')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

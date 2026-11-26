@@ -32,15 +32,17 @@ use nullradix_app::session_detail::{
 };
 use nullradix_app::tickets::{NewTicket, TicketPatch, TicketService, WriteOptions};
 use nullradix_app::worktrees::{
-    CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval,
-    WorktreeService,
+    CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, StartMode,
+    WorktreeRemoval, WorktreeService,
 };
 use nullradix_app::{AppError, ChangeSignal, Clock, UuidV7Generator};
 use nullradix_domain::{
-    Actor, ActorKind, Board, ConfigDir, Id, Run, Timestamp, Version, WorktreeSetupStep,
+    Actor, ActorKind, Board, ConfigDir, Id, Run, Runner, SetupState, Timestamp, Version,
+    WorktreeSetupStep,
 };
 use nullradix_store::Store;
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 const START: i64 = 1_800_000_000_000;
 const MINUTE: i64 = 60_000;
@@ -75,6 +77,10 @@ impl LocalTime for FakeClock {
 struct Machine {
     folders: Mutex<HashSet<String>>,
     specs: Mutex<Vec<RunSpec>>,
+    /// The next worktree creation waits for `create_release` when set.
+    hold_create: Mutex<Option<Arc<Notify>>>,
+    create_entered: Notify,
+    fail_create: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -121,6 +127,14 @@ impl RunnerPort for Machine {
     }
 
     async fn create_worktree(&self, request: &NewWorktree) -> Result<CreatedWorktree, AppError> {
+        let gate = self.hold_create.lock().unwrap().take();
+        if let Some(gate) = gate {
+            self.create_entered.notify_one();
+            gate.notified().await;
+        }
+        if self.fail_create.load(Ordering::SeqCst) {
+            return Err(AppError::invalid("git-failed", "git is broken"));
+        }
         self.folders.lock().unwrap().insert(request.path.clone());
         Ok(CreatedWorktree::default())
     }
@@ -229,12 +243,19 @@ struct ScriptedSetup {
 
 #[async_trait]
 impl WorktreeSetupPort for ScriptedSetup {
-    async fn run(&self, request: &SetupRequest) -> Result<SetupOutcome, AppError> {
+    async fn run(
+        &self,
+        request: &SetupRequest,
+        cancel: &CancellationToken,
+    ) -> Result<SetupOutcome, AppError> {
         self.runs.lock().unwrap().push(request.clone());
         self.entered.notify_one();
         let gate = self.release.lock().unwrap().clone();
         if let Some(gate) = gate {
-            gate.notified().await;
+            tokio::select! {
+                () = gate.notified() => {}
+                () = cancel.cancelled() => return Ok(SetupOutcome::Cancelled),
+            }
         }
         Ok(match self.failure.lock().unwrap().clone() {
             Some(failure) => SetupOutcome::Failed(failure),
@@ -251,6 +272,8 @@ struct Fixture {
     config: Arc<DispatcherConfigService>,
     tickets: Arc<TicketService>,
     comments: Arc<CommentService>,
+    worktrees: Arc<WorktreeService>,
+    local: Id<Runner>,
     person: Actor,
     board: Board,
     store: Arc<Store>,
@@ -384,7 +407,7 @@ async fn fixture() -> Fixture {
         prompts,
         tickets: tickets.clone(),
         comments: comments.clone(),
-        worktrees,
+        worktrees: worktrees.clone(),
         clock: clock.clone(),
         ids,
         signal,
@@ -399,6 +422,8 @@ async fn fixture() -> Fixture {
         config,
         tickets,
         comments,
+        worktrees,
+        local,
         person,
         board,
         store,
@@ -807,4 +832,281 @@ async fn a_state_write_on_a_stale_version_changes_nothing() {
         store.load().await.unwrap().record().enabled_override,
         Some(true)
     );
+}
+
+fn setup_config(config: &mut nullradix_domain::DispatcherConfig) {
+    config.enabled = true;
+    config.worktree_setup = vec![WorktreeSetupStep {
+        cwd: String::from("."),
+        run: String::from("npm ci"),
+    }];
+}
+
+#[tokio::test]
+async fn a_ticket_that_changed_during_setup_does_not_get_a_run() {
+    let f = fixture().await;
+    f.configure(setup_config).await;
+    let gate = Arc::new(Notify::new());
+    *f.setup.release.lock().unwrap() = Some(gate.clone());
+    let key = f.ready("Build", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started, [key.clone()]);
+    f.setup.entered.notified().await;
+    // a person takes the ticket back while the setup runs
+    f.tickets
+        .release(&key, Some("planned"), &f.person, None)
+        .await
+        .unwrap();
+    gate.notify_one();
+    f.dispatcher.starter.wait_idle().await;
+    assert!(f.started_cwds().is_empty(), "no run for a released ticket");
+    let record = f.record(&key).await;
+    assert_eq!(record.assignee, None);
+    assert_eq!(record.status, nullradix_domain::TicketStatus::Planned);
+    let (_, state) = f.worktrees.setup_state(&key).await.unwrap().unwrap();
+    assert_eq!(state, SetupState::Done);
+    let lines = nullradix_app::dispatch::log::DispatcherLogRepository::recent(f.store.as_ref(), 20)
+        .await
+        .unwrap();
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.message.contains("changed during setup"))
+    );
+}
+
+#[tokio::test]
+async fn a_failed_start_never_undoes_a_manual_start_that_came_in_between() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.ready("Build", &["auto"]).await;
+    let gate = Arc::new(Notify::new());
+    *f.machine.hold_create.lock().unwrap() = Some(gate.clone());
+    let pass = tokio::spawn({
+        let pass = f.dispatcher.pass.clone();
+        async move { pass.run().await }
+    });
+    f.machine.create_entered.notified().await;
+    // a person starts the claimed ticket by hand while git works for the dispatcher
+    f.worktrees
+        .start(&key, f.local, ROOT, StartMode::New, false, &f.person)
+        .await
+        .unwrap();
+    let before = f.record(&key).await;
+    assert_eq!(before.status, nullradix_domain::TicketStatus::InProgress);
+    gate.notify_one();
+    let report = pass.await.unwrap();
+    assert!(report.started.is_empty(), "{report:?}");
+    assert_eq!(f.record(&key).await, before, "the manual start stays");
+    assert!(f.started_cwds().is_empty());
+}
+
+#[tokio::test]
+async fn a_second_ticket_waits_while_a_setup_runs_in_the_folder_it_would_join() {
+    let f = fixture().await;
+    f.configure(|config| {
+        setup_config(config);
+        config.wip = 2;
+        config.join_worktrees = nullradix_domain::JoinWorktrees::SameSpec;
+    })
+    .await;
+    let gate = Arc::new(Notify::new());
+    *f.setup.release.lock().unwrap() = Some(gate.clone());
+    let first = f.ready("Build", &["auto"]).await;
+    let second = f.ready("Same folder", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started, [first.clone()]);
+    f.setup.entered.notified().await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.started.is_empty(), "{report:?}");
+    assert_eq!(
+        f.setup.runs.lock().unwrap().len(),
+        1,
+        "one setup per folder"
+    );
+    let waiting = f.record(&second).await;
+    assert_eq!(waiting.assignee, None);
+    gate.notify_one();
+    f.dispatcher.starter.wait_idle().await;
+    assert_eq!(f.setup.runs.lock().unwrap().len(), 1);
+    assert_eq!(f.started_cwds().len(), 1);
+}
+
+#[tokio::test]
+async fn a_pass_that_loses_its_caller_still_runs_to_the_end_and_frees_the_place() {
+    use nullradix_app::dispatch::pass::{PassContext, PassPhase, PassReport, PassStep};
+    struct Slow {
+        entered: Notify,
+        gate: Notify,
+        starts: std::sync::atomic::AtomicUsize,
+        finished: std::sync::atomic::AtomicUsize,
+    }
+    #[async_trait]
+    impl PassStep for Slow {
+        async fn run(
+            &self,
+            _context: &PassContext,
+            _report: &mut PassReport,
+        ) -> Result<(), AppError> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            self.entered.notify_one();
+            self.gate.notified().await;
+            self.finished.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    let f = fixture().await;
+    let step = Arc::new(Slow {
+        entered: Notify::new(),
+        gate: Notify::new(),
+        starts: std::sync::atomic::AtomicUsize::new(0),
+        finished: std::sync::atomic::AtomicUsize::new(0),
+    });
+    f.dispatcher
+        .pass
+        .set_step(PassPhase::RecorderFlush, step.clone());
+    let caller = tokio::spawn({
+        let pass = f.dispatcher.pass.clone();
+        async move { pass.run().await }
+    });
+    step.entered.notified().await;
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    // the next caller joins the pass that goes on
+    let joined = tokio::spawn({
+        let pass = f.dispatcher.pass.clone();
+        async move { pass.run().await }
+    });
+    for _ in 0..5 {
+        tokio::task::yield_now().await;
+    }
+    step.gate.notify_one();
+    let report = joined.await.unwrap();
+    assert!(report.errors.is_empty());
+    assert_eq!(step.starts.load(Ordering::SeqCst), 1, "one pass for both");
+    assert_eq!(step.finished.load(Ordering::SeqCst), 1, "not cut off");
+    // the place is free again: the next call is a new pass
+    step.gate.notify_one();
+    f.dispatcher.pass.run().await;
+    assert_eq!(step.starts.load(Ordering::SeqCst), 2);
+    assert_eq!(step.finished.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn shutdown_cancels_running_setups_and_gives_their_tickets_back() {
+    let f = fixture().await;
+    f.configure(setup_config).await;
+    *f.setup.release.lock().unwrap() = Some(Arc::new(Notify::new()));
+    let key = f.ready("Build", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started, [key.clone()]);
+    f.setup.entered.notified().await;
+    f.dispatcher
+        .starter
+        .shutdown(std::time::Duration::from_secs(30))
+        .await;
+    assert_eq!(f.dispatcher.starter.launching(), 0);
+    assert!(f.started_cwds().is_empty());
+    let record = f.record(&key).await;
+    assert_eq!(record.assignee, None);
+    assert_eq!(record.status, nullradix_domain::TicketStatus::Planned);
+    let (_, state) = f.worktrees.setup_state(&key).await.unwrap().unwrap();
+    assert_eq!(
+        state,
+        SetupState::Pending,
+        "the next start runs the setup again"
+    );
+}
+
+#[tokio::test]
+async fn a_start_that_always_fails_is_not_tried_again_until_the_ticket_changes() {
+    let f = fixture().await;
+    f.enable().await;
+    f.machine.fail_create.store(true, Ordering::SeqCst);
+    let key = f.ready("Build", &["auto"]).await;
+    let first = f.dispatcher.pass.run().await;
+    assert_eq!(first.errors.len(), 1, "{first:?}");
+    let after_first = f.record(&key).await;
+    assert_eq!(after_first.assignee, None, "the claim was given back");
+    let second = f.dispatcher.pass.run().await;
+    assert!(second.errors.is_empty(), "{second:?}");
+    assert_eq!(
+        f.record(&key).await,
+        after_first,
+        "no claim and release again"
+    );
+    // an edit of the ticket is a reason to try again
+    let patch = TicketPatch {
+        plan: Some(String::from("Do it differently.")),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, after_first.version, FORCE)
+        .await
+        .unwrap();
+    f.machine.fail_create.store(false, Ordering::SeqCst);
+    assert_eq!(f.dispatcher.pass.run().await.started, [key]);
+}
+
+#[tokio::test]
+async fn switching_to_the_same_value_and_pausing_to_the_same_moment_write_nothing() {
+    use nullradix_app::dispatch::control::PauseFor;
+    let f = fixture().await;
+    let on = f.dispatcher.service.set_enabled(true).await.unwrap();
+    let again = f.dispatcher.service.set_enabled(true).await.unwrap();
+    assert_eq!(on.version, again.version);
+    let until = Timestamp::from_millis(START + 60 * MINUTE);
+    let paused = f
+        .dispatcher
+        .service
+        .pause(PauseFor::Until(until))
+        .await
+        .unwrap();
+    let same = f
+        .dispatcher
+        .service
+        .pause(PauseFor::Until(until))
+        .await
+        .unwrap();
+    assert_eq!(paused.version, same.version);
+}
+
+#[tokio::test]
+async fn a_pause_may_not_reach_beyond_a_day() {
+    use nullradix_app::dispatch::control::PauseFor;
+    let f = fixture().await;
+    let day = 24 * 60 * MINUTE;
+    let limit = Timestamp::from_millis(START + day);
+    assert!(
+        f.dispatcher
+            .service
+            .pause(PauseFor::Until(limit))
+            .await
+            .is_ok()
+    );
+    let beyond = Timestamp::from_millis(START + day + 1);
+    let refused = f
+        .dispatcher
+        .service
+        .pause(PauseFor::Until(beyond))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code(), "dispatcher-pause-invalid");
+}
+
+#[tokio::test]
+async fn a_pass_removes_log_lines_older_than_thirty_days() {
+    use nullradix_app::IdGenerator;
+    use nullradix_app::dispatch::log::{DispatcherLogRepository, LogLevel, LogLine};
+    let f = fixture().await;
+    let ids = UuidV7Generator;
+    let old = LogLine {
+        id: ids.next_uuid(),
+        at: Timestamp::from_millis(START - 31 * 24 * 60 * MINUTE),
+        level: LogLevel::Info,
+        message: String::from("ancient"),
+        run: None,
+        subject: None,
+    };
+    f.store.append(&old).await.unwrap();
+    assert_eq!(f.store.recent(10).await.unwrap().len(), 1);
+    f.dispatcher.pass.run().await;
+    assert!(f.store.recent(10).await.unwrap().is_empty());
 }

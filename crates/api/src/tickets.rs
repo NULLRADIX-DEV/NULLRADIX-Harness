@@ -1083,7 +1083,12 @@ pub(crate) async fn release_ticket(
 ) -> Result<Json<TicketDto>, ApiError> {
     let view = state
         .tickets
-        .release(&path.ticket_key, input.status.as_deref(), &state.person, None)
+        .release(
+            &path.ticket_key,
+            input.status.as_deref(),
+            &state.person,
+            None,
+        )
         .await?;
     Ok(Json(view.into()))
 }

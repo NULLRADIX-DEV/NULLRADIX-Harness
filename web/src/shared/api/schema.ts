@@ -3074,10 +3074,6 @@ export interface components {
             /** @description Filled into the login page of the browser. */
             email?: string | null;
         };
-        StartPass: {
-            /** Format: uuid */
-            boardId?: string | null;
-        };
         /** @description A command to run on the daemon's machine; only token holders may start runs. */
         StartRun: {
             args?: string[];
@@ -4864,11 +4860,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartPass"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description What the pass did */
             200: {
@@ -4880,23 +4872,6 @@ export interface operations {
                 };
             };
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unknown board */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };

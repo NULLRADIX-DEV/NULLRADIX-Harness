@@ -1,7 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { problemMessage } from '../../shared/api/problemMessage';
 import { FormError } from '../../shared/ui/FormError';
+import { dispatcherConfigQuery, dispatcherKeys } from './queries';
+import { nextEdgeDelay } from './statusEdge';
 import {
   dispatcherStatusQuery,
   usePauseDispatcher,
@@ -27,8 +29,36 @@ export function stateLabel(status: DispatcherStatus): string {
   }
 }
 
+// The state depends on the clock: refetch once the pause or the window edge has passed.
+const EDGE_MARGIN_MS = 1000;
+const MAX_TIMER_MS = 2_147_483_647;
+
+function useRefetchAtEdge(status: UseQueryResult<DispatcherStatus>) {
+  const queryClient = useQueryClient();
+  const config = useQuery(dispatcherConfigQuery());
+  const pausedUntil = status.data?.pausedUntil;
+  const window = config.data?.config.window;
+  const from = window?.from;
+  const to = window?.to;
+  useEffect(() => {
+    const edge = from !== undefined && to !== undefined ? { from, to } : null;
+    const delay = nextEdgeDelay(new Date(), pausedUntil, edge);
+    if (delay === null) return undefined;
+    const timer = setTimeout(
+      () => {
+        void queryClient.invalidateQueries({ queryKey: dispatcherKeys.status() });
+      },
+      Math.min(delay + EDGE_MARGIN_MS, MAX_TIMER_MS),
+    );
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [queryClient, pausedUntil, from, to, status.dataUpdatedAt]);
+}
+
 export function DispatcherIndicator() {
   const status = useQuery(dispatcherStatusQuery());
+  useRefetchAtEdge(status);
   const setEnabled = useSetDispatcherEnabled();
   const pause = usePauseDispatcher();
   const resume = useResumeDispatcher();

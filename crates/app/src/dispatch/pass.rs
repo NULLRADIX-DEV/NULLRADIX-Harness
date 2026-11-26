@@ -1,7 +1,7 @@
 //! One dispatcher pass: its steps in a fixed order, one pass at a time.
 
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
 use nullradix_domain::{DispatcherConfig, IdleReason, Run, RunKind, Timestamp, idle_reason};
@@ -149,8 +149,19 @@ pub struct DispatchPass {
     steps: Mutex<Slots>,
     /// Shared by everything that must not run beside a pass: merges, accepts, returns.
     lock: AsyncMutex<()>,
-    flight: AsyncMutex<Option<watch::Receiver<Option<PassReport>>>>,
+    /// The pass that runs now; never held across an await.
+    flight: Mutex<Option<watch::Receiver<Option<PassReport>>>>,
     last: Mutex<Option<PassReport>>,
+    me: Weak<Self>,
+}
+
+/// Frees the place of the running pass, also when its task stops early.
+struct FlightGuard<'a>(&'a DispatchPass);
+
+impl Drop for FlightGuard<'_> {
+    fn drop(&mut self) {
+        *self.0.flight.lock() = None;
+    }
 }
 
 impl std::fmt::Debug for DispatchPass {
@@ -168,7 +179,7 @@ impl DispatchPass {
         local: Arc<dyn LocalTime>,
         log: Arc<DispatchLog>,
     ) -> Arc<Self> {
-        Arc::new(Self {
+        Arc::new_cyclic(|me| Self {
             config,
             state,
             clock,
@@ -176,8 +187,9 @@ impl DispatchPass {
             log,
             steps: Mutex::new(std::array::from_fn(|_| None)),
             lock: AsyncMutex::new(()),
-            flight: AsyncMutex::new(None),
+            flight: Mutex::new(None),
             last: Mutex::new(None),
+            me: me.clone(),
         })
     }
 
@@ -203,40 +215,47 @@ impl DispatchPass {
     }
 
     /// One pass; a caller who comes while one runs gets the result of that one.
+    /// The pass runs on its own task, so a caller that gives up never stops it halfway.
     pub async fn run(&self) -> PassReport {
-        let leader = {
-            let mut flight = self.flight.lock().await;
-            if let Some(receiver) = flight.clone() {
-                Err(receiver)
-            } else {
-                let (sender, receiver) = watch::channel(None);
-                *flight = Some(receiver);
-                Ok(sender)
-            }
+        let Some(this) = self.me.upgrade() else {
+            return self.exclusive(|| self.pass()).await;
         };
-        match leader {
-            Ok(sender) => {
-                let report = self.exclusive(|| self.pass()).await;
-                *self.flight.lock().await = None;
-                // nobody may be waiting
-                let _ = sender.send(Some(report.clone()));
-                report
-            }
-            Err(mut receiver) => loop {
+        loop {
+            let mut receiver = Self::join_or_start(&this);
+            loop {
                 if let Some(report) = receiver.borrow_and_update().clone() {
-                    break report;
+                    return report;
                 }
-                // the pass we waited for was dropped without a result, so run our own
+                // the pass ended without a result, so the next round starts one
                 if receiver.changed().await.is_err() {
-                    break self.exclusive(|| self.pass()).await;
+                    break;
                 }
-            },
+            }
         }
+    }
+
+    fn join_or_start(this: &Arc<Self>) -> watch::Receiver<Option<PassReport>> {
+        let mut flight = this.flight.lock();
+        if let Some(receiver) = flight.clone() {
+            return receiver;
+        }
+        let (sender, receiver) = watch::channel(None);
+        *flight = Some(receiver.clone());
+        let this = Arc::clone(this);
+        tokio::spawn(async move {
+            let guard = FlightGuard(&this);
+            let report = this.exclusive(|| this.pass()).await;
+            drop(guard);
+            // nobody may be waiting
+            let _ = sender.send(Some(report));
+        });
+        receiver
     }
 
     async fn pass(&self) -> PassReport {
         let now = self.clock.now();
         let mut report = PassReport::new(now);
+        self.log.prune().await;
         if let Err(error) = self.steps(now, &mut report).await {
             report.errors.push(error.message().to_owned());
         }

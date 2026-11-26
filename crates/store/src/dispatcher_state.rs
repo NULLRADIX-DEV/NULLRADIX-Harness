@@ -9,9 +9,6 @@ use uuid::Uuid;
 use crate::error::database;
 use crate::{Store, StoreError, change_feed};
 
-/// Log lines older than this many milliseconds are dropped when a line is written.
-const LOG_KEPT_MS: i64 = 30 * 24 * 60 * 60 * 1000;
-
 fn corrupt(what: &str) -> StoreError {
     StoreError::Corrupt(format!("invalid dispatcher {what}"))
 }
@@ -85,7 +82,6 @@ impl DispatcherLogRepository for Store {
         let at = line.at.as_millis();
         let level = line.level.as_str();
         let run = line.run.as_ref().map(Id::as_uuid);
-        let oldest = at.saturating_sub(LOG_KEPT_MS);
         let mut tx = self.begin().await?;
         sqlx::query!(
             "INSERT INTO dispatcher_log (id, at, level, message, run_id, subject_key)
@@ -100,12 +96,19 @@ impl DispatcherLogRepository for Store {
         .execute(&mut *tx)
         .await
         .map_err(database)?;
-        sqlx::query!("DELETE FROM dispatcher_log WHERE at < ?", oldest)
+        tx.commit().await.map_err(database)?;
+        Ok(())
+    }
+
+    async fn prune_before(&self, before: Timestamp) -> Result<u64, AppError> {
+        let before = before.as_millis();
+        let mut tx = self.begin().await?;
+        let removed = sqlx::query!("DELETE FROM dispatcher_log WHERE at < ?", before)
             .execute(&mut *tx)
             .await
             .map_err(database)?;
         tx.commit().await.map_err(database)?;
-        Ok(())
+        Ok(removed.rows_affected())
     }
 
     async fn recent(&self, limit: u32) -> Result<Vec<LogLine>, AppError> {

@@ -85,7 +85,7 @@
       "http": {
         "method": "POST",
         "path": "/api/v1/dispatcher/passes",
-        "body": { "boardId": "{{board}}" }
+        "body": {}
       }
     },
     {
@@ -102,14 +102,6 @@
     {
       "name": "state with a broken board id",
       "http": { "method": "GET", "path": "/api/v1/dispatcher?boardId=x" }
-    },
-    {
-      "name": "a pass for an unknown board",
-      "http": {
-        "method": "POST",
-        "path": "/api/v1/dispatcher/passes",
-        "body": { "boardId": "019a0000-0000-7000-8000-00000000ffff" }
-      }
     },
     {
       "name": "pause without minutes",

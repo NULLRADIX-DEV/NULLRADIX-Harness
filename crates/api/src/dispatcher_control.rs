@@ -192,12 +192,6 @@ pub struct PauseDispatcher {
     pub until: Option<i64>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct StartPass {
-    pub board_id: Option<Uuid>,
-}
-
 #[utoipa::path(
     get,
     path = "/dispatcher",
@@ -275,20 +269,15 @@ pub(crate) async fn resume_dispatcher(
     post,
     path = "/dispatcher/passes",
     tag = "dispatcher",
-    request_body = StartPass,
     responses(
         (status = 200, description = "What the pass did", body = PassReportDto),
         (status = 401, body = Problem),
-        (status = 404, description = "Unknown board", body = Problem),
-        (status = 422, body = Problem),
     )
 )]
 pub(crate) async fn run_pass(
     State(state): State<ApiState>,
-    ApiJson(input): ApiJson<StartPass>,
 ) -> Result<Json<PassReportDto>, ApiError> {
-    let board = input.board_id.map(Id::from_uuid);
-    Ok(Json(state.dispatcher.run_pass(board).await?.into()))
+    Ok(Json(state.dispatcher.run_pass().await.into()))
 }
 
 #[cfg(test)]
@@ -368,7 +357,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_pass_runs_on_request_and_an_unknown_board_is_refused() {
+    async fn a_pass_runs_on_request() {
         let api = test_api().await;
         let (status, body) = call(
             &api,
@@ -379,12 +368,5 @@ mod tests {
         assert_eq!(status, 200);
         assert!(body["at"].as_i64().is_some());
         assert_eq!(body["started"], json!([]));
-        let (status, body) = call(
-            &api,
-            local(Request::post("/api/v1/dispatcher/passes")),
-            Some(json!({ "boardId": "019a0000-0000-7000-8000-00000000ffff" })),
-        )
-        .await;
-        assert_eq!((status, &body["code"]), (404, &json!("board-not-found")));
     }
 }

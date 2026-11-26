@@ -46,7 +46,7 @@ export function useResumeDispatcher() {
 export function useRunDispatcherPass() {
   const invalidate = useInvalidate(dispatcherKeys.status());
   return useMutation({
-    mutationFn: async () => unwrap(await api.POST('/api/v1/dispatcher/passes', { body: {} })),
+    mutationFn: async () => unwrap(await api.POST('/api/v1/dispatcher/passes')),
     onSettled: invalidate,
   });
 }

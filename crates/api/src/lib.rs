@@ -98,7 +98,7 @@ pub use dispatcher_config::{
 };
 pub use dispatcher_control::{
     DispatcherPhaseDto, DispatcherRunDto, DispatcherStatusDto, PassReportDto, PauseDispatcher,
-    StartPass, TicketReadinessDto, UpdateDispatcher,
+    TicketReadinessDto, UpdateDispatcher,
 };
 pub use dispatcher_prompts::{
     PlaceholderDto, PreviewPrompt, PromptDetail, PromptDto, PromptKindDto, PromptListDto,

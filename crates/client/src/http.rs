@@ -16,9 +16,9 @@ use nullradix_api::{
     QuestionCommentDto, QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket,
     RenameBoard, RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList,
     SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList,
-    SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartPass, StartRun, StartTicket,
-    StartedTicket, ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto,
-    TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
+    SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
+    ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList,
+    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
     UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
@@ -194,7 +194,7 @@ impl Client {
 
     /// Runs one pass now and returns the state after it.
     pub fn run_dispatcher_pass(&self) -> Result<PassReportDto, ClientError> {
-        self.post_json("/dispatcher/passes", &StartPass::default(), 200)
+        self.post_json("/dispatcher/passes", &serde_json::json!({}), 200)
     }
 
     pub fn dispatcher_config(&self) -> Result<DispatcherConfigView, ClientError> {

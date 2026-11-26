@@ -9,6 +9,9 @@ use uuid::Uuid;
 
 use crate::{AppError, Clock, IdGenerator};
 
+/// How long a line stays in the log.
+pub const LOG_KEPT: std::time::Duration = std::time::Duration::from_hours(30 * 24);
+
 /// Longest log message kept, in characters.
 pub const MESSAGE_MAX: usize = 2000;
 
@@ -44,6 +47,8 @@ pub trait DispatcherLogRepository: Send + Sync {
     async fn append(&self, line: &LogLine) -> Result<(), AppError>;
     /// Newest first.
     async fn recent(&self, limit: u32) -> Result<Vec<LogLine>, AppError>;
+    /// Removes the lines older than `before`.
+    async fn prune_before(&self, before: Timestamp) -> Result<u64, AppError>;
 }
 
 /// Writes lines; a line that cannot be written is reported to the process log and dropped.
@@ -103,6 +108,15 @@ impl DispatchLog {
 
     pub async fn recent(&self, limit: u32) -> Result<Vec<LogLine>, AppError> {
         self.repository.recent(limit).await
+    }
+
+    /// Drops the lines older than `LOG_KEPT`.
+    pub async fn prune(&self) {
+        let kept = i64::try_from(LOG_KEPT.as_millis()).unwrap_or(i64::MAX);
+        let before = Timestamp::from_millis(self.clock.now().as_millis().saturating_sub(kept));
+        if let Err(error) = self.repository.prune_before(before).await {
+            tracing::warn!(%error, "cannot prune the dispatcher log");
+        }
     }
 }
 

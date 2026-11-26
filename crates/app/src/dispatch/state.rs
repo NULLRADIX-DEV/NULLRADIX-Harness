@@ -41,6 +41,14 @@ pub fn pause_invalid(minutes: u32) -> AppError {
 }
 
 #[must_use]
+pub fn pause_too_long() -> AppError {
+    AppError::invalid(
+        "dispatcher-pause-invalid",
+        format!("the pause must end within {MAX_PAUSE_MINUTES} minutes"),
+    )
+}
+
+#[must_use]
 pub fn pause_in_the_past() -> AppError {
     AppError::invalid(
         "dispatcher-pause-invalid",
@@ -107,7 +115,14 @@ impl DispatcherStateService {
 
     /// Sets the switch; `None` follows the configuration again.
     pub async fn set_enabled(&self, enabled: Option<bool>) -> Result<DispatcherState, AppError> {
-        self.change(|state| state.with_enabled(enabled)).await
+        self.change(|state| {
+            if state.record().enabled_override == enabled {
+                state.clone()
+            } else {
+                state.with_enabled(enabled)
+            }
+        })
+        .await
     }
 
     /// Pauses new starts for `minutes`, at least one and at most a day.
@@ -126,10 +141,24 @@ impl DispatcherStateService {
 
     /// Pauses until a moment, which must lie in the future.
     pub async fn pause_until(&self, until: Timestamp) -> Result<DispatcherState, AppError> {
-        if until <= self.clock.now() {
+        let now = self.clock.now();
+        if until <= now {
             return Err(pause_in_the_past());
         }
-        self.change(|state| state.paused(until)).await
+        let latest = now
+            .checked_add(Duration::from_secs(u64::from(MAX_PAUSE_MINUTES) * 60))
+            .ok_or_else(pause_too_long)?;
+        if until > latest {
+            return Err(pause_too_long());
+        }
+        self.change(|state| {
+            if state.record().paused_until == Some(until) {
+                state.clone()
+            } else {
+                state.paused(until)
+            }
+        })
+        .await
     }
 
     pub async fn resume(&self) -> Result<DispatcherState, AppError> {

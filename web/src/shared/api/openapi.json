@@ -1660,16 +1660,6 @@
           "dispatcher"
         ],
         "operationId": "run_pass",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StartPass"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "What the pass did",
@@ -1682,25 +1672,6 @@
             }
           },
           "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Unknown board",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
             "content": {
               "application/json": {
                 "schema": {
@@ -13360,18 +13331,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "StartPass": {
-        "type": "object",
-        "properties": {
-          "boardId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
-          }
-        }
       },
       "StartRun": {
         "type": "object",
