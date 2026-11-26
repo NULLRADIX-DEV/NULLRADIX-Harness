@@ -5,11 +5,14 @@ import { useNow } from '../../shared/lib/useNow';
 import { dayLabel } from '../board/TicketHistory';
 import { initials } from '../board/TicketComments';
 import {
+  isResearching,
   questionQuery,
+  questionResearchQuery,
   useAddQuestionComment,
   useAnswerQuestion,
   useDiscardQuestion,
   useReopenQuestion,
+  useStartResearch,
   type QuestionDetail as Detail,
   type QuestionOption,
 } from './queries';
@@ -33,10 +36,44 @@ const MESSAGES: ProblemMessages = {
     'A reason starting with "Autopilot:" is kept for the dispatcher. Write it another way.',
   'comment-empty': 'A comment needs a text.',
   'question-not-found': 'This question no longer exists.',
+  'question-not-open': 'Only open questions are researched.',
+  'research-running': 'A research of this question is running already.',
+  'board-repo-missing':
+    'Link the question to a ticket of a board with a repository, or set the repository of a board of its project.',
+  'dispatch-paused': 'The dispatcher is paused or no Claude account is free. Try again later.',
+  'research-worktree-busy':
+    'A folder of an earlier research is in the way. Check the folder next to the repository by hand.',
 };
 
 function message(error: unknown, fallback: string): string | null {
   return problemMessage(error, MESSAGES, fallback);
+}
+
+// Starts a research run by hand; the dispatcher settles it and the result arrives as live updates.
+function ResearchButton({ questionKey }: { questionKey: string }) {
+  const runs = useQuery(questionResearchQuery(questionKey));
+  const start = useStartResearch();
+  const researching = runs.data !== undefined && isResearching(runs.data);
+  const error = message(start.error, 'Could not start the research.');
+  return (
+    <div className="qx-research">
+      <button
+        type="button"
+        className="btn small"
+        disabled={runs.data === undefined || researching || start.isPending}
+        onClick={() => {
+          start.mutate(questionKey);
+        }}
+      >
+        {researching || start.isPending ? 'Researching...' : 'Research'}
+      </button>
+      {error !== null && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function OptionCard({ option }: { option: QuestionOption }) {
@@ -314,6 +351,7 @@ export function QuestionDetail({ questionKey }: { questionKey: string }) {
         <span className="card-id">{question.key}</span>
         <span className={`badge qx-state-${question.state}`}>{STATE_LABELS[question.state]}</span>
         {question.ready && <span className="badge waiting">Ready</span>}
+        {question.state === 'open' && <ResearchButton questionKey={question.key} />}
       </header>
       <h2 className="qx-title">{question.title}</h2>
       <dl className="qx-facts">

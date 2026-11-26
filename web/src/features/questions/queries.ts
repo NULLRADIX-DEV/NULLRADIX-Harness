@@ -4,6 +4,7 @@ import { api, type components } from '../../shared/api/client';
 import { unwrap } from '../../shared/api/errors';
 import type { ChangeRegistry } from '../../shared/live/registry';
 import { useInvalidate } from '../../shared/query/useInvalidate';
+import { isActive, runKeys, type Run } from '../runs/queries';
 import { ticketKeys } from '../tickets/queries';
 
 export type Question = components['schemas']['QuestionDto'];
@@ -136,5 +137,39 @@ export function useAddQuestionComment() {
         }),
       ),
     onSettled: changed,
+  });
+}
+
+// Research runs of one question, newest first; run changes refetch them through the runs keys.
+export function questionResearchQuery(key: string) {
+  return queryOptions({
+    queryKey: [...runKeys.all, 'question', key, 'research'] as const,
+    queryFn: async (): Promise<Run[]> =>
+      unwrap(
+        await api.GET('/api/v1/runs', {
+          params: { query: { questionKey: key, kind: 'research' } },
+        }),
+      ).items,
+  });
+}
+
+// A research run is under way, or ended and waits for the dispatcher to settle it.
+export function isResearching(runs: readonly Run[]): boolean {
+  return runs.some((run) => isActive(run.status) || run.result?.outcome == null);
+}
+
+export function useStartResearch() {
+  const changed = useQuestionsChanged();
+  const runs = useInvalidate(runKeys.all);
+  return useMutation({
+    mutationFn: async (key: string) =>
+      unwrap(
+        await api.POST('/api/v1/questions/{questionKey}/research-runs', {
+          params: { path: { questionKey: key } },
+        }),
+      ),
+    onSettled: async () => {
+      await Promise.all([changed(), runs()]);
+    },
   });
 }
