@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT feed_id AS \"feed_id: Uuid\" FROM installed_themes WHERE theme_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "feed_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "installed_themes",
+            "name": "feed_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "31b1b4d157c47dc83b08c35126ebcff2287c2b0b6fba15425aa01b9d2430a1b7"
+}

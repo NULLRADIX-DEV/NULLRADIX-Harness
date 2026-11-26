@@ -20,6 +20,7 @@ mod session;
 pub mod step;
 mod text;
 mod theme;
+mod theme_settings;
 mod ticket;
 mod ticket_values;
 mod timestamp;
@@ -100,6 +101,7 @@ pub use theme::{
     check_claude_files, check_entry_path, check_theme_css, content_type, host_allowed,
     is_allowed_extension, is_claude_path, is_hidden,
 };
+pub use theme_settings::{SETTING_VALUE_MAX, SettingValue, ThemeSettingValues};
 pub use ticket::{
     ASSIGNEE_MAX, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange, HUMAN_INTERACTION, HistoryEntry,
     PLANNING_CLAIM_TTL, TITLE_MAX, TargetBranch, Ticket, TicketDraft, TicketRecord, TicketTitle,

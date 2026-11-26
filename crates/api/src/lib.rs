@@ -138,7 +138,8 @@ pub use sessions::{
     SubagentDto, SubagentStateDto,
 };
 pub use themes::{
-    ChooseTheme, ColorSchemeDto, ThemeDto, ThemeListDto, ThemeOptionDto, ThemeSettingDto,
+    ChooseTheme, ColorSchemeDto, SaveThemeSettings, ThemeDto, ThemeListDto, ThemeOptionDto,
+    ThemeSettingDto, ThemeSettingValueDto, ThemeSettingsDto,
 };
 pub use tickets::{
     AcceptTicket, AddStep, ChangeStep, ClaimPlanning, ClaimTicket, ColumnDto, CreateTicket,
@@ -245,6 +246,11 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
     router
         .routes(routes!(themes::list_themes, themes::install_theme))
         .routes(routes!(themes::remove_theme))
+        .routes(routes!(
+            themes::theme_settings,
+            themes::save_theme_settings,
+            themes::reset_theme_settings
+        ))
         .routes(routes!(themes::theme_file))
         .routes(routes!(themes::choose_theme))
         .routes(routes!(

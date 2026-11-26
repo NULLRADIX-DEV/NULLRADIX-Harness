@@ -14,11 +14,11 @@ use nullradix_api::{
     Problem, ProjectDto, ProjectList, PromoteNote, PromotedNote, PromptDetail, PromptKindDto,
     PromptListDto, PromptPreviewDto, QuestionCommentDto, QuestionDetailDto, QuestionList,
     RebaseCustomization, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RunDto,
-    RunList, RunOutput, RunnerList, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto,
-    SessionList, SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket,
-    StartedTicket, ThemeDto, ThemeListDto, TicketDetailDto, TicketDto, TicketList,
-    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcherConfig, UpdateTicket,
-    WritePlan,
+    RunList, RunOutput, RunnerList, SaveThemeSettings, SeenNote, SessionChangesDto,
+    SessionDetailDto, SessionDto, SessionList, SetBoardRepository, SetPrompt, SetRunToken,
+    StartLogin, StartRun, StartTicket, StartedTicket, ThemeDto, ThemeListDto, ThemeSettingsDto,
+    TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization,
+    UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -576,6 +576,38 @@ impl Client {
         let mut response = self
             .agent
             .delete(&self.url(&format!("/themes/{}?version={version}", segment(id))))
+            .header("Authorization", &self.authorization()?)
+            .call()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 204)
+    }
+
+    /// The values chosen for the settings of an installed theme.
+    pub fn theme_settings(&self, id: &str) -> Result<ThemeSettingsDto, ClientError> {
+        self.get_json(&format!("/themes/{}/settings", segment(id)))
+    }
+
+    /// Replaces the chosen values; `input.version` is 0 while nothing was saved.
+    pub fn save_theme_settings(
+        &self,
+        id: &str,
+        input: &SaveThemeSettings,
+    ) -> Result<ThemeSettingsDto, ClientError> {
+        let mut response = self
+            .agent
+            .put(&self.url(&format!("/themes/{}/settings", segment(id))))
+            .header("Authorization", &self.authorization()?)
+            .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
+    /// Back to the defaults of the manifest.
+    pub fn reset_theme_settings(&self, id: &str, version: i64) -> Result<(), ClientError> {
+        let route = format!("/themes/{}/settings?version={version}", segment(id));
+        let mut response = self
+            .agent
+            .delete(&self.url(&route))
             .header("Authorization", &self.authorization()?)
             .call()
             .map_err(|source| self.unreachable(source))?;

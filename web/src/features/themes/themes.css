@@ -30,3 +30,16 @@
 .theme-install {
   margin-top: 12px;
 }
+
+.theme-settings {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.theme-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
