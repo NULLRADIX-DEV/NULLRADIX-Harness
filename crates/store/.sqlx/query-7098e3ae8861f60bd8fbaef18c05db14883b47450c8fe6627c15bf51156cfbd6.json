@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id: Uuid\", file, media_type, bytes, tool_use_id, created_at\n               FROM run_artifacts WHERE run_id = ? ORDER BY created_at, id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "run_artifacts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "file",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "run_artifacts",
+            "name": "file"
+          }
+        }
+      },
+      {
+        "name": "media_type",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "run_artifacts",
+            "name": "media_type"
+          }
+        }
+      },
+      {
+        "name": "bytes",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "run_artifacts",
+            "name": "bytes"
+          }
+        }
+      },
+      {
+        "name": "tool_use_id",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "run_artifacts",
+            "name": "tool_use_id"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "run_artifacts",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7098e3ae8861f60bd8fbaef18c05db14883b47450c8fe6627c15bf51156cfbd6"
+}

@@ -5,6 +5,9 @@ mod claude_login;
 mod cleanup;
 mod ensure;
 mod git;
+// only Windows starts through it; its rules are tested everywhere
+#[cfg_attr(not(windows), allow(dead_code))]
+mod launch;
 mod local;
 mod login_process;
 mod protocol;

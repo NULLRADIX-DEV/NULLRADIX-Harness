@@ -11,6 +11,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::{CustomizationService, NoStandards};
+use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
@@ -97,6 +98,7 @@ async fn listen(config: &Config, discovery: &DiscoveryFile) -> anyhow::Result<Tc
     Ok(listener)
 }
 
+#[allow(clippy::too_many_lines, reason = "wires every service of the daemon")]
 async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> {
     let store = Store::open(&config.paths.data.join("nullradix.db"))
         .await
@@ -128,7 +130,14 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         start_transcript_roots(config, &account_services.accounts, &signal, &shutdown).await?;
     let (runner, runners) = start_runners(config, &store, &signal, roots).await?;
     let board = start_board(&store, &runners, &signal).await?;
-    let runs = start_runs(&store, runner, &signal).await?;
+    let (runs, dispatch_runs) = start_runs(
+        &store,
+        runner,
+        &dispatcher_config,
+        &account_services.accounts,
+        &signal,
+    )
+    .await?;
     let (themes, customizations) = start_extensions(config, &store, &signal);
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
@@ -151,6 +160,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         runners,
         person: board.person,
         runs,
+        dispatch_runs,
         hooks,
         sessions,
         favorites,
@@ -518,15 +528,17 @@ async fn start_runners(
     Ok((runner, Arc::new(runners)))
 }
 
-/// Run service on the local runner, watching runs that outlived the previous daemon.
+/// Run services on the local runner, watching runs that outlived the previous daemon.
 async fn start_runs(
     store: &Store,
     runner: Arc<LocalRunner>,
+    dispatcher_config: &Arc<DispatcherConfigService>,
+    accounts: &Arc<AccountService>,
     signal: &ChangeSignal,
-) -> anyhow::Result<Arc<RunService>> {
+) -> anyhow::Result<(Arc<RunService>, Arc<DispatchRuns>)> {
     let runs = RunService::new(
         Arc::new(store.clone()),
-        runner,
+        runner.clone(),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),
@@ -536,7 +548,16 @@ async fn start_runs(
     if recovered > 0 {
         tracing::info!(recovered, "watching runs from before the restart");
     }
-    Ok(runs)
+    let files: Arc<dyn RunFilesPort> = runner;
+    let dispatch = Arc::new(DispatchRuns::new(
+        runs.clone(),
+        dispatcher_config.clone(),
+        accounts.clone(),
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        files,
+    ));
+    Ok((runs, dispatch))
 }
 
 /// Hook service; what hooks spooled while the daemon was away is taken in alongside.

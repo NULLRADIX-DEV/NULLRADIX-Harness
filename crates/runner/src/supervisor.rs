@@ -1,6 +1,7 @@
 //! Runs one process to completion on behalf of the daemon, which may come and go meanwhile.
 
-use std::fs::File;
+use std::ffi::OsString;
+use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -8,16 +9,29 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use nullradix_domain::RunOutcome;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use nullradix_app::dispatch::stream::{
+    ClaudeStream, DROPPED_LINE, Joined, LineJoiner, Pipe, images,
+};
+use nullradix_domain::{RunOutcome, Screenshot};
 use nullradix_os::{ProcessTree, write_atomic};
 
-use crate::protocol::{OutputRecord, ResultFile, RunFiles, SpecFile, hold_lock, read_json};
+use crate::launch;
+#[cfg(windows)]
+use crate::launch::Launch;
+use crate::protocol::{
+    ClaudeFile, EnvFile, OutputRecord, ResultFile, RunFiles, SpecFile, hold_lock, read_json,
+};
 
 const TICK: Duration = Duration::from_millis(100);
 /// Longer lines are split, so a child without newlines cannot exhaust memory.
 const MAX_LINE: u64 = 64 * 1024;
 /// Grandchildren may hold the pipes open after the child exits; stop waiting after this.
 const DRAIN: Duration = Duration::from_secs(10);
+/// Screenshots kept per run, and the size of one.
+const MAX_SCREENSHOTS: usize = 100;
+const MAX_SCREENSHOT_BYTES: usize = 20 * 1024 * 1024;
 
 /// Executes the run described in `dir` and always leaves a `result.json` behind.
 pub fn supervise(dir: &Path) -> io::Result<()> {
@@ -49,6 +63,7 @@ fn failure(exit_code: Option<i32>, error: &str) -> ResultFile {
         outcome: RunOutcome::Failed.as_str().to_owned(),
         exit_code,
         error: Some(error.to_owned()),
+        claude: None,
     }
 }
 
@@ -68,18 +83,110 @@ fn program(spec: &SpecFile) -> PathBuf {
     }
 }
 
-fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
-    // a start the daemon gave up on is cancelled before the command can do anything
-    if files.cancel().exists() {
-        return Ok(Ending::Cancelled.into_result());
+/// The command to start; on Windows a Claude run finds its program like the shell does.
+#[cfg_attr(not(windows), allow(clippy::unnecessary_wraps))]
+fn command(spec: &SpecFile) -> Result<Command, launch::LaunchError> {
+    #[cfg(windows)]
+    if spec.claude {
+        use std::os::windows::process::CommandExt;
+
+        let path = ["PATH", "Path"]
+            .iter()
+            .find_map(|name| std::env::var(name).ok())
+            .unwrap_or_default();
+        let program = program(spec).to_string_lossy().into_owned();
+        let (resolved, how) = launch::plan(&program, &spec.args, &path, &launch::file_exists)?;
+        return Ok(match how {
+            Launch::Direct => {
+                let mut command = Command::new(resolved);
+                command.args(&spec.args);
+                command
+            }
+            Launch::Batch(line) => {
+                let mut command = Command::new("cmd");
+                command
+                    .args(["/d", "/s", "/c"])
+                    .raw_arg(format!("\"{line}\""));
+                command
+            }
+        });
     }
     let mut command = Command::new(program(spec));
+    command.args(&spec.args);
+    Ok(command)
+}
+
+/// Applies the environment changes of the spec to what the supervisor itself inherited.
+fn apply_env(command: &mut Command, env: &EnvFile, inherited: &dyn Fn(&str) -> Option<OsString>) {
+    for name in &env.remove {
+        command.env_remove(name);
+    }
+    for (name, default) in &env.defaults {
+        if !env.set.contains_key(name) && inherited(name).is_none() {
+            command.env(name, default);
+        }
+    }
+    for (name, value) in &env.set {
+        command.env(name, value);
+    }
+}
+
+/// On Windows Claude Code needs Git Bash for the Bash rules to apply.
+fn git_bash_env(spec: &SpecFile) -> EnvFile {
+    let mut env = spec.env.clone();
+    if cfg!(windows) && spec.claude && !env.set.contains_key("CLAUDE_CODE_GIT_BASH_PATH") {
+        let lookup = |name: &str| std::env::var(name).ok();
+        let git = launch::where_git();
+        if let Some(found) = launch::git_bash(&lookup, git.as_deref(), &launch::file_exists) {
+            env.set.insert(
+                String::from("CLAUDE_CODE_USE_POWERSHELL_TOOL"),
+                String::from("0"),
+            );
+            env.set
+                .insert(String::from("CLAUDE_CODE_GIT_BASH_PATH"), found);
+        }
+    }
+    env
+}
+
+/// A plain `claude` may be replaced by the command in `NULLRADIX_CLAUDE`, as for logins.
+fn claude_override(spec: &SpecFile, replacement: Option<String>) -> SpecFile {
+    let replacement = replacement.filter(|command| !command.trim().is_empty());
+    match replacement {
+        Some(command) if spec.claude && spec.program == "claude" => SpecFile {
+            program: command,
+            ..spec.clone()
+        },
+        _ => spec.clone(),
+    }
+}
+
+fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
+    let spec = &claude_override(spec, std::env::var("NULLRADIX_CLAUDE").ok());
+    let with_claude = |file: ResultFile| ResultFile {
+        claude: spec.claude.then(ClaudeFile::default),
+        ..file
+    };
+    // a start the daemon gave up on is cancelled before the command can do anything
+    if files.cancel().exists() {
+        return Ok(with_claude(Ending::Cancelled.into_result()));
+    }
+    let mut command = match command(spec) {
+        Ok(command) => command,
+        Err(error) => return Ok(with_claude(failure(Some(127), &error.to_string()))),
+    };
     command
-        .args(&spec.args)
         .current_dir(&spec.cwd)
-        .stdin(Stdio::null())
+        .stdin(if spec.stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    apply_env(&mut command, &git_bash_env(spec), &|name| {
+        std::env::var_os(name)
+    });
     let mut tree = match ProcessTree::spawn(&mut command) {
         Ok(tree) => tree,
         Err(error) => {
@@ -89,12 +196,18 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
                 io::ErrorKind::PermissionDenied => String::from("permission denied"),
                 _ => error.to_string(),
             };
-            return Ok(failure(
+            return Ok(with_claude(failure(
                 Some(127),
                 &format!("cannot start {}: {reason}", spec.program),
-            ));
+            )));
         }
     };
+    if let (Some(mut pipe), Some(text)) = (tree.take_stdin(), spec.stdin.clone()) {
+        // a thread, so a long prompt cannot block while the child is still starting
+        thread::spawn(move || {
+            let _ = pipe.write_all(text.as_bytes());
+        });
+    }
     let (sender, lines) = mpsc::channel();
     if let Some(stdout) = tree.take_stdout() {
         forward(stdout, "stdout", sender.clone());
@@ -102,14 +215,14 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
     if let Some(stderr) = tree.take_stderr() {
         forward(stderr, "stderr", sender);
     }
-    let mut output = OutputWriter::create(files)?;
+    let mut output = OutputWriter::create(files, spec.claude)?;
     let deadline = spec
         .timeout_ms
         .and_then(|millis| Instant::now().checked_add(Duration::from_millis(millis)));
 
     let ending = loop {
         match lines.recv_timeout(TICK) {
-            Ok((stream, text)) => output.write(stream, &text)?,
+            Ok(piece) => output.write(&piece)?,
             Err(RecvTimeoutError::Timeout) => {}
             // both pipes closed while the child still runs
             Err(RecvTimeoutError::Disconnected) => thread::sleep(TICK),
@@ -131,7 +244,10 @@ fn execute(files: &RunFiles, spec: &SpecFile) -> io::Result<ResultFile> {
         }
     };
     output.finish(&lines)?;
-    Ok(ending.into_result())
+    Ok(ResultFile {
+        claude: output.into_claude(),
+        ..ending.into_result()
+    })
 }
 
 impl Ending {
@@ -152,33 +268,40 @@ impl Ending {
             outcome: outcome.as_str().to_owned(),
             exit_code,
             error,
+            claude: None,
         }
     }
 }
 
-/// Sends the lines of `pipe` until it closes.
-fn forward(
-    pipe: impl Read + Send + 'static,
+/// One piece of a line of output, as long as `MAX_LINE` at most.
+struct Piece {
     stream: &'static str,
-    sender: Sender<(&'static str, String)>,
-) {
+    text: String,
+    continues: bool,
+}
+
+/// Sends the lines of `pipe` until it closes.
+fn forward(pipe: impl Read + Send + 'static, stream: &'static str, sender: Sender<Piece>) {
     thread::spawn(move || {
         let mut lines = Lines::new(pipe);
-        while let Ok(Some(text)) = lines.next_line() {
-            if sender.send((stream, text)).is_err() {
+        while let Ok(Some((text, continues))) = lines.next_line() {
+            let piece = Piece {
+                stream,
+                text,
+                continues,
+            };
+            if sender.send(piece).is_err() {
                 break;
             }
         }
     });
 }
 
-/// Cuts a byte stream into lines of at most `MAX_LINE` bytes without breaking characters.
+/// Cuts a byte stream into pieces of at most `MAX_LINE` bytes without breaking characters.
 struct Lines<R> {
     reader: BufReader<R>,
-    // the start of a character cut off at the end of the previous part
+    // the start of a character cut off at the end of the previous piece
     carry: Vec<u8>,
-    // whether the previous part ended without its line ending
-    split: bool,
 }
 
 impl<R: Read> Lines<R> {
@@ -186,43 +309,139 @@ impl<R: Read> Lines<R> {
         Self {
             reader: BufReader::new(pipe),
             carry: Vec::new(),
-            split: false,
         }
     }
 
-    /// The next line without its line ending, or `None` once the stream ended.
-    fn next_line(&mut self) -> io::Result<Option<String>> {
-        loop {
-            let mut buffer = std::mem::take(&mut self.carry);
-            let read = (&mut self.reader)
-                .take(MAX_LINE)
-                .read_until(b'\n', &mut buffer)?;
-            if read == 0 {
-                return Ok(
-                    (!buffer.is_empty()).then(|| String::from_utf8_lossy(&buffer).into_owned())
-                );
-            }
-            if buffer.last() == Some(&b'\n') {
-                // only the line ending of a line already sent in parts
-                if self.split && buffer == b"\n" {
-                    self.split = false;
-                    continue;
-                }
-                self.split = false;
-                buffer.pop();
-            } else {
-                if let Err(error) = std::str::from_utf8(&buffer)
-                    && error.error_len().is_none()
-                {
-                    self.carry = buffer.split_off(error.valid_up_to());
-                }
-                self.split = true;
-            }
-            if buffer.last() == Some(&b'\r') {
-                buffer.pop();
-            }
-            return Ok(Some(String::from_utf8_lossy(&buffer).into_owned()));
+    /// The next piece without its line ending and whether its line goes on, or `None` at the end.
+    fn next_line(&mut self) -> io::Result<Option<(String, bool)>> {
+        let mut buffer = std::mem::take(&mut self.carry);
+        let read = (&mut self.reader)
+            .take(MAX_LINE)
+            .read_until(b'\n', &mut buffer)?;
+        if read == 0 && buffer.is_empty() {
+            return Ok(None);
         }
+        let mut continues = false;
+        if buffer.last() == Some(&b'\n') {
+            buffer.pop();
+        } else {
+            match self.reader.fill_buf()?.first() {
+                // the end of the stream
+                None => {}
+                // a line that fills a piece exactly ends here
+                Some(b'\n') => self.reader.consume(1),
+                Some(_) => {
+                    continues = true;
+                    if let Err(error) = std::str::from_utf8(&buffer)
+                        && error.error_len().is_none()
+                    {
+                        self.carry = buffer.split_off(error.valid_up_to());
+                    }
+                }
+            }
+        }
+        if !continues && buffer.last() == Some(&b'\r') {
+            buffer.pop();
+        }
+        Ok(Some((
+            String::from_utf8_lossy(&buffer).into_owned(),
+            continues,
+        )))
+    }
+}
+
+/// Reads a Claude run's output while it is written: usage, errors and screenshots.
+struct ClaudeWatch {
+    stream: ClaudeStream,
+    folder: PathBuf,
+    screenshots: Vec<Screenshot>,
+    // one per pipe, as the pieces of both interleave
+    joiners: [LineJoiner; 2],
+}
+
+impl ClaudeWatch {
+    fn new(files: &RunFiles) -> Self {
+        Self {
+            stream: ClaudeStream::new(),
+            folder: files.artifacts(),
+            screenshots: Vec::new(),
+            joiners: [LineJoiner::default(), LineJoiner::default()],
+        }
+    }
+
+    fn observe(&mut self, piece: &Piece) {
+        let (index, pipe) = if piece.stream == "stdout" {
+            (0, Pipe::Stdout)
+        } else {
+            (1, Pipe::Stderr)
+        };
+        match self.joiners[index].push(&piece.text, piece.continues) {
+            Some(Joined::Line(line)) => self.line(pipe, &line),
+            // never parsed in part, which could read as something else
+            Some(Joined::Dropped) => self.stream.feed(pipe, DROPPED_LINE),
+            None => {}
+        }
+    }
+
+    fn line(&mut self, pipe: Pipe, text: &str) {
+        self.stream.feed(pipe, text);
+        if pipe == Pipe::Stdout {
+            for image in images(text) {
+                // a screenshot that cannot be kept must not fail the run
+                let _ = self.keep(&image.media_type, &image.data, image.tool_use_id);
+            }
+        }
+    }
+
+    /// Lines cut off by the end of the output are read as they are.
+    fn finish_lines(&mut self) {
+        for (index, pipe) in [(0, Pipe::Stdout), (1, Pipe::Stderr)] {
+            match self.joiners[index].finish() {
+                Some(Joined::Line(line)) => self.line(pipe, &line),
+                Some(Joined::Dropped) => self.stream.feed(pipe, DROPPED_LINE),
+                None => {}
+            }
+        }
+    }
+
+    fn keep(
+        &mut self,
+        media_type: &str,
+        data: &str,
+        tool_use_id: Option<String>,
+    ) -> io::Result<()> {
+        if self.screenshots.len() >= MAX_SCREENSHOTS {
+            return Ok(());
+        }
+        let bytes = STANDARD
+            .decode(data.trim())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        if bytes.len() > MAX_SCREENSHOT_BYTES {
+            return Ok(());
+        }
+        let extension = match media_type {
+            "image/png" => "png",
+            "image/jpeg" => "jpg",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            // the type is the model's word and is served back as it is
+            _ => return Ok(()),
+        };
+        let file = format!("shot-{}.{extension}", self.screenshots.len() + 1);
+        fs::create_dir_all(&self.folder)?;
+        write_atomic(&self.folder.join(&file), &bytes)?;
+        self.screenshots.push(Screenshot {
+            tool_use_id,
+            media_type: media_type.to_owned(),
+            file,
+            bytes: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        });
+        Ok(())
+    }
+
+    fn into_file(mut self) -> ClaudeFile {
+        self.finish_lines();
+        ClaudeFile::new(self.stream.finish(), &self.screenshots)
     }
 }
 
@@ -232,54 +451,65 @@ struct OutputWriter {
     index: File,
     offset: u64,
     seq: i64,
+    claude: Option<ClaudeWatch>,
 }
 
 impl OutputWriter {
-    fn create(files: &RunFiles) -> io::Result<Self> {
+    fn create(files: &RunFiles, claude: bool) -> io::Result<Self> {
         Ok(Self {
             output: File::create(files.output())?,
             index: File::create(files.index())?,
             offset: 0,
             seq: 0,
+            claude: claude.then(|| ClaudeWatch::new(files)),
         })
     }
 
-    fn write(&mut self, stream: &str, text: &str) -> io::Result<()> {
+    fn write(&mut self, piece: &Piece) -> io::Result<()> {
         self.seq += 1;
         let record = OutputRecord {
             seq: self.seq,
-            stream: stream.to_owned(),
-            text: text.to_owned(),
+            stream: piece.stream.to_owned(),
+            text: piece.text.clone(),
+            continues: piece.continues,
         };
         let mut line = serde_json::to_vec(&record).map_err(io::Error::other)?;
         line.push(b'\n');
         self.output.write_all(&line)?;
         self.index.write_all(&self.offset.to_le_bytes())?;
         self.offset += u64::try_from(line.len()).map_err(io::Error::other)?;
-        Ok(())
-    }
-
-    fn drain(&mut self, lines: &Receiver<(&'static str, String)>) -> io::Result<()> {
-        while let Ok((stream, text)) = lines.try_recv() {
-            self.write(stream, &text)?;
+        if let Some(claude) = &mut self.claude {
+            claude.observe(piece);
         }
         Ok(())
     }
 
-    fn finish(&mut self, lines: &Receiver<(&'static str, String)>) -> io::Result<()> {
+    fn drain(&mut self, lines: &Receiver<Piece>) -> io::Result<()> {
+        while let Ok(piece) = lines.try_recv() {
+            self.write(&piece)?;
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self, lines: &Receiver<Piece>) -> io::Result<()> {
         let deadline = Instant::now() + DRAIN;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match lines.recv_timeout(left) {
-                Ok((stream, text)) => self.write(stream, &text)?,
+                Ok(piece) => self.write(&piece)?,
                 Err(_) => return Ok(()),
             }
         }
+    }
+
+    fn into_claude(self) -> Option<ClaudeFile> {
+        self.claude.map(ClaudeWatch::into_file)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs;
 
     use super::*;
@@ -306,6 +536,7 @@ mod tests {
             args,
             cwd: dir.to_path_buf(),
             timeout_ms,
+            ..SpecFile::default()
         };
         fs::write(dir.join("spec.json"), serde_json::to_vec(&spec).unwrap()).unwrap();
         RunFiles::at(dir)
@@ -313,6 +544,31 @@ mod tests {
 
     fn result(files: &RunFiles) -> ResultFile {
         read_json::<ResultFile>(&files.result()).unwrap().unwrap()
+    }
+
+    #[test]
+    fn only_a_plain_claude_run_may_be_replaced_through_the_environment() {
+        let claude = SpecFile {
+            program: String::from("claude"),
+            claude: true,
+            ..SpecFile::default()
+        };
+        let replaced = |spec: &SpecFile, command: Option<&str>| {
+            claude_override(spec, command.map(str::to_owned)).program
+        };
+        assert_eq!(replaced(&claude, Some("/bin/fake")), "/bin/fake");
+        assert_eq!(replaced(&claude, Some(" ")), "claude");
+        assert_eq!(replaced(&claude, None), "claude");
+        let named = SpecFile {
+            program: String::from("/opt/claude"),
+            ..claude.clone()
+        };
+        assert_eq!(replaced(&named, Some("/bin/fake")), "/opt/claude");
+        let plain = SpecFile {
+            claude: false,
+            ..claude
+        };
+        assert_eq!(replaced(&plain, Some("/bin/fake")), "claude");
     }
 
     #[test]
@@ -346,6 +602,7 @@ mod tests {
             args: Vec::new(),
             cwd: dir.path().to_path_buf(),
             timeout_ms: None,
+            ..SpecFile::default()
         };
         fs::write(
             dir.path().join("spec.json"),
@@ -369,13 +626,50 @@ mod tests {
         assert!(result(&files).error.unwrap().contains("spec.json"));
     }
 
-    fn all_lines(bytes: &[u8]) -> Vec<String> {
+    fn all_pieces(bytes: &[u8]) -> Vec<(String, bool)> {
         let mut lines = Lines::new(bytes);
         let mut all = Vec::new();
-        while let Some(line) = lines.next_line().unwrap() {
-            all.push(line);
+        while let Some(piece) = lines.next_line().unwrap() {
+            all.push(piece);
         }
         all
+    }
+
+    fn all_lines(bytes: &[u8]) -> Vec<String> {
+        all_pieces(bytes).into_iter().map(|piece| piece.0).collect()
+    }
+
+    #[test]
+    fn marks_the_pieces_of_a_long_line_as_continuing() {
+        let limit = usize::try_from(MAX_LINE).unwrap();
+        let mut long = vec![b'x'; 2 * limit + 10];
+        long.extend_from_slice(
+            b"
+short",
+        );
+        let marks: Vec<(usize, bool)> = all_pieces(&long)
+            .iter()
+            .map(|(text, continues)| (text.len(), *continues))
+            .collect();
+        assert_eq!(
+            marks,
+            vec![(limit, true), (limit, true), (10, false), (5, false)]
+        );
+        // a line of exactly one piece is no continuing line and leaves no empty line behind
+        let mut exact = vec![b'y'; limit];
+        exact.extend_from_slice(
+            b"
+next",
+        );
+        let marks: Vec<(usize, bool)> = all_pieces(&exact)
+            .iter()
+            .map(|(text, continues)| (text.len(), *continues))
+            .collect();
+        assert_eq!(marks, vec![(limit, false), (4, false)]);
+        assert_eq!(
+            all_pieces(&vec![b'z'; limit]),
+            vec![("z".repeat(limit), false)]
+        );
     }
 
     #[test]
@@ -434,6 +728,7 @@ mod tests {
             args,
             cwd: dir.path().to_path_buf(),
             timeout_ms: None,
+            ..SpecFile::default()
         };
         fs::write(
             dir.path().join("spec.json"),
@@ -470,6 +765,7 @@ mod tests {
             args: Vec::new(),
             cwd: dir.path().to_path_buf(),
             timeout_ms: None,
+            ..SpecFile::default()
         };
         fs::write(
             dir.path().join("spec.json"),
@@ -481,6 +777,18 @@ mod tests {
         assert_eq!(result(&files).outcome, "succeeded");
         let lines = read_output(&files, 0, 10).unwrap();
         assert_eq!(lines[0].text.trim(), "hello from the script");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_relative_claude_program_is_found_in_the_run_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("fake.cmd"), "@echo from the batch\r\n").unwrap();
+        let files = claude_spec(dir.path(), ".\\fake.cmd", &[]);
+        supervise(files.dir()).unwrap();
+        assert_eq!(result(&files).outcome, "succeeded");
+        let lines = read_output(&files, 0, 10).unwrap();
+        assert_eq!(lines[0].text.trim(), "from the batch");
     }
 
     #[test]
@@ -515,5 +823,241 @@ mod tests {
         supervise(files.dir()).unwrap();
         canceller.join().unwrap();
         assert_eq!(result(&files).outcome, "cancelled");
+    }
+
+    fn claude_spec(dir: &Path, program: &str, args: &[&str]) -> RunFiles {
+        let spec = SpecFile {
+            program: program.to_owned(),
+            args: args.iter().map(|arg| (*arg).to_owned()).collect(),
+            cwd: dir.to_path_buf(),
+            claude: true,
+            ..SpecFile::default()
+        };
+        fs::write(dir.join("spec.json"), serde_json::to_vec(&spec).unwrap()).unwrap();
+        RunFiles::at(dir)
+    }
+
+    /// A Claude run output kept in a file the shell prints, as JSON quoting in cmd is a trap.
+    fn replay(dir: &Path, lines: &[&str]) -> RunFiles {
+        fs::write(
+            dir.join("replay.jsonl"),
+            lines.join(
+                "
+",
+            ) + "
+",
+        )
+        .unwrap();
+        let (program, mut args) = shell(if cfg!(windows) {
+            "type replay.jsonl"
+        } else {
+            "cat replay.jsonl"
+        });
+        let spec = SpecFile {
+            program,
+            args: std::mem::take(&mut args),
+            cwd: dir.to_path_buf(),
+            claude: true,
+            ..SpecFile::default()
+        };
+        fs::write(dir.join("spec.json"), serde_json::to_vec(&spec).unwrap()).unwrap();
+        RunFiles::at(dir)
+    }
+
+    #[test]
+    fn a_claude_run_leaves_its_usage_denials_and_screenshots_in_the_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+        let image = format!(
+            r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"t1","content":[{{"type":"image","source":{{"type":"base64","media_type":"image/png","data":"{png}"}}}}]}}]}}}}"#
+        );
+        let files = replay(
+            dir.path(),
+            &[
+                r#"{"type":"system","subtype":"init","session_id":"s-1"}"#,
+                &image,
+                r#"{"type":"result","subtype":"success","is_error":false,"num_turns":3,"total_cost_usd":0.5,"usage":{"input_tokens":10,"output_tokens":20},"permission_denials":[{"tool_name":"Bash"}]}"#,
+            ],
+        );
+        supervise(files.dir()).unwrap();
+        let report = result(&files);
+        assert_eq!(report.outcome, "succeeded");
+        let claude = report.claude.unwrap();
+        assert_eq!(claude.session_id.as_deref(), Some("s-1"));
+        assert!(claude.has_result);
+        let usage = claude.usage.unwrap();
+        assert_eq!(
+            (
+                usage.cost_usd,
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.num_turns
+            ),
+            (Some(0.5), Some(10), Some(20), Some(3))
+        );
+        assert_eq!(claude.denied, vec![(String::from("Bash"), 1)]);
+        assert_eq!(claude.screenshots.len(), 1);
+        let shot = &claude.screenshots[0];
+        assert_eq!(
+            (shot.media_type.as_str(), shot.file.as_str()),
+            ("image/png", "shot-1.png")
+        );
+        assert_eq!(shot.tool_use_id.as_deref(), Some("t1"));
+        let kept = fs::read(files.artifacts().join("shot-1.png")).unwrap();
+        assert_eq!(kept.len() as u64, shot.bytes);
+        assert_eq!(&kept[1..4], b"PNG");
+    }
+
+    fn image_line(media_type: &str, data: &str) -> String {
+        format!(
+            r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"t1","content":[{{"type":"image","source":{{"type":"base64","media_type":"{media_type}","data":"{data}"}}}}]}}]}}}}"#
+        )
+    }
+
+    #[test]
+    fn a_screenshot_line_over_the_piece_size_is_still_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        // about 150 KB of bytes, which is over 200 KB of base64
+        let data = "A".repeat(200_000);
+        let image = image_line("image/png", &data);
+        assert!(image.len() > 2 * usize::try_from(MAX_LINE).unwrap());
+        let files = replay(dir.path(), &[&image]);
+        supervise(files.dir()).unwrap();
+        let claude = result(&files).claude.unwrap();
+        assert_eq!(claude.screenshots.len(), 1);
+        assert_eq!(claude.screenshots[0].bytes, 150_000);
+        assert_eq!(
+            fs::read(files.artifacts().join("shot-1.png"))
+                .unwrap()
+                .len(),
+            150_000
+        );
+        assert!(!claude.error_text.contains("AAAA"));
+        let lines = read_output(&files, 0, 10).unwrap();
+        assert!(lines.len() > 1 && lines[0].continues && !lines[lines.len() - 1].continues);
+    }
+
+    #[test]
+    fn a_result_line_over_the_piece_size_still_yields_usage_and_denials() {
+        let dir = tempfile::tempdir().unwrap();
+        let padding = "x".repeat(150_000);
+        let line = format!(
+            r#"{{"type":"result","subtype":"success","is_error":false,"num_turns":4,"total_cost_usd":1.5,"usage":{{"input_tokens":11,"output_tokens":22}},"result":"{padding}","permission_denials":[{{"tool_name":"Bash"}}]}}"#
+        );
+        let files = replay(dir.path(), &[&line]);
+        supervise(files.dir()).unwrap();
+        let claude = result(&files).claude.unwrap();
+        assert!(claude.has_result);
+        let usage = claude.usage.unwrap();
+        assert_eq!(
+            (usage.cost_usd, usage.input_tokens, usage.num_turns),
+            (Some(1.5), Some(11), Some(4))
+        );
+        assert_eq!(claude.denied, vec![(String::from("Bash"), 1)]);
+        assert!(!claude.error_text.contains("xxxx"));
+    }
+
+    #[test]
+    fn only_known_image_types_are_kept_as_screenshots() {
+        let dir = tempfile::tempdir().unwrap();
+        let lines = [
+            image_line("text/html", "AAAA"),
+            image_line("image/svg+xml", "AAAA"),
+            image_line("image/webp", "AAAA"),
+        ];
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let files = replay(dir.path(), &refs);
+        supervise(files.dir()).unwrap();
+        let shots = result(&files).claude.unwrap().screenshots;
+        assert_eq!(shots.len(), 1);
+        assert_eq!(
+            (shots[0].media_type.as_str(), shots[0].file.as_str()),
+            ("image/webp", "shot-1.webp")
+        );
+    }
+
+    #[test]
+    fn plain_runs_leave_no_claude_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = prepare(dir.path(), "echo hi", None);
+        supervise(files.dir()).unwrap();
+        assert_eq!(result(&files).claude, None);
+    }
+
+    #[test]
+    fn a_claude_run_that_cannot_start_still_reports_an_empty_claude_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = claude_spec(dir.path(), "nullradix-no-such-program", &[]);
+        supervise(files.dir()).unwrap();
+        let report = result(&files);
+        assert_eq!(report.exit_code, Some(127));
+        let claude = report.claude.unwrap();
+        assert!(!claude.has_result);
+        assert_eq!(claude.usage, None);
+    }
+
+    #[test]
+    fn the_prompt_reaches_the_program_over_stdin() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = SpecFile {
+            program: String::from(if cfg!(windows) { "findstr" } else { "cat" }),
+            args: if cfg!(windows) {
+                vec![String::from("/R"), String::from("^")]
+            } else {
+                Vec::new()
+            },
+            cwd: dir.path().to_path_buf(),
+            stdin: Some(String::from(
+                "b
+a
+",
+            )),
+            ..SpecFile::default()
+        };
+        fs::write(
+            dir.path().join("spec.json"),
+            serde_json::to_vec(&spec).unwrap(),
+        )
+        .unwrap();
+        let files = RunFiles::at(dir.path());
+        supervise(files.dir()).unwrap();
+        assert_eq!(result(&files).outcome, "succeeded");
+        let lines = read_output(&files, 0, 10).unwrap();
+        let texts: Vec<&str> = lines.iter().map(|line| line.text.trim()).collect();
+        assert_eq!(texts, vec!["b", "a"]);
+    }
+
+    #[test]
+    fn the_environment_changes_apply_in_order_removals_defaults_then_sets() {
+        let env = EnvFile {
+            set: BTreeMap::from([(String::from("A"), String::from("set"))]),
+            remove: vec![String::from("GONE")],
+            defaults: BTreeMap::from([
+                (String::from("A"), String::from("default")),
+                (String::from("B"), String::from("default")),
+                (String::from("HAS"), String::from("default")),
+            ]),
+        };
+        let mut command = Command::new("x");
+        apply_env(&mut command, &env, &|name| {
+            (name == "HAS").then(|| OsString::from("own"))
+        });
+        let applied: BTreeMap<String, Option<String>> = command
+            .get_envs()
+            .map(|(name, value)| {
+                (
+                    name.to_string_lossy().into_owned(),
+                    value.map(|value| value.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            applied,
+            BTreeMap::from([
+                (String::from("A"), Some(String::from("set"))),
+                (String::from("B"), Some(String::from("default"))),
+                (String::from("GONE"), None),
+            ])
+        );
     }
 }

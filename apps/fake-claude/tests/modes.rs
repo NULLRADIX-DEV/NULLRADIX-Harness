@@ -93,3 +93,58 @@ fn cwd_reports_the_working_directory() {
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.starts_with("cwd="), "{text}");
 }
+
+#[test]
+fn usage_streams_events_and_a_result_with_cost_and_tokens() {
+    let output = fake("usage", "go");
+    assert!(output.status.success());
+    let events = json_lines(&output);
+    assert_eq!(events[0]["session_id"], "fake-session-1");
+    let result = events.last().unwrap();
+    assert_eq!(result["type"], "result");
+    assert_eq!(result["total_cost_usd"], 0.4321);
+    assert_eq!(result["usage"]["output_tokens"], 340);
+}
+
+#[test]
+fn a_marker_in_the_prompt_beats_the_environment() {
+    let output = fake("ok", "do it [fake-claude:usage-limit] now");
+    assert_eq!(output.status.code(), Some(1));
+    let result = json_lines(&output).pop().unwrap();
+    assert_eq!(result["is_error"], true);
+    assert!(
+        result["result"]
+            .as_str()
+            .unwrap()
+            .contains("usage limit reached")
+    );
+}
+
+#[test]
+fn max_turns_and_denials_end_with_their_subtype_and_list() {
+    let output = fake("max-turns", "");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        json_lines(&output).pop().unwrap()["subtype"],
+        "error_max_turns"
+    );
+    let denied = json_lines(&fake("denied", "")).pop().unwrap();
+    assert_eq!(denied["permission_denials"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn edit_changes_a_file_in_the_working_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nullradix-fake-claude"))
+        .env("FAKE_CLAUDE_MODE", "edit")
+        .env("NULLRADIX_TICKET", "ARC-0007")
+        .current_dir(dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdin.take());
+    assert!(child.wait_with_output().unwrap().status.success());
+    let text = std::fs::read_to_string(dir.path().join("edited.txt")).unwrap();
+    assert_eq!(text, "edited for ARC-0007\n");
+}

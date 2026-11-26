@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO run_denied_tools (run_id, tool, count) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "bf90b42d9500eae303585e219048348bdc0ed6b76a27b8a5f86141b07a9e62ef"
+}

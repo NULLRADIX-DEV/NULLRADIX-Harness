@@ -2488,6 +2488,7 @@ dependencies = [
  "getrandom 0.4.3",
  "nullradix-domain",
  "parking_lot 0.13.0",
+ "regex",
  "serde_json",
  "serde_yaml_ng",
  "sha2 0.11.1",

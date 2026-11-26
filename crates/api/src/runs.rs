@@ -4,14 +4,17 @@ use std::time::Duration;
 use axum::Json;
 use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
-use nullradix_app::runs::{OutputLine, OutputStream, RunSpec};
+use nullradix_app::dispatch::runs::RunSubject;
+use nullradix_app::runs::{OutputLine, OutputStream, RunEnv, RunLink, RunSpec};
 use nullradix_domain::{Id, Run, RunStatus, Timestamp};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::auth::require_token;
+use crate::dispatch_runs::{DispatchDto, RunDetailDto, RunKindDto, RunResultDto};
 use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
 const DEFAULT_LIST: u32 = 50;
@@ -45,7 +48,7 @@ impl From<RunStatus> for RunStatusDto {
 }
 
 /// A run as the API shows it; timestamps are Unix milliseconds.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RunDto {
     pub id: Uuid,
@@ -56,6 +59,10 @@ pub struct RunDto {
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
+    /// Purpose and settings of a Claude run of the dispatcher; none for a plain command.
+    pub dispatch: Option<DispatchDto>,
+    /// What was read from the output once a Claude run ended.
+    pub result: Option<RunResultDto>,
     pub version: i64,
 }
 
@@ -70,12 +77,14 @@ impl From<Run> for RunDto {
             created_at: run.created_at().as_millis(),
             started_at: run.started_at().map(Timestamp::as_millis),
             finished_at: run.finished_at().map(Timestamp::as_millis),
+            dispatch: run.dispatch().map(DispatchDto::from),
+            result: run.result().map(RunResultDto::from),
             version: run.version().value(),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RunList {
     pub items: Vec<RunDto>,
 }
@@ -131,14 +140,25 @@ pub struct RunOutput {
 #[into_params(parameter_in = Path)]
 pub(crate) struct RunPath {
     /// Run id.
-    id: Uuid,
+    pub(crate) id: Uuid,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub(crate) struct ListQuery {
     /// Newest runs first, at most 500.
     limit: Option<u32>,
+    /// Only runs about this ticket, such as `ARC-0042`.
+    ticket_key: Option<String>,
+    /// Only runs about this question, such as `ARC-Q0007`.
+    question_key: Option<String>,
+    /// Only runs of this kind.
+    kind: Option<RunKindDto>,
+    /// Only the run of this Claude Code session, together with `runId`.
+    session_id: Option<String>,
+    /// With `sessionId`: the run that started the session.
+    run_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -156,16 +176,32 @@ pub(crate) struct OutputQuery {
     path = "/runs",
     tag = "runs",
     params(ListQuery),
-    responses((status = 200, body = RunList), (status = 401, body = Problem))
+    responses((status = 200, body = RunList), (status = 401, body = Problem), (status = 422, body = Problem))
 )]
 pub(crate) async fn list_runs(
     State(state): State<ApiState>,
     ApiQuery(query): ApiQuery<ListQuery>,
 ) -> Result<Json<RunList>, ApiError> {
     let limit = query.limit.unwrap_or(DEFAULT_LIST).clamp(1, MAX_LIST);
+    let subject = match (&query.ticket_key, &query.question_key) {
+        (Some(_), Some(_)) => {
+            return Err(AppError::invalid(
+                "run-filter-invalid",
+                "name a ticket or a question, not both",
+            )
+            .into());
+        }
+        (Some(key), None) => Some(RunSubject::Ticket(key.as_str())),
+        (None, Some(key)) => Some(RunSubject::Question(key.as_str())),
+        (None, None) => None,
+    };
+    let link = query.session_id.map(|claude_session| RunLink {
+        claude_session,
+        run: query.run_id.map(Id::from_uuid),
+    });
     let items = state
-        .runs
-        .list(limit)
+        .dispatch_runs
+        .list(subject, query.kind.map(Into::into), link, limit)
         .await?
         .into_iter()
         .map(RunDto::from)
@@ -199,6 +235,9 @@ pub(crate) async fn start_run(
         args: input.args,
         cwd: PathBuf::from(input.cwd),
         timeout: input.timeout_seconds.map(Duration::from_secs),
+        env: RunEnv::default(),
+        stdin: None,
+        claude: false,
     };
     let run = RunDto::from(state.runs.start(&input.label, &spec).await?);
     let mut headers = HeaderMap::new();
@@ -214,7 +253,7 @@ pub(crate) async fn start_run(
     tag = "runs",
     params(RunPath),
     responses(
-        (status = 200, body = RunDto),
+        (status = 200, body = RunDetailDto),
         (status = 401, body = Problem),
         (status = 404, body = Problem),
         (status = 422, body = Problem),
@@ -223,8 +262,14 @@ pub(crate) async fn start_run(
 pub(crate) async fn get_run(
     State(state): State<ApiState>,
     ApiPath(path): ApiPath<RunPath>,
-) -> Result<Json<RunDto>, ApiError> {
-    Ok(Json(state.runs.get(Id::from_uuid(path.id)).await?.into()))
+) -> Result<Json<RunDetailDto>, ApiError> {
+    Ok(Json(
+        state
+            .dispatch_runs
+            .detail(Id::from_uuid(path.id))
+            .await?
+            .into(),
+    ))
 }
 
 #[utoipa::path(

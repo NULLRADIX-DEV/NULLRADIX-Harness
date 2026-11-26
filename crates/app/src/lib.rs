@@ -8,6 +8,7 @@ mod changes;
 mod clock;
 pub mod comments;
 pub mod customizations;
+pub mod dispatch;
 pub mod dispatcher_config;
 pub mod dispatcher_prompts;
 mod error;

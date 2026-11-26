@@ -1,0 +1,349 @@
+{
+  "title": "Claude runs of the dispatcher record their settings, cost, tokens and outcome and are listed by ticket",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": {
+          "key": "ARC",
+          "name": "Arches"
+        }
+      },
+      "save": {
+        "project": "json.id"
+      }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": {
+          "name": "Main"
+        }
+      },
+      "save": {
+        "board": "json.id"
+      }
+    },
+    {
+      "name": "first ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": {
+          "title": "Build the login"
+        }
+      }
+    },
+    {
+      "name": "second ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/tickets",
+        "body": {
+          "title": "Fix the logout"
+        }
+      }
+    },
+    {
+      "name": "a question",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/questions",
+        "body": {
+          "title": "Which session store?"
+        }
+      }
+    },
+    {
+      "name": "a work run costs money",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/runs",
+        "body": {
+          "kind": "work",
+          "subjectKey": "arc-1",
+          "prompt": "Build the login. [fake-claude:usage]",
+          "cwd": "{{WORK}}"
+        }
+      },
+      "save": {
+        "work": "json.id"
+      }
+    },
+    {
+      "name": "the work run ended",
+      "wait": {
+        "path": "/api/v1/runs/{{work}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "its cost and tokens",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{work}}"
+      }
+    },
+    {
+      "name": "a merge session hits the usage limit",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/runs",
+        "body": {
+          "kind": "merge",
+          "subjectKey": "ARC-0001",
+          "prompt": "Merge it. [fake-claude:usage-limit]",
+          "cwd": "{{WORK}}",
+          "profile": "large"
+        }
+      },
+      "save": {
+        "merge": "json.id"
+      }
+    },
+    {
+      "name": "the merge session failed",
+      "wait": {
+        "path": "/api/v1/runs/{{merge}}",
+        "field": "status",
+        "equals": "failed"
+      }
+    },
+    {
+      "name": "its abort",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{merge}}"
+      }
+    },
+    {
+      "name": "a research run runs out of turns",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/runs",
+        "body": {
+          "kind": "research",
+          "subjectKey": "arc-q1",
+          "prompt": "Research it. [fake-claude:max-turns]",
+          "cwd": "{{WORK}}"
+        }
+      },
+      "save": {
+        "research": "json.id"
+      }
+    },
+    {
+      "name": "the research run failed",
+      "wait": {
+        "path": "/api/v1/runs/{{research}}",
+        "field": "status",
+        "equals": "failed"
+      }
+    },
+    {
+      "name": "its category",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{research}}"
+      }
+    },
+    {
+      "name": "a plan run is refused some tools",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/runs",
+        "body": {
+          "kind": "plan",
+          "subjectKey": "ARC-0002",
+          "prompt": "Plan it. [fake-claude:denied]",
+          "cwd": "{{WORK}}",
+          "profile": "small"
+        }
+      },
+      "save": {
+        "plan": "json.id"
+      }
+    },
+    {
+      "name": "the plan run ended",
+      "wait": {
+        "path": "/api/v1/runs/{{plan}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "its denied tools",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{plan}}"
+      }
+    },
+    {
+      "name": "a run that takes a screenshot",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/runs",
+        "body": {
+          "kind": "work",
+          "subjectKey": "ARC-0002",
+          "prompt": "Look. [fake-claude:image]",
+          "cwd": "{{WORK}}"
+        }
+      },
+      "save": {
+        "shots": "json.id"
+      }
+    },
+    {
+      "name": "the screenshot run ended",
+      "wait": {
+        "path": "/api/v1/runs/{{shots}}",
+        "field": "status",
+        "equals": "succeeded"
+      }
+    },
+    {
+      "name": "its screenshots",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{shots}}/screenshots"
+      }
+    },
+    {
+      "name": "runs of a ticket",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs?ticketKey=ARC-0001"
+      }
+    },
+    {
+      "name": "runs with a lower case key",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs?ticketKey=arc-1"
+      }
+    },
+    {
+      "name": "runs of a ticket by kind",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs?ticketKey=ARC-0002&kind=plan"
+      }
+    },
+    {
+      "name": "runs of a question",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs?questionKey=ARC-Q0001"
+      }
+    },
+    {
+      "name": "runs of a ticket without any",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs?ticketKey=ARC-0099"
+      }
+    },
+    {
+      "name": "an empty key",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs?ticketKey="
+      }
+    },
+    {
+      "name": "a broken key",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs?ticketKey=..%2Fx"
+      }
+    },
+    {
+      "name": "a ticket and a question together",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs?ticketKey=ARC-0001&questionKey=ARC-Q0001"
+      }
+    },
+    {
+      "name": "the log of the work run",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{work}}/transcript"
+      }
+    },
+    {
+      "name": "the log in pages",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{work}}/transcript?after=1&limit=2"
+      }
+    },
+    {
+      "name": "the log of the failed merge",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{merge}}/transcript"
+      }
+    },
+    {
+      "name": "an unknown screenshot",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/runs/{{work}}/screenshots/00000000-0000-7000-8000-000000000000"
+      }
+    },
+    {
+      "name": "a run of an unknown ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/runs",
+        "body": {
+          "kind": "work",
+          "subjectKey": "ARC-0099",
+          "prompt": "Go.",
+          "cwd": "{{WORK}}"
+        }
+      }
+    },
+    {
+      "name": "a research run needs a question key",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/runs",
+        "body": {
+          "kind": "research",
+          "subjectKey": "ARC-0001",
+          "prompt": "Go.",
+          "cwd": "{{WORK}}"
+        }
+      }
+    },
+    {
+      "name": "a run with an unknown profile",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/dispatcher/runs",
+        "body": {
+          "kind": "work",
+          "subjectKey": "ARC-0001",
+          "prompt": "Go.",
+          "cwd": "{{WORK}}",
+          "profile": "giant"
+        }
+      }
+    },
+    {
+      "name": "the runs in the CLI",
+      "cli": {
+        "args": ["run", "list"]
+      }
+    }
+  ]
+}
