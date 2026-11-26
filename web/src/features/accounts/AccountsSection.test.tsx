@@ -78,6 +78,11 @@ function accountsServer(initial: Account[] = [defaultAccount(), account()]) {
       }
       return json(200, change(current.id, { hasRunToken: true }));
     },
+    [`POST /api/v1/accounts/${MAX_ID}/resume`]: (request) => {
+      const current = find(request);
+      if (!current) return problem(404, 'account-not-found', 'no such account');
+      return json(200, change(current.id, { pausedUntil: null, pauseReason: null }));
+    },
     [`DELETE /api/v1/accounts/${MAX_ID}/run-token`]: (request) => {
       const current = find(request);
       if (!current) return problem(404, 'account-not-found', 'no such account');
@@ -158,6 +163,26 @@ describe('AccountsSection', () => {
     expect(server.getByText('server login')).toBeInTheDocument();
     expect(server.queryByRole('button', { name: 'Remove Default' })).not.toBeInTheDocument();
     expect(server.getByRole('button', { name: 'Rename Default' })).toBeInTheDocument();
+  });
+
+  it('shows a paused account and resumes it before the pause ends', async () => {
+    const { api } = accountsServer([
+      defaultAccount(),
+      account({ pausedUntil: 1_900_000_000_000, pauseReason: 'usage-limit' }),
+    ]);
+    renderApp('/settings');
+    const max = await row('Max');
+    expect(max.getByText(/^paused until /)).toBeInTheDocument();
+    const server = await row('Default');
+    expect(server.queryByRole('button', { name: 'Resume Default' })).not.toBeInTheDocument();
+    await userEvent.click(max.getByRole('button', { name: 'Resume Max' }));
+    await waitFor(() => {
+      expect(api.requests(`POST /api/v1/accounts/${MAX_ID}/resume`)).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(max.queryByText(/^paused until /)).not.toBeInTheDocument();
+    });
+    expect(max.queryByRole('button', { name: 'Resume Max' })).not.toBeInTheDocument();
   });
 
   it('adds an account with its own folder or an existing one', async () => {

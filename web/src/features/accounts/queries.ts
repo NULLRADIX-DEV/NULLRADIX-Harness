@@ -175,3 +175,17 @@ export function useCancelLogin() {
     onSettled: invalidate,
   });
 }
+
+// A pause ends before its time when a person resumes the account.
+export function useResumeAccount() {
+  const invalidate = useInvalidate(accountKeys.all);
+  return useMutation({
+    mutationFn: async (id: string) =>
+      unwrap(
+        await api.POST('/api/v1/accounts/{accountId}/resume', {
+          params: { path: { accountId: id } },
+        }),
+      ),
+    onSettled: invalidate,
+  });
+}
