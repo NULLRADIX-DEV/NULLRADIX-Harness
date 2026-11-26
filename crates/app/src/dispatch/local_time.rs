@@ -12,6 +12,15 @@ pub trait LocalTime: Send + Sync {
     /// Minutes the local clock is ahead of UTC at a moment.
     async fn offset_minutes(&self, at: Timestamp) -> i32;
 
+    /// The offsets at many moments; one lookup of the zone serves them all.
+    async fn offsets(&self, moments: &[Timestamp]) -> Vec<i32> {
+        let mut offsets = Vec::with_capacity(moments.len());
+        for moment in moments {
+            offsets.push(self.offset_minutes(*moment).await);
+        }
+        offsets
+    }
+
     async fn minute_of_day(&self, at: Timestamp) -> u32 {
         minute_with_offset(at, self.offset_minutes(at).await)
     }

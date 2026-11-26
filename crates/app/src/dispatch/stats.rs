@@ -66,6 +66,13 @@ impl std::fmt::Debug for DispatchStatsService {
     }
 }
 
+const MINUTE_MS: i64 = 60_000;
+const DAY_MS: i64 = 24 * 60 * MINUTE_MS;
+
+fn moment_plus(at: Timestamp, millis: i64) -> Timestamp {
+    Timestamp::from_millis(at.as_millis().saturating_add(millis))
+}
+
 #[derive(Clone, Copy)]
 enum Bound {
     Start,
@@ -98,15 +105,48 @@ impl DispatchStatsService {
         }
     }
 
-    /// A midnight bound of the range, with the offset in force at that midnight.
-    async fn bound(&self, range: StatsRange, side: Bound, now: Timestamp) -> Timestamp {
+    /// A midnight bound of the range: the first moment of its local day.
+    async fn bound(&self, range: StatsRange, side: Bound, today_offset: i32) -> Timestamp {
         let at = |offset| match side {
             Bound::Start => range.start(offset),
             Bound::End => range.end(offset),
         };
-        // the offset of the bound is read at the bound, guessed with today's offset first
-        let guess = at(self.local.offset_minutes(now).await);
-        at(self.local.offset_minutes(guess).await)
+        let day = match side {
+            Bound::Start => range.first_day(),
+            Bound::End => range.last_day() + 1,
+        };
+        // zones that switch at midnight have two candidates; the right one starts the day
+        let guess = at(today_offset);
+        let around = [
+            guess,
+            moment_plus(guess, -DAY_MS),
+            moment_plus(guess, DAY_MS),
+        ];
+        let mut candidates: Vec<Timestamp> = self
+            .local
+            .offsets(&around)
+            .await
+            .into_iter()
+            .map(at)
+            .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
+        let probes: Vec<Timestamp> = candidates
+            .iter()
+            .flat_map(|at| [*at, moment_plus(*at, -MINUTE_MS)])
+            .collect();
+        let offsets = self.local.offsets(&probes).await;
+        candidates
+            .iter()
+            .enumerate()
+            .find(|(index, at)| {
+                let (here, before) = (offsets[index * 2], offsets[index * 2 + 1]);
+                local_day_of(**at, here) == day
+                    && local_day_of(moment_plus(**at, -MINUTE_MS), before) < day
+            })
+            .map(|(_, at)| *at)
+            .or_else(|| candidates.last().copied())
+            .unwrap_or(guess)
     }
 
     /// The numbers of the runs that started on the days asked for, in local time.
@@ -118,13 +158,14 @@ impl DispatchStatsService {
             return Err(boards::not_found(id));
         }
         let now = self.clock.now();
-        let today = local_day_of(now, self.local.offset_minutes(now).await);
+        let today_offset = self.local.offset_minutes(now).await;
+        let today = local_day_of(now, today_offset);
         let end = self
             .bound(
                 StatsRange::resolve(request.from, request.to, today, None)
                     .map_err(|error| refused(&error))?,
                 Bound::End,
-                now,
+                today_offset,
             )
             .await;
         let config_changed_at = self
@@ -141,8 +182,8 @@ impl DispatchStatsService {
         let range = StatsRange::resolve(request.from, request.to, today, config_day)
             .map_err(|error| refused(&error))?;
         let (from, until) = (
-            self.bound(range, Bound::Start, now).await,
-            self.bound(range, Bound::End, now).await,
+            self.bound(range, Bound::Start, today_offset).await,
+            self.bound(range, Bound::End, today_offset).await,
         );
         let limit = u32::try_from(STATS_MAX_RUNS + 1).unwrap_or(u32::MAX);
         let mut runs = self
@@ -160,8 +201,9 @@ impl DispatchStatsService {
                 format!("more than {STATS_MAX_RUNS} runs in the range, choose fewer days"),
             ));
         }
-        for run in &mut runs {
-            run.offset_minutes = self.local.offset_minutes(run.started_at).await;
+        let moments: Vec<Timestamp> = runs.iter().map(|run| run.started_at).collect();
+        for (run, offset) in runs.iter_mut().zip(self.local.offsets(&moments).await) {
+            run.offset_minutes = offset;
         }
         let stats = calculate_stats(&StatsFacts { kind, range, runs });
         Ok(StatsReport {

@@ -41,6 +41,36 @@ impl LocalTime for Berlin {
     }
 }
 
+/// UTC-4 until 2026-09-06 04:00 UTC, when local midnight is skipped and the clock jumps to 01:00 at UTC-3.
+struct Santiago;
+
+#[async_trait]
+impl LocalTime for Santiago {
+    async fn offset_minutes(&self, moment: Timestamp) -> i32 {
+        if moment.as_millis() < at("2026-09-06T04:00:00Z") {
+            -240
+        } else {
+            -180
+        }
+    }
+}
+
+/// Counts single lookups; batched ones do not count.
+#[derive(Default)]
+struct Counting(std::sync::atomic::AtomicU32);
+
+#[async_trait]
+impl LocalTime for Counting {
+    async fn offset_minutes(&self, _at: Timestamp) -> i32 {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        0
+    }
+
+    async fn offsets(&self, moments: &[Timestamp]) -> Vec<i32> {
+        vec![0; moments.len()]
+    }
+}
+
 fn at(text: &str) -> i64 {
     Timestamp::parse_rfc3339(text).unwrap().as_millis()
 }
@@ -760,4 +790,70 @@ async fn the_range_bounds_use_the_offset_at_each_midnight() {
         .await
         .unwrap();
     assert_eq!(report.stats.kpis.runs, 0);
+}
+
+#[tokio::test]
+async fn a_midnight_inside_a_clock_gap_starts_the_day_at_the_jump() {
+    let f = fixture().await;
+    let local = DispatchStatsService::new(
+        f.store.clone(),
+        f.config.clone(),
+        f.store.clone(),
+        f.clock.clone(),
+        Arc::new(Santiago),
+    );
+    // today is before the jump, which a single guess from today's offset gets wrong
+    f.clock
+        .0
+        .store(at("2026-09-01T12:00:00Z"), Ordering::SeqCst);
+    // 23:30 on the day before, and 01:10 local after the jump
+    f.raw
+        .run(run(
+            "ARC-0001",
+            "small",
+            "2026-09-06T03:30:00Z",
+            "done",
+            None,
+        ))
+        .await;
+    f.raw
+        .run(run(
+            "ARC-0002",
+            "small",
+            "2026-09-06T04:10:00Z",
+            "done",
+            None,
+        ))
+        .await;
+    let report = local
+        .get(StatsRequest {
+            from: Some("2026-09-06"),
+            to: Some("2026-09-06"),
+            ..StatsRequest::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(report.stats.kpis.runs, 1);
+}
+
+#[tokio::test]
+async fn the_offset_of_every_run_is_read_in_one_batch() {
+    let f = fixture().await;
+    let counting = Arc::new(Counting::default());
+    let local = DispatchStatsService::new(
+        f.store.clone(),
+        f.config.clone(),
+        f.store.clone(),
+        f.clock.clone(),
+        counting.clone(),
+    );
+    for number in 0..20 {
+        let time = format!("2026-11-25T{:02}:00:00Z", number % 24);
+        f.raw
+            .run(run("ARC-0001", "small", &time, "done", None))
+            .await;
+    }
+    let report = local.get(week_request()).await.unwrap();
+    assert_eq!(report.stats.kpis.runs, 20);
+    assert!(counting.0.load(Ordering::SeqCst) <= 2);
 }
