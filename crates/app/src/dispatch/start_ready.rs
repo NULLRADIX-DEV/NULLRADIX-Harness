@@ -52,11 +52,13 @@ impl PassStep for StartReady {
         if context.idle.is_some() {
             return Ok(());
         }
+        // read first: a setup that ends meanwhile has its run in the list read afterwards
+        let launching = self.starter.launching();
         let active = self.runs.active().await?;
         let mut free = free_places(
             context.config.wip,
             active.iter().filter(|run| counts_for_wip(run)).count(),
-            self.starter.launching(),
+            launching,
         );
         // a ticket that is being planned must wait: its plan still changes
         let planning: HashSet<&str> = active

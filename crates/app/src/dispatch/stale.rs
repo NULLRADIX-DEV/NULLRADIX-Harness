@@ -62,6 +62,8 @@ impl PassStep for ReleaseStale {
     async fn run(&self, context: &PassContext, report: &mut PassReport) -> Result<(), AppError> {
         let config = &context.config;
         let actor = self.starter.actor().await?;
+        // read first: a setup that ends meanwhile has its run in the list read afterwards
+        let launching = self.starter.launching_keys();
         let active = self.runs.active().await?;
         let with_run: HashSet<&str> = active
             .iter()
@@ -77,7 +79,7 @@ impl PassStep for ReleaseStale {
             if config.agent_prefix.is_empty()
                 || !assignee.starts_with(&config.agent_prefix)
                 || with_run.contains(key.as_str())
-                || self.starter.is_launching(&key)
+                || launching.contains(&key)
             {
                 continue;
             }
@@ -89,7 +91,11 @@ impl PassStep for ReleaseStale {
                 continue;
             }
             let was = record.status;
-            match self.tickets.release(&key, Some("planned"), actor).await {
+            match self
+                .tickets
+                .release(&key, Some("planned"), actor, Some(record.version))
+                .await
+            {
                 Ok(_) => {
                     report.released.push(key.clone());
                     if was == TicketStatus::InProgress {

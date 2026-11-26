@@ -1,16 +1,17 @@
 //! Taking a ready ticket: claim it, bring its worktree up, run the setup and start Claude.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use nullradix_domain::{
     Actor, ActorKind, ActorName, DispatcherConfig, Id, ProfileChoice, Run, RunKind, RunTrigger,
-    SETUP_REASON, SetupState, SystemMarker, TicketKey, choose_profile,
+    SETUP_REASON, SetupState, SystemMarker, TicketKey, TicketStatus, Version, choose_profile,
 };
 use parking_lot::Mutex;
 use tokio::sync::OnceCell;
+use tokio_util::sync::CancellationToken;
 
 use super::candidates::{Candidate, Candidates};
 use super::log::DispatchLog;
@@ -54,6 +55,8 @@ struct Launch {
     cwd: String,
     choice: ProfileChoice,
     notes: Vec<String>,
+    /// The version of the ticket after the last write of this start.
+    version: Version,
 }
 
 pub struct TicketStarter {
@@ -71,8 +74,12 @@ pub struct TicketStarter {
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     actor: OnceCell<Actor>,
-    /// Tickets whose setup runs in the background; they count for the limit.
-    launching: Mutex<HashSet<String>>,
+    /// Tickets whose setup runs in the background, with its folder; they count for the limit.
+    launching: Mutex<HashMap<String, String>>,
+    /// Tickets whose start failed, with their version afterwards; they wait for a change.
+    failed: Mutex<HashMap<String, Version>>,
+    /// Stops the setups that run in the background.
+    cancel: CancellationToken,
 }
 
 impl std::fmt::Debug for TicketStarter {
@@ -134,6 +141,8 @@ impl TicketStarter {
             ids: parts.ids,
             actor: OnceCell::new(),
             launching: Mutex::default(),
+            failed: Mutex::default(),
+            cancel: CancellationToken::new(),
         })
     }
 
@@ -143,10 +152,26 @@ impl TicketStarter {
         self.launching.lock().len()
     }
 
-    /// Whether the ticket is being set up right now.
+    /// The tickets that are being set up right now.
     #[must_use]
-    pub fn is_launching(&self, key: &str) -> bool {
-        self.launching.lock().contains(key)
+    pub fn launching_keys(&self) -> HashSet<String> {
+        self.launching.lock().keys().cloned().collect()
+    }
+
+    /// Whether a setup runs in that folder right now.
+    fn sets_up_in(&self, folder: &str) -> bool {
+        self.launching
+            .lock()
+            .values()
+            .any(|running| same_folder(running, folder))
+    }
+
+    /// Stops the setups that run, kills their processes and waits for them up to `limit`.
+    pub async fn shutdown(&self, limit: Duration) {
+        self.cancel.cancel();
+        if tokio::time::timeout(limit, self.wait_idle()).await.is_err() {
+            self.log.error("setups did not stop in time", None).await;
+        }
     }
 
     /// Waits until no setup runs in the background any more.
@@ -197,6 +222,9 @@ impl TicketStarter {
         key: &TicketKey,
         config: &DispatcherConfig,
     ) -> Result<StartOutcome, AppError> {
+        if self.cancel.is_cancelled() {
+            return Ok(StartOutcome::Skipped(String::from("shutting down")));
+        }
         let Some(fresh) = self.candidates.fresh(config, key).await? else {
             return Ok(StartOutcome::Skipped(String::from("no longer planned")));
         };
@@ -209,6 +237,11 @@ impl TicketStarter {
             )));
         };
         let record = fresh.ticket().record();
+        if self.waits_for_change(&key.to_string(), record.version) {
+            return Ok(StartOutcome::Skipped(String::from(
+                "the last start failed; the ticket waits for a change",
+            )));
+        }
         // a run in the folder of the ticket must end first, the ticket stays unclaimed meanwhile
         if let Some(path) = &record.worktree
             && self.busy(path).await?
@@ -232,19 +265,43 @@ impl TicketStarter {
                 false,
             )
             .await;
-        if let Err(error) = claimed {
-            return if error.kind() == ErrorKind::Internal {
-                Err(error)
-            } else {
-                Ok(StartOutcome::Skipped(error.message().to_owned()))
-            };
-        }
-        match self.launch(&fresh, &root, config, choice, agent).await {
-            Ok(outcome) => Ok(outcome),
+        let version = match claimed {
+            Ok(view) => view.ticket.record().version,
             Err(error) => {
-                self.give_back(key).await;
-                Err(error)
+                return if error.kind() == ErrorKind::Internal {
+                    Err(error)
+                } else {
+                    Ok(StartOutcome::Skipped(error.message().to_owned()))
+                };
             }
+        };
+        let launched = self
+            .launch(&fresh, &root, config, choice, agent, version)
+            .await;
+        if launched.is_err() {
+            self.remember_failure(&text).await;
+        }
+        launched
+    }
+
+    /// Whether the ticket is unchanged since a start of it failed.
+    fn waits_for_change(&self, key: &str, version: Version) -> bool {
+        let mut failed = self.failed.lock();
+        match failed.get(key) {
+            Some(known) if *known == version => true,
+            Some(_) => {
+                failed.remove(key);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// Keeps the version a failed start left, so the next pass does not try it again.
+    async fn remember_failure(&self, key: &str) {
+        if let Ok(detail) = self.tickets.get(key).await {
+            let version = detail.view.ticket.record().version;
+            self.failed.lock().insert(key.to_owned(), version);
         }
     }
 
@@ -258,7 +315,7 @@ impl TicketStarter {
             .any(|dispatch| same_folder(&dispatch.cwd, path)))
     }
 
-    /// The worktree, then the setup and the run.
+    /// The worktree, then the setup and the run; what fails or waits gives the claim back.
     async fn launch(
         self: &Arc<Self>,
         candidate: &Candidate,
@@ -266,6 +323,29 @@ impl TicketStarter {
         config: &DispatcherConfig,
         choice: ProfileChoice,
         agent: String,
+        claimed: Version,
+    ) -> Result<StartOutcome, AppError> {
+        let mut version = claimed;
+        let outcome = self
+            .place_and_run(candidate, root, config, choice, agent, &mut version)
+            .await;
+        if !matches!(
+            outcome,
+            Ok(StartOutcome::Started(_) | StartOutcome::SettingUp)
+        ) {
+            self.give_back(candidate.key(), config, version).await;
+        }
+        outcome
+    }
+
+    async fn place_and_run(
+        self: &Arc<Self>,
+        candidate: &Candidate,
+        root: &str,
+        config: &DispatcherConfig,
+        choice: ProfileChoice,
+        agent: String,
+        version: &mut Version,
     ) -> Result<StartOutcome, AppError> {
         let actor = self.actor().await?;
         let key = candidate.key().clone();
@@ -275,7 +355,8 @@ impl TicketStarter {
         if candidate.ticket().record().branch.is_some() {
             match self.worktrees.resume(&text, actor).await? {
                 Resumed::Ready(worktree) => {
-                    self.tickets
+                    let moved = self
+                        .tickets
                         .move_to(
                             &text,
                             Some("in_progress"),
@@ -285,13 +366,14 @@ impl TicketStarter {
                             WriteOptions::default(),
                         )
                         .await?;
+                    *version = moved.ticket.record().version;
                     placed = Some((worktree.branch, worktree.path, false));
                 }
-                Resumed::Reset(note) => notes.push(note),
-                Resumed::Skipped(reason) => {
-                    self.give_back(&key).await;
-                    return Ok(StartOutcome::Skipped(reason));
+                Resumed::Reset(note) => {
+                    notes.push(note);
+                    *version = self.tickets.get(&text).await?.view.ticket.record().version;
                 }
+                Resumed::Skipped(reason) => return Ok(StartOutcome::Skipped(reason)),
             }
         }
         let (branch, cwd, created) = if let Some(placed) = placed {
@@ -305,6 +387,7 @@ impl TicketStarter {
                 .worktrees
                 .start(&text, self.runners.local().id(), root, mode, false, actor)
                 .await?;
+            *version = started.ticket.ticket.record().version;
             notes.extend(started.warnings);
             if let Some(created) = started.target_created {
                 let body = format!(
@@ -322,7 +405,13 @@ impl TicketStarter {
             cwd,
             choice,
             notes,
+            version: *version,
         };
+        if self.sets_up_in(&launch.cwd) {
+            return Ok(StartOutcome::Skipped(String::from(
+                "a setup runs in the worktree",
+            )));
+        }
         if self.needs_setup(config, created, &text).await? {
             self.defer(config.clone(), launch);
             return Ok(StartOutcome::SettingUp);
@@ -356,13 +445,16 @@ impl TicketStarter {
     /// Runs the setup apart from the pass, so a long install does not hold it up.
     fn defer(self: &Arc<Self>, config: DispatcherConfig, launch: Launch) {
         let text = launch.key.to_string();
-        self.launching.lock().insert(text.clone());
+        self.launching
+            .lock()
+            .insert(text.clone(), launch.cwd.clone());
         let this = Arc::clone(self);
         tokio::spawn(async move {
             if let Err(error) = this.set_up(&config, &launch).await {
                 let message = format!("cannot start {text}: {}", error.message());
                 this.log.error(&message, Some(&text)).await;
-                this.give_back(&launch.key).await;
+                this.give_back(&launch.key, &config, launch.version).await;
+                this.remember_failure(&text).await;
             }
             this.launching.lock().remove(&text);
         });
@@ -375,12 +467,15 @@ impl TicketStarter {
             .max(1);
         let outcome = self
             .setup
-            .run(&SetupRequest {
-                root: launch.cwd.clone(),
-                steps: config.worktree_setup.clone(),
-                timeout: Duration::from_secs(minutes * 60),
-                git_bash: config.claude.git_bash_path.clone(),
-            })
+            .run(
+                &SetupRequest {
+                    root: launch.cwd.clone(),
+                    steps: config.worktree_setup.clone(),
+                    timeout: Duration::from_secs(minutes * 60),
+                    git_bash: config.claude.git_bash_path.clone(),
+                },
+                &self.cancel,
+            )
             .await?;
         let Some((worktree, _)) = self.worktrees.setup_state(&text).await? else {
             return Ok(());
@@ -390,7 +485,23 @@ impl TicketStarter {
                 self.worktrees
                     .mark_setup(worktree, SetupState::Done)
                     .await?;
+                // the ticket may have been taken, moved or released while the setup ran
+                if !self.still_ours(&launch.key, config).await? {
+                    self.log
+                        .write(
+                            super::log::LogLevel::Info,
+                            &format!("skipped the run of {text}: the ticket changed during setup"),
+                            Some(&text),
+                            None,
+                        )
+                        .await;
+                    return Ok(());
+                }
                 self.begin_run(launch).await?;
+                Ok(())
+            }
+            SetupOutcome::Cancelled => {
+                self.give_back(&launch.key, config, launch.version).await;
                 Ok(())
             }
             SetupOutcome::Failed(failure) => {
@@ -401,6 +512,19 @@ impl TicketStarter {
                     .await
             }
         }
+    }
+
+    /// Whether the ticket is still in progress with the agent of the dispatcher.
+    async fn still_ours(
+        &self,
+        key: &TicketKey,
+        config: &DispatcherConfig,
+    ) -> Result<bool, AppError> {
+        let text = key.to_string();
+        let detail = self.tickets.get(&text).await?;
+        let record = detail.view.ticket.record();
+        Ok(record.status == TicketStatus::InProgress
+            && record.assignee.as_deref() == Some(config.work_agent(&text).as_str()))
     }
 
     /// A failed setup blocks the ticket for a person; it is no attempt of the agent.
@@ -512,25 +636,27 @@ impl TicketStarter {
     }
 
     /// Clears the claim; the worktree link stays, the next pass resumes it.
-    async fn give_back(&self, key: &TicketKey) {
+    /// Only the claim as this start left it goes: if the ticket moved on, it stays as it is.
+    async fn give_back(&self, key: &TicketKey, config: &DispatcherConfig, version: Version) {
         let Ok(actor) = self.actor().await else {
             return;
         };
         let text = key.to_string();
-        // only our own claim is given back; someone may have taken the ticket meanwhile
         let ours = self.tickets.get(&text).await.is_ok_and(|detail| {
-            detail
-                .view
-                .ticket
-                .record()
-                .assignee
-                .as_deref()
-                .is_some_and(|name| name.ends_with(&text))
+            let record = detail.view.ticket.record();
+            record.version == version
+                && record.assignee.as_deref() == Some(config.work_agent(&text).as_str())
         });
         if !ours {
             return;
         }
-        if let Err(error) = self.tickets.release(&text, Some("planned"), actor).await {
+        let released = self
+            .tickets
+            .release(&text, Some("planned"), actor, Some(version))
+            .await;
+        if let Err(error) = released
+            && error.kind() != ErrorKind::Conflict
+        {
             self.log
                 .error(
                     &format!("cannot give {text} back: {}", error.message()),
