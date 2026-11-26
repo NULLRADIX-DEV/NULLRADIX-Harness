@@ -32,7 +32,7 @@ nullradix-runner.workspace = true
 http-body-util.workspace = true
 nullradix-store.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt"] }
 tower = { workspace = true, features = ["util"] }
 
 [lints]

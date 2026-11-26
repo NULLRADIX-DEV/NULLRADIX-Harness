@@ -3,6 +3,7 @@
 mod accounts;
 mod auth;
 mod boards;
+mod body_guard;
 mod claude_theme;
 mod comments;
 mod customizations;
@@ -502,6 +503,7 @@ pub fn router(state: ApiState) -> Router {
                     host::check_host,
                 )),
         )
+        .layer(middleware::from_fn(body_guard::buffer_small_body))
         .with_state(state)
 }
 

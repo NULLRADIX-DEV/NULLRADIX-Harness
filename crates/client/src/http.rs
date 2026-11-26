@@ -236,12 +236,12 @@ impl Client {
     }
 
     pub fn resume_dispatcher(&self) -> Result<DispatcherStatusDto, ClientError> {
-        self.post_json("/dispatcher/resume", &serde_json::json!({}), 200)
+        self.post_empty("/dispatcher/resume", 200)
     }
 
     /// Runs one pass now and returns the state after it.
     pub fn run_dispatcher_pass(&self) -> Result<PassReportDto, ClientError> {
-        self.post_json("/dispatcher/passes", &serde_json::json!({}), 200)
+        self.post_empty("/dispatcher/passes", 200)
     }
 
     pub fn dispatcher_config(&self) -> Result<DispatcherConfigView, ClientError> {
@@ -358,11 +358,7 @@ impl Client {
 
     /// Lets the dispatcher use the account again before its pause ends.
     pub fn resume_account(&self, id: Uuid) -> Result<AccountDto, ClientError> {
-        self.post_json(
-            &format!("/accounts/{id}/resume"),
-            &serde_json::json!({}),
-            200,
-        )
+        self.post_empty(&format!("/accounts/{id}/resume"), 200)
     }
 
     pub fn clear_run_token(&self, id: Uuid, version: i64) -> Result<AccountDto, ClientError> {
@@ -1068,20 +1064,12 @@ impl Client {
 
     /// Starts a research run on an open question; the run goes on without the caller.
     pub fn start_research_run(&self, key: &str) -> Result<RunDto, ClientError> {
-        self.post_json(
-            &format!("/questions/{key}/research-runs"),
-            &serde_json::json!({}),
-            202,
-        )
+        self.post_empty(&format!("/questions/{key}/research-runs"), 202)
     }
 
     /// Starts a plan run on a ticket; the run goes on without the caller.
     pub fn start_plan_run(&self, key: &str) -> Result<RunDto, ClientError> {
-        self.post_json(
-            &format!("/tickets/{key}/plan-runs"),
-            &serde_json::json!({}),
-            202,
-        )
+        self.post_empty(&format!("/tickets/{key}/plan-runs"), 202)
     }
 
     pub fn add_question_comment(
@@ -1400,6 +1388,21 @@ impl Client {
             .post(&self.url(route))
             .header("Authorization", &self.authorization()?)
             .send_json(input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, expected)
+    }
+
+    /// A POST to a route that takes no body; sending one makes the daemon reset the connection.
+    fn post_empty<T: DeserializeOwned>(
+        &self,
+        route: &str,
+        expected: u16,
+    ) -> Result<T, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url(route))
+            .header("Authorization", &self.authorization()?)
+            .send_empty()
             .map_err(|source| self.unreachable(source))?;
         decode(&mut response, expected)
     }
