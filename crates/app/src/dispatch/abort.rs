@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use nullradix_domain::{
     ABORT_PREFIX, Actor, CommentRecord, DispatcherConfig, Run, SystemMarker, TicketKey,
-    TicketRecord, TicketStatus, Version, failed_attempts,
+    TicketRecord, TicketStatus, Version, failed_attempts, is_abort_of,
 };
 
 use super::log::{DispatchLog, LogLevel};
@@ -32,6 +32,8 @@ pub struct AbortRequest<'a> {
     pub standing: Standing,
     /// The version the ticket must still have; a changed ticket is not counted.
     pub expected: Option<Version>,
+    /// A newer run of the ticket exists: the attempt counts, but the ticket is left alone.
+    pub superseded: bool,
 }
 
 /// What counting an attempt came to.
@@ -64,10 +66,6 @@ fn standing(record: &TicketRecord, agent: &str, standing: Standing) -> bool {
         }
         Standing::GivenBack => record.status == TicketStatus::Planned && record.assignee.is_none(),
     }
-}
-
-fn is_abort_of(record: &CommentRecord, actor: &Actor) -> bool {
-    record.author == actor.id() && record.body.as_str().starts_with(ABORT_PREFIX)
 }
 
 fn body_of(attempt: i64, max: i64, reason: &str, last: bool, run: Option<&Run>) -> String {
@@ -116,7 +114,7 @@ impl AbortAttempts {
         let before = request.run.and_then(|run| {
             records
                 .iter()
-                .position(|record| is_abort_of(record, actor) && record.run == Some(run.id()))
+                .position(|record| is_abort_of(record, actor.id(), run.id()))
         });
         let max = config.max_attempts;
         let counted = |records: &[&CommentRecord]| {
@@ -153,10 +151,13 @@ impl AbortAttempts {
                 )
                 .await;
         }
+        let counted = Aborted::Counted { attempt, last };
+        if request.superseded {
+            return Ok(counted);
+        }
         // the comment moved the ticket on; only a ticket still as left is changed
         let fresh = self.tickets.get(&text).await?;
         let record = fresh.view.ticket.record();
-        let counted = Aborted::Counted { attempt, last };
         if !standing(record, request.agent, request.standing) {
             return Ok(if before.is_some() {
                 counted

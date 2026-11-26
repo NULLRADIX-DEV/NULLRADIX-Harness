@@ -50,8 +50,8 @@ pub use dispatch_pass::{
     EstimatedReserve, IdleReason, LabelOverrides, MAX_SAMPLES, MIN_SAMPLES, NotReady,
     PROFILE_LABEL_PREFIX, ProfileChoice, ProfileReason, ReadinessFacts, RepositoryFact, ReserveFor,
     RunningWork, UsageSample, UsageSnapshot, account_label, allowed_accounts, choose_account,
-    choose_profile, clock_text, escalate, estimate_reserve, failed_attempts, idle_reason,
-    label_overrides, label_problem, minutes_of_day, not_ready, pending_reserve, phase,
+    choose_profile, clock_text, escalate, estimate_reserve, failed_attempts, idle_reason, is_abort,
+    is_abort_of, label_overrides, label_problem, minutes_of_day, not_ready, pending_reserve, phase,
     plan_estimate, plan_file_count,
 };
 pub use dispatch_run::{

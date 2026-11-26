@@ -103,6 +103,7 @@ impl PassStep for ReleaseStale {
                     reason: &reason,
                     standing: Standing::Claimed,
                     expected: Some(record.version),
+                    superseded: false,
                 };
                 match self.aborts.abort(&request, config, actor).await {
                     Ok(Aborted::Counted { .. }) => report.released.push(key.clone()),

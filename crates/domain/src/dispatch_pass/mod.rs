@@ -13,7 +13,7 @@ pub use account_choice::{
     ACCOUNT_LABEL_PREFIX, AccountChoice, AccountChoiceInput, AccountReserve, AccountState,
     AllowedAccounts, UsageSnapshot, account_label, allowed_accounts, choose_account, clock_text,
 };
-pub use attempts::{ABORT_PREFIX, failed_attempts};
+pub use attempts::{ABORT_PREFIX, failed_attempts, is_abort, is_abort_of};
 pub use escalation::{LabelOverrides, escalate, label_overrides, label_problem};
 pub use profile_choice::{
     PROFILE_LABEL_PREFIX, ProfileChoice, ProfileReason, choose_profile, plan_estimate,

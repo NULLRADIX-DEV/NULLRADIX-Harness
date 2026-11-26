@@ -25,6 +25,24 @@ use crate::worktrees::{
 };
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
+/// Marks the error of a run whose process could not be started.
+#[derive(Debug)]
+pub struct StartFailure;
+
+impl std::fmt::Display for StartFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the run could not be started")
+    }
+}
+
+impl std::error::Error for StartFailure {}
+
+/// Whether the error comes from a runner that could not start the process.
+#[must_use]
+pub fn is_start_failure(error: &AppError) -> bool {
+    std::error::Error::source(error).is_some_and(<dyn std::error::Error>::is::<StartFailure>)
+}
+
 /// Changes to the environment a run inherits from the runner.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunEnv {
@@ -304,7 +322,7 @@ impl RunService {
                     .failed_to_start(error.message().to_owned(), self.clock.now())
                     .map_err(|error| transition(&error))?;
                 self.save(&failed, run.version()).await?;
-                Err(error)
+                Err(error.with_source(StartFailure))
             }
         }
     }

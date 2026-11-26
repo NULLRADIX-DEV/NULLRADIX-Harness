@@ -421,6 +421,37 @@ mod tests {
     }
 
     #[test]
+    fn haiku_gets_no_effort_even_when_the_profile_names_one() {
+        let mut config = config();
+        let mut profile = config.profile("medium").unwrap().clone();
+        profile.effort = Some(String::from("high"));
+        profile.model = Some(String::from("opus"));
+        assert_eq!(
+            effective_effort(&config.claude, &profile).as_deref(),
+            Some("high")
+        );
+        for model in ["haiku", "claude-haiku-4-5"] {
+            profile.model = Some(String::from(model));
+            assert_eq!(effective_effort(&config.claude, &profile), None, "{model}");
+            let args = build(&input(
+                &config.claude,
+                &profile,
+                RunKind::Work,
+                Some("ARC-0001"),
+                None,
+                None,
+            ))
+            .args;
+            assert!(args.contains(&String::from(model)), "{args:?}");
+            assert!(!args.contains(&String::from("--effort")), "{args:?}");
+        }
+        // the general model counts when the profile names none
+        profile.model = None;
+        config.claude.model = Some(String::from("haiku"));
+        assert_eq!(effective_effort(&config.claude, &profile), None);
+    }
+
+    #[test]
     fn the_environment_follows_the_subscription_account_and_ticket() {
         let mut config = config();
         let profile = config.profile("medium").unwrap().clone();

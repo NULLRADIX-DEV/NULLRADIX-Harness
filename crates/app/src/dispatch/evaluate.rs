@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    ABORT_PREFIX, AUTOPILOT_PREFIX, AbortCategory, Actor, DispatchOutcome, DispatcherConfig, Id,
-    QuestionKey, Run, RunKind, SystemMarker, TicketRecord, TicketStatus, failed_attempts,
+    AUTOPILOT_PREFIX, AbortCategory, Actor, DispatchOutcome, DispatcherConfig, Id, QuestionKey,
+    Run, RunKind, SystemMarker, TicketRecord, TicketStatus, is_abort_of,
 };
 use parking_lot::RwLock;
 
@@ -18,7 +18,7 @@ use super::pass::{PassContext, PassReport, PassStep};
 use super::pause::{NoPauseHook, PauseHook, PauseKind};
 use super::start::TicketStarter;
 use crate::comments::CommentService;
-use crate::runs::RunService;
+use crate::runs::{RunFilter, RunService};
 use crate::tickets::{TicketDetail, TicketPatch, TicketService, WriteOptions};
 use crate::{AppError, ErrorKind};
 
@@ -162,7 +162,7 @@ impl EvaluateRuns {
             decide(config, &agent_of(run, key, config), run, record, &questions)
         };
         let outcome = match &decision {
-            Decision::StartFailed => Self::settle_start_failed(&detail, config, actor),
+            Decision::StartFailed => return self.start_failed(run, record, config).await,
             Decision::Abort(ended) => {
                 return self.abort(run, record, ended, counted, config, actor).await;
             }
@@ -186,19 +186,73 @@ impl EvaluateRuns {
         self.pauses.read().clone()
     }
 
-    /// A run that never spawned was counted by its start; this only records how it ended.
-    fn settle_start_failed(
-        detail: &TicketDetail,
+    /// A run that never spawned is an environment fault: no attempt, the pause hook or a wait.
+    async fn start_failed(
+        &self,
+        run: &Run,
+        record: &TicketRecord,
         config: &DispatcherConfig,
-        actor: &Actor,
-    ) -> DispatchOutcome {
-        let records = detail.comments.iter().map(|line| line.comment.record());
-        let counted = i64::try_from(failed_attempts(records, actor.id())).unwrap_or(i64::MAX);
-        if counted >= config.max_attempts {
-            DispatchOutcome::AbortFinal
-        } else {
-            DispatchOutcome::Abort
+    ) -> Result<Settled, AppError> {
+        let kind = PauseKind::ClaudeMissing;
+        if let Some(outcome) = self.pause_hook().paused(run, record, kind, config).await? {
+            return Ok(Settled::Yes(outcome));
         }
+        // its start gave the claim back already, and a newer one may be there now
+        self.wait_out(run, record, kind, config, false, true).await
+    }
+
+    /// No hook takes the run: the ticket goes back uncounted and does not start for a while.
+    async fn wait_out(
+        &self,
+        run: &Run,
+        record: &TicketRecord,
+        kind: PauseKind,
+        config: &DispatcherConfig,
+        release: bool,
+        hold: bool,
+    ) -> Result<Settled, AppError> {
+        let outcome = match kind {
+            PauseKind::UsageLimit => DispatchOutcome::PauseLimit,
+            PauseKind::ClaudeMissing => DispatchOutcome::PauseClaudeMissing,
+        };
+        let key = record.key.to_string();
+        let mut version = record.version;
+        let ours = record.status == TicketStatus::InProgress
+            && record.assignee.as_deref() == Some(agent_of(run, &key, config).as_str());
+        if release && ours {
+            let actor = self.starter.actor().await?;
+            match self
+                .tickets
+                .release(&key, Some("planned"), actor, Some(version))
+                .await
+            {
+                Ok(view) => version = view.ticket.record().version,
+                // a person changed the ticket first: look again on the next pass
+                Err(error) if error.kind() == ErrorKind::Conflict => return Ok(Settled::Later),
+                Err(error) => return Err(error),
+            }
+        }
+        if hold {
+            self.starter
+                .hold_off(&key, version, config.pause_minutes_on_limit);
+        }
+        Ok(Settled::Yes(outcome))
+    }
+
+    /// Whether a newer work run of the ticket exists; it owns the ticket's claim now.
+    async fn superseded(&self, run: &Run, key: &str) -> Result<bool, AppError> {
+        let Some(finished) = run.finished_at() else {
+            return Ok(false);
+        };
+        let filter = RunFilter {
+            subject_key: Some(key.to_owned()),
+            kind: Some(RunKind::Work),
+            ..RunFilter::default()
+        };
+        let newest = self.runs.find(&filter, 1).await?;
+        Ok(newest
+            .first()
+            .is_some_and(|other| other.id() != run.id() && other.created_at() > finished))
     }
 
     /// Counts the attempt of a run that achieved nothing, unless a pause takes the run.
@@ -217,10 +271,12 @@ impl EvaluateRuns {
             Some(AbortCategory::StartFailed) => Some(PauseKind::ClaudeMissing),
             _ => None,
         };
-        if let Some(kind) = kind.filter(|_| !counted)
-            && let Some(outcome) = self.pause_hook().paused(run, record, kind, config).await?
-        {
-            return Ok(Settled::Yes(outcome));
+        if let Some(kind) = kind.filter(|_| !counted) {
+            if let Some(outcome) = self.pause_hook().paused(run, record, kind, config).await? {
+                return Ok(Settled::Yes(outcome));
+            }
+            let ours = !self.superseded(run, &key).await?;
+            return self.wait_out(run, record, kind, config, ours, ours).await;
         }
         let agent = agent_of(run, &key, config);
         let request = AbortRequest {
@@ -230,6 +286,7 @@ impl EvaluateRuns {
             reason: &ended.reason,
             standing: Standing::Claimed,
             expected: None,
+            superseded: self.superseded(run, &key).await?,
         };
         Ok(match self.aborts.abort(&request, config, actor).await? {
             Aborted::Counted { last: true, .. } => Settled::Yes(DispatchOutcome::AbortFinal),
@@ -336,12 +393,10 @@ fn agent_of(run: &Run, key: &str, config: &DispatcherConfig) -> String {
 
 /// Whether the abort comment of this run is on the ticket already.
 fn abort_posted(detail: &TicketDetail, run: &Run, dispatcher: &Actor) -> bool {
-    detail.comments.iter().any(|line| {
-        let record = line.comment.record();
-        record.author == dispatcher.id()
-            && record.body.as_str().starts_with(ABORT_PREFIX)
-            && record.run == Some(run.id())
-    })
+    detail
+        .comments
+        .iter()
+        .any(|line| is_abort_of(line.comment.record(), dispatcher.id(), run.id()))
 }
 
 /// Whether the question comment of this run is on the ticket already.
@@ -356,6 +411,7 @@ fn question_posted(detail: &TicketDetail, run: &Run) -> bool {
 impl PassStep for EvaluateRuns {
     async fn run(&self, context: &PassContext, report: &mut PassReport) -> Result<(), AppError> {
         // read first: a run that starts meanwhile has its place in the list read afterwards
+        let launching = self.starter.launching_keys();
         let finished = self.runs.unevaluated(BATCH).await?;
         let active = self.runs.active().await?;
         let working: HashSet<&str> = active
@@ -371,7 +427,7 @@ impl PassStep for EvaluateRuns {
                 continue;
             };
             // research, plan and merge runs have their own slices; a ticket with a live run waits
-            if dispatch.kind != RunKind::Work || working.contains(key) {
+            if dispatch.kind != RunKind::Work || working.contains(key) || launching.contains(key) {
                 continue;
             }
             match self.settle(run, key, &context.config).await {

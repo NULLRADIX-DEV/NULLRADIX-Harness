@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use nullradix_domain::{
     Actor, ActorKind, ActorName, DispatcherConfig, Id, LabelOverrides, ProfileChoice, Run, RunKind,
-    RunTrigger, SETUP_REASON, SetupState, SystemMarker, TicketKey, TicketStatus, Version,
-    choose_profile, escalate, failed_attempts, label_overrides,
+    RunTrigger, SETUP_REASON, SetupState, SystemMarker, TicketKey, TicketStatus, Timestamp,
+    Version, choose_profile, escalate, failed_attempts, label_overrides,
 };
 use parking_lot::Mutex;
 use tokio::sync::OnceCell;
@@ -100,6 +100,8 @@ pub struct TicketStarter {
     actor: OnceCell<Actor>,
     /// Tickets whose setup runs in the background, with its folder; they count for the limit.
     launching: Mutex<HashMap<String, String>>,
+    /// Tickets whose run could not be started: the version they were given back at and until when.
+    held: Mutex<HashMap<String, (Version, Timestamp)>>,
     /// Stops the setups that run in the background.
     cancel: CancellationToken,
 }
@@ -167,6 +169,7 @@ impl TicketStarter {
             ids: parts.ids,
             actor: OnceCell::new(),
             launching: Mutex::default(),
+            held: Mutex::default(),
             cancel: CancellationToken::new(),
         })
     }
@@ -181,6 +184,41 @@ impl TicketStarter {
     #[must_use]
     pub fn launching_keys(&self) -> HashSet<String> {
         self.launching.lock().keys().cloned().collect()
+    }
+
+    /// Keeps the ticket from starting again until it changes or the minutes have passed.
+    pub fn hold_off(&self, key: &str, version: Version, minutes: i64) {
+        let until = self
+            .clock
+            .now()
+            .as_millis()
+            .saturating_add(minutes.saturating_mul(60_000));
+        self.held
+            .lock()
+            .insert(key.to_owned(), (version, Timestamp::from_millis(until)));
+    }
+
+    /// Why a fresh candidate is not taken now, if it is not.
+    fn not_to_start(&self, fresh: &Candidate) -> Option<String> {
+        if let Some(reason) = &fresh.not_ready {
+            return Some(reason.to_string());
+        }
+        let key = fresh.key().to_string();
+        self.held_off(&key, fresh.ticket().record().version)
+            .then(|| String::from("paused after a start that failed"))
+    }
+
+    /// Whether the ticket was held off at this version and the time has not come yet.
+    fn held_off(&self, key: &str, version: Version) -> bool {
+        let mut held = self.held.lock();
+        let Some(&(at, until)) = held.get(key) else {
+            return false;
+        };
+        if at == version && self.clock.now() < until {
+            return true;
+        }
+        held.remove(key);
+        false
     }
 
     /// Whether a setup runs in that folder right now.
@@ -253,8 +291,8 @@ impl TicketStarter {
         let Some(fresh) = self.candidates.fresh(config, key).await? else {
             return Ok(StartOutcome::Skipped(String::from("no longer planned")));
         };
-        if let Some(reason) = &fresh.not_ready {
-            return Ok(StartOutcome::Skipped(reason.to_string()));
+        if let Some(reason) = self.not_to_start(&fresh) {
+            return Ok(StartOutcome::Skipped(reason));
         }
         let Some(root) = fresh.root.clone() else {
             return Ok(StartOutcome::Skipped(String::from(
@@ -341,10 +379,23 @@ impl TicketStarter {
             .launch(&fresh, &root, config, picked, agent.clone(), version)
             .await;
         if let Err(error) = &launched {
-            self.count_failed_start(key, &agent, config, error.message())
-                .await;
+            self.start_failed(key, &agent, config, error).await;
         }
         launched
+    }
+
+    /// A runner that cannot start Claude is no fault of the ticket: the run settles it, no attempt.
+    async fn start_failed(
+        &self,
+        key: &TicketKey,
+        agent: &str,
+        config: &DispatcherConfig,
+        error: &AppError,
+    ) {
+        if !crate::runs::is_start_failure(error) {
+            self.count_failed_start(key, agent, config, error.message())
+                .await;
+        }
     }
 
     /// Counts a failed start as an aborted attempt, as legacy did; the claim is given back already.
@@ -366,6 +417,7 @@ impl TicketStarter {
             reason: &reason,
             standing: Standing::GivenBack,
             expected: None,
+            superseded: false,
         };
         if let Err(error) = self.aborts.abort(&request, config, actor).await {
             self.log
@@ -551,7 +603,7 @@ impl TicketStarter {
                 let message = format!("cannot start {text}: {}", error.message());
                 this.log.error(&message, Some(&text)).await;
                 this.give_back(&launch.key, &config, launch.version).await;
-                this.count_failed_start(&launch.key, &launch.agent, &config, error.message())
+                this.start_failed(&launch.key, &launch.agent, &config, &error)
                     .await;
             }
         });
