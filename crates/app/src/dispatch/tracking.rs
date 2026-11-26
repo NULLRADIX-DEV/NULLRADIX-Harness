@@ -45,7 +45,7 @@ pub trait AutoRunRepository: Send + Sync {
         at: Timestamp,
         auto: bool,
     ) -> Result<(), AppError>;
-    /// Marks a subject as taken up by the automation without a start; an existing mark stays.
+    /// Marks a subject as taken up by the automation without a start; an earlier mark is replaced.
     async fn mark(&self, kind: TrackKind, subject: Uuid, at: Timestamp) -> Result<(), AppError>;
     /// Counts one more attempt without a start and returns the count.
     async fn bump(&self, kind: TrackKind, subject: Uuid) -> Result<u32, AppError>;

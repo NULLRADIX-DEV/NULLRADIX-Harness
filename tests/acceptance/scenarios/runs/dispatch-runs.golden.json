@@ -594,8 +594,10 @@
           "Bash(nullradix question show:*)",
           "Bash(nullradix ticket show:*)",
           "Bash(nullradix ticket list:*)",
+          "Bash(nullradix research submit:*)",
           "Bash(git log:*)",
-          "Bash(git show:*)"
+          "Bash(git show:*)",
+          "Bash(git diff:*)"
         ],
         "createdAt": "<TIME>",
         "cwd": "<WORK>",

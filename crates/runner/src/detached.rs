@@ -117,8 +117,11 @@ impl DetachedWorktreePort for LocalDetached {
             .filter_map(|line| line.trim().strip_prefix("worktree "))
         {
             let path = path.trim();
-            if own_place(root, purpose, path).await? {
-                found.push(path.to_owned());
+            if own_place(root, purpose, path).await?
+                && let Some(subject) = detached_subject(purpose, path)
+            {
+                // our own spelling, as the runs carry it; git writes the real path of a link
+                found.push(detached_path(root, purpose, &subject));
             }
         }
         Ok(found)
@@ -368,5 +371,48 @@ mod tests {
             .unwrap();
         assert_eq!(keys(&research_list), keys(&[research]));
         assert_eq!(keys(&plan_list), keys(&[plan]));
+    }
+
+    /// A junction on Windows, which needs no privileges; a symlink elsewhere.
+    fn link_dir(target: &Path, link: &Path) {
+        #[cfg(windows)]
+        {
+            let output = Command::new("cmd")
+                .arg("/C")
+                .arg("mklink")
+                .arg("/J")
+                .arg(link)
+                .arg(target)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "mklink /J");
+        }
+        #[cfg(not(windows))]
+        std::os::unix::fs::symlink(target, link).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_root_behind_a_link_lists_the_folders_in_the_spelling_of_the_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(dir.path()).unwrap();
+        let base = PathBuf::from(base.to_string_lossy().trim_start_matches(r"\\?\"));
+        let real = base.join("real");
+        fs::create_dir_all(&real).unwrap();
+        repository(&real);
+        let linked = base.join("linked");
+        link_dir(&real, &linked);
+        created_path(
+            LocalDetached
+                .create(&create(&real.join("arches"), "ARC-Q0009", "HEAD"))
+                .await
+                .unwrap(),
+        );
+        let root = linked.join("arches");
+        let path = detached_path(&text(&root), DetachedPurpose::Research, "ARC-Q0009");
+        let listed = LocalDetached
+            .list(&text(&root), DetachedPurpose::Research)
+            .await
+            .unwrap();
+        assert_eq!(listed, vec![path]);
     }
 }

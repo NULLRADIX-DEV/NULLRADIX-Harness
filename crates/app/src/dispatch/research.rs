@@ -19,7 +19,7 @@ use super::detached::{
     DetachedCreate, DetachedCreated, DetachedPurpose, DetachedRemove, DetachedRemoved,
     DetachedWorktreePort, detached_busy, detached_root,
 };
-use super::local_time::LocalTime;
+use super::local_time::{LocalTime, local_day};
 use super::log::{DispatchLog, LogLevel};
 use super::pass::{DispatchPass, PassContext, PassReport, PassStep};
 use super::pause::{PauseHook, PauseKind};
@@ -31,6 +31,7 @@ use crate::boards::BoardRepository;
 use crate::comments::CommentService;
 use crate::dispatcher_config::DispatcherConfigService;
 use crate::dispatcher_prompts::DispatcherPromptService;
+use crate::notifier::{Notice, Notifier};
 use crate::questions::{QuestionDetail, QuestionFilter, QuestionService, QuestionView};
 use crate::repositories::RunnerService;
 use crate::runs::{RunFilter, RunService};
@@ -43,7 +44,6 @@ pub const RETRY_MINUTES: i64 = 30;
 pub const AUTOPILOT_ATTEMPTS: u32 = 2;
 /// Room between the clock of the run start and the one of the research write.
 const CLOCK_SKEW_MS: i64 = 60_000;
-const DAY_MS: i64 = 24 * 60 * 60_000;
 
 // reserved rows of the research tracking; no question has a nil-like id
 const SINCE_ROW: Uuid = Uuid::from_u128(0x019a_0000_0000_7000_8000_0000_0000_0101);
@@ -120,6 +120,7 @@ pub struct ResearchParts {
     pub starter: Arc<TicketStarter>,
     pub log: Arc<DispatchLog>,
     pub clock: Arc<dyn Clock>,
+    pub notifier: Arc<dyn Notifier>,
 }
 
 pub struct ResearchRuns {
@@ -460,8 +461,9 @@ impl ResearchRuns {
             self.remove(&root, &path).await;
         }
         let outcome = outcome?;
-        if outcome != DispatchOutcome::Gone
-            && let Err(error) = self.decide_autopilot(&key, outcome, config).await
+        // a pause or a vanished question counts for nothing, as for tickets
+        if matches!(outcome, DispatchOutcome::Research | DispatchOutcome::Other)
+            && let Err(error) = self.decide_autopilot(run, &key, outcome, config).await
         {
             self.parts
                 .log
@@ -602,6 +604,7 @@ impl ResearchRuns {
     /// After a research of an autopilot question: adopt the one recommendation or count the try.
     async fn decide_autopilot(
         &self,
+        run: &Run,
         key: &str,
         outcome: DispatchOutcome,
         config: &DispatcherConfig,
@@ -630,11 +633,7 @@ impl ResearchRuns {
         if let [option] = recommended.as_slice() {
             return self.adopt(key, subject, option, &tickets).await;
         }
-        let tried = self
-            .parts
-            .tracking
-            .bump(TrackKind::AutopilotResearch, subject)
-            .await?;
+        let tried = self.count_try(subject, run).await?;
         if tried < AUTOPILOT_ATTEMPTS {
             self.parts
                 .log
@@ -648,6 +647,30 @@ impl ResearchRuns {
             return Ok(());
         }
         self.give_up(key, tried, &tickets).await
+    }
+
+    /// Counts the try of a run once; the row's `last_started_at` is the run counted last.
+    async fn count_try(&self, subject: Uuid, run: &Run) -> Result<u32, AppError> {
+        let at = run.created_at();
+        let row = self
+            .parts
+            .tracking
+            .get(TrackKind::AutopilotResearch, subject)
+            .await?
+            .unwrap_or_default();
+        if row.last_started_at == Some(at) {
+            return Ok(row.count);
+        }
+        let counted = Tracked {
+            count: row.count + 1,
+            last_started_at: Some(at),
+            auto_at: row.auto_at,
+        };
+        self.parts
+            .tracking
+            .put(TrackKind::AutopilotResearch, subject, counted)
+            .await?;
+        Ok(counted.count)
     }
 
     /// The autopilot answers with the one recommended option and tells the tickets.
@@ -732,6 +755,16 @@ impl ResearchRuns {
                 .tickets
                 .update(&text, &patch, actor, version, options)
                 .await?;
+            let notice = Notice::blocked(true, &text, ticket.title.as_str(), &reason);
+            if let Err(error) = self.parts.notifier.notify(&notice).await {
+                self.parts
+                    .log
+                    .error(
+                        &format!("cannot show a notice: {}", error.message()),
+                        Some(&text),
+                    )
+                    .await;
+            }
         }
         self.parts
             .log
@@ -823,11 +856,11 @@ impl ResearchRuns {
             .and_then(|row| row.auto_at))
     }
 
-    /// Starts of today and the start of the local day they are counted for.
+    /// Starts of today and the local day (days since 1970-01-01, as `YYYY-MM-DD` counts them).
     async fn used_today(&self, now: Timestamp) -> Result<(u32, Timestamp), AppError> {
-        let minute = i64::from(self.parts.local.minute_of_day(now).await);
-        let into_day = minute * 60_000 + now.as_millis().rem_euclid(60_000);
-        let day = Timestamp::from_millis(now.as_millis() - into_day.min(DAY_MS));
+        // the key is the local calendar day, so a change of the clock inside it counts on
+        let minute = self.parts.local.minute_of_day(now).await;
+        let day = Timestamp::from_millis(local_day(now, minute));
         let used = match self.tracking_row(DAY_ROW).await? {
             Some(row) if row.last_started_at == Some(day) => row.count,
             _ => 0,

@@ -174,6 +174,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         starter: starter.clone(),
         log: log.clone(),
         clock: deps.clock.clone(),
+        notifier: deps.notifier.clone(),
     });
     let evaluate = Arc::new(
         EvaluateRuns::new(

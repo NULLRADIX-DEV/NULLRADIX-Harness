@@ -78,7 +78,8 @@ const ROOT: &str = if cfg!(windows) {
     "/work/arches"
 };
 
-struct FakeClock(AtomicI64);
+/// The moment, and the offset of the local time from UTC in minutes.
+struct FakeClock(AtomicI64, std::sync::atomic::AtomicI32);
 
 impl Clock for FakeClock {
     fn now(&self) -> Timestamp {
@@ -89,7 +90,7 @@ impl Clock for FakeClock {
 #[async_trait]
 impl LocalTime for FakeClock {
     async fn minute_of_day(&self, at: Timestamp) -> u32 {
-        minute_with_offset(at, 0)
+        minute_with_offset(at, self.1.load(Ordering::SeqCst))
     }
 }
 
@@ -613,7 +614,10 @@ struct Fixture {
 async fn fixture() -> Fixture {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let signal = ChangeSignal::new();
-    let clock = Arc::new(FakeClock(AtomicI64::new(START)));
+    let clock = Arc::new(FakeClock(
+        AtomicI64::new(START),
+        std::sync::atomic::AtomicI32::new(0),
+    ));
     let ids = Arc::new(UuidV7Generator);
     let machine = Arc::new(Machine::default());
     let setup = Arc::new(ScriptedSetup::default());
@@ -4398,6 +4402,33 @@ async fn the_automation_keeps_to_its_places_and_to_the_starts_of_a_day() {
 }
 
 #[tokio::test]
+async fn a_change_of_the_clock_inside_a_day_does_not_reset_the_starts_of_the_day() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_research(2, 1).await;
+    f.dispatcher.pass.run().await;
+    f.advance(1);
+    let first = f.open_question("First").await;
+    f.advance(1);
+    let second = f.open_question("Second").await;
+    f.advance(1);
+    let third = f.open_question("Third").await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [first.clone()], "{report:?}");
+    f.end_run(&first, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    // daylight saving moves the local clock by an hour, still the same calendar day
+    f.clock.1.store(60, Ordering::SeqCst);
+    f.advance(1);
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.research, [second.clone()], "{report:?}");
+    f.end_run(&second, RunOutcome::Succeeded, Some(0), None)
+        .await;
+    assert!(f.dispatcher.pass.run().await.research.is_empty());
+    assert!(f.research_runs(&third).await.is_empty());
+}
+
+#[tokio::test]
 async fn a_manual_research_keeps_a_question_out_of_the_automation() {
     let f = fixture().await;
     f.advance(1);
@@ -4931,6 +4962,71 @@ async fn without_a_recommendation_the_autopilot_tries_larger_and_then_blocks_the
     f.advance(1);
     assert!(f.dispatcher.pass.run().await.research.is_empty());
     assert_eq!(f.research_runs(&key).await.len(), 2);
+}
+
+impl Fixture {
+    async fn autopilot_tries(&self, key: &str) -> u32 {
+        use nullradix_app::dispatch::tracking::{AutoRunRepository, TrackKind};
+        let detail = self.questions.get(key).await.unwrap();
+        let id = detail.view.row.question.record().id.as_uuid();
+        AutoRunRepository::get(self.store.as_ref(), TrackKind::AutopilotResearch, id)
+            .await
+            .unwrap()
+            .map_or(0, |row| row.count)
+    }
+}
+
+#[tokio::test]
+async fn a_limit_in_an_autopilot_research_counts_no_try_and_blocks_nothing() {
+    let f = fixture().await;
+    let (ticket, key) = f.autopilot_question().await;
+    f.advance(1);
+    f.dispatcher.pass.run().await;
+    let run = f
+        .end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::PauseLimit));
+    assert_eq!(f.autopilot_tries(&key).await, 0);
+    assert_ne!(f.record(&ticket).await.status, TicketStatus::Blocked);
+}
+
+#[tokio::test]
+async fn an_autopilot_research_is_counted_once_however_often_it_is_settled() {
+    let f = fixture().await;
+    let (_, key) = f.autopilot_question().await;
+    f.advance(1);
+    f.dispatcher.pass.run().await;
+    f.submit_research(&key, AGENT_Q1, false).await;
+    f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.autopilot_tries(&key).await, 1);
+    // a pass that lost its work after the count settles the same run again
+    let run = f.research_runs(&key).await.remove(0);
+    let config = f.config.get().await.unwrap().config;
+    let pauses = nullradix_app::dispatch::pause::NoPauseHook;
+    f.dispatcher
+        .research
+        .settle(&run, &config, &pauses)
+        .await
+        .unwrap();
+    assert_eq!(f.autopilot_tries(&key).await, 1);
+}
+
+#[tokio::test]
+async fn an_autopilot_that_gives_up_tells_the_person_it_is_stuck() {
+    let f = fixture().await;
+    let (ticket, key) = f.autopilot_question().await;
+    for _ in 0..2 {
+        f.advance(1);
+        f.dispatcher.pass.run().await;
+        f.submit_research(&key, AGENT_Q1, false).await;
+        f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+        f.advance(1);
+        f.dispatcher.pass.run().await;
+    }
+    assert_eq!(f.record(&ticket).await.status, TicketStatus::Blocked);
+    assert!(f.notice_kinds().contains(&NoticeKind::Stuck));
 }
 
 #[tokio::test]

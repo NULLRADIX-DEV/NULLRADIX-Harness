@@ -14,7 +14,7 @@ pub const MERGE_SESSION_TOOLS: [&str; 2] = ["Bash(git merge:*)", "Bash(git check
 pub const RESTRICTED_PERMISSION_MODE: &str = "default";
 
 /// The only tools of a research run; there is no `git grep`, as `-O` starts a program.
-pub const RESEARCH_TOOLS: [&str; 10] = [
+pub const RESEARCH_TOOLS: [&str; 12] = [
     "Read",
     "Glob",
     "Grep",
@@ -23,8 +23,10 @@ pub const RESEARCH_TOOLS: [&str; 10] = [
     "Bash(nullradix question show:*)",
     "Bash(nullradix ticket show:*)",
     "Bash(nullradix ticket list:*)",
+    "Bash(nullradix research submit:*)",
     "Bash(git log:*)",
     "Bash(git show:*)",
+    "Bash(git diff:*)",
 ];
 
 /// Denials beat every permission, including the user's own settings.
@@ -358,6 +360,21 @@ mod tests {
                 "Bash(make:*)"
             ]
         );
+    }
+
+    #[test]
+    fn a_research_run_may_submit_its_research_and_diff_but_not_write_with_it() {
+        let call = call(RunKind::Research, &config(), &[]);
+        let allowed = position(&call.args, "--allowedTools");
+        let end = call.args[allowed + 1..]
+            .iter()
+            .position(|arg| arg.starts_with("--"))
+            .map_or(call.args.len(), |at| allowed + 1 + at);
+        let tools = &call.args[allowed + 1..end];
+        for tool in ["Bash(nullradix research submit:*)", "Bash(git diff:*)"] {
+            assert!(tools.iter().any(|allowed| allowed == tool), "{tool}");
+        }
+        assert!(RESEARCH_DENIED_TOOLS.contains(&"Bash(git diff --output:*)"));
     }
 
     #[test]
