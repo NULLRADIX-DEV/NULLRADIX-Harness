@@ -24,6 +24,7 @@ use crate::authors::author_invalid;
 use crate::boards::ActorRepository;
 use crate::comments::CommentService;
 use crate::dispatcher_prompts::DispatcherPromptService;
+use crate::notifier::{Notice, Notifier};
 use crate::repositories::RunnerService;
 use crate::runs::RunService;
 use crate::tickets::{TicketPatch, TicketService, WriteOptions};
@@ -95,6 +96,7 @@ pub struct TicketStarter {
     actors: Arc<dyn ActorRepository>,
     log: Arc<DispatchLog>,
     aborts: Arc<AbortAttempts>,
+    notifier: Arc<dyn Notifier>,
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     actor: OnceCell<Actor>,
@@ -127,6 +129,7 @@ pub struct StarterParts {
     pub actors: Arc<dyn ActorRepository>,
     pub log: Arc<DispatchLog>,
     pub aborts: Arc<AbortAttempts>,
+    pub notifier: Arc<dyn Notifier>,
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn IdGenerator>,
 }
@@ -165,6 +168,7 @@ impl TicketStarter {
             actors: parts.actors,
             log: parts.log,
             aborts: parts.aborts,
+            notifier: parts.notifier,
             clock: parts.clock,
             ids: parts.ids,
             actor: OnceCell::new(),
@@ -732,6 +736,25 @@ impl TicketStarter {
         self.log
             .error(&format!("setup of {text} failed: {reason}"), Some(&text))
             .await;
+        let title = self
+            .tickets
+            .get(&text)
+            .await?
+            .view
+            .ticket
+            .record()
+            .title
+            .as_str()
+            .to_owned();
+        let notice = Notice::blocked(false, &text, &title, &reason);
+        if let Err(error) = self.notifier.notify(&notice).await {
+            self.log
+                .error(
+                    &format!("cannot show a notice: {}", error.message()),
+                    Some(&text),
+                )
+                .await;
+        }
         Ok(())
     }
 

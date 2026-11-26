@@ -912,6 +912,7 @@ pub(crate) mod tests {
                 ids: Arc::new(UuidV7Generator),
                 signal: signal.clone(),
                 local_time: Arc::new(nullradix_app::dispatch::local_time::UtcTime),
+                notifier: Arc::new(nullradix_app::notifier::NoNotifier),
                 interval: None,
             },
         );

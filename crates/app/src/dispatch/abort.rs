@@ -9,6 +9,7 @@ use nullradix_domain::{
 
 use super::log::{DispatchLog, LogLevel};
 use crate::comments::CommentService;
+use crate::notifier::{NoNotifier, Notice, Notifier};
 use crate::tickets::{TicketPatch, TicketService, WriteOptions};
 use crate::{AppError, ErrorKind};
 
@@ -51,6 +52,7 @@ pub struct AbortAttempts {
     tickets: Arc<TicketService>,
     comments: Arc<CommentService>,
     log: Arc<DispatchLog>,
+    notifier: Arc<dyn Notifier>,
 }
 
 impl std::fmt::Debug for AbortAttempts {
@@ -93,6 +95,28 @@ impl AbortAttempts {
             tickets,
             comments,
             log,
+            notifier: Arc::new(NoNotifier),
+        }
+    }
+
+    /// Shows a notice when the last attempt blocks a ticket.
+    #[must_use]
+    pub fn with_notifier(mut self, notifier: Arc<dyn Notifier>) -> Self {
+        self.notifier = notifier;
+        self
+    }
+
+    async fn toast_blocked(&self, key: &str, title: &str, attempt: i64) {
+        let reason =
+            format!("Automatic implementation aborted {attempt} times - please look at it");
+        let notice = Notice::blocked(false, key, title, &reason);
+        if let Err(error) = self.notifier.notify(&notice).await {
+            self.log
+                .error(
+                    &format!("cannot show a notice: {}", error.message()),
+                    Some(key),
+                )
+                .await;
         }
     }
 
@@ -191,7 +215,13 @@ impl AbortAttempts {
             Ok(())
         };
         match changed {
-            Ok(()) => Ok(counted),
+            Ok(()) => {
+                if last {
+                    self.toast_blocked(&text, record.title.as_str(), attempt)
+                        .await;
+                }
+                Ok(counted)
+            }
             // a person changed the ticket first: look again on the next pass
             Err(error) if error.kind() == ErrorKind::Conflict => Ok(Aborted::Postponed),
             Err(error) => Err(error),

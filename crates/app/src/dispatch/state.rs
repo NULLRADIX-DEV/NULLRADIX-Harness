@@ -161,6 +161,34 @@ impl DispatcherStateService {
         .await
     }
 
+    /// Pauses until a moment, cut to the longest pause, unless the pause changed since `seen`.
+    pub async fn pause_unless_changed(
+        &self,
+        until: Timestamp,
+        seen: Option<Timestamp>,
+    ) -> Result<bool, AppError> {
+        let now = self.clock.now();
+        let latest = now
+            .checked_add(Duration::from_secs(u64::from(MAX_PAUSE_MINUTES) * 60))
+            .ok_or_else(pause_too_long)?;
+        let until = until.min(latest);
+        if until <= now {
+            return Err(pause_in_the_past());
+        }
+        let applied = std::sync::atomic::AtomicBool::new(true);
+        self.change(|state| {
+            let current = state.record().paused_until;
+            applied.store(current == seen, std::sync::atomic::Ordering::SeqCst);
+            if current != seen || current == Some(until) {
+                state.clone()
+            } else {
+                state.paused(until)
+            }
+        })
+        .await?;
+        Ok(applied.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
     pub async fn resume(&self) -> Result<DispatcherState, AppError> {
         self.change(|state| {
             if state.record().paused_until.is_some() {

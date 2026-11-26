@@ -288,21 +288,29 @@ impl DispatchPass {
         report
     }
 
-    async fn steps(&self, now: Timestamp, report: &mut PassReport) -> Result<(), AppError> {
-        let config = self.config.get().await?.config;
+    async fn idle_now(
+        &self,
+        config: &DispatcherConfig,
+        now: Timestamp,
+    ) -> Result<Option<IdleReason>, AppError> {
         let state = self.state.get().await?;
         let minute = self.local.minute_of_day(now).await;
-        let idle = idle_reason(
+        Ok(idle_reason(
             state.enabled(config.enabled),
             state.paused_until(now),
             config.window.as_ref(),
             now,
             minute,
-        );
+        ))
+    }
+
+    async fn steps(&self, now: Timestamp, report: &mut PassReport) -> Result<(), AppError> {
+        let config = self.config.get().await?.config;
+        let idle = self.idle_now(&config, now).await?;
         if let Some(reason) = &idle {
             report.idle = Some(idle_message(reason));
         }
-        let context = PassContext { config, now, idle };
+        let mut context = PassContext { config, now, idle };
         let steps: Vec<(PassPhase, Arc<dyn PassStep>)> = {
             let slots = self.steps.lock();
             PassPhase::ALL
@@ -315,6 +323,17 @@ impl DispatchPass {
                 report
                     .errors
                     .push(format!("{}: {}", phase.name(), error.message()));
+            }
+            // settling runs may pause the dispatcher; nothing new starts after that
+            if phase == PassPhase::Evaluate && context.idle.is_none() {
+                match self.idle_now(&context.config, now).await {
+                    Ok(idle) => context.idle = idle,
+                    Err(error) => {
+                        report
+                            .errors
+                            .push(format!("{}: {}", phase.name(), error.message()));
+                    }
+                }
             }
         }
         Ok(())

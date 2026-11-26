@@ -325,6 +325,7 @@ fn start_dispatcher(
         ids: Arc::new(UuidV7Generator),
         signal: signal.clone(),
         local_time: Arc::new(OsLocalTime),
+        notifier: Arc::new(nullradix_app::notifier::NoNotifier),
         interval: Some(PASS_INTERVAL),
     });
     let scheduler = spawn_scheduler(
