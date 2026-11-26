@@ -2,8 +2,7 @@ use async_trait::async_trait;
 use nullradix_app::review::{ReviewRepository, StoredReview};
 use nullradix_app::{AppError, Change, ChangeOp, Entity};
 use nullradix_domain::{
-    Actor, Id, Review, ReviewRecord, ReviewState, Run, TestRun, Ticket, Timestamp, Version,
-    Worktree,
+    Actor, Id, Review, ReviewRecord, ReviewState, Run, TestRun, Timestamp, Version, Worktree,
 };
 use uuid::Uuid;
 
@@ -132,20 +131,20 @@ impl ReviewRepository for Store {
 
     async fn decide(
         &self,
-        ticket: Id<Ticket>,
+        ticket: &str,
         state: ReviewState,
         by: Id<Actor>,
         at: Timestamp,
     ) -> Result<Option<Change>, AppError> {
-        let ticket = ticket.as_uuid();
         let state = state.as_str();
         let by = by.as_uuid();
         let at = at.as_millis();
         let mut tx = self.begin().await?;
         let found = sqlx::query!(
             r#"SELECT r.id AS "id: Uuid", r.worktree_id AS "worktree_id: Uuid"
-               FROM reviews r JOIN worktree_tickets t ON t.worktree_id = r.worktree_id
-               WHERE t.ticket_id = ? AND r.state = 'pending' LIMIT 1"#,
+               FROM reviews r JOIN runs u ON u.id = r.run_id
+               WHERE u.subject_key = ? AND r.state = 'pending'
+               ORDER BY r.created_at DESC, r.id DESC LIMIT 1"#,
             ticket,
         )
         .fetch_optional(&mut *tx)
@@ -180,12 +179,11 @@ impl ReviewRepository for Store {
         Ok(Some(change))
     }
 
-    async fn state_of(&self, ticket: Id<Ticket>) -> Result<Option<ReviewState>, AppError> {
-        let ticket = ticket.as_uuid();
+    async fn state_of(&self, ticket: &str) -> Result<Option<ReviewState>, AppError> {
         let state = sqlx::query_scalar!(
             r#"SELECT r.state AS "state!: String"
-               FROM reviews r JOIN worktree_tickets t ON t.worktree_id = r.worktree_id
-               WHERE t.ticket_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1"#,
+               FROM reviews r JOIN runs u ON u.id = r.run_id
+               WHERE u.subject_key = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1"#,
             ticket,
         )
         .fetch_optional(&self.reader)

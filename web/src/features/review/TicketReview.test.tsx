@@ -47,9 +47,15 @@ function review(overrides: Partial<Review> = {}): Review {
 const PATCH =
   'diff --git a/src/price.ts b/src/price.ts\n--- a/src/price.ts\n+++ b/src/price.ts\n@@ -1 +1 @@\n-net\n+net * 0.9\n';
 
-function serve(handlers: Record<string, Handler> = {}, branch: string | null = BRANCH) {
+function serve(
+  handlers: Record<string, Handler> = {},
+  branch: string | null = BRANCH,
+  reason: string | null = 'Human Interaction: review before merge',
+) {
   const server = boardServer({
-    entries: [entry(ticket({ branch, status: 'blocked', column: 'blocked' }))],
+    entries: [
+      entry(ticket({ branch, status: 'blocked', column: 'blocked', blockedReason: reason })),
+    ],
   });
   server.api.set(`GET ${BASE}/review`, () => json(200, review()));
   server.api.set(`GET ${BASE}/review/diff`, () =>
@@ -307,6 +313,17 @@ describe('ticket Review tab', () => {
     serve({
       [`GET ${BASE}/review`]: () => json(200, review({ state: 'approved' })),
     });
+    renderApp('/board');
+    const view = await openReview();
+    await view.findByText(BRANCH);
+    expect(view.queryByRole('button', { name: 'Accept' })).not.toBeInTheDocument();
+    expect(view.queryByRole('button', { name: 'Return to agent' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ticket Review tab of a ticket that waits for something else', () => {
+  it('offers no decision when the block reason is not the review', async () => {
+    serve({}, BRANCH, 'Human Interaction: look at it');
     renderApp('/board');
     const view = await openReview();
     await view.findByText(BRANCH);

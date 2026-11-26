@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.state AS \"state!: String\"\n               FROM reviews r JOIN worktree_tickets t ON t.worktree_id = r.worktree_id\n               WHERE t.ticket_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
+  "query": "SELECT r.state AS \"state!: String\"\n               FROM reviews r JOIN runs u ON u.id = r.run_id\n               WHERE u.subject_key = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "2d397f84b35cd28218497d0378821feb104b5edb72f174f6a91bd268df40405f"
+  "hash": "8b98f19ad9fc9b74e9701207d31125b6972d3dd660e21a91b9a0786135ac05dd"
 }

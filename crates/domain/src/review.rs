@@ -13,6 +13,12 @@ pub fn review_reason() -> String {
     format!("{HUMAN_INTERACTION} {REVIEW_REASON}")
 }
 
+/// Whether the block reason is the one of a ticket that waits for its review.
+#[must_use]
+pub fn waits_for_review(reason: Option<&str>) -> bool {
+    reason.map(str::trim) == Some(review_reason().as_str())
+}
+
 /// Most UTF-16 units of the feedback a person returns a ticket with.
 pub const REVIEW_FEEDBACK_MAX: usize = 10_000;
 /// Start of the comment that notes a return to the agent.
@@ -153,14 +159,17 @@ pub fn returned_comment(by: &str, feedback: &str) -> String {
     format!("{REVIEW_RETURNED_PREFIX} (by {by}): {feedback}")
 }
 
-/// The feedback of a return comment: the text after the author and the colon.
+/// The feedback of a return comment: the text after the author; a legacy text stays whole.
 fn returned_text(body: &str) -> Option<&str> {
     let rest = body.strip_prefix(REVIEW_RETURNED_PREFIX)?.trim_start();
-    let rest = match rest.strip_prefix('(') {
-        Some(inner) => inner.split_once(')')?.1.trim_start(),
-        None => rest,
+    let text = match rest
+        .strip_prefix("(by ")
+        .and_then(|inner| inner.split_once("): "))
+    {
+        Some((_, text)) => text,
+        None => rest.strip_prefix(':').unwrap_or(rest),
     };
-    let text = rest.strip_prefix(':')?.trim();
+    let text = text.trim();
     (!text.is_empty()).then_some(text)
 }
 
@@ -210,6 +219,21 @@ mod tests {
             ["add a test\nfor the error case", "rename it"]
         );
         assert_eq!(pending_feedback([]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_feedback_of_a_name_with_brackets_and_of_a_legacy_text_is_kept() {
+        let named = returned_comment("Anna (QA)", "fix: it");
+        assert_eq!(returned_text(&named), Some("fix: it"));
+        let legacy = format!("{REVIEW_RETURNED_PREFIX} (see below)");
+        assert_eq!(returned_text(&legacy), Some("(see below)"));
+    }
+
+    #[test]
+    fn only_the_review_reason_waits_for_the_review() {
+        assert!(waits_for_review(Some(&format!(" {} ", review_reason()))));
+        assert!(!waits_for_review(Some("Human Interaction: other")));
+        assert!(!waits_for_review(None));
     }
 
     fn test(ok: Option<bool>) -> TestRun {

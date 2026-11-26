@@ -372,6 +372,16 @@
         "method": "POST",
         "path": "/api/v1/tickets/ARC-1/review/return",
         "body": {
+          "feedback": "Please add a test for the discount."
+        }
+      }
+    },
+    {
+      "name": "a return with other words is refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-1/review/return",
+        "body": {
           "feedback": "And another hint."
         }
       }

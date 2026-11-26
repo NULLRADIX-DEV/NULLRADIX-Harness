@@ -605,6 +605,7 @@ struct Fixture {
     questions: Arc<QuestionService>,
     worktrees: Arc<WorktreeService>,
     reviews: Arc<ReviewService>,
+    runs: Arc<RunService>,
     prompts: Arc<DispatcherPromptService>,
     local: Id<Runner>,
     person: Actor,
@@ -775,7 +776,7 @@ async fn fixture() -> Fixture {
         actors: store.clone(),
         boards: store.clone(),
         runners,
-        runs,
+        runs: runs.clone(),
         dispatch,
         prompts: prompts.clone(),
         tickets: tickets.clone(),
@@ -806,6 +807,7 @@ async fn fixture() -> Fixture {
         questions,
         worktrees,
         reviews,
+        runs,
         prompts,
         local,
         person,
@@ -4988,8 +4990,7 @@ impl Fixture {
     }
 
     async fn review_state(&self, key: &str) -> Option<nullradix_domain::ReviewState> {
-        let ticket = self.record(key).await;
-        nullradix_app::review::ReviewRepository::state_of(self.store.as_ref(), ticket.id)
+        nullradix_app::review::ReviewRepository::state_of(self.store.as_ref(), key)
             .await
             .unwrap()
     }
@@ -5162,14 +5163,33 @@ async fn returning_a_held_ticket_notes_it_and_the_next_run_gets_the_feedback() {
         "[dispatch] review-returned (by anna): Please test\nthe error case."
     );
     assert_eq!(noted[0].author_kind, ActorKind::Dispatcher);
-    // a repeat changes nothing
+    // a repeat with the same feedback changes nothing, other words are refused
     let again = f
+        .dispatcher
+        .decisions
+        .return_to_agent(&key, "Please test\nthe error case.", &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(again.ticket.record().version, record.version);
+    let other = f
         .dispatcher
         .decisions
         .return_to_agent(&key, "other words", &f.person, None)
         .await
-        .unwrap();
-    assert_eq!(again.ticket.record().version, record.version);
+        .unwrap_err();
+    assert_eq!(other.code(), "return-not-possible");
+    let stale = f
+        .dispatcher
+        .decisions
+        .return_to_agent(
+            &key,
+            "Please test\nthe error case.",
+            &f.person,
+            Some(Version::INITIAL),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code(), "version-conflict");
     assert_eq!(f.markers(&key, SystemMarker::ReviewReturned).await, 1);
     // the next pass starts the agent again with the feedback in its instruction
     let report = f.dispatcher.pass.run().await;
@@ -5184,6 +5204,179 @@ async fn returning_a_held_ticket_notes_it_and_the_next_run_gets_the_feedback() {
     // once the agent started, the feedback is spent
     let spent = f.prompts.work_prompt(&key, "ticket/x").await.unwrap();
     assert!(!spent.contains("Please test"), "{spent}");
+}
+
+impl Fixture {
+    /// Ticket `guest` works in the worktree of ticket `host` from now on.
+    async fn share_worktree(&self, host: &str, guest: &str) {
+        use nullradix_app::worktrees::WorktreeRepository;
+        let host = self.record(host).await;
+        let guest = self.record(guest).await;
+        let entry = WorktreeRepository::of_ticket(self.store.as_ref(), host.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut write = nullradix_app::tickets::TicketRepository::begin(self.store.as_ref())
+            .await
+            .unwrap();
+        let now = Timestamp::from_millis(START);
+        write.release_link(guest.id, now).await.unwrap();
+        write
+            .join_worktree(entry.worktree.id(), guest.id, now)
+            .await
+            .unwrap();
+        write.commit().await.unwrap();
+    }
+
+    /// The agent of the ticket finishes; the next pass holds it for review.
+    async fn finish_for_review(&self, key: &str) {
+        self.git_says(vec![changed("src/a.ts", "M", 1, 1)]);
+        self.agent_changes(key, "done", None).await;
+        self.finish_run(key).await;
+        let report = self.dispatcher.pass.run().await;
+        assert!(report.errors.is_empty(), "{report:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_ticket_blocked_for_something_else_leaves_the_review_of_a_worktree_mate_alone() {
+    use nullradix_domain::ReviewState;
+    let f = fixture().await;
+    f.review_on().await;
+    let keys = f.start_tickets(2).await;
+    f.share_worktree(&keys[0], &keys[1]).await;
+    f.finish_for_review(&keys[1]).await;
+    assert_eq!(f.review_state(&keys[1]).await, Some(ReviewState::Pending));
+    f.agent_changes(&keys[0], "blocked", Some("Human Interaction: look at it"))
+        .await;
+    let view = f
+        .dispatcher
+        .decisions
+        .accept(&keys[0], &f.person, None, true)
+        .await
+        .unwrap();
+    assert_eq!(view.ticket.record().status, TicketStatus::Done);
+    assert_eq!(f.review_state(&keys[0]).await, None);
+    assert_eq!(f.review_state(&keys[1]).await, Some(ReviewState::Pending));
+}
+
+#[tokio::test]
+async fn a_repeated_accept_leaves_the_new_review_of_a_worktree_mate_alone() {
+    use nullradix_domain::ReviewState;
+    let f = fixture().await;
+    f.review_on().await;
+    let keys = f.start_tickets(2).await;
+    f.share_worktree(&keys[0], &keys[1]).await;
+    f.finish_for_review(&keys[0]).await;
+    f.dispatcher
+        .decisions
+        .accept(&keys[0], &f.person, None, true)
+        .await
+        .unwrap();
+    assert_eq!(f.review_state(&keys[0]).await, Some(ReviewState::Approved));
+    f.finish_for_review(&keys[1]).await;
+    assert_eq!(f.review_state(&keys[1]).await, Some(ReviewState::Pending));
+    f.dispatcher
+        .decisions
+        .accept(&keys[0], &f.person, None, true)
+        .await
+        .unwrap();
+    assert_eq!(f.review_state(&keys[0]).await, Some(ReviewState::Approved));
+    assert_eq!(f.review_state(&keys[1]).await, Some(ReviewState::Pending));
+}
+
+struct FlakyHook {
+    calls: std::sync::atomic::AtomicUsize,
+    fail: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl nullradix_app::dispatch::review_decide::AcceptHook for FlakyHook {
+    async fn accepted(&self, _ticket: &nullradix_domain::TicketRecord) -> Result<(), AppError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail.swap(false, Ordering::SeqCst) {
+            return Err(AppError::conflict("hook-failed", "the merge failed"));
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn an_accept_retries_the_hook_that_failed_after_the_decision() {
+    use nullradix_app::dispatch::review_decide::{DecisionParts, ReviewDecisions};
+    use nullradix_domain::ReviewState;
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    let hook = Arc::new(FlakyHook {
+        calls: std::sync::atomic::AtomicUsize::new(0),
+        fail: std::sync::atomic::AtomicBool::new(true),
+    });
+    let decisions = ReviewDecisions::new(DecisionParts {
+        pass: f.dispatcher.pass.clone(),
+        tickets: f.tickets.clone(),
+        comments: f.comments.clone(),
+        worktrees: f.worktrees.clone(),
+        reviews: f.reviews.clone(),
+        runs: f.runs.clone(),
+        starter: f.dispatcher.starter.clone(),
+    })
+    .with_hook(hook.clone());
+    let error = decisions
+        .accept(&key, &f.person, None, true)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "hook-failed");
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Approved));
+    decisions.accept(&key, &f.person, None, true).await.unwrap();
+    assert_eq!(hook.calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn a_repeated_return_needs_the_same_feedback_since_the_last_start() {
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    let decisions = &f.dispatcher.decisions;
+    decisions
+        .return_to_agent(&key, "Add a test", &f.person, None)
+        .await
+        .unwrap();
+    // the agent starts and a person plans the ticket again
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started, [key.clone()], "{report:?}");
+    f.agent_changes(&key, "planned", None).await;
+    let error = decisions
+        .return_to_agent(&key, "Add a test", &f.person, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "return-not-possible");
+}
+
+#[tokio::test]
+async fn a_return_that_failed_after_its_comment_notes_the_feedback_once() {
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    let record = f.record(&key).await;
+    let author = f.dispatcher.starter.actor().await.unwrap();
+    // what a first try left behind before its move to planned failed
+    f.comments
+        .add_system(
+            &record.key,
+            &nullradix_domain::returned_comment("anna", "Add a test"),
+            Some(SystemMarker::ReviewReturned),
+            None,
+            author,
+        )
+        .await
+        .unwrap();
+    let view = f
+        .dispatcher
+        .decisions
+        .return_to_agent(&key, "Add a test", &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(view.ticket.record().status, TicketStatus::Planned);
+    assert_eq!(f.markers(&key, SystemMarker::ReviewReturned).await, 1);
 }
 
 #[tokio::test]

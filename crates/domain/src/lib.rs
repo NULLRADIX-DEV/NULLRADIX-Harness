@@ -109,7 +109,7 @@ pub use repository::{
 pub use review::{
     REVIEW_COMMAND_MAX, REVIEW_FEEDBACK_MAX, REVIEW_REASON, REVIEW_RETURNED_PREFIX,
     REVIEW_TESTS_MAX, Review, ReviewRecord, ReviewState, TestRun, change_summary, pending_feedback,
-    returned_comment, review_reason, test_summary,
+    returned_comment, review_reason, test_summary, waits_for_review,
 };
 pub use run::{Run, RunEnd, RunError, RunLabel, RunOutcome, RunRecord, RunStatus};
 pub use session::{

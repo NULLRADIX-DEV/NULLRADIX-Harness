@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Actor, BRANCH_MAX, Id, Review, ReviewState, Run, TestRun, Ticket, TicketRecord, Timestamp,
-    Worktree, change_summary,
+    Actor, BRANCH_MAX, Id, Review, ReviewState, Run, TestRun, TicketRecord, Timestamp, Worktree,
+    change_summary,
 };
 
 use crate::repositories::RunnerService;
@@ -90,16 +90,16 @@ pub trait ReviewRepository: Send + Sync {
     async fn blocked(&self, run: Id<Run>) -> Result<bool, AppError>;
     /// Notes that the ticket of the run was blocked for the review at this moment.
     async fn mark_blocked(&self, run: Id<Run>, at: Timestamp) -> Result<(), AppError>;
-    /// Decides the pending review of the ticket's worktree; `None` when none waits.
+    /// Decides the pending review of the ticket's own run; `None` when none waits.
     async fn decide(
         &self,
-        ticket: Id<Ticket>,
+        ticket: &str,
         state: ReviewState,
         by: Id<Actor>,
         at: Timestamp,
     ) -> Result<Option<Change>, AppError>;
-    /// The state of the newest review of the ticket's worktree.
-    async fn state_of(&self, ticket: Id<Ticket>) -> Result<Option<ReviewState>, AppError>;
+    /// The state of the newest review of a run for the ticket (by its key).
+    async fn state_of(&self, ticket: &str) -> Result<Option<ReviewState>, AppError>;
     /// The newest review of the worktree.
     async fn latest(&self, worktree: Id<Worktree>) -> Result<Option<StoredReview>, AppError>;
 }
@@ -444,7 +444,7 @@ impl ReviewService {
     /// Records the decision of a person on the pending review; false when none waits.
     pub(crate) async fn decide(
         &self,
-        ticket: Id<Ticket>,
+        ticket: &str,
         state: ReviewState,
         by: Id<Actor>,
     ) -> Result<bool, AppError> {
@@ -458,11 +458,8 @@ impl ReviewService {
         Ok(change.is_some())
     }
 
-    /// The state of the newest review of the ticket's worktree.
-    pub(crate) async fn state_of(
-        &self,
-        ticket: Id<Ticket>,
-    ) -> Result<Option<ReviewState>, AppError> {
+    /// The state of the newest review of a run for the ticket (by its key).
+    pub(crate) async fn state_of(&self, ticket: &str) -> Result<Option<ReviewState>, AppError> {
         self.reviews.state_of(ticket).await
     }
 

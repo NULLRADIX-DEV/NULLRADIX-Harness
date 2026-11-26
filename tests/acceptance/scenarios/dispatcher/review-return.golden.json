@@ -1079,7 +1079,7 @@
     "name": "the same return again changes nothing",
     "request": {
       "body": {
-        "feedback": "And another hint."
+        "feedback": "Please add a test for the discount."
       },
       "method": "POST",
       "path": "/api/v1/tickets/ARC-1/review/return"
@@ -1128,6 +1128,26 @@
         "worktree": "<WORK>/arches-worktrees/ARC-0001"
       },
       "status": 200
+    }
+  },
+  {
+    "name": "a return with other words is refused",
+    "request": {
+      "body": {
+        "feedback": "And another hint."
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/review/return"
+    },
+    "response": {
+      "json": {
+        "code": "return-not-possible",
+        "detail": "ARC-0001 cannot go back to the agent: it waits for no review (only blocked with \"Human Interaction: ...\" and a branch)",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:return-not-possible"
+      },
+      "status": 422
     }
   },
   {

@@ -10,7 +10,15 @@ import './review.css';
 const BASE_LENGTH = 8;
 
 // The branch of a ticket against its target, and the tests of the run that finished it.
-export function TicketReview({ ticketKey, version }: { ticketKey: string; version: number }) {
+export function TicketReview({
+  ticketKey,
+  version,
+  waiting,
+}: {
+  ticketKey: string;
+  version: number;
+  waiting: boolean;
+}) {
   const { status, data, error } = useQuery(reviewQuery(ticketKey));
   if (status === 'pending') return <p className="muted">Loading the review...</p>;
   if (status === 'error') return <p className="form-error">{problemText(error)}</p>;
@@ -26,7 +34,7 @@ export function TicketReview({ ticketKey, version }: { ticketKey: string; versio
           </>
         )}
       </p>
-      {data.state === 'pending' && (
+      {data.state === 'pending' && waiting && (
         <>
           <p className="muted">The ticket waits for a review before it is merged.</p>
           <ReviewDecision ticketKey={ticketKey} version={version} />
