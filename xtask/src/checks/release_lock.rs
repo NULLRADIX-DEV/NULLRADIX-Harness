@@ -103,7 +103,8 @@ mod tests {
 
     #[test]
     fn accepts_a_fully_covered_lock() {
-        assert!(missing(&config(&["nullradix-api", "xtask"]), "Cargo.lock", LOCK).is_empty());
+        let covered = missing(&config(&["nullradix-api", "xtask"]), "Cargo.lock", LOCK);
+        assert_eq!(covered, Vec::<String>::new());
     }
 
     #[test]
