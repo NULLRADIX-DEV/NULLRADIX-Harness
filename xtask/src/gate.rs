@@ -251,6 +251,21 @@ pub(crate) fn gate(root: &Path, skip_web: bool) -> ExitCode {
     step("query cache", &mut reports, || from_code(db::check(root)));
     step("codegen", &mut reports, || codegen_drift(root));
     step("deny", &mut reports, || deny(root));
+    // the desktop shell is its own workspace; CI builds it with --locked
+    step("desktop lock", &mut reports, || {
+        run(
+            root,
+            "cargo",
+            &[
+                "tree",
+                "--locked",
+                "--depth",
+                "0",
+                "--manifest-path",
+                "apps/desktop/Cargo.toml",
+            ],
+        )
+    });
     tests(root, &mut reports);
     if skip_web {
         for name in ["eslint", "typecheck", "web tests", "web build"] {
