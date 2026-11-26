@@ -19,20 +19,36 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 fn create(path: &Path, private: bool) -> io::Result<File> {
     let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    // create_new refuses a pre-created file or link instead of reusing it
+    options.write(true).create_new(true);
     #[cfg(unix)]
     if private {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    #[cfg(not(unix))]
-    let _ = private;
-    let file = options.open(path)?;
     #[cfg(windows)]
     if private {
-        crate::windows::restrict_to_current_user(path)?;
+        use std::os::windows::fs::OpenOptionsExt;
+        // no sharing, so nobody reads the file before its access list is set
+        options
+            .share_mode(0)
+            .access_mode(crate::windows::RESTRICT_ACCESS);
     }
-    Ok(file)
+    #[cfg(not(any(unix, windows)))]
+    let _ = private;
+    options.open(path)
+}
+
+/// Fills the staging file and closes it; the handle is held until the access list is set.
+fn fill(mut file: File, bytes: &[u8], private: bool) -> io::Result<()> {
+    #[cfg(windows)]
+    if private {
+        crate::windows::restrict_handle_to_current_user(&file)?;
+    }
+    #[cfg(not(windows))]
+    let _ = private;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 /// Creates `dir` for its owner only: mode 0700, or an owner-only access list on Windows.
@@ -59,10 +75,11 @@ fn replace(path: &Path, bytes: &[u8], private: bool) -> io::Result<()> {
         // a leftover from a dead process may carry looser permissions
         let _ = fs::remove_file(&staging);
     }
-    let mut file = create(&staging, private)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
+    let file = create(&staging, private)?;
+    if let Err(error) = fill(file, bytes, private) {
+        let _ = fs::remove_file(&staging);
+        return Err(error);
+    }
     let mut attempt = 1;
     loop {
         match fs::rename(&staging, path) {
@@ -109,14 +126,12 @@ mod tests {
         write_private(&path, b"one").unwrap();
         write_private(&path, b"two").unwrap();
         let user = crate::windows::UserSid::current().unwrap();
-        let sid = user.text();
-        // SDDL names the built-in administrator LA instead of its SID
-        let name = if sid.ends_with("-500") { "LA" } else { sid };
-        let acl = crate::windows::dacl_sddl(&path).unwrap();
+        let acl = crate::windows::acl_summary(&path).unwrap();
         // owned by the user, protected from inheritance, one entry: full access for that SID
-        assert!(acl.starts_with(&format!("O:{name}D:P")), "{acl}");
-        assert_eq!(acl.matches('(').count(), 1, "{acl}");
-        assert!(acl.contains(&format!(";FA;;;{name})")), "{acl}");
+        assert_eq!(acl.owner, user.text());
+        assert!(acl.protected);
+        assert_eq!(acl.entries, 1);
+        assert_eq!(acl.allowed, [(user.text().to_owned(), 0x001F_01FF)]);
         assert_eq!(fs::read_to_string(&path).unwrap(), "two");
     }
 
@@ -129,6 +144,31 @@ mod tests {
         write_private(&path, b"one").unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn a_pre_existing_staging_path_fails_the_write_and_stays_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cli-token");
+        let staging = path.with_extension(format!("{}.tmp", std::process::id()));
+        // a folder cannot be removed as a leftover file, so create_new meets it
+        fs::create_dir(&staging).unwrap();
+        fs::write(staging.join("keep"), b"theirs").unwrap();
+        assert!(write_private(&path, b"secret").is_err());
+        assert!(write_atomic(&path, b"secret").is_err());
+        assert!(!path.exists());
+        assert_eq!(fs::read(staging.join("keep")).unwrap(), b"theirs");
+        assert_eq!(fs::read_dir(&staging).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_failed_write_leaves_no_staging_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("target");
+        // a folder at the target makes the rename fail after the staging file was written
+        fs::create_dir(&path).unwrap();
+        assert!(write_private(&path, b"secret").is_err());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]

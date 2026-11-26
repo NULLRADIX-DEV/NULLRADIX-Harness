@@ -1,4 +1,3 @@
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -8,24 +7,15 @@ pub(crate) use nullradix_client::token::{path, read};
 /// Writes the token so only the current user can read it: mode 0600, or an owner-only ACL.
 pub(crate) fn write(path: &Path, secret: &Secret) -> io::Result<()> {
     if let Some(dir) = path.parent() {
-        private_dir(dir)?;
+        nullradix_os::create_private_dir(dir)?;
     }
     nullradix_os::write_private(path, secret.expose().as_bytes())
 }
 
-fn private_dir(dir: &Path) -> io::Result<()> {
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
-    }
-    builder.create(dir)
-}
-
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]
