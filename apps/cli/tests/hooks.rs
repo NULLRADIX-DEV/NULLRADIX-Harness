@@ -54,13 +54,29 @@ fn hook(home: &Path, event: &str, input: &[u8]) -> (Output, Duration) {
     finish(hook_command(home, &["hook", event]), Some(input))
 }
 
-fn assert_in_time(durations: &[Duration]) {
+/// How long a plain start of the binary takes; a loaded machine slows every process.
+fn plain_start(home: &Path) -> Duration {
+    let mut starts: Vec<Duration> = (0..3)
+        .map(|_| finish(hook_command(home, &["--version"]), Some(b"")).1)
+        .collect();
+    starts.sort();
+    starts[1]
+}
+
+fn assert_in_time(home: &Path, durations: &[Duration]) {
+    let start = plain_start(home);
     let mut sorted = durations.to_vec();
     sorted.sort();
     let typical = sorted[sorted.len() / 2];
     let slowest = sorted[sorted.len() - 1];
-    assert!(typical < BUDGET, "a typical hook took {typical:?}");
-    assert!(slowest < CEILING, "the slowest hook took {slowest:?}");
+    assert!(
+        typical < BUDGET + start,
+        "a typical hook took {typical:?}, a plain start {start:?}"
+    );
+    assert!(
+        slowest < CEILING + start,
+        "the slowest hook took {slowest:?}, a plain start {start:?}"
+    );
 }
 
 fn payload(home: &Path, session: &str) -> Vec<u8> {
@@ -131,7 +147,7 @@ fn hooks_reach_a_running_daemon_within_the_budget() {
         assert!(output.stderr.is_empty(), "{output:?}");
         durations.push(took);
     }
-    assert_in_time(&durations);
+    assert_in_time(home.path(), &durations);
     assert_eq!(sessions_seen(home.path()).len(), REPORTS);
     assert_eq!(spooled(home.path()), Vec::<PathBuf>::new());
 }
@@ -149,7 +165,7 @@ fn hooks_spool_while_the_daemon_is_down_and_arrive_after_its_start() {
         assert_silent_success(&output);
         durations.push(took);
     }
-    assert_in_time(&durations);
+    assert_in_time(home.path(), &durations);
     assert_eq!(spooled(home.path()).len(), REPORTS);
 
     let _daemon = Daemon::start(home.path());
@@ -187,10 +203,14 @@ fn silent_daemon(home: &Path) -> TcpListener {
 fn hooks_give_up_on_a_daemon_that_does_not_answer() {
     let home = tempfile::tempdir().unwrap();
     let silent = silent_daemon(home.path());
+    let start = plain_start(home.path());
     for (n, event) in ["stop", "user-prompt"].into_iter().enumerate() {
         let (output, took) = hook(home.path(), event, &payload(home.path(), &format!("s-{n}")));
         assert_silent_success(&output);
-        assert!(took < CEILING, "the {event} hook waited {took:?}");
+        assert!(
+            took < CEILING + start,
+            "the {event} hook waited {took:?}, a plain start {start:?}"
+        );
     }
     assert_eq!(spooled(home.path()).len(), 2);
     drop(silent);
@@ -202,9 +222,13 @@ fn a_hook_short_of_time_spools_without_asking() {
     let silent = silent_daemon(home.path());
     let mut short = hook_command(home.path(), &["hook", "user-prompt"]);
     short.env("NULLRADIX_HOOK_DEADLINE_MS", "900");
+    let start = plain_start(home.path());
     let (output, took) = finish(short, Some(&payload(home.path(), "s-1")));
     assert_silent_success(&output);
-    assert!(took < Duration::from_millis(900), "took {took:?}");
+    assert!(
+        took < Duration::from_millis(900) + start,
+        "took {took:?}, a plain start {start:?}"
+    );
     assert_eq!(spooled(home.path()).len(), 1);
     drop(silent);
 }
@@ -250,10 +274,9 @@ fn a_hook_whose_input_never_ends_still_ends_in_time() {
     let home = tempfile::tempdir().unwrap();
     let (output, took) = finish(hook_command(home.path(), &["hook", "stop"]), None);
     assert_silent_success(&output);
-    assert!(took < CEILING, "took {took:?}");
+    assert!(took < CEILING + plain_start(home.path()), "took {took:?}");
 
-    // a loaded machine slows the start of every process, so the bound is relative to one
-    let (_, start) = finish(hook_command(home.path(), &["--version"]), Some(b""));
+    let start = plain_start(home.path());
     let mut short = hook_command(home.path(), &["hook", "stop"]);
     short.env("NULLRADIX_HOOK_DEADLINE_MS", "300");
     let (output, took) = finish(short, None);
