@@ -1650,6 +1650,17 @@ mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let reviews = Arc::new(nullradix_app::review::ReviewService::new(
+            nullradix_app::review::ReviewParts {
+                tickets: tickets.clone(),
+                worktrees: store.clone(),
+                runners: runners.clone(),
+                reviews: store.clone(),
+                clock: Arc::new(SystemClock),
+                ids: Arc::new(UuidV7Generator),
+                signal: signal.clone(),
+            },
+        ));
         let person = nullradix_app::boards::local_person(
             store.as_ref(),
             "tester",
@@ -1687,6 +1698,7 @@ mod tests {
                 tickets: tickets.clone(),
                 comments: comments.clone(),
                 worktrees: worktrees.clone(),
+                reviews: reviews.clone(),
                 clock: Arc::new(SystemClock),
                 ids: Arc::new(UuidV7Generator),
                 signal: signal.clone(),
@@ -1711,6 +1723,7 @@ mod tests {
             comments,
             questions,
             worktrees,
+            reviews,
             notes,
             inbox: inbox_service(&store, &signal),
             runners,

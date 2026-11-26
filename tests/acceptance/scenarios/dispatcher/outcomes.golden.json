@@ -380,7 +380,7 @@
               "abort": null,
               "claudeSessionId": null,
               "deniedCount": null,
-              "outcome": "done",
+              "outcome": "review",
               "usage": null
             },
             "startedAt": "<TIME>",
@@ -456,6 +456,16 @@
             "createdAt": "<TIME>",
             "id": "<ID-12>",
             "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-11>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 0 files changed (+0/-0), tests: none found.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-13>",
+            "systemMarker": "review",
             "ticketKey": "ARC-0001"
           }
         ],
@@ -542,23 +552,50 @@
             "to": "<WORK>/arches-worktrees/ARC-0001"
           },
           {
-            "actorId": "<ID-13>",
+            "actorId": "<ID-14>",
             "actorName": "worker-ARC-0001",
             "at": "<TIME>",
             "field": "status",
             "from": "in-progress",
             "note": "moved",
             "to": "done"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "worker-ARC-0001",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: review before merge"
           }
         ],
         "steps": [],
         "ticket": {
           "acceptance": "Login works",
-          "assignee": "worker-ARC-0001",
-          "blockedReason": null,
+          "assignee": null,
+          "blockedReason": "Human Interaction: review before merge",
           "boardId": "<ID-2>",
           "branch": "ticket/ARC-0001-build-the-login",
-          "column": "done",
+          "column": "blocked",
           "createdAt": "<TIME>",
           "createdById": "<ID-3>",
           "createdByName": "tester",
@@ -568,7 +605,7 @@
           "description": "",
           "diagram": "",
           "handbook": "cargo test",
-          "id": "<ID-14>",
+          "id": "<ID-15>",
           "key": "ARC-0001",
           "labels": [
             "auto"
@@ -583,14 +620,14 @@
           "planningClaimBy": null,
           "priority": "normal",
           "projectId": "<ID-1>",
-          "status": "done",
+          "status": "blocked",
           "stepsDone": 0,
           "stepsTotal": 0,
           "targetBranch": null,
           "title": "Build the login",
           "unlocks": [],
           "updatedAt": "<TIME>",
-          "version": 6,
+          "version": 8,
           "waiting": false,
           "worktree": "<WORK>/arches-worktrees/ARC-0001"
         }
@@ -613,7 +650,7 @@
             "authorName": "dispatcher",
             "body": "[dispatch] start: handed to worker-ARC-0002. Branch ticket/ARC-0002-write-the-docs, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
             "createdAt": "<TIME>",
-            "id": "<ID-15>",
+            "id": "<ID-16>",
             "systemMarker": "start",
             "ticketKey": "ARC-0002"
           }
@@ -701,7 +738,7 @@
             "to": "<WORK>/arches-worktrees/ARC-0002"
           },
           {
-            "actorId": "<ID-16>",
+            "actorId": "<ID-17>",
             "actorName": "worker-ARC-0002",
             "at": "<TIME>",
             "field": "status",
@@ -710,7 +747,7 @@
             "to": "blocked"
           },
           {
-            "actorId": "<ID-16>",
+            "actorId": "<ID-17>",
             "actorName": "worker-ARC-0002",
             "at": "<TIME>",
             "field": "blockedReason",
@@ -736,7 +773,7 @@
           "description": "",
           "diagram": "",
           "handbook": "cargo test",
-          "id": "<ID-17>",
+          "id": "<ID-18>",
           "key": "ARC-0002",
           "labels": [
             "auto"

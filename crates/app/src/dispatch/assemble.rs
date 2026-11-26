@@ -15,6 +15,7 @@ use super::local_time::LocalTime;
 use super::log::{DispatchLog, DispatcherLogRepository};
 use super::pass::{DispatchPass, PassPhase};
 use super::pauses::{DispatchPauses, PauseParts};
+use super::review_gate::ReviewGate;
 use super::runs::DispatchRuns;
 use super::setup::WorktreeSetupPort;
 use super::stale::ReleaseStale;
@@ -28,6 +29,7 @@ use crate::dispatcher_config::DispatcherConfigService;
 use crate::dispatcher_prompts::DispatcherPromptService;
 use crate::notifier::Notifier;
 use crate::repositories::RunnerService;
+use crate::review::ReviewService;
 use crate::runs::RunService;
 use crate::tickets::TicketService;
 use crate::worktrees::WorktreeService;
@@ -52,6 +54,7 @@ pub struct DispatcherDeps {
     pub tickets: Arc<TicketService>,
     pub comments: Arc<CommentService>,
     pub worktrees: Arc<WorktreeService>,
+    pub reviews: Arc<ReviewService>,
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn IdGenerator>,
     pub signal: ChangeSignal,
@@ -154,7 +157,17 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
             aborts.clone(),
         )
         .with_accounts(accounts.clone())
-        .with_notifier(deps.notifier.clone()),
+        .with_notifier(deps.notifier.clone())
+        .with_gate(Arc::new(
+            ReviewGate::new(
+                deps.reviews,
+                deps.tickets.clone(),
+                deps.comments.clone(),
+                deps.runs.clone(),
+                starter.clone(),
+            )
+            .with_notifier(deps.notifier.clone()),
+        )),
     );
     evaluate.set_pause_hook(Arc::new(DispatchPauses::new(PauseParts {
         tickets: deps.tickets.clone(),

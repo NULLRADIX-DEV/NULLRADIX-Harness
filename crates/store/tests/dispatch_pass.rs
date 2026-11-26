@@ -30,7 +30,13 @@ use nullradix_app::notifier::{Notice, NoticeKind, Notifier};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::{NewQuestion, QuestionService};
 use nullradix_app::repositories::{Located, RunnerService, not_a_git_project};
-use nullradix_app::runs::{RunFilter, RunProgress, RunService, RunSpec, RunnerPort};
+use nullradix_app::review::{
+    BranchChanges, BranchFile, ChangedFile, FilePatch, ReviewParts, ReviewRequest, ReviewService,
+    review_file_unknown,
+};
+use nullradix_app::runs::{
+    OutputLine, OutputStream, RunFilter, RunProgress, RunService, RunSpec, RunnerPort,
+};
 use nullradix_app::secrets::MemorySecretStore;
 use nullradix_app::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
@@ -97,6 +103,14 @@ struct Machine {
     hold_start: Mutex<Option<Arc<Notify>>>,
     start_entered: Notify,
     cancelled: Mutex<Vec<Id<Run>>>,
+    /// Output lines each run printed, oldest first.
+    outputs: Mutex<HashMap<Id<Run>, Vec<OutputLine>>>,
+    /// What git says about the branch; fails when `None`.
+    changes: Mutex<Option<BranchChanges>>,
+    patches: Mutex<HashMap<String, FilePatch>>,
+    files: Mutex<HashMap<String, BranchFile>>,
+    /// Roots and branches the review asked about.
+    asked: Mutex<Vec<ReviewRequest>>,
 }
 
 #[async_trait]
@@ -128,12 +142,21 @@ impl RunnerPort for Machine {
 
     async fn progress(
         &self,
-        _run: Id<Run>,
-        _after: i64,
-        _limit: u32,
+        run: Id<Run>,
+        after: i64,
+        limit: u32,
     ) -> Result<RunProgress, AppError> {
+        let outputs = self.outputs.lock().unwrap();
+        let lines = outputs
+            .get(&run)
+            .into_iter()
+            .flatten()
+            .filter(|line| line.seq > after)
+            .take(limit as usize)
+            .cloned()
+            .collect();
         Ok(RunProgress {
-            lines: Vec::new(),
+            lines,
             report: None,
             alive: true,
         })
@@ -210,6 +233,42 @@ impl RunnerPort for Machine {
 
     async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError> {
         Err(change_not_found(&request.path))
+    }
+
+    async fn review_changes(&self, request: &ReviewRequest) -> Result<BranchChanges, AppError> {
+        self.asked.lock().unwrap().push(request.clone());
+        self.changes
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| AppError::invalid("git-failed", "git is broken"))
+    }
+
+    async fn review_patch(
+        &self,
+        _request: &ReviewRequest,
+        path: &str,
+    ) -> Result<FilePatch, AppError> {
+        self.patches
+            .lock()
+            .unwrap()
+            .get(path)
+            .cloned()
+            .ok_or_else(|| review_file_unknown(path, "branch"))
+    }
+
+    async fn review_file(
+        &self,
+        _root: &str,
+        _branch: &str,
+        path: &str,
+    ) -> Result<BranchFile, AppError> {
+        self.files
+            .lock()
+            .unwrap()
+            .get(path)
+            .cloned()
+            .ok_or_else(|| review_file_unknown(path, "branch"))
     }
 }
 
@@ -494,6 +553,7 @@ struct Fixture {
     comments: Arc<CommentService>,
     questions: Arc<QuestionService>,
     worktrees: Arc<WorktreeService>,
+    reviews: Arc<ReviewService>,
     local: Id<Runner>,
     person: Actor,
     board: Board,
@@ -593,6 +653,15 @@ async fn fixture() -> Fixture {
         ids.clone(),
         signal.clone(),
     ));
+    let reviews = Arc::new(ReviewService::new(ReviewParts {
+        tickets: tickets.clone(),
+        worktrees: store.clone(),
+        runners: runners.clone(),
+        reviews: store.clone(),
+        clock: clock.clone(),
+        ids: ids.clone(),
+        signal: signal.clone(),
+    }));
     let config = Arc::new(DispatcherConfigService::new(
         store.clone(),
         store.clone(),
@@ -653,6 +722,7 @@ async fn fixture() -> Fixture {
         tickets: tickets.clone(),
         comments: comments.clone(),
         worktrees: worktrees.clone(),
+        reviews: reviews.clone(),
         clock: clock.clone(),
         ids,
         signal,
@@ -675,6 +745,7 @@ async fn fixture() -> Fixture {
         comments,
         questions,
         worktrees,
+        reviews,
         local,
         person,
         board,
@@ -742,7 +813,11 @@ impl Fixture {
     }
 
     async fn enable(&self) {
-        self.configure(|config| config.enabled = true).await;
+        self.configure(|config| {
+            config.enabled = true;
+            config.review_before_merge = false;
+        })
+        .await;
     }
 
     fn advance(&self, minutes: i64) {
@@ -3729,4 +3804,401 @@ async fn a_read_that_fails_after_a_setup_block_still_shows_the_notice() {
     let notices = f.notices.0.lock().unwrap().clone();
     assert_eq!(notices.len(), 1, "{notices:?}");
     assert_eq!(notices[0].title, "Build");
+}
+
+fn tool_use(id: &str, command: &str) -> String {
+    serde_json::json!({ "type": "assistant", "message": { "content": [
+        { "type": "tool_use", "id": id, "name": "Bash", "input": { "command": command } },
+    ] } })
+    .to_string()
+}
+
+fn tool_result(id: &str, content: &str, is_error: bool) -> String {
+    serde_json::json!({ "type": "user", "message": { "content": [
+        { "type": "tool_result", "tool_use_id": id, "content": content, "is_error": is_error },
+    ] } })
+    .to_string()
+}
+
+fn changed(path: &str, status: &str, additions: u64, deletions: u64) -> ChangedFile {
+    ChangedFile {
+        path: path.to_owned(),
+        old_path: None,
+        status: status.to_owned(),
+        additions,
+        deletions,
+        binary: false,
+    }
+}
+
+impl Fixture {
+    async fn run_id(&self, key: &str) -> Id<Run> {
+        let filter = RunFilter {
+            subject_key: Some(key.to_owned()),
+            ..RunFilter::default()
+        };
+        nullradix_app::runs::RunRepository::find(self.store.as_ref(), &filter, 1)
+            .await
+            .unwrap()
+            .remove(0)
+            .id()
+    }
+
+    /// The run printed these lines on its standard output.
+    fn print(&self, run: Id<Run>, lines: &[String]) {
+        let lines = lines
+            .iter()
+            .enumerate()
+            .map(|(index, text)| OutputLine {
+                seq: i64::try_from(index).unwrap() + 1,
+                stream: OutputStream::Stdout,
+                text: text.clone(),
+                continues: false,
+            })
+            .collect();
+        self.machine.outputs.lock().unwrap().insert(run, lines);
+    }
+
+    fn git_says(&self, files: Vec<ChangedFile>) {
+        *self.machine.changes.lock().unwrap() = Some(BranchChanges {
+            target: String::from("main"),
+            base: String::from("abc123"),
+            files,
+            truncated: false,
+        });
+    }
+
+    async fn review_on(&self) {
+        self.configure(|config| {
+            config.enabled = true;
+            config.review_before_merge = true;
+        })
+        .await;
+    }
+
+    /// A ticket the agent finished, with the run ended and these tests in its output.
+    async fn finished_with_tests(&self) -> (String, Id<Run>) {
+        let key = self.start_tickets(1).await.remove(0);
+        let run = self.run_id(&key).await;
+        self.print(
+            run,
+            &[
+                tool_use("t1", "npx vitest run"),
+                tool_result("t1", "7 passed", false),
+                tool_use("t2", "npm run lint"),
+                tool_result("t2", "1 error", true),
+            ],
+        );
+        self.git_says(vec![
+            changed("src/a.ts", "M", 3, 1),
+            changed("src/b.ts", "A", 5, 0),
+        ]);
+        self.agent_changes(&key, "done", None).await;
+        self.finish_run(&key).await;
+        (key, run)
+    }
+
+    /// Writes the review of the ticket's worktree as an earlier pass would have.
+    async fn earlier_review(&self, key: &str, run: Id<Run>, at: i64) {
+        let ticket = self.record(key).await;
+        let entry =
+            nullradix_app::worktrees::WorktreeRepository::of_ticket(self.store.as_ref(), ticket.id)
+                .await
+                .unwrap()
+                .unwrap();
+        let earlier = nullradix_domain::Review::pending(
+            Id::from_uuid(uuid::Uuid::now_v7()),
+            entry.worktree.id(),
+            Some(run),
+            String::from("ticket/earlier"),
+            Timestamp::from_millis(at),
+        );
+        nullradix_app::review::ReviewRepository::hold(self.store.as_ref(), &earlier, &[])
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_finished_ticket_is_held_for_review_with_the_tests_of_its_run() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, run) = f.finished_with_tests().await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Review));
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Blocked);
+    assert_eq!(
+        record.blocked_reason.as_deref(),
+        Some("Human Interaction: review before merge")
+    );
+    assert_eq!(record.assignee, None);
+    let comments = f.comments.list(&key).await.unwrap();
+    let held: Vec<_> = comments
+        .iter()
+        .filter(|line| line.comment.record().system_marker == Some(SystemMarker::Review))
+        .collect();
+    assert_eq!(held.len(), 1);
+    assert_eq!(
+        held[0].comment.body(),
+        "[dispatch] review: waiting for approval - 2 files changed (+8/-1), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel."
+    );
+    assert_eq!(held[0].comment.record().run, Some(run));
+    assert_eq!(held[0].author_kind, ActorKind::Dispatcher);
+    let notices = f.notices.0.lock().unwrap().clone();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].kind, NoticeKind::Review);
+    assert_eq!(notices[0].ticket.as_deref(), Some(key.as_str()));
+    assert_eq!(
+        notices[0].text,
+        "waiting for approval - 2 files changed (+8/-1)"
+    );
+    let view = f.reviews.view(&key).await.unwrap();
+    assert!(view.available, "{view:?}");
+    assert_eq!(view.state, Some(nullradix_domain::ReviewState::Pending));
+    assert_eq!(view.run, Some(run));
+    assert_eq!(view.target.as_deref(), Some("main"));
+    assert_eq!(view.files.len(), 2);
+    assert_eq!(view.tests.len(), 2);
+    assert_eq!(view.tests[0].command, "npx vitest run");
+    assert_eq!(view.tests[0].ok, Some(true));
+    assert_eq!(view.tests[1].ok, Some(false));
+    assert_eq!(view.tests[1].output, "1 error");
+    assert_eq!(view.tests_at, Some(Timestamp::from_millis(START)));
+    // a second pass adds nothing
+    let comments = f.comment_count(&key).await;
+    let version = f.run_of(run).await.version();
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.comment_count(&key).await, comments);
+    assert_eq!(f.run_of(run).await.version(), version);
+    assert_eq!(f.notices.0.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn the_review_reads_the_branch_in_the_checkout_of_the_ticket_repository() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, _) = f.finished_with_tests().await;
+    f.dispatcher.pass.run().await;
+    f.reviews.view(&key).await.unwrap();
+    let asked = f.machine.asked.lock().unwrap().clone();
+    assert!(!asked.is_empty());
+    assert!(asked.iter().all(|request| request.root == ROOT));
+    assert!(
+        asked
+            .iter()
+            .all(|request| request.branch.starts_with("ticket/ARC-0001"))
+    );
+}
+
+#[tokio::test]
+async fn without_the_review_setting_or_under_autopilot_a_finished_ticket_stays_done() {
+    let f = fixture().await;
+    f.review_on().await;
+    f.configure(|config| config.review_before_merge = false)
+        .await;
+    let (key, run) = f.finished_with_tests().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Done));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(f.markers(&key, SystemMarker::Review).await, 0);
+
+    let g = fixture().await;
+    g.review_on().await;
+    g.configure(|config| config.autopilot.enabled = true).await;
+    let (key, run) = g.finished_with_tests().await;
+    g.dispatcher.pass.run().await;
+    assert_eq!(g.outcome(run).await, Some(DispatchOutcome::Done));
+    assert_eq!(g.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(g.markers(&key, SystemMarker::Review).await, 0);
+}
+
+#[tokio::test]
+async fn a_pass_that_stopped_after_the_review_was_written_finishes_the_hold_once() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, run) = f.finished_with_tests().await;
+    f.earlier_review(&key, run, START - 1).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Review));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
+    assert_eq!(f.markers(&key, SystemMarker::Review).await, 1);
+    // the review the first pass wrote stays as it was
+    let view = f.reviews.view(&key).await.unwrap();
+    assert_eq!(view.tests_at, Some(Timestamp::from_millis(START - 1)));
+    assert!(view.tests.is_empty());
+}
+
+#[tokio::test]
+async fn a_pass_that_stopped_after_blocking_the_ticket_settles_the_run_as_held() {
+    let f = fixture().await;
+    f.review_on().await;
+    let key = f.start_tickets(1).await.remove(0);
+    let run = f.run_id(&key).await;
+    // the first pass blocked the ticket for the review and was lost before it settled the run
+    f.agent_changes(
+        &key,
+        "blocked",
+        Some("Human Interaction: review before merge"),
+    )
+    .await;
+    let version = f.record(&key).await.version;
+    let patch = TicketPatch {
+        assignee: Some(None),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    f.earlier_review(&key, run, START).await;
+    f.finish_run(&key).await;
+    let comments = f.comment_count(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Review));
+    assert_eq!(f.comment_count(&key).await, comments);
+}
+
+#[tokio::test]
+async fn a_person_changing_the_ticket_while_it_is_held_does_not_stop_the_hold() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, run) = f.finished_with_tests().await;
+    // reads: the settle, the check for the comment, then the first try to block the ticket
+    *f.hook.rename_on_get.lock().unwrap() = Some((key.clone(), 3));
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Review));
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Blocked);
+    assert_eq!(record.title.as_str(), "Renamed");
+    assert_eq!(f.markers(&key, SystemMarker::Review).await, 1);
+}
+
+#[tokio::test]
+async fn a_later_run_of_the_worktree_replaces_the_review_that_still_waits() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, run) = f.finished_with_tests().await;
+    f.dispatcher.pass.run().await;
+    let ticket = f.record(&key).await;
+    let entry =
+        nullradix_app::worktrees::WorktreeRepository::of_ticket(f.store.as_ref(), ticket.id)
+            .await
+            .unwrap()
+            .unwrap();
+    let later = nullradix_domain::Review::pending(
+        Id::from_uuid(uuid::Uuid::now_v7()),
+        entry.worktree.id(),
+        None,
+        String::from("ticket/later"),
+        Timestamp::from_millis(START + 5),
+    );
+    nullradix_app::review::ReviewRepository::hold(f.store.as_ref(), &later, &[])
+        .await
+        .unwrap();
+    let latest =
+        nullradix_app::review::ReviewRepository::latest(f.store.as_ref(), entry.worktree.id())
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(latest.review.id(), later.id());
+    assert!(latest.tests.is_empty());
+    // the replaced review is gone, so its run has none
+    assert!(
+        !nullradix_app::review::ReviewRepository::held(f.store.as_ref(), run)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn the_review_view_says_why_the_changes_cannot_be_shown() {
+    let f = fixture().await;
+    f.review_on().await;
+    let idle = f.ready("Not started", &[]).await;
+    let view = f.reviews.view(&idle).await.unwrap();
+    assert!(!view.available);
+    assert_eq!(view.reason.as_deref(), Some("the ticket has no branch"));
+    let error = f.reviews.patch(&idle, "src/a.ts").await.unwrap_err();
+    assert_eq!(error.code(), "review-not-available");
+    let error = f.reviews.file(&idle, "src/a.ts").await.unwrap_err();
+    assert_eq!(error.code(), "review-not-available");
+    let missing = f.reviews.view("ARC-0099").await.unwrap_err();
+    assert_eq!(missing.code(), "ticket-not-found");
+
+    let (key, _) = f.finished_with_tests().await;
+    f.dispatcher.pass.run().await;
+    *f.machine.changes.lock().unwrap() = None;
+    let view = f.reviews.view(&key).await.unwrap();
+    assert!(!view.available);
+    assert!(
+        view.reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("cannot be computed"))
+    );
+    // the tests stay visible while git cannot say what changed
+    assert_eq!(view.tests.len(), 2);
+    assert_eq!(
+        f.reviews.patch(&key, "src/a.ts").await.unwrap_err().code(),
+        "review-file-unknown"
+    );
+}
+
+#[tokio::test]
+async fn paths_that_leave_the_repository_never_reach_the_runner() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, _) = f.finished_with_tests().await;
+    f.dispatcher.pass.run().await;
+    f.machine.files.lock().unwrap().insert(
+        String::from("../secret"),
+        BranchFile {
+            size: 1,
+            binary: false,
+            text: Some(String::from("x")),
+            truncated: false,
+        },
+    );
+    for path in ["../secret", "/etc/passwd", "a//b", ""] {
+        assert_eq!(
+            f.reviews.file(&key, path).await.unwrap_err().code(),
+            "review-file-unknown",
+            "{path:?}"
+        );
+        assert_eq!(
+            f.reviews.patch(&key, path).await.unwrap_err().code(),
+            "review-file-unknown",
+            "{path:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_patch_and_the_file_of_a_held_ticket_come_from_the_runner() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, _) = f.finished_with_tests().await;
+    f.dispatcher.pass.run().await;
+    f.machine.patches.lock().unwrap().insert(
+        String::from("src/a.ts"),
+        FilePatch {
+            patch: String::from("@@ -1 +1 @@\n-a\n+b\n"),
+            truncated: false,
+        },
+    );
+    f.machine.files.lock().unwrap().insert(
+        String::from("src/a.ts"),
+        BranchFile {
+            size: 2,
+            binary: false,
+            text: Some(String::from("b\n")),
+            truncated: false,
+        },
+    );
+    let patch = f.reviews.patch(&key, "src/a.ts").await.unwrap();
+    assert!(patch.patch.contains("+b"));
+    let file = f.reviews.file(&key, "src/a.ts").await.unwrap();
+    assert_eq!(file.text.as_deref(), Some("b\n"));
 }

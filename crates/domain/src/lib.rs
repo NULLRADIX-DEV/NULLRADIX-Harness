@@ -16,6 +16,7 @@ mod note;
 mod project;
 mod question;
 mod repository;
+mod review;
 mod run;
 mod session;
 pub mod step;
@@ -96,6 +97,10 @@ pub use repository::{
     CHECKOUT_PATH_MAX, Checkout, CheckoutPath, CheckoutRecord, REPOSITORY_NAME_MAX,
     RUNNER_NAME_MAX, Repository, RepositoryError, RepositoryName, RepositoryRecord, Runner,
     RunnerName, RunnerOs, RunnerRecord,
+};
+pub use review::{
+    REVIEW_REASON, REVIEW_TESTS_MAX, Review, ReviewRecord, ReviewState, TestRun, change_summary,
+    review_reason, test_summary,
 };
 pub use run::{Run, RunEnd, RunError, RunLabel, RunOutcome, RunRecord, RunStatus};
 pub use session::{

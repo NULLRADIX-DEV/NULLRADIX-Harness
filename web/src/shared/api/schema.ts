@@ -1461,6 +1461,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticketKey}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_review"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{ticketKey}/review/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_review_diff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{ticketKey}/review/files/{*path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_review_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticketKey}/sessions": {
         parameters: {
             query?: never;
@@ -2958,6 +3006,67 @@ export interface components {
             at: number;
             sessionId: string;
         };
+        /** @description What a person needs to review a ticket's branch. */
+        ReviewDto: {
+            /** @description False when the changes cannot be shown; `reason` says why. */
+            available: boolean;
+            /** @description The merge base commit. */
+            base?: string | null;
+            branch?: string | null;
+            files: components["schemas"]["ReviewFileDto"][];
+            /** @description More files changed than are listed. */
+            filesTruncated: boolean;
+            reason?: string | null;
+            /** Format: uuid */
+            runId?: string | null;
+            state?: components["schemas"]["ReviewStateDto"] | null;
+            /** @description The target branch, or the branch of the main checkout when the target does not exist. */
+            target?: string | null;
+            /** @description The tests the agent ran in the run that finished the ticket. */
+            tests: components["schemas"]["TestRunDto"][];
+            /**
+             * Format: int64
+             * @description When the review was opened, in Unix milliseconds.
+             */
+            testsAt?: number | null;
+            ticketKey: string;
+        };
+        /** @description A file as it is at the head of the ticket's branch. */
+        ReviewFileContentDto: {
+            binary: boolean;
+            path: string;
+            /**
+             * Format: int64
+             * @description Size in bytes.
+             */
+            size: number;
+            /** @description The content; absent for a binary file. */
+            text?: string | null;
+            /** @description The file is larger than the limit and `text` holds its start. */
+            truncated: boolean;
+        };
+        /** @description A file the ticket's branch changed against its target. */
+        ReviewFileDto: {
+            /** Format: int64 */
+            additions: number;
+            binary: boolean;
+            /** Format: int64 */
+            deletions: number;
+            /** @description The earlier path of a renamed or copied file. */
+            oldPath?: string | null;
+            path: string;
+            /** @description The first letter of git's status: A, M, D, R, C or T. */
+            status: string;
+        };
+        /** @description The patch of one changed file in git's unified format. */
+        ReviewPatchDto: {
+            patch: string;
+            path: string;
+            /** @description The patch is longer than the limit and was cut. */
+            truncated: boolean;
+        };
+        /** @enum {string} */
+        ReviewStateDto: "pending" | "approved" | "returned";
         /** @description Conditions of a rule; all that are set must hold. */
         RuleConditionDto: {
             /**
@@ -3350,6 +3459,14 @@ export interface components {
             branch: string;
             /** @description Such as `origin/release`, or the branch or commit of the main checkout. */
             from: string;
+        };
+        /** @description A command the agent ran to check its work. */
+        TestRunDto: {
+            command: string;
+            /** @description Unknown when the call has no result. */
+            ok?: boolean | null;
+            /** @description The end of its output. */
+            output: string;
         };
         /** @description An installed theme package. */
         ThemeDto: {
@@ -9894,6 +10011,182 @@ export interface operations {
                 };
             };
             /** @description Not started, or the folder belongs to something else */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner is not connected */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A malformed ticket key */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner is not connected */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_review_diff: {
+        parameters: {
+            query: {
+                /** @description Path of a changed file, as the review lists it. */
+                path: string;
+            };
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewPatchDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No branch to review, a file outside the changes or git failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner is not connected */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_review_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket key such as `ARC-0007`; case and padding do not matter. */
+                ticketKey: string;
+                /** @description Path of the file inside the repository. */
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewFileContentDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown ticket */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No branch to review, or a path that is no file of the branch */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -1,0 +1,1106 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "file": "<WORK>/arches/README.md",
+    "lines": 0,
+    "name": "the readme"
+  },
+  {
+    "file": "<WORK>/arches/src/price.ts",
+    "lines": 0,
+    "name": "the price module"
+  },
+  {
+    "file": "<WORK>/arches/src/old.ts",
+    "lines": 0,
+    "name": "a module that goes away"
+  },
+  {
+    "file": "<WORK>/arches/docs/note.md",
+    "lines": 0,
+    "name": "a note that moves"
+  },
+  {
+    "name": "stage the files",
+    "request": {
+      "body": {
+        "args": [
+          "add",
+          "-A"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git add",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git add",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "staged",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "name": "first commit",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "-q",
+          "-m",
+          "init"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git commit",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-6>",
+        "label": "git commit",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-6>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "committed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-6>"
+  },
+  {
+    "name": "long paths on already, so every platform prints the same",
+    "request": {
+      "body": {
+        "args": [
+          "config",
+          "core.longpaths",
+          "true"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git config",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-7>",
+        "label": "git config",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-7>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "configured",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-7>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Build the discount",
+      "--board",
+      "<ID-2>",
+      "--label",
+      "auto",
+      "--acceptance",
+      "The price drops by the discount",
+      "--planned"
+    ],
+    "exitCode": 0,
+    "name": "a ready ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Build the discount\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Check the shipping",
+      "--board",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "a ticket the dispatcher never takes",
+    "stderr": "",
+    "stdout": "ARC-0002 created: Check the shipping\n"
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-1",
+      "--plan",
+      "Apply it",
+      "--handbook",
+      "npx vitest run"
+    ],
+    "exitCode": 0,
+    "name": "plan the first",
+    "stderr": "",
+    "stdout": "ARC-0001 planned (planned)\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "enable"
+    ],
+    "exitCode": 0,
+    "name": "switch on",
+    "stderr": "",
+    "stdout": "idle: Idle\n0 of 1 places in use, 0 planning\n  ARC-0001 Build the discount: ready\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass starts the ticket",
+    "stderr": "",
+    "stdout": "started: ARC-0001\n"
+  },
+  {
+    "field": "items.0.status",
+    "name": "the run ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+  },
+  {
+    "cli": [
+      "ticket",
+      "move",
+      "ARC-1",
+      "done",
+      "--acceptance",
+      "The price drops by the discount",
+      "--author",
+      "worker-ARC-0001"
+    ],
+    "exitCode": 0,
+    "name": "the agent finishes its ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 -> done\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "the next pass holds the finished ticket for review",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "name": "the run is settled as review",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-8>",
+              "configHash": "be69cf85d1a6fc2f",
+              "kind": "work",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-9>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": 0,
+            "finishedAt": "<TIME>",
+            "id": "<ID-10>",
+            "label": "work ARC-0001",
+            "result": {
+              "abort": null,
+              "claudeSessionId": "fake-session-1",
+              "deniedCount": 0,
+              "outcome": "review",
+              "usage": {
+                "cacheReadTokens": 9000,
+                "cacheWriteTokens": 150,
+                "costUsd": 0.4321,
+                "inputTokens": 1200,
+                "model": "fake-opus",
+                "models": [
+                  {
+                    "cacheReadTokens": null,
+                    "cacheWriteTokens": null,
+                    "costUsd": 0.01,
+                    "inputTokens": 10,
+                    "model": "fake-haiku",
+                    "outputTokens": 2
+                  },
+                  {
+                    "cacheReadTokens": 9000,
+                    "cacheWriteTokens": 150,
+                    "costUsd": 0.4221,
+                    "inputTokens": 1190,
+                    "model": "fake-opus",
+                    "outputTokens": 338
+                  }
+                ],
+                "numTurns": 7,
+                "outputTokens": 340
+              }
+            },
+            "startedAt": "<TIME>",
+            "status": "succeeded",
+            "version": 4
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the ticket waits for a person",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-11>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-12>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-11>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 5 files changed (+2/-2), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-13>",
+            "systemMarker": "review",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "14 characters"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-discount"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-14>",
+            "actorName": "worker-ARC-0001",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "worker-ARC-0001",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: review before merge"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The price drops by the discount",
+          "assignee": null,
+          "blockedReason": "Human Interaction: review before merge",
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-build-the-discount",
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "npx vitest run",
+          "id": "<ID-15>",
+          "key": "ARC-0001",
+          "labels": [
+            "auto"
+          ],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Apply it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the discount",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 8,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the review lists the changes and the tests",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review"
+    },
+    "response": {
+      "json": {
+        "available": true,
+        "base": "<COMMIT>",
+        "branch": "ticket/ARC-0001-build-the-discount",
+        "files": [
+          {
+            "additions": 0,
+            "binary": false,
+            "deletions": 0,
+            "oldPath": "docs/note.md",
+            "path": "docs/hint.md",
+            "status": "R"
+          },
+          {
+            "additions": 0,
+            "binary": true,
+            "deletions": 0,
+            "path": "logo.bin",
+            "status": "A"
+          },
+          {
+            "additions": 1,
+            "binary": false,
+            "deletions": 0,
+            "path": "src/discount.ts",
+            "status": "A"
+          },
+          {
+            "additions": 0,
+            "binary": false,
+            "deletions": 1,
+            "path": "src/old.ts",
+            "status": "D"
+          },
+          {
+            "additions": 1,
+            "binary": false,
+            "deletions": 1,
+            "path": "src/price.ts",
+            "status": "M"
+          }
+        ],
+        "filesTruncated": false,
+        "reason": null,
+        "runId": "<ID-10>",
+        "state": "pending",
+        "target": "main",
+        "tests": [
+          {
+            "command": "npx vitest run",
+            "ok": true,
+            "output": "Tests 7 passed (7)"
+          },
+          {
+            "command": "npm run lint",
+            "ok": false,
+            "output": "1 problem (1 error, 0 warnings)"
+          }
+        ],
+        "testsAt": "<TIME>",
+        "ticketKey": "ARC-0001"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the review with a lower case key",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/arc-1/review"
+    },
+    "response": {
+      "json": {
+        "available": true,
+        "base": "<COMMIT>",
+        "branch": "ticket/ARC-0001-build-the-discount",
+        "files": [
+          {
+            "additions": 0,
+            "binary": false,
+            "deletions": 0,
+            "oldPath": "docs/note.md",
+            "path": "docs/hint.md",
+            "status": "R"
+          },
+          {
+            "additions": 0,
+            "binary": true,
+            "deletions": 0,
+            "path": "logo.bin",
+            "status": "A"
+          },
+          {
+            "additions": 1,
+            "binary": false,
+            "deletions": 0,
+            "path": "src/discount.ts",
+            "status": "A"
+          },
+          {
+            "additions": 0,
+            "binary": false,
+            "deletions": 1,
+            "path": "src/old.ts",
+            "status": "D"
+          },
+          {
+            "additions": 1,
+            "binary": false,
+            "deletions": 1,
+            "path": "src/price.ts",
+            "status": "M"
+          }
+        ],
+        "filesTruncated": false,
+        "reason": null,
+        "runId": "<ID-10>",
+        "state": "pending",
+        "target": "main",
+        "tests": [
+          {
+            "command": "npx vitest run",
+            "ok": true,
+            "output": "Tests 7 passed (7)"
+          },
+          {
+            "command": "npm run lint",
+            "ok": false,
+            "output": "1 problem (1 error, 0 warnings)"
+          }
+        ],
+        "testsAt": "<TIME>",
+        "ticketKey": "ARC-0001"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the patch of a changed file",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/diff?path=src/price.ts"
+    },
+    "response": {
+      "json": {
+        "patch": "diff --git a/src/price.ts b/src/price.ts\nindex 19889f4..6e9e580 100644\n--- a/src/price.ts\n+++ b/src/price.ts\n@@ -1 +1 @@\n-export const price = (net: number) => net;\n+export const price = (net: number) => net * 0.9;\n",
+        "path": "src/price.ts",
+        "truncated": false
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the patch of a new file",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/diff?path=src/discount.ts"
+    },
+    "response": {
+      "json": {
+        "patch": "diff --git a/src/discount.ts b/src/discount.ts\nnew file mode 100644\nindex 0000000..cadcc91\n--- /dev/null\n+++ b/src/discount.ts\n@@ -0,0 +1 @@\n+export const DISCOUNT = 0.1;\n",
+        "path": "src/discount.ts",
+        "truncated": false
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the patch of a deleted file",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/diff?path=src/old.ts"
+    },
+    "response": {
+      "json": {
+        "patch": "diff --git a/src/old.ts b/src/old.ts\ndeleted file mode 100644\nindex 12a0ba5..0000000\n--- a/src/old.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-export const OLD = true;\n",
+        "path": "src/old.ts",
+        "truncated": false
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the patch of a renamed file",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/diff?path=docs/hint.md"
+    },
+    "response": {
+      "json": {
+        "patch": "diff --git a/docs/note.md b/docs/hint.md\nsimilarity index 100%\nrename from docs/note.md\nrename to docs/hint.md\n",
+        "path": "docs/hint.md",
+        "truncated": false
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the patch of a binary file",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/diff?path=logo.bin"
+    },
+    "response": {
+      "json": {
+        "patch": "diff --git a/logo.bin b/logo.bin\nnew file mode 100644\nindex 0000000..5086790\nBinary files /dev/null and b/logo.bin differ\n",
+        "path": "logo.bin",
+        "truncated": false
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a patch of a file the branch did not change",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/diff?path=README.md"
+    },
+    "response": {
+      "json": {
+        "code": "review-file-unknown",
+        "detail": "\"README.md\" is not a file of the changes of branch ticket/ARC-0001-build-the-discount",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:review-file-unknown"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a patch without a path",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/diff"
+    },
+    "response": {
+      "json": {
+        "code": "query-invalid",
+        "detail": "Failed to deserialize query string: missing field `path`",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:query-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a patch with an empty path",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/diff?path="
+    },
+    "response": {
+      "json": {
+        "code": "review-file-unknown",
+        "detail": "\"\" is not a file of the changes of branch ticket/ARC-0001-build-the-discount",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:review-file-unknown"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a patch of a path that leaves the repository",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/diff?path=../outside"
+    },
+    "response": {
+      "json": {
+        "code": "review-file-unknown",
+        "detail": "\"../outside\" is not a file of the changes of branch ticket/ARC-0001-build-the-discount",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:review-file-unknown"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a text file at the head of the branch",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/files/src/price.ts"
+    },
+    "response": {
+      "json": {
+        "binary": false,
+        "path": "src/price.ts",
+        "size": 49,
+        "text": "export const price = (net: number) => net * 0.9;\n",
+        "truncated": false
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a file the branch did not change",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/files/README.md"
+    },
+    "response": {
+      "json": {
+        "binary": false,
+        "path": "README.md",
+        "size": 9,
+        "text": "# Arches\n",
+        "truncated": false
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a binary file",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/files/logo.bin"
+    },
+    "response": {
+      "json": {
+        "binary": true,
+        "path": "logo.bin",
+        "size": 5,
+        "text": null,
+        "truncated": false
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a deleted file is not at the head",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/files/src/old.ts"
+    },
+    "response": {
+      "json": {
+        "code": "review-file-unknown",
+        "detail": "\"src/old.ts\" is not a file of the changes of branch ticket/ARC-0001-build-the-discount",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:review-file-unknown"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a folder is no file",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/files/src"
+    },
+    "response": {
+      "json": {
+        "code": "review-file-unknown",
+        "detail": "\"src\" is not a file of the changes of branch ticket/ARC-0001-build-the-discount",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:review-file-unknown"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a path that leaves the repository",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review/files/..%2F..%2Foutside"
+    },
+    "response": {
+      "json": {
+        "code": "review-file-unknown",
+        "detail": "\"../../outside\" is not a file of the changes of branch ticket/ARC-0001-build-the-discount",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:review-file-unknown"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the review of a ticket without a branch",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-2/review"
+    },
+    "response": {
+      "json": {
+        "available": false,
+        "base": null,
+        "branch": null,
+        "files": [],
+        "filesTruncated": false,
+        "reason": "the ticket has no branch",
+        "runId": null,
+        "state": null,
+        "target": null,
+        "tests": [],
+        "testsAt": null,
+        "ticketKey": "ARC-0002"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a patch of a ticket without a branch",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-2/review/diff?path=src/price.ts"
+    },
+    "response": {
+      "json": {
+        "code": "review-not-available",
+        "detail": "the ticket has no branch",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:review-not-available"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a file of a ticket without a branch",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-2/review/files/src/price.ts"
+    },
+    "response": {
+      "json": {
+        "code": "review-not-available",
+        "detail": "the ticket has no branch",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:review-not-available"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the review of an unknown ticket",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-99/review"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-not-found",
+        "detail": "ticket ARC-0099 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:ticket-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a file of an unknown ticket",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-99/review/files/src/price.ts"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-not-found",
+        "detail": "ticket ARC-0099 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:ticket-not-found"
+      },
+      "status": 404
+    }
+  }
+]

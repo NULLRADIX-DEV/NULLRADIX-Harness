@@ -33,6 +33,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "edit" => edit(),
+        "review" => review(),
         // a stream that starts and never ends, for timeouts
         "hang" => {
             write(lines(&[init_event()]).as_bytes());
@@ -169,6 +170,73 @@ fn edit() -> ExitCode {
         return ExitCode::FAILURE;
     }
     let mut events = working_events(&ticket());
+    events.push(usage_result("success", false, &json!([])));
+    write(lines(&events).as_bytes());
+    ExitCode::SUCCESS
+}
+
+/// Commits a change of every kind on the branch of its working folder and runs two checks.
+fn review() -> ExitCode {
+    use std::fs;
+    use std::process::Command;
+    let changes = [
+        fs::write(
+            "src/price.ts",
+            "export const price = (net: number) => net * 0.9;
+",
+        ),
+        fs::write(
+            "src/discount.ts",
+            "export const DISCOUNT = 0.1;
+",
+        ),
+        fs::write("logo.bin", [0_u8, 1, 2, 0, 255]),
+        fs::remove_file("src/old.ts"),
+        fs::rename("docs/note.md", "docs/hint.md"),
+    ];
+    if changes.iter().any(Result::is_err) {
+        return ExitCode::FAILURE;
+    }
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(["-c", "user.name=fake", "-c", "user.email=fake@example.com"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .is_ok_and(|output| output.status.success())
+    };
+    if !git(&["add", "-A"]) || !git(&["commit", "-q", "-m", "Work on the ticket"]) {
+        return ExitCode::FAILURE;
+    }
+    let check = |id: &str, command: &str, failed: bool, output: &str| {
+        [
+            json!({
+                "type": "assistant", "session_id": "fake-session-1",
+                "message": { "content": [
+                    { "type": "tool_use", "id": id, "name": "Bash", "input": { "command": command } },
+                ] }
+            }),
+            json!({
+                "type": "user", "session_id": "fake-session-1",
+                "message": { "content": [
+                    { "type": "tool_result", "tool_use_id": id, "content": output, "is_error": failed },
+                ] }
+            }),
+        ]
+    };
+    let mut events = vec![init_event()];
+    events.extend(check(
+        "toolu_1",
+        "npx vitest run",
+        false,
+        "Tests 7 passed (7)",
+    ));
+    events.extend(check(
+        "toolu_2",
+        "npm run lint",
+        true,
+        "1 problem (1 error, 0 warnings)",
+    ));
     events.push(usage_result("success", false, &json!([])));
     write(lines(&events).as_bytes());
     ExitCode::SUCCESS

@@ -23,6 +23,7 @@ mod problem;
 mod projects;
 mod questions;
 mod repositories;
+mod review;
 mod runs;
 mod session_detail;
 mod sessions;
@@ -62,6 +63,7 @@ use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
+use nullradix_app::review::ReviewService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
 use nullradix_app::theme_catalog::CatalogService;
@@ -135,6 +137,9 @@ pub use questions::{
 };
 pub use repositories::{
     CheckoutDto, RepositoryDto, RepositoryList, RunnerDto, RunnerList, RunnerOsDto,
+};
+pub use review::{
+    ReviewDto, ReviewFileContentDto, ReviewFileDto, ReviewPatchDto, ReviewStateDto, TestRunDto,
 };
 pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
@@ -223,6 +228,7 @@ pub struct ApiState {
     pub comments: Arc<CommentService>,
     pub questions: Arc<QuestionService>,
     pub worktrees: Arc<WorktreeService>,
+    pub reviews: Arc<ReviewService>,
     pub notes: Arc<NoteService>,
     pub inbox: Arc<InboxService>,
     pub runners: Arc<RunnerService>,
@@ -388,6 +394,9 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(worktrees::start_ticket))
         .routes(routes!(worktrees::finish_ticket))
         .routes(routes!(worktrees::resume_ticket))
+        .routes(routes!(review::get_review))
+        .routes(routes!(review::get_review_diff))
+        .routes(routes!(review::get_review_file))
         .routes(routes!(tickets::release_ticket))
         .routes(routes!(tickets::accept_ticket))
         .routes(routes!(tickets::write_plan))
@@ -817,6 +826,15 @@ pub(crate) mod tests {
         ));
         let (tickets, comments, questions, worktrees, notes) =
             ticket_services(&store, &runners, &signal);
+        let reviews = Arc::new(ReviewService::new(nullradix_app::review::ReviewParts {
+            tickets: tickets.clone(),
+            worktrees: store.clone(),
+            runners: runners.clone(),
+            reviews: store.clone(),
+            clock: Arc::new(SystemClock),
+            ids: Arc::new(UuidV7Generator),
+            signal: signal.clone(),
+        }));
         let person = Arc::new(
             nullradix_app::boards::local_person(
                 store.as_ref(),
@@ -908,6 +926,7 @@ pub(crate) mod tests {
                 tickets: tickets.clone(),
                 comments: comments.clone(),
                 worktrees: worktrees.clone(),
+                reviews: reviews.clone(),
                 clock: Arc::new(SystemClock),
                 ids: Arc::new(UuidV7Generator),
                 signal: signal.clone(),
@@ -932,6 +951,7 @@ pub(crate) mod tests {
             comments,
             questions,
             worktrees,
+            reviews,
             notes,
             inbox: Arc::new(InboxService::new(
                 store.clone(),
