@@ -31,8 +31,7 @@ mod tests {
 
     #[test]
     fn the_offset_follows_daylight_saving_at_each_moment() {
-        // a POSIX rule needs no zone files, and nextest gives the test its own process
-        // SAFETY: nothing else reads the environment while this test runs.
+        // SAFETY: a POSIX rule needs no zone files and nextest runs this test alone.
         unsafe { std::env::set_var("TZ", "CET-1CEST,M3.5.0,M10.5.0/3") };
         assert_eq!(utc_offset_minutes(JAN_15_2027), Some(60));
         assert_eq!(utc_offset_minutes(JUL_7_2027), Some(120));
