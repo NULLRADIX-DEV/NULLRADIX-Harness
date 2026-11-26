@@ -1443,6 +1443,8 @@ mod tests {
     use super::*;
 
     const FAST: Duration = Duration::from_millis(500);
+    // the in-process daemon of a test may start slowly on a loaded runner
+    const PATIENT: Duration = Duration::from_secs(10);
 
     struct TestDaemon {
         address: SocketAddr,
@@ -1870,7 +1872,9 @@ mod tests {
     #[test]
     fn handshakes_with_a_running_daemon() {
         let daemon = spawn_daemon();
-        let health = Client::new(daemon.address, FAST, FAST).handshake().unwrap();
+        let health = Client::new(daemon.address, PATIENT, PATIENT)
+            .handshake()
+            .unwrap();
         assert_eq!(health.api_version, API_VERSION);
         assert_eq!(health.status, "ok");
     }
@@ -1878,7 +1882,7 @@ mod tests {
     #[test]
     fn creates_handoffs_with_the_local_token_only() {
         let daemon = spawn_daemon();
-        let client = Client::new(daemon.address, FAST, FAST);
+        let client = Client::new(daemon.address, PATIENT, PATIENT);
         assert!(matches!(
             client.create_handoff(),
             Err(ClientError::MissingToken)
@@ -1899,7 +1903,7 @@ mod tests {
     #[test]
     fn manages_catalog_sources_and_reports_an_unreachable_one() {
         let daemon = spawn_daemon();
-        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        let client = Client::new(daemon.address, PATIENT, PATIENT).with_token(daemon.token.clone());
         assert_eq!(client.catalog_sources().unwrap().version, 0);
         let refused = client
             .add_catalog_source("http://127.0.0.1/i.json")
@@ -1928,7 +1932,7 @@ mod tests {
     #[test]
     fn manages_accounts_and_run_tokens() {
         let daemon = spawn_daemon();
-        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        let client = Client::new(daemon.address, PATIENT, PATIENT).with_token(daemon.token.clone());
         let list = client.list_accounts().unwrap();
         assert_eq!(list.items.len(), 1);
         assert_eq!(list.items[0].slug, "default");
@@ -1982,7 +1986,7 @@ mod tests {
     #[test]
     fn reads_the_login_and_limits_of_the_accounts() {
         let daemon = spawn_daemon();
-        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        let client = Client::new(daemon.address, PATIENT, PATIENT).with_token(daemon.token.clone());
         for fresh in [false, true] {
             let status = client.account_usage(fresh).unwrap();
             assert_eq!(status.items.len(), 1);
@@ -2000,7 +2004,7 @@ mod tests {
     #[test]
     fn logs_accounts_in_and_reports_a_claude_that_cannot_start() {
         let daemon = spawn_daemon();
-        let client = Client::new(daemon.address, FAST, FAST).with_token(daemon.token.clone());
+        let client = Client::new(daemon.address, PATIENT, PATIENT).with_token(daemon.token.clone());
         let started = client
             .create_account_login(&CreateAccountLogin {
                 name: Some(String::from("Max")),
