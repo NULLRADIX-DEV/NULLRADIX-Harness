@@ -18,14 +18,15 @@ export const dispatcherKeys = {
   config: () => [...dispatcherKeys.all, 'config'] as const,
   status: () => [...dispatcherKeys.all, 'status'] as const,
   prompts: () => [...dispatcherKeys.all, 'prompts'] as const,
+  stats: () => [...dispatcherKeys.all, 'stats'] as const,
 };
 
 export const dispatcherLive: ChangeRegistry = {
   'dispatcher-config': [dispatcherKeys.all],
   account: [dispatcherKeys.all],
-  'dispatcher-state': [dispatcherKeys.status()],
-  run: [dispatcherKeys.status()],
-  ticket: [dispatcherKeys.status()],
+  'dispatcher-state': [dispatcherKeys.status(), dispatcherKeys.stats()],
+  run: [dispatcherKeys.status(), dispatcherKeys.stats()],
+  ticket: [dispatcherKeys.status(), dispatcherKeys.stats()],
 };
 
 export function dispatcherConfigQuery() {

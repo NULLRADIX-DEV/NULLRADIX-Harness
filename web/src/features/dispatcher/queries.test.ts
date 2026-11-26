@@ -7,4 +7,10 @@ describe('the dispatcher live registry', () => {
     expect(liveRegistry['dispatcher-config']).toContainEqual(dispatcherKeys.all);
     expect(liveRegistry['account']).toContainEqual(dispatcherKeys.all);
   });
+
+  it('refreshes the dashboard statistics when runs, tickets or the state change', () => {
+    for (const entity of ['run', 'ticket', 'dispatcher-state']) {
+      expect(liveRegistry[entity]).toContainEqual(dispatcherKeys.stats());
+    }
+  });
 });
