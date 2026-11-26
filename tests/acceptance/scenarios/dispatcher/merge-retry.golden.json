@@ -1,0 +1,1704 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": ["init", "-q", "-b", "main", "arches"],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "file": "<WORK>/arches/README.md",
+    "lines": 0,
+    "name": "the readme"
+  },
+  {
+    "file": "<WORK>/arches/src/price.ts",
+    "lines": 0,
+    "name": "the price module"
+  },
+  {
+    "file": "<WORK>/arches/src/old.ts",
+    "lines": 0,
+    "name": "a module that goes away"
+  },
+  {
+    "file": "<WORK>/arches/docs/note.md",
+    "lines": 0,
+    "name": "a note that moves"
+  },
+  {
+    "name": "stage the files",
+    "request": {
+      "body": {
+        "args": ["add", "-A"],
+        "cwd": "<WORK>/arches",
+        "label": "git add",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git add",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "staged",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "name": "first commit",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "-q",
+          "-m",
+          "init"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git commit",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-6>",
+        "label": "git commit",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-6>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "committed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-6>"
+  },
+  {
+    "name": "long paths on already, so every platform prints the same",
+    "request": {
+      "body": {
+        "args": ["config", "core.longpaths", "true"],
+        "cwd": "<WORK>/arches",
+        "label": "git config",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-7>",
+        "label": "git config",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-7>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "configured",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-7>"
+  },
+  {
+    "cli": ["board", "repo", "<ID-2>", "<WORK>/arches"],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Build the discount",
+      "--board",
+      "<ID-2>",
+      "--label",
+      "auto",
+      "--acceptance",
+      "The price drops by the discount",
+      "--planned"
+    ],
+    "exitCode": 0,
+    "name": "a ready ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Build the discount\n"
+  },
+  {
+    "cli": ["ticket", "create", "Check the shipping", "--board", "<ID-2>"],
+    "exitCode": 0,
+    "name": "a ticket the dispatcher never takes",
+    "stderr": "",
+    "stdout": "ARC-0002 created: Check the shipping\n"
+  },
+  {
+    "cli": ["plan", "write", "ARC-1", "--plan", "Apply it", "--handbook", "npx vitest run"],
+    "exitCode": 0,
+    "name": "plan the first",
+    "stderr": "",
+    "stdout": "ARC-0001 planned (planned)\n"
+  },
+  {
+    "cli": ["dispatcher", "enable"],
+    "exitCode": 0,
+    "name": "switch on",
+    "stderr": "",
+    "stdout": "idle: Idle\n0 of 1 places in use, 0 planning\n  ARC-0001 Build the discount: ready\n"
+  },
+  {
+    "cli": ["dispatcher", "run"],
+    "exitCode": 0,
+    "name": "a pass starts the ticket",
+    "stderr": "",
+    "stdout": "started: ARC-0001\n"
+  },
+  {
+    "field": "items.0.status",
+    "name": "the run ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+  },
+  {
+    "cli": [
+      "ticket",
+      "move",
+      "ARC-1",
+      "done",
+      "--acceptance",
+      "The price drops by the discount",
+      "--author",
+      "worker-ARC-0001"
+    ],
+    "exitCode": 0,
+    "name": "the agent finishes its ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 -> done\n"
+  },
+  {
+    "cli": ["dispatcher", "run"],
+    "exitCode": 0,
+    "name": "the next pass holds the finished ticket for review",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "name": "the ticket waits for a person",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 5 files changed (+2/-2), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "systemMarker": "review",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "14 characters"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-discount"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "worker-ARC-0001",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "worker-ARC-0001",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: review before merge"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The price drops by the discount",
+          "assignee": null,
+          "blockedReason": "Human Interaction: review before merge",
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-build-the-discount",
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "npx vitest run",
+          "id": "<ID-12>",
+          "key": "ARC-0001",
+          "labels": ["auto"],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Apply it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the discount",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 8,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": ["dispatcher", "run"],
+    "exitCode": 0,
+    "name": "a pass merges nothing yet",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "cli": ["ticket", "accept", "ARC-1"],
+    "exitCode": 0,
+    "name": "accept the held ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 accepted (done)\n"
+  },
+  {
+    "name": "detach the main checkout",
+    "request": {
+      "body": {
+        "args": ["checkout", "-q", "--detach"],
+        "cwd": "<WORK>/arches",
+        "label": "git checkout",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-13>",
+        "label": "git checkout",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-13>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "detach the main checkout finished",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-13>"
+  },
+  {
+    "cli": ["dispatcher", "run"],
+    "exitCode": 0,
+    "name": "the next pass cannot merge",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "name": "the ticket is blocked with the merge problem",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 5 files changed (+2/-2), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "systemMarker": "review",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge: not possible: the main checkout is on no branch (detached HEAD)",
+            "createdAt": "<TIME>",
+            "id": "<ID-14>",
+            "systemMarker": "merge",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "14 characters"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-discount"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "worker-ARC-0001",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "worker-ARC-0001",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: review before merge"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": "accepted",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "Human Interaction: review before merge",
+            "note": "accepted",
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Merge: the main checkout is on no branch (detached HEAD)"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The price drops by the discount",
+          "assignee": null,
+          "blockedReason": "Merge: the main checkout is on no branch (detached HEAD)",
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-build-the-discount",
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "npx vitest run",
+          "id": "<ID-12>",
+          "key": "ARC-0001",
+          "labels": ["auto"],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Apply it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the discount",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 11,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": ["inbox", "--kind", "merge"],
+    "exitCode": 0,
+    "name": "the inbox has a merge entry with the problem",
+    "stderr": "",
+    "stdout": "1. [Merge failed] ARC-0001  Build the discount  (ARC / Main)\n   Merge: the main checkout is on no branch (detached HEAD)\n   -> nullradix ticket show ARC-0001\n"
+  },
+  {
+    "name": "the merge failed",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/merges"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "branch": "ticket/ARC-0001-build-the-discount",
+            "conflictSeen": false,
+            "finishedAt": "<TIME>",
+            "id": "<ID-15>",
+            "mergedCommit": null,
+            "mergedInto": null,
+            "phase": "failed",
+            "problem": "the main checkout is on no branch (detached HEAD)",
+            "queuedAt": "<TIME>",
+            "strategy": "merge",
+            "targetBranch": null,
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": ["ticket", "merge", "ARC-1"],
+    "exitCode": 0,
+    "name": "a retry while the checkout is still detached",
+    "stderr": "",
+    "stdout": "ARC-0001: merge blocked - the main checkout is on no branch (detached HEAD)\n"
+  },
+  {
+    "name": "it is blocked again",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 5 files changed (+2/-2), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "systemMarker": "review",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge: not possible: the main checkout is on no branch (detached HEAD)",
+            "createdAt": "<TIME>",
+            "id": "<ID-14>",
+            "systemMarker": "merge",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge: retry started by tester.",
+            "createdAt": "<TIME>",
+            "id": "<ID-16>",
+            "systemMarker": "merge",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge: not possible: the main checkout is on no branch (detached HEAD)",
+            "createdAt": "<TIME>",
+            "id": "<ID-17>",
+            "systemMarker": "merge",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "14 characters"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-discount"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "worker-ARC-0001",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "worker-ARC-0001",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: review before merge"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": "accepted",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "Human Interaction: review before merge",
+            "note": "accepted",
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Merge: the main checkout is on no branch (detached HEAD)"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": null,
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "Merge: the main checkout is on no branch (detached HEAD)",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Merge: the main checkout is on no branch (detached HEAD)"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The price drops by the discount",
+          "assignee": null,
+          "blockedReason": "Merge: the main checkout is on no branch (detached HEAD)",
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-build-the-discount",
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "npx vitest run",
+          "id": "<ID-12>",
+          "key": "ARC-0001",
+          "labels": ["auto"],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Apply it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the discount",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 15,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "fix the checkout",
+    "request": {
+      "body": {
+        "args": ["checkout", "-q", "main"],
+        "cwd": "<WORK>/arches",
+        "label": "git checkout",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-18>",
+        "label": "git checkout",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-18>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "fix the checkout finished",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-18>"
+  },
+  {
+    "cli": ["ticket", "merge", "ARC-1"],
+    "exitCode": 0,
+    "name": "a retry merges the branch",
+    "stderr": "",
+    "stdout": "ARC-0001 merged into main (<COMMIT>).\n"
+  },
+  {
+    "name": "the ticket is done and its branch is cleared",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 5 files changed (+2/-2), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "systemMarker": "review",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge: not possible: the main checkout is on no branch (detached HEAD)",
+            "createdAt": "<TIME>",
+            "id": "<ID-14>",
+            "systemMarker": "merge",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge: retry started by tester.",
+            "createdAt": "<TIME>",
+            "id": "<ID-16>",
+            "systemMarker": "merge",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge: not possible: the main checkout is on no branch (detached HEAD)",
+            "createdAt": "<TIME>",
+            "id": "<ID-17>",
+            "systemMarker": "merge",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge: retry started by tester.",
+            "createdAt": "<TIME>",
+            "id": "<ID-19>",
+            "systemMarker": "merge",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merged into main (<COMMIT>). Branch ticket/ARC-0001-build-the-discount cleaned up, worktree <WORK>/arches-worktrees/ARC-0001 removed.",
+            "createdAt": "<TIME>",
+            "id": "<ID-20>",
+            "systemMarker": "merged",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "14 characters"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-discount"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "worker-ARC-0001",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "worker-ARC-0001",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: review before merge"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": "accepted",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "Human Interaction: review before merge",
+            "note": "accepted",
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Merge: the main checkout is on no branch (detached HEAD)"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": null,
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "Merge: the main checkout is on no branch (detached HEAD)",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Merge: the main checkout is on no branch (detached HEAD)"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": null,
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "Merge: the main checkout is on no branch (detached HEAD)",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": "ticket/ARC-0001-build-the-discount",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": "<WORK>/arches-worktrees/ARC-0001",
+            "note": null,
+            "to": null
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The price drops by the discount",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "done",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "npx vitest run",
+          "id": "<ID-12>",
+          "key": "ARC-0001",
+          "labels": ["auto"],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Apply it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "done",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the discount",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 19,
+          "waiting": false,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the merges, newest first",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/merges"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "branch": "ticket/ARC-0001-build-the-discount",
+            "conflictSeen": false,
+            "finishedAt": "<TIME>",
+            "id": "<ID-21>",
+            "mergedCommit": "<COMMIT>",
+            "mergedInto": "main",
+            "phase": "merged",
+            "problem": null,
+            "queuedAt": "<TIME>",
+            "strategy": "merge",
+            "targetBranch": null,
+            "version": 2
+          },
+          {
+            "branch": "ticket/ARC-0001-build-the-discount",
+            "conflictSeen": false,
+            "finishedAt": "<TIME>",
+            "id": "<ID-22>",
+            "mergedCommit": null,
+            "mergedInto": null,
+            "phase": "failed",
+            "problem": "the main checkout is on no branch (detached HEAD)",
+            "queuedAt": "<TIME>",
+            "strategy": "merge",
+            "targetBranch": null,
+            "version": 2
+          },
+          {
+            "branch": "ticket/ARC-0001-build-the-discount",
+            "conflictSeen": false,
+            "finishedAt": "<TIME>",
+            "id": "<ID-15>",
+            "mergedCommit": null,
+            "mergedInto": null,
+            "phase": "failed",
+            "problem": "the main checkout is on no branch (detached HEAD)",
+            "queuedAt": "<TIME>",
+            "strategy": "merge",
+            "targetBranch": null,
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": ["inbox"],
+    "exitCode": 0,
+    "name": "the inbox is empty again",
+    "stderr": "",
+    "stdout": "Nothing waits for you.\n"
+  },
+  {
+    "cli": ["ticket", "merge", "ARC-1"],
+    "exitCode": 1,
+    "name": "a ticket that waits for no merge is refused",
+    "stderr": "error: the daemon refused the request: ARC-0001 cannot be merged again: it waits for no merge (only done with a branch, or blocked with \"Merge: ...\") (merge-not-possible)\n",
+    "stdout": ""
+  },
+  {
+    "name": "an unknown ticket",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-99/merge"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-not-found",
+        "detail": "ticket ARC-0099 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:ticket-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a ticket that never started",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-2/merge"
+    },
+    "response": {
+      "json": {
+        "code": "merge-not-possible",
+        "detail": "ARC-0002 cannot be merged again: it waits for no merge (only done with a branch, or blocked with \"Merge: ...\")",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:merge-not-possible"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the main commit",
+    "request": {
+      "body": {
+        "args": ["log", "-1", "--format=%s", "--first-parent"],
+        "cwd": "<WORK>/arches",
+        "label": "git log",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-23>",
+        "label": "git log",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-23>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "the main commit finished",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-23>"
+  },
+  {
+    "name": "the main commit printed",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs/<ID-23>/output"
+    },
+    "response": {
+      "json": {
+        "finished": true,
+        "lines": [
+          {
+            "seq": 1,
+            "stream": "stdout",
+            "text": "Merge ARC-0001 \"Build the discount\" (ticket/ARC-0001-build-the-discount)"
+          }
+        ]
+      },
+      "status": 200
+    }
+  }
+]

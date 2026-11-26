@@ -17,6 +17,7 @@ use super::log::{DispatchLog, DispatcherLogRepository};
 use super::merge::{MergeAll, MergeCatchUp, MergeParts};
 use super::merge_git::MergeGit;
 use super::merge_jobs::{MergeGate, MergeJobRepository, MergeQueue, QueueOnAccept};
+use super::merge_retry::{MergeRetry, RetryParts};
 use super::pass::{DispatchPass, PassPhase};
 use super::pauses::{DispatchPauses, PauseParts};
 use super::planning::{PlanOrphans, PlanningParts, PlanningRuns, StartPlanning};
@@ -93,6 +94,8 @@ pub struct Dispatcher {
     pub decisions: Arc<ReviewDecisions>,
     /// Queues merges and lists the jobs of a ticket.
     pub merges: Arc<MergeQueue>,
+    /// Retry of a merge, serialized with the pass.
+    pub retries: Arc<MergeRetry>,
 }
 
 impl std::fmt::Debug for Dispatcher {
@@ -333,6 +336,17 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         })
         .with_hook(Arc::new(QueueOnAccept(merges.clone()))),
     );
+    let retries = Arc::new(MergeRetry::new(RetryParts {
+        pass: pass.clone(),
+        queue: merges.clone(),
+        tickets: deps.tickets.clone(),
+        comments: deps.comments.clone(),
+        worktrees: deps.worktree_repository.clone(),
+        runs: deps.runs.clone(),
+        starter: starter.clone(),
+        clock: deps.clock.clone(),
+        signal: deps.signal.clone(),
+    }));
     let service = Arc::new(DispatcherService::new(ControlParts {
         research: research.clone(),
         planning: planning.clone(),
@@ -359,5 +373,6 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         planning,
         decisions,
         merges,
+        retries,
     }
 }

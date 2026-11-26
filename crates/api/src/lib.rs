@@ -132,7 +132,9 @@ pub use inbox::{
 pub use login::{
     AccountLoginDto, CreateAccountLogin, LoginCode, LoginDto, LoginStateDto, StartLogin,
 };
-pub use merge::{MergeJobDto, MergeJobList, MergePhaseDto};
+pub use merge::{
+    MergeJobDto, MergeJobList, MergeOutcomeDto, MergePhaseDto, MergeRetryDto, RetryMerge,
+};
 pub use notes::{
     CreateNote, DropNote, NoteDto, NoteList, NoteStateDto, PromoteNote, PromotedNote, SeenNote,
 };
@@ -243,6 +245,7 @@ pub struct ApiState {
     /// Accept and return of a held review.
     pub decisions: Arc<ReviewDecisions>,
     pub merges: Arc<nullradix_app::dispatch::merge_jobs::MergeQueue>,
+    pub retries: Arc<nullradix_app::dispatch::merge_retry::MergeRetry>,
     pub notes: Arc<NoteService>,
     pub inbox: Arc<InboxService>,
     pub runners: Arc<RunnerService>,
@@ -332,6 +335,7 @@ fn run_routes() -> OpenApiRouter<ApiState> {
 fn review_routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::new()
         .routes(routes!(merge::list_merges))
+        .routes(routes!(merge::retry_merge))
         .routes(routes!(review::get_review))
         .routes(routes!(review::get_review_diff))
         .routes(routes!(review::get_review_file))
@@ -993,6 +997,7 @@ pub(crate) mod tests {
             reviews,
             decisions: assembled.decisions.clone(),
             merges: assembled.merges.clone(),
+            retries: assembled.retries.clone(),
             notes,
             inbox: Arc::new(InboxService::new(
                 store.clone(),

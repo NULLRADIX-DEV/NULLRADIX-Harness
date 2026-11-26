@@ -163,6 +163,36 @@ impl MergeJob {
         self
     }
 
+    /// Whether a retry would change nothing: pending, with no conflict or hold left over.
+    #[must_use]
+    pub fn pristine(&self) -> bool {
+        let record = &self.0;
+        record.phase == MergePhase::Pending
+            && !record.conflict_seen
+            && !record.session_used
+            && !record.wait_noted
+            && !record.hold_noticed
+            && record.conflict_sessions == 0
+            && record.target_head.is_none()
+            && record.held_by.is_none()
+            && record.problem.is_none()
+    }
+
+    /// A person retries: everything a conflict or a wait left behind is forgotten.
+    #[must_use]
+    pub fn retried(mut self) -> Self {
+        self.0.phase = MergePhase::Pending;
+        self.0.conflict_seen = false;
+        self.0.session_used = false;
+        self.0.conflict_sessions = 0;
+        self.0.wait_noted = false;
+        self.0.hold_noticed = false;
+        self.0.target_head = None;
+        self.0.held_by = None;
+        self.0.problem = None;
+        self
+    }
+
     /// Nothing is left to merge.
     #[must_use]
     pub fn cancelled(mut self, at: Timestamp) -> Self {
@@ -277,6 +307,9 @@ mod tests {
         assert_eq!(merged.record().phase, MergePhase::Merged);
         assert_eq!(merged.record().strategy, MergeStrategy::Squash);
         assert!(!merged.record().phase.active());
+        let retried = conflicted.clone().waiting(true).retried();
+        assert!(retried.pristine());
+        assert!(!conflicted.pristine());
         let failed = job.failed("no", Timestamp::from_millis(3));
         assert_eq!(failed.record().phase, MergePhase::Failed);
         assert_eq!(MergePhase::ConflictSession.as_str(), "conflict_session");
