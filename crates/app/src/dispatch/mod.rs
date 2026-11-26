@@ -21,6 +21,7 @@ pub mod stale;
 pub mod start;
 pub mod start_ready;
 pub mod state;
+pub mod stats;
 pub mod stream;
 pub mod test_runs;
 pub mod transcript;
