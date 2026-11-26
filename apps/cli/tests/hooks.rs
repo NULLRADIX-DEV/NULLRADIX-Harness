@@ -252,12 +252,14 @@ fn a_hook_whose_input_never_ends_still_ends_in_time() {
     assert_silent_success(&output);
     assert!(took < CEILING, "took {took:?}");
 
+    // a loaded machine slows the start of every process, so the bound is relative to one
+    let (_, start) = finish(hook_command(home.path(), &["--version"]), Some(b""));
     let mut short = hook_command(home.path(), &["hook", "stop"]);
     short.env("NULLRADIX_HOOK_DEADLINE_MS", "300");
     let (output, took) = finish(short, None);
     assert_silent_success(&output);
     assert!(
-        took < Duration::from_millis(900),
-        "the watchdog took {took:?}"
+        took < start + Duration::from_millis(700),
+        "the watchdog took {took:?}, a plain start {start:?}"
     );
 }
