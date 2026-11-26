@@ -82,7 +82,7 @@ fn is_merge_session(prompt: &str) -> bool {
     prompt.contains(" cannot be merged into ") && prompt.contains("git merge ")
 }
 
-/// Merges the target into the working folder and resolves every conflict; `FAKE_CLAUDE_MERGE=fail` gives up.
+/// Merges the target and resolves every conflict; `FAKE_CLAUDE_MERGE=fail` gives up.
 fn merge_session(prompt: &str) -> ExitCode {
     use std::process::Command;
     if env::var("FAKE_CLAUDE_MERGE").is_ok_and(|mode| mode == "fail") {
