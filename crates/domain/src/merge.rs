@@ -10,6 +10,47 @@ pub const MERGE_REASON_MAX: usize = 500;
 pub const MERGE_PROBLEM_MAX: usize = 2000;
 /// Commits a squash lists in its message at most.
 pub const SQUASH_LIST_MAX: usize = 50;
+/// Minutes a merge waits for its folder before the person is told once.
+pub const HOLD_NOTICE_MINUTES: i64 = 15;
+/// Files a hold names before it counts the rest.
+pub const HOLD_FILES_MAX: usize = 10;
+
+/// Why a merge waits for its folder instead of failing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoStaticStr, EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum HoldKind {
+    /// A merge, rebase, cherry-pick or revert is under way.
+    Busy,
+    /// A merge worktree of ours still has changes of an earlier attempt.
+    Leftover,
+    /// Changes are staged in the folder.
+    Staged,
+    /// Local changes touch files the branch changes too.
+    Overlap,
+}
+
+impl HoldKind {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        self.into()
+    }
+}
+
+/// Up to [`HOLD_FILES_MAX`] files, then how many more.
+#[must_use]
+pub fn hold_files(files: &[String]) -> String {
+    if files.is_empty() {
+        return String::from("unknown files");
+    }
+    if files.len() > HOLD_FILES_MAX {
+        return format!(
+            "{} and {} more",
+            files[..HOLD_FILES_MAX].join(", "),
+            files.len() - HOLD_FILES_MAX
+        );
+    }
+    files.join(", ")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoStaticStr, EnumString)]
 #[strum(serialize_all = "snake_case")]
@@ -116,9 +157,40 @@ impl MergeJob {
     /// The job waits until the work is ready or the folder is free.
     #[must_use]
     pub fn waiting(mut self, noted: bool) -> Self {
+        if self.held_text().is_some() {
+            self.0.problem = None;
+        }
         self.0.phase = MergePhase::Waiting;
         self.0.wait_noted |= noted;
         self
+    }
+
+    /// The job waits for its folder; `text` says where and why, `noticed` that the person was told.
+    #[must_use]
+    pub fn held(mut self, kind: HoldKind, text: &str, noticed: bool) -> Self {
+        self.0.phase = MergePhase::Waiting;
+        self.0.held_by = Some(kind.as_str().to_owned());
+        self.0.hold_noticed |= noticed;
+        self.0.problem = Some(cap_problem(text));
+        self
+    }
+
+    /// Whether the job already waits for exactly this text, as `held` stores it.
+    #[must_use]
+    pub fn waits_for(&self, text: &str) -> bool {
+        self.held_text() == Some(cap_problem(text).as_str())
+    }
+
+    /// What the job waits for in its folder, while it does.
+    #[must_use]
+    pub fn held_text(&self) -> Option<&str> {
+        let record = &self.0;
+        if record.phase == MergePhase::Waiting && !record.conflict_seen && record.held_by.is_some()
+        {
+            record.problem.as_deref()
+        } else {
+            None
+        }
     }
 
     /// The job is ready to be processed again.
@@ -202,6 +274,10 @@ impl MergeJob {
     }
 }
 
+fn cap_problem(text: &str) -> String {
+    text.chars().take(MERGE_PROBLEM_MAX).collect()
+}
+
 #[must_use]
 pub fn conflict_problem(files: &[String]) -> String {
     if files.is_empty() {
@@ -272,6 +348,53 @@ mod tests {
             merge_message(&tickets(1), "ticket/a", MergeStrategy::Squash),
             "ARC-0001 \"Title 1\" (squash of ticket/a)"
         );
+    }
+
+    #[test]
+    fn a_hold_keeps_its_kind_and_forgets_its_text_when_the_job_waits_for_tickets() {
+        let job = MergeJob::pending(
+            Id::from_uuid(uuid::Uuid::from_u128(1)),
+            Id::from_uuid(uuid::Uuid::from_u128(2)),
+            None,
+            MergeStrategy::Merge,
+            Timestamp::from_millis(1),
+        );
+        let held = job.held(HoldKind::Staged, "main checkout: staged changes", true);
+        assert_eq!(held.record().held_by.as_deref(), Some("staged"));
+        assert_eq!(held.held_text(), Some("main checkout: staged changes"));
+        assert!(held.record().hold_noticed);
+        assert!(!held.pristine());
+        let waiting = held.waiting(true);
+        assert_eq!(waiting.held_text(), None);
+        assert_eq!(waiting.record().held_by.as_deref(), Some("staged"));
+        assert_eq!(waiting.record().problem, None);
+        assert_eq!(HoldKind::Overlap.as_str(), "overlap");
+    }
+
+    #[test]
+    fn a_long_hold_text_still_matches_the_stored_one() {
+        let job = MergeJob::pending(
+            Id::from_uuid(uuid::Uuid::from_u128(1)),
+            Id::from_uuid(uuid::Uuid::from_u128(2)),
+            None,
+            MergeStrategy::Merge,
+            Timestamp::from_millis(1),
+        );
+        let long = "x".repeat(MERGE_PROBLEM_MAX + 50);
+        let held = job.held(HoldKind::Overlap, &long, false);
+        assert!(held.waits_for(&long));
+        assert!(!held.waits_for("other"));
+    }
+
+    #[test]
+    fn a_hold_names_ten_files_and_counts_the_rest() {
+        assert_eq!(hold_files(&[]), "unknown files");
+        let many: Vec<String> = (1..=12).map(|n| format!("f{n}")).collect();
+        assert_eq!(
+            hold_files(&many),
+            "f1, f2, f3, f4, f5, f6, f7, f8, f9, f10 and 2 more"
+        );
+        assert_eq!(hold_files(&many[..2]), "f1, f2");
     }
 
     #[test]

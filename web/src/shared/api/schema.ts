@@ -2719,7 +2719,7 @@ export interface components {
             mergedCommit?: string | null;
             mergedInto?: string | null;
             phase: components["schemas"]["MergePhaseDto"];
-            /** @description Why the merge failed, or the files it conflicts in. */
+            /** @description Why the merge failed, the files it conflicts in, or what it waits for. */
             problem?: string | null;
             /**
              * Format: int64

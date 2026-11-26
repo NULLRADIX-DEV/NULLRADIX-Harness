@@ -7195,3 +7195,207 @@ async fn a_failed_step_of_a_retry_reaches_the_dispatcher_log() {
         "{lines:?}"
     );
 }
+
+fn held_outcome(kind: nullradix_domain::HoldKind, text: &str) -> MergeOutcome {
+    MergeOutcome::Held {
+        kind,
+        place: String::from("the main checkout"),
+        text: text.to_owned(),
+    }
+}
+
+impl Fixture {
+    fn script_holds(&self, holds: Vec<MergeOutcome>) {
+        self.git.merges.lock().unwrap().extend(holds);
+    }
+
+    fn merge_waiting_notices(&self) -> usize {
+        self.notices
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|notice| notice.kind == NoticeKind::MergeWaiting)
+            .count()
+    }
+}
+
+#[tokio::test]
+async fn a_held_merge_comments_once_tells_the_person_after_a_quarter_hour_and_goes_on_when_clean() {
+    use nullradix_domain::{HoldKind, MergePhase};
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    let overlap = "local changes in a.txt that the branch changes too";
+    f.script_holds(vec![
+        held_outcome(HoldKind::Overlap, overlap),
+        held_outcome(HoldKind::Overlap, overlap),
+        held_outcome(
+            HoldKind::Overlap,
+            "local changes in a.txt, b.txt that the branch changes too",
+        ),
+        held_outcome(HoldKind::Overlap, overlap),
+        held_outcome(HoldKind::Overlap, overlap),
+        held_outcome(HoldKind::Staged, "staged changes (git add) in c.txt"),
+    ]);
+    let report = f.dispatcher.pass.run().await;
+    assert!(
+        report.merged.is_empty() && report.errors.is_empty(),
+        "{report:?}"
+    );
+    let job = f.jobs_of(&key).await.remove(0).job;
+    assert_eq!(job.record().phase, MergePhase::Waiting);
+    assert_eq!(job.record().held_by.as_deref(), Some("overlap"));
+    assert_eq!(
+        job.held_text(),
+        Some("the main checkout: local changes in a.txt that the branch changes too")
+    );
+    // nothing is blocked and the branch stays
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Done);
+    assert!(record.branch.is_some());
+    let comment = f.bodies(&key).await.pop().unwrap();
+    assert_eq!(
+        comment,
+        "[dispatch] merge-waiting: waiting for the main checkout: local changes in a.txt that \
+         the branch changes too - merged automatically once that is done."
+    );
+    // the same reason and a different file list say nothing new
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.markers(&key, SystemMarker::MergeWait).await, 1);
+    assert_eq!(
+        f.jobs_of(&key).await[0].job.held_text(),
+        Some("the main checkout: local changes in a.txt, b.txt that the branch changes too")
+    );
+    // the person is told once, after fifteen minutes
+    f.advance(14);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.merge_waiting_notices(), 0);
+    f.advance(1);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.merge_waiting_notices(), 1);
+    let notice = f
+        .notices
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|notice| notice.kind == NoticeKind::MergeWaiting)
+        .cloned()
+        .unwrap();
+    assert_eq!(notice.ticket.as_deref(), Some(key.as_str()));
+    assert_eq!(
+        notice.text,
+        "merge has waited 15 minutes for the main checkout: local changes in a.txt that the \
+         branch changes too"
+    );
+    f.advance(60);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.merge_waiting_notices(), 1);
+    // another reason is another comment
+    assert_eq!(f.markers(&key, SystemMarker::MergeWait).await, 2);
+    assert_eq!(
+        f.jobs_of(&key).await[0].job.record().held_by.as_deref(),
+        Some("staged")
+    );
+    // once the folder is clean the merge goes through without a person
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged, vec![key.clone()], "{report:?}");
+    let job = f.jobs_of(&key).await.remove(0).job;
+    assert_eq!(job.record().phase, MergePhase::Merged);
+    assert_eq!(job.record().problem, None);
+    assert_eq!(f.record(&key).await.branch, None);
+    assert_eq!(f.git.requests.lock().unwrap().len(), 7);
+}
+
+#[tokio::test]
+async fn a_retry_of_a_held_merge_names_the_hold() {
+    use nullradix_app::dispatch::merge_retry::RetryOutcome;
+    use nullradix_domain::{HoldKind, MergePhase};
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.script_holds(vec![
+        held_outcome(HoldKind::Busy, "a merge is under way"),
+        held_outcome(HoldKind::Busy, "a merge is under way"),
+    ]);
+    f.dispatcher.pass.run().await;
+    let job = f.jobs_of(&key).await.remove(0).job;
+    assert_eq!(
+        job.held_text(),
+        Some("the main checkout: a merge is under way")
+    );
+    // a person retries while the checkout is still busy
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.outcome, RetryOutcome::Waiting, "{}", retried.text);
+    assert_eq!(
+        retried.text,
+        format!(
+            "{key}: the merge waits for the main checkout: a merge is under way - it is merged \
+             automatically once that is done."
+        )
+    );
+    let jobs = f.jobs_of(&key).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].job.record().phase, MergePhase::Waiting);
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged, vec![key.clone()], "{report:?}");
+}
+
+#[tokio::test]
+async fn a_hold_is_forgotten_while_a_ticket_of_the_branch_is_open_again() {
+    use nullradix_domain::HoldKind;
+    let f = fixture().await;
+    f.enable().await;
+    let first = f.ready("First", &["auto"]).await;
+    let second = f.ready("Second", &["auto"]).await;
+    f.worktrees
+        .start(&first, f.local, ROOT, StartMode::New, false, &f.person)
+        .await
+        .unwrap();
+    f.worktrees
+        .start(
+            &second,
+            f.local,
+            ROOT,
+            StartMode::JoinTicket(first.clone()),
+            false,
+            &f.person,
+        )
+        .await
+        .unwrap();
+    let merge_blocked = "Merge: an earlier problem";
+    f.agent_changes(&second, "blocked", Some(merge_blocked))
+        .await;
+    f.agent_changes(&first, "done", None).await;
+    let record = f.record(&first).await;
+    assert!(f.dispatcher.merges.queue(&record).await.unwrap());
+    f.script_holds(vec![held_outcome(
+        HoldKind::Overlap,
+        "local changes in a.txt",
+    )]);
+    f.dispatcher.pass.run().await;
+    assert!(f.jobs_of(&first).await[0].job.held_text().is_some());
+    // the second ticket is open again: the job waits for it and the hold text goes away
+    f.agent_changes(&second, "planned", None).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.jobs_of(&first).await[0].job.held_text(), None);
+    assert_eq!(f.markers(&first, SystemMarker::MergeWait).await, 2);
+    // it finishes, the checkout is busy, and the ticket opens once more
+    f.agent_changes(&second, "blocked", Some(merge_blocked))
+        .await;
+    f.script_holds(vec![held_outcome(HoldKind::Busy, "a merge is under way")]);
+    f.dispatcher.pass.run().await;
+    assert!(f.jobs_of(&first).await[0].job.held_text().is_some());
+    f.agent_changes(&second, "planned", None).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.jobs_of(&first).await[0].job.held_text(), None);
+    f.agent_changes(&second, "blocked", Some(merge_blocked))
+        .await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged.len(), 2, "{report:?}");
+}

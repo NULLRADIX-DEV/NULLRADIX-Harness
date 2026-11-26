@@ -89,8 +89,9 @@ pub use inbox::{
     InboxKind, InboxRef, SETUP_REASON, apply_order, clip, compare, note_text, order,
 };
 pub use merge::{
-    MERGE_PROBLEM_MAX, MERGE_REASON_MAX, MergeJob, MergeJobRecord, MergePhase, SQUASH_LIST_MAX,
-    conflict_problem, merge_block_reason, merge_message,
+    HOLD_FILES_MAX, HOLD_NOTICE_MINUTES, HoldKind, MERGE_PROBLEM_MAX, MERGE_REASON_MAX, MergeJob,
+    MergeJobRecord, MergePhase, SQUASH_LIST_MAX, conflict_problem, hold_files, merge_block_reason,
+    merge_message,
 };
 pub use note::{
     NOTE_LABELS_MAX, NOTE_REASON_MAX, NOTE_SEEN_IN_MAX, NOTE_TITLE_MAX, Note, NoteDraft, NoteError,
