@@ -1,12 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use anyhow::Context;
 use clap::Subcommand;
 use nullradix_api::{
     AcceptTicket, ClaimTicket, CleanedWorktree, ColumnDto, CreateTicket, FinishTicket,
-    FinishedTicket, MoveTicket, PriorityDto, ReleaseTicket, ReturnReview, StartTicket,
+    FinishedTicket, MoveTicket, PriorityDto, ReleaseTicket, RetryMerge, ReturnReview, StartTicket,
     StartedTicket, TicketDetailDto, TicketDto, UpdateTicket,
 };
 use nullradix_client::Client;
@@ -114,6 +115,12 @@ pub(crate) enum TicketCommand {
     },
     /// Finish a ticket that waits for a person
     Accept {
+        key: String,
+        #[arg(long)]
+        version: Option<i64>,
+    },
+    /// Try the merge of a done or merge-blocked ticket again
+    Merge {
         key: String,
         #[arg(long)]
         version: Option<i64>,
@@ -436,6 +443,12 @@ pub(crate) fn run(
                 "accepted",
             );
         }
+        TicketCommand::Merge { key, version } => {
+            let retried = client
+                .with_timeout(MERGE_TIMEOUT)
+                .retry_merge(&canonical(&key)?, &RetryMerge { version })?;
+            println!("{}", retried.text);
+        }
         TicketCommand::Return {
             key,
             feedback,
@@ -682,6 +695,9 @@ fn create(args: CreateArgs, client: &Client, choice: &BoardChoice) -> anyhow::Re
     Ok(())
 }
 
+/// A merge can take git minutes, and a caller that gives up must not see it fail.
+const MERGE_TIMEOUT: Duration = Duration::from_secs(600);
+
 const COLUMNS: [(ColumnDto, &str); 8] = [
     (ColumnDto::Backlog, "Backlog"),
     (ColumnDto::Waiting, "Waiting"),
@@ -903,6 +919,16 @@ mod tests {
                 ..
             }
         ));
+        assert!(matches!(
+            parse(&["merge", "ARC-1", "--version", "4"])
+                .unwrap()
+                .command,
+            TicketCommand::Merge {
+                version: Some(4),
+                ..
+            }
+        ));
+        assert!(parse(&["merge"]).is_err(), "a key is required");
         let command = parse(&["return", "ARC-1", "--feedback", "add a test"])
             .unwrap()
             .command;

@@ -498,6 +498,8 @@ struct ScriptedGit {
     merge_entered: Notify,
     /// The next merge fails with this error.
     fail_merge: Mutex<Option<AppError>>,
+    /// Every merge of this branch fails.
+    fail_branch: Mutex<Option<String>>,
     /// Calls of `branch_tip` and `integrated`.
     probes: std::sync::atomic::AtomicUsize,
 }
@@ -534,6 +536,9 @@ impl MergeGit for ScriptedGit {
 
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
         self.requests.lock().unwrap().push(request.clone());
+        if self.fail_branch.lock().unwrap().as_deref() == Some(request.branch.as_str()) {
+            return Err(AppError::conflict("git-failed", "branch locked"));
+        }
         if let Some(error) = self.fail_merge.lock().unwrap().take() {
             return Err(error);
         }
@@ -6787,4 +6792,406 @@ impl Fixture {
             .key()
             .to_string()
     }
+}
+
+impl Fixture {
+    /// A finished ticket whose first merge the checkout refused.
+    async fn refused_ticket(&self) -> String {
+        let key = self.finished_ticket().await;
+        self.git
+            .merges
+            .lock()
+            .unwrap()
+            .push_back(MergeOutcome::Refused {
+                reason: String::from("changes are staged"),
+            });
+        let report = self.dispatcher.pass.run().await;
+        assert!(report.errors.is_empty(), "{report:?}");
+        assert_eq!(self.record(&key).await.status, TicketStatus::Blocked);
+        key
+    }
+}
+
+#[tokio::test]
+async fn a_retry_unblocks_the_ticket_and_merges_the_branch() {
+    use nullradix_app::dispatch::merge_retry::RetryOutcome;
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    assert!(
+        f.notices.0.lock().unwrap().iter().any(|notice| {
+            notice.kind == NoticeKind::Blocked && notice.text.contains("Merge: changes are staged")
+        }),
+        "the refusal is announced with its problem"
+    );
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.outcome, RetryOutcome::Merged, "{}", retried.text);
+    assert_eq!(retried.text, format!("{key} merged into main (abc1234)."));
+    let after = f.record(&key).await;
+    assert_eq!(
+        (after.status, after.blocked_reason, after.branch),
+        (TicketStatus::Done, None, None)
+    );
+    let jobs = f.jobs_of(&key).await;
+    let phases: Vec<_> = jobs.iter().map(|job| job.job.record().phase).collect();
+    assert_eq!(
+        phases,
+        [
+            nullradix_domain::MergePhase::Merged,
+            nullradix_domain::MergePhase::Failed
+        ]
+    );
+    let bodies = f.bodies(&key).await;
+    assert!(
+        bodies
+            .iter()
+            .any(|body| body.starts_with("[dispatch] merge: retry started by "))
+    );
+    assert_eq!(f.git.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_retry_forgets_the_conflict_and_merges_again() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Conflict {
+            files: vec![String::from("a.rs")],
+        });
+    f.dispatcher.pass.run().await;
+    assert!(f.jobs_of(&key).await[0].job.record().conflict_seen);
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.text, format!("{key} merged into main (abc1234)."));
+    // the conflicted job itself was reset, not replaced
+    let jobs = f.jobs_of(&key).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(
+        jobs[0].job.record().phase,
+        nullradix_domain::MergePhase::Merged
+    );
+    assert!(!jobs[0].job.record().conflict_seen);
+}
+
+#[tokio::test]
+async fn a_retry_of_a_branch_the_target_holds_finishes_without_merging() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    f.git.gone.store(true, Ordering::SeqCst);
+    *f.git.earlier.lock().unwrap() = Some(nullradix_app::dispatch::merge_git::MergedEarlier {
+        into: String::from("main"),
+        commit: String::from("1234abc"),
+    });
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.text, format!("{key} merged into main (1234abc)."));
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+    let after = f.record(&key).await;
+    assert_eq!((after.status, after.branch), (TicketStatus::Done, None));
+}
+
+#[tokio::test]
+async fn a_retry_that_is_repeated_queues_nothing_twice_but_tries_the_step() {
+    use nullradix_app::dispatch::merge_retry::RetryOutcome;
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    *f.git.fail_merge.lock().unwrap() = Some(AppError::conflict("git-failed", "locked"));
+    let first = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(first.outcome, RetryOutcome::Pending);
+    assert!(first.text.contains("merge not run"), "{}", first.text);
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    let comments = f.comment_count(&key).await;
+    let versions: Vec<_> = f
+        .jobs_of(&key)
+        .await
+        .iter()
+        .map(|job| job.job.record().version)
+        .collect();
+    // the version the caller saw is stale by now, a repeat still answers with the last error
+    *f.git.fail_merge.lock().unwrap() = Some(AppError::conflict("git-failed", "locked"));
+    let again = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, Some(Version::INITIAL))
+        .await
+        .unwrap();
+    assert_eq!(again.outcome, RetryOutcome::Pending);
+    assert!(again.text.contains("locked"), "{}", again.text);
+    assert_eq!(f.comment_count(&key).await, comments);
+    let after: Vec<_> = f
+        .jobs_of(&key)
+        .await
+        .iter()
+        .map(|job| job.job.record().version)
+        .collect();
+    assert_eq!(after, versions);
+    assert_eq!(f.git.requests.lock().unwrap().len(), 3);
+    // with nothing in the way the repeat merges it
+    let merged = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(merged.outcome, RetryOutcome::Merged, "{}", merged.text);
+    assert_eq!(f.jobs_of(&key).await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_retry_is_refused_for_a_stale_version_and_for_a_ticket_that_waits_for_no_merge() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    let stale = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, Some(Version::INITIAL))
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code(), "version-conflict");
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
+    assert_eq!(f.jobs_of(&key).await.len(), 1);
+    let other = f.ready("Not started", &[]).await;
+    let error = f
+        .dispatcher
+        .retries
+        .retry(&other, &f.person, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "merge-not-possible");
+    // blocked for something else is no merge problem
+    f.agent_changes(&key, "blocked", Some("no database access"))
+        .await;
+    let error = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "merge-not-possible");
+}
+
+#[tokio::test]
+async fn a_person_who_sets_the_ticket_done_again_queues_no_merge() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    f.agent_changes(&key, "done", None).await;
+    let after = f.record(&key).await;
+    assert_eq!(
+        (after.status, after.blocked_reason.clone()),
+        (TicketStatus::Done, None)
+    );
+    assert!(after.branch.is_some());
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+    assert_eq!(f.jobs_of(&key).await.len(), 1);
+    // the way back into the merge is the retry
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.text, format!("{key} merged into main (abc1234)."));
+}
+
+#[tokio::test]
+async fn a_retry_waits_for_the_pass_that_is_under_way() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Refused {
+            reason: String::from("changes are staged"),
+        });
+    // the pass stops inside the merge of the first job
+    let gate = Arc::new(Notify::new());
+    *f.git.hold_merge.lock().unwrap() = Some(gate.clone());
+    let pass = {
+        let pass = f.dispatcher.pass.clone();
+        tokio::spawn(async move { pass.run().await })
+    };
+    f.git.merge_entered.notified().await;
+    let service = f.dispatcher.retries.clone();
+    let person = f.person.clone();
+    let name = key.clone();
+    let retry = tokio::spawn(async move { service.retry(&name, &person, None).await });
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!retry.is_finished(), "the retry ran inside the pass");
+    gate.notify_one();
+    pass.await.unwrap();
+    // the pass blocked the ticket first, then the retry saw it blocked and merged it
+    let retried = retry.await.unwrap().unwrap();
+    assert_eq!(retried.text, format!("{key} merged into main (abc1234)."));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(f.git.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_caller_that_goes_away_does_not_cancel_the_merge() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    let gate = Arc::new(Notify::new());
+    *f.git.hold_merge.lock().unwrap() = Some(gate.clone());
+    let service = f.dispatcher.retries.clone();
+    let person = f.person.clone();
+    let name = key.clone();
+    let retry = tokio::spawn(async move { service.retry(&name, &person, None).await });
+    f.git.merge_entered.notified().await;
+    // the caller gives up while git is merging
+    retry.abort();
+    let _ = retry.await;
+    gate.notify_one();
+    f.dispatcher.pass.exclusive(|| async {}).await;
+    let after = f.record(&key).await;
+    assert_eq!((after.status, after.branch), (TicketStatus::Done, None));
+    let phases: Vec<_> = f
+        .jobs_of(&key)
+        .await
+        .iter()
+        .map(|job| job.job.record().phase)
+        .collect();
+    assert_eq!(
+        phases,
+        [
+            nullradix_domain::MergePhase::Merged,
+            nullradix_domain::MergePhase::Failed
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_retry_reports_no_error_of_an_unrelated_job() {
+    use nullradix_app::dispatch::merge_retry::RetryOutcome;
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    let other = f.finished_ticket().await;
+    let branch = f.record(&other).await.branch.unwrap();
+    *f.git.fail_branch.lock().unwrap() = Some(branch);
+    let report = f.dispatcher.pass.run().await;
+    assert!(!report.errors.is_empty(), "{report:?}");
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Conflict {
+            files: vec![String::from("a.rs")],
+        });
+    let retried = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(retried.outcome, RetryOutcome::Pending);
+    assert!(!retried.text.contains("merge not run"), "{}", retried.text);
+    assert!(!retried.text.contains("locked"), "{}", retried.text);
+}
+
+#[tokio::test]
+async fn a_retry_is_refused_while_a_merge_session_runs_for_a_sibling() {
+    let f = fixture().await;
+    f.configure(|config| {
+        config.wip = 3;
+        config.join_worktrees = nullradix_domain::JoinWorktrees::SameSpec;
+    })
+    .await;
+    let key = f.refused_ticket().await;
+    let sibling = f.ready("Same folder", &["auto"]).await;
+    f.worktrees
+        .start(
+            &sibling,
+            f.local,
+            ROOT,
+            StartMode::AutoJoin,
+            false,
+            &f.person,
+        )
+        .await
+        .unwrap();
+    f.config.sync_hash().await.unwrap();
+    let hash = f.config.get().await.unwrap().hash;
+    let dispatch = nullradix_domain::DispatchRun {
+        kind: nullradix_domain::RunKind::Merge,
+        trigger: nullradix_domain::RunTrigger::Dispatcher,
+        subject_key: Some(sibling.clone()),
+        profile: nullradix_domain::RunProfile {
+            id: None,
+            name: String::from("medium"),
+            model: None,
+            effort: None,
+            max_turns: 10,
+            timeout_minutes: 10,
+        },
+        account: None,
+        config_hash: hash,
+        agent: None,
+        cwd: String::new(),
+        args: Vec::new(),
+        prompt: String::new(),
+    };
+    let spec = nullradix_app::runs::RunSpec {
+        program: String::from("claude"),
+        args: Vec::new(),
+        cwd: std::path::PathBuf::from(ROOT),
+        timeout: None,
+        env: nullradix_app::runs::RunEnv::default(),
+        stdin: None,
+        claude: true,
+    };
+    f.runs
+        .start_planned(f.runs.next_id(), "merge session", &spec, Some(dispatch))
+        .await
+        .unwrap();
+    let error = f
+        .dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "merge-not-possible");
+    assert!(error.message().contains("session"), "{}", error.message());
+}
+
+#[tokio::test]
+async fn a_failed_step_of_a_retry_reaches_the_dispatcher_log() {
+    let f = fixture().await;
+    let key = f.refused_ticket().await;
+    *f.git.fail_merge.lock().unwrap() = Some(AppError::conflict("git-failed", "index held"));
+    f.dispatcher
+        .retries
+        .retry(&key, &f.person, None)
+        .await
+        .unwrap();
+    let lines = nullradix_app::dispatch::log::DispatcherLogRepository::recent(f.store.as_ref(), 20)
+        .await
+        .unwrap();
+    assert!(
+        lines.iter().any(|line| line.message.contains("index held")),
+        "{lines:?}"
+    );
 }

@@ -3,6 +3,7 @@ import { useRef } from 'react';
 import { api, type components } from '../../shared/api/client';
 import { unwrap, unwrapEmpty } from '../../shared/api/errors';
 import type { ChangeRegistry } from '../../shared/live/registry';
+import { mergeKeys } from '../merge/queries';
 import { noteKeys } from '../notes/queries';
 import { ticketKeys } from '../tickets/queries';
 
@@ -132,11 +133,11 @@ export function useResetOrder() {
   });
 }
 
-// Accepting a ticket or promoting a note takes the entry out of the inbox.
+// Accepting or merging a ticket, or promoting a note, takes the entry out; a retry says what came.
 export function useInboxAction() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (item: InboxItem) => {
+    mutationFn: async (item: InboxItem): Promise<string | undefined> => {
       if (item.type === 'note') {
         unwrap(
           await api.POST('/api/v1/notes/{noteNumber}/promote', {
@@ -144,6 +145,14 @@ export function useInboxAction() {
             body: {},
           }),
         );
+      } else if (item.kind === 'merge') {
+        const retried = unwrap(
+          await api.POST('/api/v1/tickets/{ticketKey}/merge', {
+            params: { path: { ticketKey: item.key } },
+            body: {},
+          }),
+        );
+        return retried.text;
       } else {
         unwrap(
           await api.POST('/api/v1/tickets/{ticketKey}/accept', {
@@ -152,12 +161,14 @@ export function useInboxAction() {
           }),
         );
       }
+      return undefined;
     },
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: inboxKeys.all }),
         queryClient.invalidateQueries({ queryKey: ticketKeys.all }),
         queryClient.invalidateQueries({ queryKey: noteKeys.all }),
+        queryClient.invalidateQueries({ queryKey: mergeKeys.all }),
       ]),
   });
 }
