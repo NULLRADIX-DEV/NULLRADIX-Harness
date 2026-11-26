@@ -4120,6 +4120,43 @@ async fn a_pass_that_stopped_after_blocking_the_ticket_posts_the_missing_comment
 }
 
 #[tokio::test]
+async fn a_ticket_a_person_accepted_after_a_lost_pass_is_never_blocked_again() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, run) = f.lost_after_blocking(false).await;
+    // the lost pass blocked the ticket and noted it, but never commented
+    nullradix_app::review::ReviewRepository::mark_blocked(
+        f.store.as_ref(),
+        run,
+        Timestamp::from_millis(START),
+    )
+    .await
+    .unwrap();
+    // a person accepts the ticket meanwhile
+    let version = f.record(&key).await.version;
+    let patch = TicketPatch {
+        status: Some(TicketStatus::Done.as_str().to_owned()),
+        blocked_reason: Some(None),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Review));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    // the history is complete, once
+    assert_eq!(f.markers(&key, SystemMarker::Review).await, 1);
+    assert_eq!(f.notices.0.lock().unwrap().len(), 1);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(f.markers(&key, SystemMarker::Review).await, 1);
+    assert_eq!(f.notices.0.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn a_person_changing_the_ticket_while_it_is_held_does_not_stop_the_hold() {
     let f = fixture().await;
     f.review_on().await;

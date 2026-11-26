@@ -103,6 +103,32 @@ impl ReviewRepository for Store {
         Ok(known.is_some())
     }
 
+    async fn blocked(&self, run: Id<Run>) -> Result<bool, AppError> {
+        let run = run.as_uuid();
+        let known = sqlx::query_scalar!(
+            "SELECT 1 FROM reviews WHERE run_id = ? AND blocked_at IS NOT NULL",
+            run
+        )
+        .fetch_optional(&self.reader)
+        .await
+        .map_err(database)?;
+        Ok(known.is_some())
+    }
+
+    async fn mark_blocked(&self, run: Id<Run>, at: Timestamp) -> Result<(), AppError> {
+        let run = run.as_uuid();
+        let at = at.as_millis();
+        sqlx::query!(
+            "UPDATE reviews SET blocked_at = ? WHERE run_id = ? AND blocked_at IS NULL",
+            at,
+            run
+        )
+        .execute(&self.writer)
+        .await
+        .map_err(database)?;
+        Ok(())
+    }
+
     async fn latest(&self, worktree: Id<Worktree>) -> Result<Option<StoredReview>, AppError> {
         let uuid = worktree.as_uuid();
         let Some(row) = sqlx::query_as!(

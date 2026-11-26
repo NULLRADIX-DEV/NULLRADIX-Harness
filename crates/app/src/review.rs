@@ -86,6 +86,10 @@ pub trait ReviewRepository: Send + Sync {
     async fn hold(&self, review: &Review, tests: &[TestRun]) -> Result<Option<Change>, AppError>;
     /// Whether the run left a review.
     async fn held(&self, run: Id<Run>) -> Result<bool, AppError>;
+    /// Whether the ticket of the run was blocked for the review already.
+    async fn blocked(&self, run: Id<Run>) -> Result<bool, AppError>;
+    /// Notes that the ticket of the run was blocked for the review at this moment.
+    async fn mark_blocked(&self, run: Id<Run>, at: Timestamp) -> Result<(), AppError>;
     /// The newest review of the worktree.
     async fn latest(&self, worktree: Id<Worktree>) -> Result<Option<StoredReview>, AppError>;
 }
@@ -430,6 +434,16 @@ impl ReviewService {
     /// Whether the run left a review already.
     pub(crate) async fn held(&self, run: Id<Run>) -> Result<bool, AppError> {
         self.reviews.held(run).await
+    }
+
+    /// Whether the ticket of the run was blocked for the review already.
+    pub(crate) async fn blocked(&self, run: Id<Run>) -> Result<bool, AppError> {
+        self.reviews.blocked(run).await
+    }
+
+    /// Notes that the ticket of the run is blocked, so a later pass never blocks it again.
+    pub(crate) async fn mark_blocked(&self, run: Id<Run>) -> Result<(), AppError> {
+        self.reviews.mark_blocked(run, self.clock.now()).await
     }
 }
 

@@ -212,14 +212,20 @@ impl DoneGate for ReviewGate {
         let tests = self.tests_of(run).await?;
         match self.review.hold(ticket, run.id(), &tests).await? {
             Held::NoWorktree | Held::NoBranch => return Ok(DispatchOutcome::Done),
-            // held and commented: a person may have accepted it since, so it is not blocked again
-            Held::Already if self.commented(ticket, run).await? => {
+            // blocked once: a person may have decided since, so it is never blocked again
+            Held::Already
+                if self.review.blocked(run.id()).await? || self.commented(ticket, run).await? =>
+            {
+                if !self.commented(ticket, run).await? {
+                    self.comment(ticket, run, &tests).await?;
+                }
                 return Ok(DispatchOutcome::Review);
             }
             Held::New | Held::Already => {}
         }
-        // blocked before commented, so a lost pass never leaves a done ticket held for review
+        // blocked and noted before commented, so a lost pass never leaves a done ticket held
         self.block(ticket).await?;
+        self.review.mark_blocked(run.id()).await?;
         self.comment(ticket, run, &tests).await?;
         Ok(DispatchOutcome::Review)
     }

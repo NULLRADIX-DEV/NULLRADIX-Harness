@@ -7,6 +7,7 @@ CREATE TABLE reviews (
   state       TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'returned')),
   decided_by  BLOB REFERENCES actors (id),
   decided_at  INTEGER,
+  blocked_at  INTEGER,
   created_at  INTEGER NOT NULL,
   version     INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1)
 ) STRICT;
