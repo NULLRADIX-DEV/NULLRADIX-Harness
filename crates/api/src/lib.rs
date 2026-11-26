@@ -535,6 +535,7 @@ pub(crate) mod tests {
         pub(crate) accounts: Arc<AccountService>,
         pub(crate) logins: Arc<LoginService>,
         pub(crate) fetcher: Arc<crate::theme_catalog::fake::Fetcher>,
+        pub(crate) store: Arc<Store>,
         pub(crate) _accounts_dir: tempfile::TempDir,
     }
 
@@ -946,6 +947,7 @@ pub(crate) mod tests {
             accounts,
             logins,
             fetcher,
+            store: store.clone(),
             _accounts_dir: accounts_dir,
         }
     }

@@ -3,9 +3,11 @@
 pub mod assemble;
 pub mod candidates;
 pub mod control;
+pub mod evaluate;
 pub mod invocation;
 pub mod local_time;
 pub mod log;
+pub mod outcome;
 pub mod pass;
 pub mod runs;
 pub mod scheduler;

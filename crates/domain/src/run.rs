@@ -1,6 +1,6 @@
 use strum::{EnumString, IntoStaticStr};
 
-use crate::dispatch_run::{Abort, AbortCategory, DispatchRun, RunResult};
+use crate::dispatch_run::{Abort, AbortCategory, DispatchOutcome, DispatchRun, RunResult};
 use crate::{Id, Timestamp, Version};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoStaticStr, EnumString)]
@@ -244,6 +244,26 @@ impl Run {
         Ok(next)
     }
 
+    /// A finished dispatch run settled with this outcome; a settled run cannot be settled again.
+    pub fn settled(&self, outcome: DispatchOutcome) -> Result<Self, RunError> {
+        if self.status.is_active() || self.dispatch.is_none() || self.outcome().is_some() {
+            return Err(RunError::InvalidTransition {
+                from: self.status.as_str(),
+                to: outcome.as_str(),
+            });
+        }
+        let mut next = self.clone();
+        next.result.get_or_insert_with(RunResult::default).outcome = Some(outcome);
+        next.version = self.version.next();
+        Ok(next)
+    }
+
+    /// How the dispatcher settled the run; none while it is open.
+    #[must_use]
+    pub fn outcome(&self) -> Option<DispatchOutcome> {
+        self.result.as_ref().and_then(|result| result.outcome)
+    }
+
     #[must_use]
     pub const fn id(&self) -> Id<Self> {
         self.id
@@ -405,6 +425,7 @@ mod tests {
             },
             account: None,
             config_hash: String::from("0123456789abcdef"),
+            agent: None,
             cwd: String::from("/work"),
             args: vec![String::from("-p")],
             prompt: String::from("go"),
@@ -451,6 +472,7 @@ mod tests {
             }),
             denied_count: Some(2),
             abort: None,
+            outcome: None,
         };
         let done = dispatch_run()
             .started(1, Timestamp::from_millis(11))
@@ -464,6 +486,35 @@ mod tests {
             .unwrap();
         assert_eq!(done.result(), Some(&result));
         assert_eq!(done.version(), Version::from_stored(3));
+    }
+
+    #[test]
+    fn a_finished_dispatch_run_is_settled_once() {
+        let finished = dispatch_run()
+            .started(1, Timestamp::from_millis(11))
+            .unwrap()
+            .finished(RunOutcome::Succeeded, end(0), Timestamp::from_millis(30))
+            .unwrap();
+        assert_eq!(finished.outcome(), None);
+        let settled = finished.settled(DispatchOutcome::Question).unwrap();
+        assert_eq!(settled.outcome(), Some(DispatchOutcome::Question));
+        assert_eq!(settled.version(), finished.version().next());
+        assert!(settled.settled(DispatchOutcome::Done).is_err());
+        let active = dispatch_run()
+            .started(1, Timestamp::from_millis(11))
+            .unwrap();
+        assert!(active.settled(DispatchOutcome::Done).is_err());
+        assert!(
+            run()
+                .finished(RunOutcome::Failed, end(1), Timestamp::from_millis(30))
+                .unwrap()
+                .settled(DispatchOutcome::Done)
+                .is_err()
+        );
+        assert_eq!(
+            "abort-final".parse::<DispatchOutcome>(),
+            Ok(DispatchOutcome::AbortFinal)
+        );
     }
 
     #[test]

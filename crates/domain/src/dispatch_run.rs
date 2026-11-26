@@ -68,6 +68,35 @@ impl AbortCategory {
     }
 }
 
+/// How the dispatcher settled a finished run; the stored values are checked by the database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoStaticStr, EnumString)]
+#[strum(serialize_all = "kebab-case")]
+pub enum DispatchOutcome {
+    Done,
+    Review,
+    Human,
+    Abort,
+    AbortFinal,
+    Blocked,
+    Question,
+    PauseLimit,
+    PauseClaudeMissing,
+    SetupFailed,
+    Taken,
+    Gone,
+    Other,
+    MergeSession,
+    Research,
+    Planned,
+}
+
+impl DispatchOutcome {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        self.into()
+    }
+}
+
 /// The reason a run counts as aborted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Abort {
@@ -99,6 +128,8 @@ pub struct DispatchRun {
     pub account: Option<Uuid>,
     /// Hash of the dispatcher configuration in force.
     pub config_hash: String,
+    /// The agent name the run worked under; none for runs from before it was kept.
+    pub agent: Option<String>,
     pub cwd: String,
     /// Arguments after the program, as the run was started.
     pub args: Vec<String>,
@@ -145,6 +176,8 @@ pub struct RunResult {
     /// Tool calls Claude Code refused; none without a result to count them in.
     pub denied_count: Option<u32>,
     pub abort: Option<Abort>,
+    /// Set once the dispatcher has settled the run; a finished run without one is still open.
+    pub outcome: Option<DispatchOutcome>,
 }
 
 /// Where a screenshot of a run lies on its runner.

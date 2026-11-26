@@ -105,7 +105,7 @@ impl PassStep for ReleaseStale {
                         );
                         let _ = self
                             .comments
-                            .add_system(&record.key, &body, SystemMarker::Abort, None, actor)
+                            .add_system(&record.key, &body, Some(SystemMarker::Abort), None, actor)
                             .await;
                     }
                 }

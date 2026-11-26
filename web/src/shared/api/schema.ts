@@ -2018,6 +2018,11 @@ export interface components {
             subjectKey?: string | null;
             trigger: components["schemas"]["RunTriggerDto"];
         };
+        /**
+         * @description How the dispatcher settled a finished run; none while it is open.
+         * @enum {string}
+         */
+        DispatchOutcomeDto: "done" | "review" | "human" | "abort" | "abort-final" | "blocked" | "question" | "pause-limit" | "pause-claude-missing" | "setup-failed" | "taken" | "gone" | "other" | "merge-session" | "research" | "planned";
         /** @description The dispatcher's whole configuration; a save replaces all of it. */
         DispatcherConfigDto: {
             /** Format: int64 */
@@ -2205,12 +2210,16 @@ export interface components {
         FinishTicket: {
             /** @description Acceptance criteria set in the same step; done needs them here or on the ticket. */
             acceptance?: string | null;
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
             /** @description Absolute folder in the board's repository; a worktree containing it stays. */
             cwd: string;
             /** @description Lifts the dependency, question and not-needed locks, never the acceptance lock. */
             force?: boolean;
             /** Format: uuid */
             runnerId: string;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
             /**
              * Format: int64
              * @description Version the change is based on; without one it checks none.
@@ -2444,8 +2453,12 @@ export interface components {
         /** @description A move to another column; done needs acceptance criteria, here or on the ticket. */
         MoveTicket: {
             acceptance?: string | null;
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
             /** @description Lifts the dependency, question and not-needed locks. */
             force?: boolean;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
             status?: components["schemas"]["TicketStatusDto"] | null;
             /**
              * Format: int64
@@ -2983,6 +2996,7 @@ export interface components {
              * @description Tool calls Claude Code refused; empty without a result to count them in.
              */
             deniedCount?: number | null;
+            outcome?: components["schemas"]["DispatchOutcomeDto"] | null;
             usage?: components["schemas"]["RunUsageDto"] | null;
         };
         /** @enum {string} */
@@ -3583,6 +3597,8 @@ export interface components {
         UpdateTicket: {
             acceptance?: string | null;
             assignee?: string | null;
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
             blockedReason?: string | null;
             /**
              * Format: uuid
@@ -3605,6 +3621,8 @@ export interface components {
             needsPlanning?: boolean | null;
             plan?: string | null;
             priority?: components["schemas"]["PriorityDto"] | null;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
             status?: components["schemas"]["TicketStatusDto"] | null;
             targetBranch?: string | null;
             title?: string | null;

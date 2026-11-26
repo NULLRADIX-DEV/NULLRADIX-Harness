@@ -131,12 +131,24 @@ impl CommentService {
         })
     }
 
+    /// The actor a write under this author belongs to; the shared rule for every writer.
+    pub async fn author(&self, author: Author<'_>, person: &Actor) -> Result<Actor, AppError> {
+        authors::resolve(
+            self.actors.as_ref(),
+            self.ids.as_ref(),
+            self.clock.as_ref(),
+            author,
+            person,
+        )
+        .await
+    }
+
     /// Appends a comment of the dispatcher that marks an event of a run.
     pub async fn add_system(
         &self,
         key: &TicketKey,
         body: &str,
-        marker: SystemMarker,
+        marker: Option<SystemMarker>,
         run: Option<Id<Run>>,
         actor: &Actor,
     ) -> Result<(), AppError> {

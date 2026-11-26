@@ -319,6 +319,7 @@
           "abort": null,
           "claudeSessionId": "fake-session-1",
           "deniedCount": 0,
+          "outcome": null,
           "usage": {
             "cacheReadTokens": 9000,
             "cacheWriteTokens": 150,
@@ -478,6 +479,7 @@
           },
           "claudeSessionId": "fake-session-1",
           "deniedCount": 0,
+          "outcome": null,
           "usage": {
             "cacheReadTokens": null,
             "cacheWriteTokens": null,
@@ -626,6 +628,7 @@
           },
           "claudeSessionId": "fake-session-1",
           "deniedCount": 0,
+          "outcome": null,
           "usage": {
             "cacheReadTokens": 9000,
             "cacheWriteTokens": 150,
@@ -806,6 +809,7 @@
           "abort": null,
           "claudeSessionId": "fake-session-1",
           "deniedCount": 3,
+          "outcome": null,
           "usage": {
             "cacheReadTokens": 9000,
             "cacheWriteTokens": 150,
@@ -951,6 +955,7 @@
               },
               "claudeSessionId": "fake-session-1",
               "deniedCount": 0,
+              "outcome": null,
               "usage": {
                 "cacheReadTokens": null,
                 "cacheWriteTokens": null,
@@ -992,6 +997,7 @@
               "abort": null,
               "claudeSessionId": "fake-session-1",
               "deniedCount": 0,
+              "outcome": null,
               "usage": {
                 "cacheReadTokens": 9000,
                 "cacheWriteTokens": 150,
@@ -1067,6 +1073,7 @@
               },
               "claudeSessionId": "fake-session-1",
               "deniedCount": 0,
+              "outcome": null,
               "usage": {
                 "cacheReadTokens": null,
                 "cacheWriteTokens": null,
@@ -1108,6 +1115,7 @@
               "abort": null,
               "claudeSessionId": "fake-session-1",
               "deniedCount": 0,
+              "outcome": null,
               "usage": {
                 "cacheReadTokens": 9000,
                 "cacheWriteTokens": 150,
@@ -1180,6 +1188,7 @@
               "abort": null,
               "claudeSessionId": "fake-session-1",
               "deniedCount": 3,
+              "outcome": null,
               "usage": {
                 "cacheReadTokens": 9000,
                 "cacheWriteTokens": 150,
@@ -1255,6 +1264,7 @@
               },
               "claudeSessionId": "fake-session-1",
               "deniedCount": 0,
+              "outcome": null,
               "usage": {
                 "cacheReadTokens": 9000,
                 "cacheWriteTokens": 150,

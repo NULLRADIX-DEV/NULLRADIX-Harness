@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    DeniedTool, DispatchRun, Id, Run, RunEnd, RunError, RunKind, RunLabel, RunOutcome, RunResult,
-    Screenshot, Timestamp, Version,
+    DeniedTool, DispatchOutcome, DispatchRun, Id, Run, RunEnd, RunError, RunKind, RunLabel,
+    RunOutcome, RunResult, Screenshot, Timestamp, Version,
 };
 use strum::{EnumString, IntoStaticStr};
 use uuid::Uuid;
@@ -201,6 +201,8 @@ pub trait RunRepository: Send + Sync {
     /// Newest first, narrowed by the filter.
     async fn find(&self, filter: &RunFilter, limit: u32) -> Result<Vec<Run>, AppError>;
     async fn active(&self) -> Result<Vec<Run>, AppError>;
+    /// Finished dispatch runs the dispatcher has not settled, oldest first.
+    async fn unevaluated(&self, limit: u32) -> Result<Vec<Run>, AppError>;
     async fn denied_tools(&self, id: Id<Run>) -> Result<Vec<DeniedTool>, AppError>;
     async fn artifacts(&self, id: Id<Run>) -> Result<Vec<RunArtifact>, AppError>;
 }
@@ -324,6 +326,24 @@ impl RunService {
         self.repository.active().await
     }
 
+    /// Finished dispatch runs the dispatcher has not settled, oldest first.
+    pub async fn unevaluated(&self, limit: u32) -> Result<Vec<Run>, AppError> {
+        self.repository.unevaluated(limit).await
+    }
+
+    /// Records how the dispatcher settled a finished run; a run settled before is left alone.
+    pub async fn settle_outcome(
+        &self,
+        id: Id<Run>,
+        outcome: DispatchOutcome,
+    ) -> Result<Run, AppError> {
+        let run = self.get(id).await?;
+        let next = run.settled(outcome).map_err(|error| transition(&error))?;
+        let change = self.repository.update(&next, run.version()).await?;
+        self.signal.notify(&change);
+        Ok(next)
+    }
+
     pub async fn denied_tools(&self, id: Id<Run>) -> Result<Vec<DeniedTool>, AppError> {
         self.repository.denied_tools(id).await
     }
@@ -443,6 +463,7 @@ impl RunService {
             denied_count: output.denied_count(),
             usage: output.usage.clone(),
             abort,
+            outcome: None,
         };
         let details = RunDetails {
             denied: output.denied,

@@ -50,8 +50,8 @@ pub use dispatch_pass::{
     choose_profile, idle_reason, minutes_of_day, not_ready, phase, plan_estimate, plan_file_count,
 };
 pub use dispatch_run::{
-    Abort, AbortCategory, DeniedTool, DispatchRun, ModelUsage, RunKind, RunProfile, RunResult,
-    RunTrigger, RunUsage, Screenshot,
+    Abort, AbortCategory, DeniedTool, DispatchOutcome, DispatchRun, ModelUsage, RunKind,
+    RunProfile, RunResult, RunTrigger, RunUsage, Screenshot,
 };
 pub use dispatcher_config::{
     AccountStrategy, AnsweredQuestion, AutopilotSettings, ClaudeSettings, ConfigError,

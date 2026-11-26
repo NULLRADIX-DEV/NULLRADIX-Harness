@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use nullradix_app::accounts::{AccountFolders, AccountService};
 use nullradix_app::boards::{BoardService, local_person};
-use nullradix_app::comments::CommentService;
+use nullradix_app::comments::{Author, CommentService};
 use nullradix_app::dispatch::assemble::{Dispatcher, DispatcherDeps, assemble};
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
@@ -22,9 +22,9 @@ use nullradix_app::dispatch::setup::{SetupFailure, SetupOutcome, SetupRequest, W
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::projects::ProjectService;
-use nullradix_app::questions::QuestionService;
+use nullradix_app::questions::{NewQuestion, QuestionService};
 use nullradix_app::repositories::{Located, RunnerService, not_a_git_project};
-use nullradix_app::runs::{RunProgress, RunService, RunSpec, RunnerPort};
+use nullradix_app::runs::{RunFilter, RunProgress, RunService, RunSpec, RunnerPort};
 use nullradix_app::secrets::MemorySecretStore;
 use nullradix_app::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
@@ -40,8 +40,8 @@ use nullradix_app::worktrees::{
 };
 use nullradix_app::{AppError, ChangeSignal, Clock, UuidV7Generator};
 use nullradix_domain::{
-    Actor, ActorKind, Board, ConfigDir, Id, Run, Runner, SetupState, Timestamp, Version,
-    WorktreeSetupStep,
+    Actor, ActorKind, Board, ConfigDir, DispatchOutcome, Id, Run, RunEnd, RunOutcome, Runner,
+    SetupState, SystemMarker, TicketStatus, Timestamp, Version, WorktreeSetupStep,
 };
 use nullradix_store::Store;
 use tokio::sync::Notify;
@@ -281,6 +281,8 @@ impl WorktreeSetupPort for ScriptedSetup {
 struct Hooked {
     inner: Arc<Store>,
     bump: Mutex<Option<String>>,
+    /// A person renames this ticket right after its nth read from now, which stays stale.
+    rename_on_get: Mutex<Option<(String, usize)>>,
     plain: TicketService,
     actor: Actor,
 }
@@ -308,7 +310,29 @@ impl TicketRepository for Hooked {
     }
 
     async fn get(&self, key: &nullradix_domain::TicketKey) -> Result<Option<TicketRead>, AppError> {
-        self.inner.get(key).await
+        let read = self.inner.get(key).await?;
+        let rename = {
+            let mut armed = self.rename_on_get.lock().unwrap();
+            match armed.as_mut() {
+                Some((armed_key, reads)) if *armed_key == key.to_string() => {
+                    *reads -= 1;
+                    (*reads == 0).then(|| armed_key.clone())
+                }
+                _ => None,
+            }
+        };
+        if let Some(key) = rename {
+            *self.rename_on_get.lock().unwrap() = None;
+            let version = self.plain.get(&key).await?.view.ticket.record().version;
+            let patch = TicketPatch {
+                title: Some(String::from("Renamed")),
+                ..TicketPatch::default()
+            };
+            self.plain
+                .update(&key, &patch, &self.actor, version, FORCE)
+                .await?;
+        }
+        Ok(read)
     }
 }
 
@@ -321,6 +345,7 @@ struct Fixture {
     config: Arc<DispatcherConfigService>,
     tickets: Arc<TicketService>,
     comments: Arc<CommentService>,
+    questions: Arc<QuestionService>,
     worktrees: Arc<WorktreeService>,
     local: Id<Runner>,
     person: Actor,
@@ -377,6 +402,7 @@ async fn fixture() -> Fixture {
     let hook = Arc::new(Hooked {
         inner: store.clone(),
         bump: Mutex::new(None),
+        rename_on_get: Mutex::new(None),
         plain: TicketService::new(
             store.clone(),
             store.clone(),
@@ -453,7 +479,7 @@ async fn fixture() -> Fixture {
     let prompts = Arc::new(DispatcherPromptService::new(
         config.clone(),
         tickets.clone(),
-        questions,
+        questions.clone(),
     ));
     let dispatcher = assemble(DispatcherDeps {
         config: config.clone(),
@@ -484,6 +510,7 @@ async fn fixture() -> Fixture {
         config,
         tickets,
         comments,
+        questions,
         worktrees,
         local,
         person,
@@ -1386,4 +1413,346 @@ async fn a_pass_that_was_under_way_cannot_add_a_setup_after_shutdown() {
     let record = f.record(&key).await;
     assert_eq!(record.assignee, None);
     assert_eq!(record.status, nullradix_domain::TicketStatus::Planned);
+}
+
+impl Fixture {
+    /// The runner reports the run of the ticket as ended cleanly.
+    async fn finish_run(&self, key: &str) -> Id<Run> {
+        let filter = RunFilter {
+            subject_key: Some(key.to_owned()),
+            ..RunFilter::default()
+        };
+        let runs = nullradix_app::runs::RunRepository::find(self.store.as_ref(), &filter, 1);
+        let run = runs.await.unwrap().remove(0);
+        let end = RunEnd {
+            exit_code: Some(0),
+            error: None,
+        };
+        let now = Timestamp::from_millis(START + 1);
+        let next = run.finished(RunOutcome::Succeeded, end, now).unwrap();
+        nullradix_app::runs::RunRepository::update(self.store.as_ref(), &next, run.version())
+            .await
+            .unwrap();
+        run.id()
+    }
+
+    async fn run_of(&self, run: Id<Run>) -> Run {
+        nullradix_app::runs::RunRepository::get(self.store.as_ref(), run)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    async fn outcome(&self, run: Id<Run>) -> Option<DispatchOutcome> {
+        self.run_of(run).await.outcome()
+    }
+
+    /// What the agent does with its ticket before it ends.
+    async fn agent_changes(&self, key: &str, status: &str, reason: Option<&str>) {
+        let version = self.record(key).await.version;
+        let patch = TicketPatch {
+            status: Some(status.to_owned()),
+            blocked_reason: reason.map(|reason| Some(reason.to_owned())),
+            ..TicketPatch::default()
+        };
+        self.tickets
+            .update(key, &patch, &self.person, version, FORCE)
+            .await
+            .unwrap();
+    }
+
+    async fn start_tickets(&self, count: usize) -> Vec<String> {
+        self.configure(|config| config.wip = 3).await;
+        let mut keys = Vec::new();
+        for index in 0..count {
+            keys.push(self.ready(&format!("Ticket {index}"), &["auto"]).await);
+        }
+        let report = self.dispatcher.pass.run().await;
+        assert_eq!(report.started.len(), count, "{report:?}");
+        keys
+    }
+
+    async fn comment_count(&self, key: &str) -> usize {
+        self.comments.list(key).await.unwrap().len()
+    }
+
+    async fn markers(&self, key: &str, marker: SystemMarker) -> usize {
+        self.comments
+            .list(key)
+            .await
+            .unwrap()
+            .iter()
+            .filter(|line| line.comment.record().system_marker == Some(marker))
+            .count()
+    }
+
+    async fn ask_as_agent(&self, key: &str) {
+        let input = NewQuestion {
+            title: String::from("Which database?"),
+            tickets: vec![key.to_owned()],
+            ..NewQuestion::default()
+        };
+        let author = Author {
+            by_person: false,
+            name: Some("worker-ARC-0001"),
+            session: Some("s-1"),
+        };
+        self.questions
+            .create(self.board.project(), &input, author, &self.person)
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn finished_runs_are_settled_as_done_human_and_blocked() {
+    let f = fixture().await;
+    f.enable().await;
+    let keys = f.start_tickets(3).await;
+    f.agent_changes(&keys[0], "done", None).await;
+    f.agent_changes(&keys[1], "blocked", Some("Human Interaction: look at it"))
+        .await;
+    f.agent_changes(&keys[2], "blocked", Some("no access"))
+        .await;
+    let mut runs = Vec::new();
+    for key in &keys {
+        runs.push(f.finish_run(key).await);
+    }
+    let mut before = Vec::new();
+    for key in &keys {
+        before.push(f.comment_count(key).await);
+    }
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(runs[0]).await, Some(DispatchOutcome::Done));
+    assert_eq!(f.outcome(runs[1]).await, Some(DispatchOutcome::Human));
+    assert_eq!(f.outcome(runs[2]).await, Some(DispatchOutcome::Blocked));
+    // the tickets stay as the agent left them and no comment is added
+    assert_eq!(f.record(&keys[0]).await.status, TicketStatus::Done);
+    let blocked = f.record(&keys[1]).await;
+    assert_eq!(blocked.assignee.as_deref(), Some("worker-ARC-0002"));
+    let mut after = Vec::new();
+    for key in &keys {
+        after.push(f.comment_count(key).await);
+    }
+    assert_eq!(after, before);
+    // a second pass changes nothing
+    let mut settled = Vec::new();
+    for run in &runs {
+        settled.push(f.run_of(*run).await.version());
+    }
+    f.dispatcher.pass.run().await;
+    for (run, version) in runs.iter().zip(settled) {
+        assert_eq!(f.run_of(*run).await.version(), version);
+    }
+}
+
+#[tokio::test]
+async fn a_run_that_ended_with_a_question_gives_the_ticket_back_with_one_comment() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.ask_as_agent(&key).await;
+    let run = f.finish_run(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Question));
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Planned);
+    assert_eq!(record.assignee, None);
+    assert!(record.worktree.is_some(), "branch and worktree stay");
+    let comments = f.comments.list(&key).await.unwrap();
+    let question = comments
+        .iter()
+        .find(|line| line.comment.record().system_marker == Some(SystemMarker::Question))
+        .unwrap();
+    assert!(
+        question
+            .comment
+            .body()
+            .starts_with("[dispatch] question: waiting on ARC-Q0001")
+    );
+    assert_eq!(question.comment.record().run, Some(run));
+    assert_eq!(question.author_kind, ActorKind::Dispatcher);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.markers(&key, SystemMarker::Question).await, 1);
+}
+
+#[tokio::test]
+async fn a_pass_that_stopped_after_the_question_comment_does_not_post_it_again() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.ask_as_agent(&key).await;
+    let run = f.finish_run(&key).await;
+    // the earlier pass wrote the comment and stopped before the ticket moved
+    let actor = f.dispatcher.starter.actor().await.unwrap();
+    let ticket_key = nullradix_domain::TicketKey::parse(&key).unwrap();
+    f.comments
+        .add_system(
+            &ticket_key,
+            "[dispatch] question: waiting on ARC-Q0001 - earlier pass",
+            Some(SystemMarker::Question),
+            Some(run),
+            actor,
+        )
+        .await
+        .unwrap();
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.markers(&key, SystemMarker::Question).await, 1);
+    assert_eq!(f.record(&key).await.status, TicketStatus::Planned);
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Question));
+}
+
+#[tokio::test]
+async fn a_person_editing_the_ticket_while_it_is_given_back_postpones_the_outcome() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.ask_as_agent(&key).await;
+    let run = f.finish_run(&key).await;
+    // the second read is the one the release is based on
+    *f.hook.rename_on_get.lock().unwrap() = Some((key.clone(), 2));
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.outcome(run).await, None, "left for the next pass");
+    assert_eq!(f.record(&key).await.status, TicketStatus::InProgress);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Question));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Planned);
+    assert_eq!(f.markers(&key, SystemMarker::Question).await, 1);
+}
+
+#[tokio::test]
+async fn a_ticket_a_person_took_or_deleted_is_settled_as_taken_or_gone() {
+    let f = fixture().await;
+    f.enable().await;
+    let keys = f.start_tickets(2).await;
+    let version = f.record(&keys[0]).await.version;
+    let patch = TicketPatch {
+        status: Some(String::from("done")),
+        assignee: Some(Some(String::from("anna"))),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&keys[0], &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    let version = f.record(&keys[1]).await.version;
+    f.tickets
+        .delete(&keys[1], &f.person, Some(version))
+        .await
+        .unwrap();
+    let taken = f.finish_run(&keys[0]).await;
+    let gone = f.finish_run(&keys[1]).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(taken).await, Some(DispatchOutcome::Taken));
+    assert_eq!(f.outcome(gone).await, Some(DispatchOutcome::Gone));
+}
+
+#[tokio::test]
+async fn a_run_without_a_marker_outcome_stays_open_for_the_abort_slice() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    let run = f.finish_run(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, None);
+    assert_eq!(f.record(&key).await.status, TicketStatus::InProgress);
+    assert_eq!(f.markers(&key, SystemMarker::Abort).await, 0);
+}
+
+#[tokio::test]
+async fn autopilot_accepts_a_ticket_that_waits_for_a_person() {
+    let f = fixture().await;
+    f.enable().await;
+    f.configure(|config| config.autopilot.enabled = true).await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.agent_changes(&key, "blocked", Some("Human Interaction: check the layout"))
+        .await;
+    let run = f.finish_run(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Done));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    let accepted = "Autopilot: accepted automatically - Human Interaction: check the layout";
+    let posted = f
+        .comments
+        .list(&key)
+        .await
+        .unwrap()
+        .iter()
+        .filter(|line| line.comment.body() == accepted)
+        .count();
+    assert_eq!(posted, 1);
+    let marked = f
+        .comments
+        .list(&key)
+        .await
+        .unwrap()
+        .iter()
+        .filter(|line| {
+            let record = line.comment.record();
+            line.comment.body() == accepted
+                && record.system_marker.is_none()
+                && record.run == Some(run)
+        })
+        .count();
+    assert_eq!(marked, 1);
+    let comments = f.comment_count(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.comment_count(&key).await, comments);
+}
+
+#[tokio::test]
+async fn a_run_is_judged_by_the_agent_it_started_under() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.agent_changes(&key, "done", None).await;
+    let run = f.finish_run(&key).await;
+    assert_eq!(
+        f.run_of(run).await.dispatch().unwrap().agent.as_deref(),
+        Some("worker-ARC-0001")
+    );
+    f.configure(|config| config.agent_prefix = String::from("bot-"))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Done));
+}
+
+#[tokio::test]
+async fn failed_starts_do_not_crowd_finished_runs_out_of_the_batch() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.agent_changes(&key, "done", None).await;
+    let started = nullradix_app::runs::RunRepository::find(
+        f.store.as_ref(),
+        &RunFilter {
+            subject_key: Some(key.clone()),
+            ..RunFilter::default()
+        },
+        1,
+    )
+    .await
+    .unwrap()
+    .remove(0);
+    let mut dispatch = started.dispatch().unwrap().clone();
+    dispatch.subject_key = Some(String::from("ARC-9999"));
+    for index in 0..55 {
+        let label = nullradix_domain::RunLabel::parse("work").unwrap();
+        let id = Id::from_uuid(uuid::Uuid::from_u128(1_000 + index));
+        let run =
+            Run::new(id, label, Timestamp::from_millis(START - 10)).with_dispatch(dispatch.clone());
+        nullradix_app::runs::RunRepository::insert(f.store.as_ref(), &run)
+            .await
+            .unwrap();
+        let failed = run
+            .failed_to_start(String::from("no"), Timestamp::from_millis(START - 5))
+            .unwrap();
+        nullradix_app::runs::RunRepository::update(f.store.as_ref(), &failed, run.version())
+            .await
+            .unwrap();
+    }
+    let run = f.finish_run(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Done));
 }

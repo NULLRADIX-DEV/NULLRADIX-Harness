@@ -2,9 +2,9 @@ use async_trait::async_trait;
 use nullradix_app::runs::{self, RunArtifact, RunDetails, RunFilter, RunRepository};
 use nullradix_app::{AppError, Change, ChangeOp, Entity};
 use nullradix_domain::{
-    Abort, AbortCategory, DeniedTool, DispatchRun, Id, ModelUsage, Run, RunKind, RunLabel,
-    RunProfile, RunRecord, RunResult, RunStatus, RunTrigger, RunUsage, Screenshot, Timestamp,
-    Version,
+    Abort, AbortCategory, DeniedTool, DispatchOutcome, DispatchRun, Id, ModelUsage, Run, RunKind,
+    RunLabel, RunProfile, RunRecord, RunResult, RunStatus, RunTrigger, RunUsage, Screenshot,
+    Timestamp, Version,
 };
 use serde_json::{Map, Value, json};
 use sqlx::SqliteConnection;
@@ -35,6 +35,7 @@ struct Row {
     timeout_minutes: Option<i64>,
     account_id: Option<Uuid>,
     config_hash: Option<String>,
+    agent: Option<String>,
     cwd: Option<String>,
     command_args: Option<String>,
     prompt: Option<String>,
@@ -49,6 +50,7 @@ struct Row {
     cache_write_tokens: Option<i64>,
     model_usage: Option<String>,
     denied_count: Option<i64>,
+    outcome: Option<String>,
 }
 
 fn corrupt(what: &str) -> StoreError {
@@ -132,6 +134,7 @@ impl Row {
             },
             account: self.account_id,
             config_hash: self.config_hash.clone().unwrap_or_default(),
+            agent: self.agent.clone(),
             cwd: self.cwd.clone().unwrap_or_default(),
             args,
             prompt: self.prompt.clone().unwrap_or_default(),
@@ -185,16 +188,27 @@ impl Row {
             }),
             None => None,
         };
+        let outcome = self
+            .outcome
+            .as_deref()
+            .map(|outcome| {
+                outcome
+                    .parse::<DispatchOutcome>()
+                    .map_err(|_| corrupt("outcome"))
+            })
+            .transpose()?;
         let result = RunResult {
             session_id: self.claude_session_id.clone(),
             usage: self.usage()?,
             denied_count: small(self.denied_count, "denied count")?,
             abort,
+            outcome,
         };
         let empty = result.session_id.is_none()
             && result.usage.is_none()
             && result.denied_count.is_none()
-            && result.abort.is_none();
+            && result.abort.is_none()
+            && result.outcome.is_none();
         Ok((!empty).then_some(result))
     }
 
@@ -329,6 +343,7 @@ impl RunRepository for Store {
         let timeout_minutes = dispatch.map(|dispatch| i64::from(dispatch.profile.timeout_minutes));
         let account_id = dispatch.and_then(|dispatch| dispatch.account);
         let config_hash = dispatch.map(|dispatch| dispatch.config_hash.as_str());
+        let agent = dispatch.and_then(|dispatch| dispatch.agent.as_deref());
         let cwd = dispatch.map(|dispatch| dispatch.cwd.as_str());
         let command_args = dispatch
             .map(|dispatch| serde_json::to_string(&dispatch.args))
@@ -340,8 +355,8 @@ impl RunRepository for Store {
             "INSERT INTO runs (id, label, status, pid, exit_code, error, created_at, started_at,
                                finished_at, version, kind, triggered_by, subject_key, profile_id,
                                profile_name, model, effort, max_turns, timeout_minutes, account_id,
-                               config_hash, cwd, command_args, prompt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                               config_hash, cwd, command_args, prompt, agent)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             id,
             label,
             status,
@@ -366,6 +381,7 @@ impl RunRepository for Store {
             cwd,
             command_args,
             prompt,
+            agent,
         )
         .execute(&mut *tx)
         .await
@@ -398,6 +414,9 @@ impl RunRepository for Store {
         let abort_category = result
             .and_then(|result| result.abort.as_ref())
             .map(|abort| abort.category.as_str());
+        let outcome = result
+            .and_then(|result| result.outcome)
+            .map(DispatchOutcome::as_str);
         let abort_reason = result
             .and_then(|result| result.abort.as_ref())
             .map(|abort| abort.reason.as_str());
@@ -415,7 +434,7 @@ impl RunRepository for Store {
                              finished_at = ?, version = ?, claude_session_id = ?,
                              denied_count = ?, abort_category = ?, abort_reason = ?,
                              num_turns = ?, cost_usd = ?, input_tokens = ?, output_tokens = ?,
-                             cache_read_tokens = ?, cache_write_tokens = ?, model_usage = ?
+                             cache_read_tokens = ?, cache_write_tokens = ?, model_usage = ?, outcome = ?
              WHERE id = ? AND version = ?",
             status,
             pid,
@@ -435,6 +454,7 @@ impl RunRepository for Store {
             cache_read_tokens,
             cache_write_tokens,
             model_usage,
+            outcome,
             id,
             expected,
         )
@@ -462,7 +482,7 @@ impl RunRepository for Store {
                       timeout_minutes, account_id AS "account_id: Uuid", config_hash, cwd,
                       command_args, prompt, claude_session_id, abort_category, abort_reason,
                       num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,
-                      cache_write_tokens, model_usage, denied_count
+                      cache_write_tokens, model_usage, denied_count, outcome, agent
                FROM runs WHERE id = ?"#,
             uuid
         )
@@ -496,7 +516,7 @@ impl RunRepository for Store {
                       timeout_minutes, account_id AS "account_id: Uuid", config_hash, cwd,
                       command_args, prompt, claude_session_id, abort_category, abort_reason,
                       num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,
-                      cache_write_tokens, model_usage, denied_count
+                      cache_write_tokens, model_usage, denied_count, outcome, agent
                FROM runs WHERE (?1 IS NULL OR subject_key = ?1)
                   AND (?2 IS NULL OR kind = ?2)
                   AND (?3 IS NULL OR claude_session_id = ?3 OR id = ?4)
@@ -522,8 +542,31 @@ impl RunRepository for Store {
                       timeout_minutes, account_id AS "account_id: Uuid", config_hash, cwd,
                       command_args, prompt, claude_session_id, abort_category, abort_reason,
                       num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,
-                      cache_write_tokens, model_usage, denied_count
+                      cache_write_tokens, model_usage, denied_count, outcome, agent
                FROM runs WHERE status IN ('starting', 'running') ORDER BY created_at"#
+        )
+        .fetch_all(&self.reader)
+        .await
+        .map_err(database)?;
+        runs_of(rows)
+    }
+
+    async fn unevaluated(&self, limit: u32) -> Result<Vec<Run>, AppError> {
+        let rows = sqlx::query_as!(
+            Row,
+            r#"SELECT id AS "id: Uuid", label, status, pid, exit_code, error, created_at,
+                      started_at, finished_at, version, kind, triggered_by, subject_key,
+                      profile_id AS "profile_id: Uuid", profile_name, model, effort, max_turns,
+                      timeout_minutes, account_id AS "account_id: Uuid", config_hash, cwd,
+                      command_args, prompt, claude_session_id, abort_category, abort_reason,
+                      num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,
+                      cache_write_tokens, model_usage, denied_count, outcome, agent
+               FROM runs
+               WHERE kind = 'work' AND subject_key IS NOT NULL AND outcome IS NULL
+                 AND status NOT IN ('starting', 'running')
+                 AND (abort_category IS NULL OR abort_category <> 'start-failed')
+               ORDER BY finished_at, id LIMIT ?"#,
+            limit,
         )
         .fetch_all(&self.reader)
         .await

@@ -1,7 +1,7 @@
 - No person accepts the result. Check what you can yourself (tests, build) and finish with "done"; there is no Human Interaction.
 - End with exactly one of three outcomes:
-  done - everything committed, evidence as a comment, then: nullradix ticket done {{ticketId}} --acceptance "<how to tell it is done>";
+  done - everything committed, evidence as a comment, then: nullradix ticket done {{ticketId}} --acceptance "<how to tell it is done>" --author {{agent}};
   question - you need a decision before it makes sense to go on:
     nullradix question add "<question>" --description "<description>" --ticket {{ticketId}} --author {{agent}}
     Write title and description by the writing rules below. Then end the run, do not wait - the dispatcher continues once it is decided;
-  blocked with reason - something is missing that is not a decision (access, environment): nullradix ticket set {{ticketId}} --status blocked --blocked-reason "<reason>".
+  blocked with reason - something is missing that is not a decision (access, environment): nullradix ticket set {{ticketId}} --status blocked --blocked-reason "<reason>" --author {{agent}}.

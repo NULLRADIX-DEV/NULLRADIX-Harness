@@ -121,6 +121,12 @@ pub struct FinishTicket {
     /// Lifts the dependency, question and not-needed locks, never the acceptance lock.
     #[serde(default)]
     pub force: bool,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -231,6 +237,14 @@ pub(crate) async fn finish_ticket(
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<FinishTicket>,
 ) -> Result<Json<FinishedTicket>, ApiError> {
+    let actor = crate::tickets::author_of(
+        &state,
+        &principal,
+        input.author.as_deref(),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let request = DoneRequest {
         acceptance: input.acceptance.as_deref(),
         expected: input.version.map(AppError::client_version).transpose()?,
@@ -243,7 +257,7 @@ pub(crate) async fn finish_ticket(
             Id::from_uuid(input.runner_id),
             &input.cwd,
             request,
-            &state.person,
+            &actor,
         )
         .await?;
     Ok(Json(finished.into()))
@@ -393,6 +407,31 @@ mod tests {
         assert_eq!(finished["cleanup"][0]["path"], worktree);
         assert_eq!(finished["cleanup"][0]["removed"], true, "{finished}");
         assert!(!Path::new(worktree).exists());
+    }
+
+    #[tokio::test]
+    async fn done_inside_a_session_is_written_by_the_named_agent() {
+        let api = test_api().await;
+        let (_dir, cwd, runner) = bound_repository(&api).await;
+        let body = json!({ "runnerId": runner, "cwd": cwd });
+        post(&api, "/api/v1/tickets/arc-1/start", &body).await;
+        let finish = json!({
+            "runnerId": runner, "cwd": cwd, "acceptance": "It works",
+            "author": "worker-ARC-0001", "session": "s-1"
+        });
+        let (status, finished) = post(&api, "/api/v1/tickets/arc-1/done", &finish).await;
+        assert_eq!(status, StatusCode::OK, "{finished}");
+        let request = bearer(Request::get("/api/v1/tickets/arc-1"), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (_, _, detail) = send(&api.router, request).await;
+        let done = detail["history"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|line| line["field"] == "status" && line["to"] == "done")
+            .unwrap();
+        assert_eq!(done["actorName"], "worker-ARC-0001");
     }
 
     #[tokio::test]

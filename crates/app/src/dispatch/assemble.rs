@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use super::candidates::Candidates;
 use super::control::{ControlParts, DispatcherService};
+use super::evaluate::EvaluateRuns;
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, DispatcherLogRepository};
 use super::pass::{DispatchPass, PassPhase};
@@ -97,7 +98,17 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         state.clone(),
         deps.clock.clone(),
         deps.local_time.clone(),
-        log,
+        log.clone(),
+    );
+    pass.set_step(
+        PassPhase::Evaluate,
+        Arc::new(EvaluateRuns::new(
+            deps.tickets.clone(),
+            deps.comments.clone(),
+            deps.runs.clone(),
+            starter.clone(),
+            log.clone(),
+        )),
     );
     pass.set_step(
         PassPhase::ReleaseStale,

@@ -311,6 +311,7 @@ fn request(subject: &str) -> StartDispatchRun {
         profile: None,
         account: None,
         extra_tools: Vec::new(),
+        agent: None,
     }
 }
 
