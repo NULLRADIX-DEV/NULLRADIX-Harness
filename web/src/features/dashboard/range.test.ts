@@ -3,8 +3,10 @@ import { filterParams, parseFilter, startOf, statsParams, withEdge } from './ran
 
 const TODAY = new Date(2026, 10, 26, 15, 30);
 
-function parse(query: string) {
-  return parseFilter(new URLSearchParams(query));
+const BOARD = '0190a0b0-0000-7000-8000-0000000000b1';
+
+function parse(query: string, boardIds?: readonly string[]) {
+  return parseFilter(new URLSearchParams(query), TODAY, boardIds);
 }
 
 describe('parseFilter', () => {
@@ -13,8 +15,8 @@ describe('parseFilter', () => {
   });
 
   it('reads board, kind and a preset period', () => {
-    expect(parse('board=b1&kind=merge&period=7')).toEqual({
-      boardId: 'b1',
+    expect(parse(`board=${BOARD}&kind=merge&period=7`)).toEqual({
+      boardId: BOARD,
       kind: 'merge',
       period: '7',
     });
@@ -43,10 +45,39 @@ describe('parseFilter', () => {
   });
 });
 
+describe('parseFilter limits', () => {
+  it('keeps only board ids shaped like a UUID', () => {
+    expect(parse('board=b1').boardId).toBeNull();
+    expect(parse(`board=${BOARD}`).boardId).toBe(BOARD);
+  });
+
+  it('drops a board the loaded boards do not hold', () => {
+    expect(parse(`board=${BOARD}`, []).boardId).toBeNull();
+    expect(parse(`board=${BOARD}`, [BOARD]).boardId).toBe(BOARD);
+  });
+
+  it('clamps a custom range to today and to a year', () => {
+    expect(parse('period=custom&from=2026-11-01&to=2027-05-01')).toMatchObject({
+      from: '2026-11-01',
+      to: '2026-11-26',
+    });
+    expect(parse('period=custom&from=2020-01-01&to=2026-11-10')).toMatchObject({
+      from: '2025-11-10',
+      to: '2026-11-10',
+    });
+    expect(parse('period=custom&from=2027-01-01&to=2027-02-01')).toMatchObject({
+      from: '2026-11-26',
+      to: '2026-11-26',
+    });
+  });
+});
+
 describe('filterParams', () => {
   it('leaves the defaults out and round-trips the rest', () => {
     expect(filterParams(parse('')).toString()).toBe('');
-    const filter = parse('board=b1&kind=research&period=custom&from=2026-11-01&to=2026-11-10');
+    const filter = parse(
+      `board=${BOARD}&kind=research&period=custom&from=2026-11-01&to=2026-11-10`,
+    );
     expect(parse(filterParams(filter).toString())).toEqual(filter);
   });
 });
@@ -59,8 +90,12 @@ describe('statsParams', () => {
       boardId: null,
       kind: 'work',
       from: '2026-10-02',
-      to: '2026-11-26',
     });
+  });
+
+  it('leaves `to` out for the presets so the daemon uses its own today', () => {
+    expect(statsParams(parse(''), TODAY)).not.toHaveProperty('to');
+    expect(statsParams(parse('period=config'), TODAY)).not.toHaveProperty('to');
   });
 
   it('asks since the config change with `config`', () => {
@@ -68,31 +103,51 @@ describe('statsParams', () => {
       boardId: null,
       kind: 'merge',
       from: 'config',
-      to: '2026-11-26',
     });
   });
 
   it('sends a custom range as it is', () => {
     expect(
-      statsParams(parse('board=b1&period=custom&from=2026-01-01&to=2026-02-01'), TODAY),
-    ).toEqual({ boardId: 'b1', kind: 'work', from: '2026-01-01', to: '2026-02-01' });
+      statsParams(parse(`board=${BOARD}&period=custom&from=2026-01-01&to=2026-02-01`), TODAY),
+    ).toEqual({ boardId: BOARD, kind: 'work', from: '2026-01-01', to: '2026-02-01' });
   });
 });
 
 describe('withEdge', () => {
   const range = { from: '2026-11-01', to: '2026-11-10' };
+  const TO = '2026-11-26';
 
   it('moves one edge', () => {
-    expect(withEdge(range, 'from', '2026-11-05')).toEqual({ from: '2026-11-05', to: '2026-11-10' });
-    expect(withEdge(range, 'to', '2026-11-20')).toEqual({ from: '2026-11-01', to: '2026-11-20' });
+    expect(withEdge(range, 'from', '2026-11-05', TO)).toEqual({
+      from: '2026-11-05',
+      to: '2026-11-10',
+    });
+    expect(withEdge(range, 'to', '2026-11-20', TO)).toEqual({
+      from: '2026-11-01',
+      to: '2026-11-20',
+    });
   });
 
   it('pulls the other edge along when they would cross', () => {
-    expect(withEdge(range, 'from', '2026-11-15')).toEqual({ from: '2026-11-15', to: '2026-11-15' });
-    expect(withEdge(range, 'to', '2026-10-15')).toEqual({ from: '2026-10-15', to: '2026-10-15' });
+    expect(withEdge(range, 'from', '2026-11-15', TO)).toEqual({
+      from: '2026-11-15',
+      to: '2026-11-15',
+    });
+    expect(withEdge(range, 'to', '2026-10-15', TO)).toEqual({
+      from: '2026-10-15',
+      to: '2026-10-15',
+    });
+  });
+
+  it('keeps the range within today and a year', () => {
+    expect(withEdge(range, 'to', '2027-01-01', TO)).toEqual({ from: '2026-11-01', to: TO });
+    expect(withEdge(range, 'from', '2020-01-01', TO)).toEqual({
+      from: '2025-11-10',
+      to: '2026-11-10',
+    });
   });
 
   it('ignores a cleared field', () => {
-    expect(withEdge(range, 'from', '')).toBe(range);
+    expect(withEdge(range, 'from', '', TO)).toBe(range);
   });
 });

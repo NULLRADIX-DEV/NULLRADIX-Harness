@@ -19,6 +19,9 @@ export const PERIODS: readonly { value: Period; label: string }[] = [
 
 export const DEFAULT_PERIOD: Period = '56';
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// A custom range spans at most this many days before its last day.
+export const MAX_SPAN_DAYS = 365;
 
 // The filter the address holds; from and to only with the custom period.
 export interface DashboardFilter {
@@ -29,19 +32,37 @@ export interface DashboardFilter {
   to?: string;
 }
 
-// Unknown values fall back to the defaults; a custom range without two valid days to 56 days.
-export function parseFilter(search: URLSearchParams): DashboardFilter {
+// A range with `to` no later than today and `from` at most a year before `to`.
+export function clampRange(
+  range: { from: string; to: string },
+  today: string,
+): { from: string; to: string } {
+  const to = range.to < today ? range.to : today;
+  const earliest = addDays(to, -MAX_SPAN_DAYS);
+  const from = range.from > to ? to : range.from < earliest ? earliest : range.from;
+  return { from, to };
+}
+
+// Unknown values, and boards not among the known ones, fall back to the defaults.
+export function parseFilter(
+  search: URLSearchParams,
+  today: Date,
+  boardIds?: readonly string[],
+): DashboardFilter {
   const kind = search.get('kind');
   const period = search.get('period');
   const from = search.get('from') ?? '';
   const to = search.get('to') ?? '';
+  const board = search.get('board') ?? '';
   const custom = period === 'custom' && DAY.test(from) && DAY.test(to);
   const preset = PERIODS.find((p) => p.value === period && p.value !== 'custom')?.value;
+  const ordered = from <= to ? { from, to } : { from: to, to: from };
+  const known = UUID.test(board) && (boardIds === undefined || boardIds.includes(board));
   return {
-    boardId: search.get('board') === '' ? null : search.get('board'),
+    boardId: known ? board : null,
     kind: KINDS.find((k) => k.value === kind)?.value ?? 'work',
     period: custom ? 'custom' : (preset ?? DEFAULT_PERIOD),
-    ...(custom ? (from <= to ? { from, to } : { from: to, to: from }) : {}),
+    ...(custom ? clampRange(ordered, isoDay(today)) : {}),
   };
 }
 
@@ -62,7 +83,8 @@ export interface StatsParams {
   boardId: string | null;
   kind: StatsKind;
   from: string;
-  to: string;
+  // left out, the daemon counts up to its own today
+  to?: string;
 }
 
 // The first day of the last n days up to and including today.
@@ -75,18 +97,18 @@ export function statsParams(filter: DashboardFilter, today: Date): StatsParams {
   if (filter.period === 'custom' && filter.from && filter.to) {
     return { ...base, from: filter.from, to: filter.to };
   }
-  const to = isoDay(today);
-  if (filter.period === 'config') return { ...base, from: 'config', to };
-  return { ...base, from: startOf(today, Number(filter.period)), to };
+  if (filter.period === 'config') return { ...base, from: 'config' };
+  return { ...base, from: startOf(today, Number(filter.period)) };
 }
 
-// Moving one edge past the other pulls the other edge along.
+// Moving one edge past the other pulls the other edge along; the range stays within the clamp.
 export function withEdge(
   range: { from: string; to: string },
   edge: 'from' | 'to',
   day: string,
+  today: string,
 ): { from: string; to: string } {
   if (!DAY.test(day)) return range;
   const next = { ...range, [edge]: day };
-  return next.from <= next.to ? next : { from: day, to: day };
+  return clampRange(next.from <= next.to ? next : { from: day, to: day }, today);
 }

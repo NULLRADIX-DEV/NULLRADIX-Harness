@@ -5,6 +5,7 @@ import { boardServer } from '../../test/boardServer';
 import { configView, statusDto } from '../../test/dispatcherFixture';
 import { FakeEventSource } from '../../test/eventSource';
 import { json, problem } from '../../test/fakeApi';
+import { isoDay } from './format';
 import { renderApp } from '../../test/renderApp';
 import type { InboxItem } from '../inbox/queries';
 import type { DispatchStats } from './queries';
@@ -121,6 +122,25 @@ const QUESTION: InboxItem = {
   rank: 3,
 };
 
+const ACCEPT: InboxItem = {
+  ...BLOCKED,
+  key: 'ARC-0002',
+  kind: 'accept',
+  title: 'Login page',
+  detail: null,
+  rank: 4,
+};
+
+const NOTE: InboxItem = {
+  ...BLOCKED,
+  type: 'note',
+  key: '1',
+  kind: 'note',
+  title: 'Login page is slow',
+  detail: null,
+  rank: 7,
+};
+
 function server(
   options: {
     stats?: (query: URLSearchParams) => Response;
@@ -224,6 +244,84 @@ describe('DashboardPage', () => {
     expect(query.get('kind')).toBe('work');
     expect(query.get('from')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(query.has('boardId')).toBe(false);
+    // a preset leaves the end to the daemon
+    expect(query.has('to')).toBe(false);
+  });
+
+  it('keeps the to-dos and the readiness when the statistics fail', async () => {
+    server({ stats: () => problem(422, 'stats-range-too-busy', 'the range is too busy') });
+    renderApp('/dashboard');
+    expect(await screen.findByText('the range is too busy')).toBeInTheDocument();
+    const blocked = await screen.findByRole('list', { name: 'Blocked' });
+    expect(within(blocked).getByRole('link', { name: 'Merge worktrees' })).toBeInTheDocument();
+    const obstacles = screen.getByRole('region', { name: 'Obstacles' });
+    expect(await within(obstacles).findByText('label "manual"')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Runs per week' })).not.toBeInTheDocument();
+  });
+
+  it('accepts a ticket and makes a ticket from a note', async () => {
+    const api = server({ items: [ACCEPT, NOTE] });
+    api.set('POST /api/v1/tickets/ARC-0002/accept', () => json(200, {}));
+    api.set('POST /api/v1/notes/1/promote', () => json(200, {}));
+    renderApp('/dashboard');
+    await userEvent.click(await screen.findByRole('button', { name: 'Accept ARC-0002' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Make ticket N-1' }));
+    await waitFor(() => {
+      expect(api.requests('POST /api/v1/tickets/ARC-0002/accept')).toHaveLength(1);
+      expect(api.requests('POST /api/v1/notes/1/promote')).toHaveLength(1);
+    });
+  });
+
+  it('shows the daemon text in the row when an action is refused', async () => {
+    const api = server({ items: [ACCEPT] });
+    api.set('POST /api/v1/tickets/ARC-0002/accept', () =>
+      problem(409, 'ticket-not-acceptable', 'the ticket is not waiting for acceptance'),
+    );
+    renderApp('/dashboard');
+    await userEvent.click(await screen.findByRole('button', { name: 'Accept ARC-0002' }));
+    const row = (await screen.findByText('the ticket is not waiting for acceptance')).closest('li');
+    expect(row).toHaveTextContent('Login page');
+  });
+
+  it('drops a board that is not among the boards', async () => {
+    const api = server();
+    renderApp('/dashboard?board=0190a0b0-0000-7000-8000-00000000dead');
+    const board = screen.getByRole('combobox', { name: 'Board' });
+    await within(board).findByRole('option', { name: /ARC \// });
+    await waitFor(() => {
+      expect(lastQuery(api).has('boardId')).toBe(false);
+    });
+    expect(board).toHaveValue('');
+  });
+
+  it('keeps a custom range within today and a year', async () => {
+    const api = server();
+    renderApp('/dashboard?period=custom&from=2020-01-01&to=2999-01-01');
+    const to = await screen.findByLabelText('To');
+    const today = isoDay(new Date());
+    expect(to).toHaveValue(today);
+    expect(to).toHaveAttribute('max', today);
+    const from = screen.getByLabelText('From');
+    expect(from).toHaveAttribute('max', today);
+    expect(from).toHaveAttribute('min');
+    expect(from).not.toHaveValue('2020-01-01');
+    await waitFor(() => {
+      expect(lastQuery(api).get('to')).toBe(today);
+    });
+  });
+
+  it('keeps an explanation as text for screen readers', async () => {
+    server();
+    renderApp('/dashboard');
+    await screen.findByRole('heading', { name: 'Runs per week' });
+    const tile = screen
+      .getAllByRole('region', { name: 'Runs' })
+      .find((region) => region.classList.contains('kpi'));
+    if (!tile) throw new Error('no tile');
+    expect(within(tile).getByText('8 tickets in the range')).toHaveClass('visually-hidden');
+    // a closed group still tells about its urgent entries
+    await userEvent.click(await screen.findByRole('button', { name: /Blocked/ }));
+    expect(screen.getByText('1 waiting for over 24 hours', { selector: '.visually-hidden' }));
   });
 
   it('lists what waits for the person with actions', async () => {
@@ -282,7 +380,7 @@ describe('DashboardPage', () => {
     const first = lastQuery(api);
     expect(first.get('kind')).toBe('merge');
     const days =
-      (Date.parse(`${first.get('to') ?? ''}T00:00:00Z`) -
+      (Date.parse(`${isoDay(new Date())}T00:00:00Z`) -
         Date.parse(`${first.get('from') ?? ''}T00:00:00Z`)) /
       86_400_000;
     expect(days).toBe(6);
@@ -362,5 +460,27 @@ describe('DashboardPage', () => {
     await waitFor(() => {
       expect(api.requests(`GET ${STATS}`).length).toBeGreaterThan(before);
     });
+  });
+
+  it('does not refetch the statistics when a ticket changes', async () => {
+    const api = server();
+    renderApp('/dashboard');
+    await screen.findByRole('heading', { name: 'Runs per week' });
+    await waitFor(() => {
+      expect(FakeEventSource.instances).not.toHaveLength(0);
+    });
+    const stats = api.requests(`GET ${STATS}`).length;
+    const status = api.requests('GET /api/v1/dispatcher').length;
+    act(() => {
+      FakeEventSource.latest().emit(
+        'change',
+        { seq: 1, entity: 'ticket', entityId: 'x', op: 'update', at: 2 },
+        '1',
+      );
+    });
+    await waitFor(() => {
+      expect(api.requests('GET /api/v1/dispatcher').length).toBeGreaterThan(status);
+    });
+    expect(api.requests(`GET ${STATS}`)).toHaveLength(stats);
   });
 });

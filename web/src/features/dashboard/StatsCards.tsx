@@ -23,6 +23,7 @@ export function KpiTile({
     <section className="kpi" aria-label={label} title={sub}>
       <h3 className="kpi-label">{label}</h3>
       <p className={`kpi-value mono tone-${tone}`}>{value}</p>
+      {sub && <span className="visually-hidden">{sub}</span>}
     </section>
   );
 }
@@ -229,7 +230,10 @@ interface Obstacle {
 }
 
 // What slows the dispatcher: readiness from the live state, pauses and lost runs from stats.
-export function obstacles(status: DispatcherStatus | undefined, stats: DispatchStats): Obstacle[] {
+export function obstacles(
+  status: DispatcherStatus | undefined,
+  stats: DispatchStats | undefined,
+): Obstacle[] {
   const tickets = status?.tickets ?? null;
   const waiting = tickets?.filter((ticket) => WAITING.test(ticket.reason)) ?? [];
   const blockers = [...new Set(waiting.flatMap((ticket) => ticket.reason.match(KEY) ?? []))];
@@ -249,8 +253,12 @@ export function obstacles(status: DispatcherStatus | undefined, stats: DispatchS
       label: 'Left out by a label',
       sub: labels.length > 0 ? labels.join(' / ') : 'Opt-in missing or opt-out set',
     },
-    { count: stats.usagePauses, label: 'Usage limit pauses', sub: 'in the range' },
-    { count: stats.staleRuns, label: 'Stale runs', sub: 'lost by the worker, in the range' },
+    { count: stats?.usagePauses ?? null, label: 'Usage limit pauses', sub: 'in the range' },
+    {
+      count: stats?.staleRuns ?? null,
+      label: 'Stale runs',
+      sub: 'lost by the worker, in the range',
+    },
   ];
 }
 
@@ -259,7 +267,7 @@ export function ObstaclesCard({
   stats,
 }: {
   status: DispatcherStatus | undefined;
-  stats: DispatchStats;
+  stats: DispatchStats | undefined;
 }) {
   return (
     <section className="dash-card obstacles" aria-labelledby="dash-obstacles">

@@ -26,7 +26,7 @@ export const dispatcherLive: ChangeRegistry = {
   account: [dispatcherKeys.all],
   'dispatcher-state': [dispatcherKeys.status(), dispatcherKeys.stats()],
   run: [dispatcherKeys.status(), dispatcherKeys.stats()],
-  ticket: [dispatcherKeys.status(), dispatcherKeys.stats()],
+  ticket: [dispatcherKeys.status()],
 };
 
 export function dispatcherConfigQuery() {

@@ -6,9 +6,14 @@ export function formatPercent(rate: number | null | undefined): string {
   return rate === null || rate === undefined ? NONE : `${String(Math.round(rate * 100))} %`;
 }
 
+// -0 as 0, so it never shows a minus sign.
+function noNegativeZero(n: number): number {
+  return n === 0 ? 0 : n;
+}
+
 // One decimal place, none when it would be zero.
 export function decimal(n: number): string {
-  return n.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  return noNegativeZero(n).toLocaleString('en-US', { maximumFractionDigits: 1 });
 }
 
 // "45 min", "3.5 h", "2.1 days"
@@ -25,7 +30,7 @@ export function formatDuration(ms: number | null | undefined): string {
 export function formatCost(usd: number | null | undefined): string {
   if (usd === null || usd === undefined) return NONE;
   const digits = usd !== 0 && Math.abs(usd) < 0.01 ? 3 : 2;
-  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  return `$${noNegativeZero(usd).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
 // "950", "12.3k", "4.1M"

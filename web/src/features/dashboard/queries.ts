@@ -20,7 +20,7 @@ export function statsQuery(params: StatsParams) {
           params: {
             query: {
               from: params.from,
-              to: params.to,
+              ...(params.to === undefined ? {} : { to: params.to }),
               kind: params.kind,
               ...(params.boardId === null ? {} : { boardId: params.boardId }),
             },

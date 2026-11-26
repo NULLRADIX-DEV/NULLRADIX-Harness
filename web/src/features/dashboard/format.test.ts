@@ -35,6 +35,7 @@ describe('formatPercent', () => {
 describe('other figures', () => {
   it('shortens durations', () => {
     expect(formatDuration(null)).toBe(NONE);
+    expect(formatDuration(-0)).toBe('0 min');
     expect(formatDuration(45 * 60_000)).toBe('45 min');
     expect(formatDuration(3.5 * 3_600_000)).toBe('3.5 h');
     expect(formatDuration(50 * 3_600_000)).toBe('2.1 days');
@@ -43,6 +44,7 @@ describe('other figures', () => {
   it('writes costs with two decimals, three below a cent', () => {
     expect(formatCost(null)).toBe(NONE);
     expect(formatCost(0)).toBe('$0.00');
+    expect(formatCost(-0)).toBe('$0.00');
     expect(formatCost(12.345)).toBe('$12.35');
     expect(formatCost(0.004)).toBe('$0.004');
     expect(formatCost(1234.5)).toBe('$1,234.50');
@@ -53,6 +55,7 @@ describe('other figures', () => {
     expect(formatCount(12_300)).toBe('12.3k');
     expect(formatCount(4_100_000)).toBe('4.1M');
     expect(formatCount(null)).toBe(NONE);
+    expect(formatCount(-0)).toBe('0');
   });
 
   it('picks the singular or plural', () => {

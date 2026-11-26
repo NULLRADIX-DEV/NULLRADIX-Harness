@@ -6,10 +6,11 @@ import { boardsQuery } from '../boards/queries';
 import { dispatcherConfigQuery } from '../dispatcher/queries';
 import { DispatcherIndicator } from '../dispatcher/DispatcherIndicator';
 import { RunsSection } from '../runs/RunsSection';
-import { formatDay, isoDay } from './format';
+import { addDays, formatDay, isoDay } from './format';
 import { boardStatusQuery, statsQuery, type DispatchStats } from './queries';
 import {
   KINDS,
+  MAX_SPAN_DAYS,
   PERIODS,
   filterParams,
   parseFilter,
@@ -62,49 +63,53 @@ function Content({
   ladder,
   now,
 }: {
-  stats: DispatchStats;
+  stats: DispatchStats | undefined;
   boardId: string | null;
   ladder: readonly string[];
   now: number;
 }) {
   const status = useQuery(boardStatusQuery(boardId));
-  const noun = stats.series.unit === 'day' ? 'day' : 'week';
+  const noun = stats?.series.unit === 'day' ? 'day' : 'week';
   return (
     <>
-      {stats.kpis.runs === 0 && (
+      {stats?.kpis.runs === 0 && (
         <p className="dashboard-note" role="note">
           {`No ${stats.filter.kind} runs between ${formatDay(stats.filter.from, true)} and ${formatDay(stats.filter.to, true)}.`}
         </p>
       )}
-      <KpiGrid stats={stats} />
+      {stats && <KpiGrid stats={stats} />}
       <div className="dash-main">
         <div className="dash-left">
-          <section className="dash-card" aria-labelledby="dash-series">
-            <div className="dash-card-head">
-              <h2 id="dash-series">{`Runs per ${noun}`}</h2>
-              <div className="chart-legend">
-                <span>
-                  <i className="dot done" aria-hidden="true" />
-                  done
-                </span>
-                <span>
-                  <i className="dot fail" aria-hidden="true" />
-                  aborted
-                </span>
-                <span>
-                  <i className="dot other" aria-hidden="true" />
-                  question / blocked
-                </span>
+          {stats && (
+            <>
+              <section className="dash-card" aria-labelledby="dash-series">
+                <div className="dash-card-head">
+                  <h2 id="dash-series">{`Runs per ${noun}`}</h2>
+                  <div className="chart-legend">
+                    <span>
+                      <i className="dot done" aria-hidden="true" />
+                      done
+                    </span>
+                    <span>
+                      <i className="dot fail" aria-hidden="true" />
+                      aborted
+                    </span>
+                    <span>
+                      <i className="dot other" aria-hidden="true" />
+                      question / blocked
+                    </span>
+                  </div>
+                </div>
+                <RunsChart series={stats.series} />
+              </section>
+              <div className="dash-pair">
+                <LadderCard stats={stats} ladder={stats.filter.kind === 'work' ? ladder : []} />
+                <AbortReasonsCard stats={stats} />
               </div>
-            </div>
-            <RunsChart series={stats.series} />
-          </section>
-          <div className="dash-pair">
-            <LadderCard stats={stats} ladder={stats.filter.kind === 'work' ? ladder : []} />
-            <AbortReasonsCard stats={stats} />
-          </div>
+            </>
+          )}
           <ObstaclesCard status={status.data} stats={stats} />
-          <UsageCard stats={stats} />
+          {stats && <UsageCard stats={stats} />}
         </div>
         <TodoColumn boardId={boardId} now={now} />
       </div>
@@ -116,9 +121,13 @@ function Content({
 export function DashboardPage({ today }: { today?: Date }) {
   const day = today ?? new Date();
   const [search, setSearch] = useSearchParams();
-  const filter = parseFilter(search);
-  const params = statsParams(filter, day);
   const boards = useQuery(boardsQuery());
+  const filter = parseFilter(
+    search,
+    day,
+    boards.data?.map((board) => board.id),
+  );
+  const params = statsParams(filter, day);
   const config = useQuery(dispatcherConfigQuery());
   // the last answer stays while the next range loads, so "since config change" keeps its date
   const stats = useQuery({ ...statsQuery(params), placeholderData: keepPreviousData });
@@ -143,7 +152,7 @@ export function DashboardPage({ today }: { today?: Date }) {
 
   function setEdge(edge: 'from' | 'to', value: string) {
     if (filter.from === undefined || filter.to === undefined) return;
-    change(withEdge({ from: filter.from, to: filter.to }, edge, value));
+    change(withEdge({ from: filter.from, to: filter.to }, edge, value, isoDay(day)));
   }
 
   const error = stats.error
@@ -212,7 +221,8 @@ export function DashboardPage({ today }: { today?: Date }) {
               type="date"
               aria-label="From"
               value={filter.from}
-              max={isoDay(day)}
+              min={addDays(filter.to, -MAX_SPAN_DAYS)}
+              max={filter.to}
               onChange={(event) => {
                 setEdge('from', event.target.value);
               }}
@@ -233,19 +243,17 @@ export function DashboardPage({ today }: { today?: Date }) {
       </header>
       {stats.status === 'pending' && <p className="muted">Loading the statistics...</p>}
       {error !== null && <FormError message={error} />}
-      {loaded && (
-        <div
-          aria-busy={stats.isPlaceholderData}
-          className={`dash-body${stats.isPlaceholderData ? ' dash-stale' : ''}`}
-        >
-          <Content
-            stats={loaded}
-            boardId={filter.boardId}
-            ladder={config.data?.config.ladder ?? []}
-            now={day.getTime()}
-          />
-        </div>
-      )}
+      <div
+        aria-busy={stats.isPlaceholderData}
+        className={`dash-body${stats.isPlaceholderData ? ' dash-stale' : ''}`}
+      >
+        <Content
+          stats={loaded}
+          boardId={filter.boardId}
+          ladder={config.data?.config.ladder ?? []}
+          now={day.getTime()}
+        />
+      </div>
       <RunsSection />
     </div>
   );

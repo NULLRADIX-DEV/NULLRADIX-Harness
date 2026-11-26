@@ -122,12 +122,16 @@ export function TodoColumn({ boardId, now }: { boardId: string | null; now: numb
                   }}
                 >
                   {!open && urgent > 0 && (
-                    <span
-                      className="todo-urgent"
-                      title={`${String(urgent)} waiting for over 24 hours`}
-                    >
-                      !
-                    </span>
+                    <>
+                      <span
+                        className="todo-urgent"
+                        aria-hidden="true"
+                        title={`${String(urgent)} waiting for over 24 hours`}
+                      >
+                        !
+                      </span>
+                      <span className="visually-hidden">{`${String(urgent)} waiting for over 24 hours`}</span>
+                    </>
                   )}
                   <span className="todo-label">{group.label}</span>
                   <span className="mono todo-count">{rows.length}</span>
