@@ -8,8 +8,8 @@ use nullradix_os::Paths;
 use crate::config::Profile;
 use crate::token;
 
-const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
-const TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Client for the running daemon of `profile`, authenticated with the local token.
 pub(crate) fn connect(profile: Profile, home: Option<&Path>) -> anyhow::Result<Client> {

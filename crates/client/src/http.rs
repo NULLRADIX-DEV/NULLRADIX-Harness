@@ -53,6 +53,27 @@ pub enum ClientError {
 /// Longer than the daemon's own limit for downloading from a catalog.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(150);
 
+/// Tries of one GET when the connection is refused, reset or times out while connecting.
+const GET_ATTEMPTS: u32 = 4;
+const GET_PAUSE: Duration = Duration::from_millis(100);
+
+/// Whether the request never reached the daemon or was dropped before an answer.
+fn is_transient(error: &ureq::Error) -> bool {
+    use std::io::ErrorKind;
+    match error {
+        ureq::Error::ConnectionFailed | ureq::Error::Timeout(ureq::Timeout::Connect) => true,
+        ureq::Error::Io(io) => matches!(
+            io.kind(),
+            ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionRefused
+                | ErrorKind::ConnectionAborted
+                | ErrorKind::BrokenPipe
+                | ErrorKind::UnexpectedEof
+        ),
+        _ => false,
+    }
+}
+
 /// Blocking HTTP client for short-lived callers such as the CLI and hooks.
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -90,11 +111,7 @@ impl Client {
     }
 
     pub fn health(&self) -> Result<Health, ClientError> {
-        let mut response = self
-            .agent
-            .get(&self.url("/health"))
-            .call()
-            .map_err(|source| self.unreachable(source))?;
+        let mut response = self.get_retrying(&self.url("/health"), None)?;
         decode(&mut response, 200)
     }
 
@@ -1351,13 +1368,28 @@ impl Client {
     }
 
     fn get_json<T: DeserializeOwned>(&self, route: &str) -> Result<T, ClientError> {
-        let mut response = self
-            .agent
-            .get(&self.url(route))
-            .header("Authorization", &self.authorization()?)
-            .call()
-            .map_err(|source| self.unreachable(source))?;
+        let bearer = self.authorization()?;
+        let mut response = self.get_retrying(&self.url(route), Some(&bearer))?;
         decode(&mut response, 200)
+    }
+
+    /// A GET changes nothing, so a refused or reset connection is tried again a few times.
+    fn get_retrying(&self, url: &str, bearer: Option<&str>) -> Result<Response<Body>, ClientError> {
+        let mut attempt = 1;
+        loop {
+            let mut request = self.agent.get(url);
+            if let Some(bearer) = bearer {
+                request = request.header("Authorization", bearer);
+            }
+            match request.call() {
+                Ok(response) => return Ok(response),
+                Err(source) if attempt < GET_ATTEMPTS && is_transient(&source) => {
+                    attempt += 1;
+                    std::thread::sleep(GET_PAUSE);
+                }
+                Err(source) => return Err(self.unreachable(source)),
+            }
+        }
     }
 
     fn authorization(&self) -> Result<String, ClientError> {
