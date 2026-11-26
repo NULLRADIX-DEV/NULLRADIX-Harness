@@ -11,6 +11,7 @@ use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::{CustomizationService, NoStandards};
+use nullradix_app::dispatch::accounts::AccountPauses;
 use nullradix_app::dispatch::assemble::{DispatcherDeps, assemble};
 use nullradix_app::dispatch::control::DispatcherService;
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
@@ -150,12 +151,14 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
-    let (dispatcher, dispatching) = start_dispatcher(
+    let (dispatcher, account_pauses, dispatching) = start_dispatcher(
         &store,
         &signal,
         &shutdown,
         DispatcherParts {
             config: dispatcher_config.clone(),
+            accounts: account_services.accounts.clone(),
+            usage: account_services.usage.clone(),
             runners: runners.clone(),
             runs: runs.clone(),
             dispatch: dispatch_runs.clone(),
@@ -170,6 +173,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         dispatcher_config,
         dispatcher_prompts,
         dispatcher: dispatcher.clone(),
+        account_pauses,
         usage: account_services.usage,
         logins: account_services.logins.clone(),
         boards: board.boards,
@@ -249,6 +253,8 @@ impl LocalTime for OsLocalTime {
 /// What the dispatcher needs from the other services.
 struct DispatcherParts<'a> {
     config: Arc<DispatcherConfigService>,
+    accounts: Arc<AccountService>,
+    usage: Arc<UsageService>,
     runners: Arc<RunnerService>,
     runs: Arc<RunService>,
     dispatch: Arc<DispatchRuns>,
@@ -289,11 +295,15 @@ fn start_dispatcher(
     signal: &ChangeSignal,
     shutdown: &CancellationToken,
     parts: DispatcherParts<'_>,
-) -> (Arc<DispatcherService>, Dispatching) {
+) -> (Arc<DispatcherService>, Arc<AccountPauses>, Dispatching) {
     let dispatcher = assemble(DispatcherDeps {
         config: parts.config,
         states: Arc::new(store.clone()),
         log: Arc::new(store.clone()),
+        accounts: parts.accounts,
+        limits: parts.usage,
+        pauses: Arc::new(store.clone()),
+        samples: Arc::new(store.clone()),
         setup: Arc::new(LocalSetup),
         actors: Arc::new(store.clone()),
         boards: Arc::new(store.clone()),
@@ -320,7 +330,7 @@ fn start_dispatcher(
         pass: dispatcher.pass,
         starter: dispatcher.starter,
     };
-    (dispatcher.service, dispatching)
+    (dispatcher.service, dispatcher.pauses, dispatching)
 }
 
 fn dispatcher_config_service(store: &Store, signal: &ChangeSignal) -> Arc<DispatcherConfigService> {

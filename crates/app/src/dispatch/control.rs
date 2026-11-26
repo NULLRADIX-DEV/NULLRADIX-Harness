@@ -3,9 +3,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nullradix_domain::{Board, DispatcherPhase, Id, Run, Timestamp, Version, idle_reason, phase};
+use nullradix_domain::{
+    Board, DispatcherConfig, DispatcherPhase, Id, Run, Timestamp, Version, choose_profile,
+    idle_reason, phase,
+};
 
-use super::candidates::Candidates;
+use super::accounts::{AccountPick, AccountPicker, AccountRequest, PickMode};
+use super::candidates::{Candidate, Candidates};
 use super::local_time::LocalTime;
 use super::pass::{DispatchPass, PassReport, counts_for_wip, idle_message};
 use super::start::TicketStarter;
@@ -61,6 +65,7 @@ pub struct DispatcherService {
     pass: Arc<DispatchPass>,
     candidates: Arc<Candidates>,
     starter: Arc<TicketStarter>,
+    accounts: Arc<AccountPicker>,
     runs: Arc<RunService>,
     boards: Arc<dyn BoardRepository>,
     clock: Arc<dyn Clock>,
@@ -82,6 +87,7 @@ pub struct ControlParts {
     pub pass: Arc<DispatchPass>,
     pub candidates: Arc<Candidates>,
     pub starter: Arc<TicketStarter>,
+    pub accounts: Arc<AccountPicker>,
     pub runs: Arc<RunService>,
     pub boards: Arc<dyn BoardRepository>,
     pub clock: Arc<dyn Clock>,
@@ -98,6 +104,7 @@ impl DispatcherService {
             pass: parts.pass,
             candidates: parts.candidates,
             starter: parts.starter,
+            accounts: parts.accounts,
             runs: parts.runs,
             boards: parts.boards,
             clock: parts.clock,
@@ -119,6 +126,27 @@ impl DispatcherService {
             return Err(boards::not_found(id));
         }
         Ok(())
+    }
+
+    /// Why no account is free for a ready ticket, in the words of the start; none when one is.
+    async fn waits_for_account(
+        &self,
+        config: &DispatcherConfig,
+        candidate: &Candidate,
+    ) -> Result<Option<String>, AppError> {
+        let record = candidate.ticket().record();
+        let choice = choose_profile(config, &record.labels, record.priority, &record.plan);
+        let request = AccountRequest::for_ticket(config, &choice, &record.labels);
+        Ok(
+            match self
+                .accounts
+                .pick(&request, config, PickMode::Preview)
+                .await?
+            {
+                AccountPick::Waiting { reason, .. } => Some(format!("waits - {reason}")),
+                AccountPick::Picked(_) => None,
+            },
+        )
     }
 
     pub async fn status(&self, board: Option<Id<Board>>) -> Result<DispatcherStatus, AppError> {
@@ -146,22 +174,21 @@ impl DispatcherService {
             .filter_map(Run::dispatch)
             .filter(|dispatch| dispatch.kind == RunKind::Plan)
             .count();
-        let message = match &idle {
-            Some(reason) => idle_message(reason),
-            None if active > 0 => format!("{active} ticket(s) in progress"),
-            None => String::from("Idle"),
-        };
         let mut free = config.wip - i64::try_from(active).unwrap_or(i64::MAX);
         let mut tickets = Vec::new();
         for candidate in self.candidates.scan(&config, board).await? {
             let record = candidate.ticket().record();
             let reason = match &candidate.not_ready {
                 Some(reason) => reason.to_string(),
-                None if free > 0 => {
-                    free -= 1;
-                    String::from("ready")
-                }
-                None => String::from("ready - waits for a free place"),
+                // with no account free the ticket waits without taking a place
+                None => match self.waits_for_account(&config, &candidate).await? {
+                    Some(waits) => waits,
+                    None if free > 0 => {
+                        free -= 1;
+                        String::from("ready")
+                    }
+                    None => String::from("ready - waits for a free place"),
+                },
             };
             tickets.push(TicketReadiness {
                 key: record.key.to_string(),
@@ -176,6 +203,15 @@ impl DispatcherService {
                 .as_deref()
                 .and_then(PassReport::from_json)
         });
+        let message = match &idle {
+            Some(reason) => idle_message(reason),
+            None if active > 0 => format!("{active} ticket(s) in progress"),
+            // the last pass started nothing because no account was free
+            None => last
+                .as_ref()
+                .and_then(|report| report.waiting.clone())
+                .unwrap_or_else(|| String::from("Idle")),
+        };
         let last_pass_at = last
             .as_ref()
             .map(|report| Timestamp::from_millis(report.at));
@@ -217,6 +253,7 @@ impl DispatcherService {
 
     pub async fn resume(&self) -> Result<DispatcherStatus, AppError> {
         self.state.resume().await?;
+        self.accounts.pauses().resume_all().await?;
         self.status(None).await
     }
 

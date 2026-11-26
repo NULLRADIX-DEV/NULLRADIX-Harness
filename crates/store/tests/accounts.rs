@@ -1,4 +1,8 @@
-#![allow(clippy::unwrap_used, reason = "integration tests fail loudly")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::assert_is_empty,
+    reason = "integration tests fail loudly"
+)]
 
 use std::sync::Arc;
 
@@ -901,4 +905,167 @@ async fn a_token_stored_without_a_row_reference_is_cleared_and_removed_too() {
         .await
         .unwrap();
     assert_eq!(f.secrets.keys(), Vec::<String>::new());
+}
+
+mod dispatch_accounts {
+    use nullradix_app::dispatch::accounts::{
+        AccountPause, AccountPauseRepository, NewSample, PauseReason, SamplePhase,
+        UsageSampleRepository,
+    };
+    use nullradix_domain::{Timestamp, UsageSnapshot};
+
+    use super::*;
+
+    const AT: i64 = 1_800_000_000_000;
+    const DAY: i64 = 24 * 60 * 60 * 1000;
+
+    fn pause(account: Id<Account>, until: i64, reason: PauseReason) -> AccountPause {
+        AccountPause {
+            account,
+            until: Timestamp::from_millis(until),
+            reason,
+            run: None,
+            created_at: Timestamp::from_millis(AT),
+        }
+    }
+
+    fn poll(account: Id<Account>, five: i64, at: i64) -> NewSample {
+        NewSample {
+            id: uuid::Uuid::now_v7(),
+            account,
+            run: None,
+            phase: SamplePhase::Poll,
+            usage: UsageSnapshot {
+                five_hour: Some(five),
+                seven_day: Some(1),
+                five_hour_resets_at: Some(Timestamp::from_millis(AT + DAY)),
+                seven_day_resets_at: None,
+            },
+            at: Timestamp::from_millis(at),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_pause_is_replaced_removed_and_reported_as_an_account_change() {
+        let f = fixture().await;
+        let max = f.add("Max").await;
+        let store = f.store.as_ref();
+        store
+            .put(&pause(max.id(), AT + 1000, PauseReason::UsageLimit))
+            .await
+            .unwrap();
+        store
+            .put(&pause(max.id(), AT + 5000, PauseReason::Manual))
+            .await
+            .unwrap();
+        let all = store.all().await.unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].until.as_millis(), AT + 5000);
+        assert_eq!(all[0].reason, PauseReason::Manual);
+        let removed = store
+            .remove(max.id(), Timestamp::from_millis(AT))
+            .await
+            .unwrap();
+        assert!(removed.is_some());
+        assert!(
+            store
+                .remove(max.id(), Timestamp::from_millis(AT))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let ops = f.ops().await;
+        assert_eq!(
+            ops.iter()
+                .filter(|op| **op == (Entity::Account, ChangeOp::Update))
+                .count(),
+            3,
+            "two puts and one remove: {ops:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn clearing_removes_every_pause_and_deleting_an_account_removes_its_pause() {
+        let f = fixture().await;
+        let max = f.add("Max").await;
+        let pro = f.add("Pro").await;
+        let store = f.store.as_ref();
+        for account in [&max, &pro] {
+            store
+                .put(&pause(account.id(), AT + 1000, PauseReason::UsageLimit))
+                .await
+                .unwrap();
+        }
+        f.accounts
+            .remove(pro.id(), pro.version(), false)
+            .await
+            .unwrap();
+        assert_eq!(store.all().await.unwrap().len(), 1);
+        let changes = store.clear(Timestamp::from_millis(AT)).await.unwrap();
+        assert_eq!(changes.len(), 1);
+        assert!(store.all().await.unwrap().is_empty());
+        assert!(
+            store
+                .clear(Timestamp::from_millis(AT))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_poll_is_kept_only_when_the_numbers_changed() {
+        let f = fixture().await;
+        let max = f.add("Max").await;
+        let store = f.store.as_ref();
+        assert!(store.record_poll(&poll(max.id(), 10, AT)).await.unwrap());
+        assert!(
+            !store
+                .record_poll(&poll(max.id(), 10, AT + 1000))
+                .await
+                .unwrap()
+        );
+        assert!(
+            store
+                .record_poll(&poll(max.id(), 11, AT + 2000))
+                .await
+                .unwrap()
+        );
+        // the other account has its own latest reading
+        let pro = f.add("Pro").await;
+        assert!(
+            store
+                .record_poll(&poll(pro.id(), 11, AT + 3000))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn polls_older_than_ninety_days_go_when_a_new_one_is_kept() {
+        let f = fixture().await;
+        let max = f.add("Max").await;
+        let store = f.store.as_ref();
+        store.record_poll(&poll(max.id(), 10, AT)).await.unwrap();
+        // the old poll is removed, so its numbers are new again
+        let later = AT + 91 * DAY;
+        assert!(store.record_poll(&poll(max.id(), 12, later)).await.unwrap());
+        assert!(
+            store
+                .record_poll(&poll(max.id(), 10, later + 1000))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_account_without_finished_runs_has_no_history_and_no_starts() {
+        let f = fixture().await;
+        let max = f.add("Max").await;
+        let store = f.store.as_ref();
+        store.record_poll(&poll(max.id(), 10, AT)).await.unwrap();
+        assert!(store.history(500).await.unwrap().is_empty());
+        let run = Id::from_uuid(uuid::Uuid::from_u128(5));
+        assert!(store.starts(&[run]).await.unwrap().is_empty());
+    }
 }

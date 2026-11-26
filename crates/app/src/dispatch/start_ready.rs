@@ -68,6 +68,7 @@ impl PassStep for StartReady {
             .filter_map(|dispatch| dispatch.subject_key.as_deref())
             .collect();
         let candidates = self.candidates.scan(&context.config, None).await?;
+        let mut waiting = None;
         for candidate in candidates
             .iter()
             .filter(|candidate| candidate.not_ready.is_none())
@@ -86,8 +87,16 @@ impl PassStep for StartReady {
                     free -= 1;
                 }
                 StartOutcome::Skipped(_) => {}
+                StartOutcome::WaitsForAccount(reason) => {
+                    waiting.get_or_insert(format!("{key} {reason}"));
+                }
                 StartOutcome::Failed(message) => report.errors.push(format!("{key}: {message}")),
             }
+        }
+        // nothing started because no account was free: the status says why
+        if report.started.is_empty() && report.idle.is_none() {
+            report.idle.clone_from(&waiting);
+            report.waiting = waiting;
         }
         Ok(())
     }

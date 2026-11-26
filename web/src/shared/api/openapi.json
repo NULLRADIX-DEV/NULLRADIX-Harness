@@ -603,6 +603,57 @@
         }
       }
     },
+    "/api/v1/accounts/{accountId}/resume": {
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "summary": "Lets the dispatcher use the account again before its pause ends.",
+        "operationId": "resume_account",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The account has no pause now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/accounts/{accountId}/run-token": {
       "put": {
         "tags": [
@@ -8528,6 +8579,21 @@
           },
           "name": {
             "type": "string"
+          },
+          "pauseReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`usage-limit`, `auth-missing` or `manual` while the account is paused."
+          },
+          "pausedUntil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unix milliseconds until which the dispatcher keeps runs off the account, if it does."
           },
           "slug": {
             "type": "string",

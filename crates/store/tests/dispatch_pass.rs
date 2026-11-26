@@ -7,7 +7,7 @@
     reason = "integration tests fail loudly"
 )]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +15,10 @@ use async_trait::async_trait;
 use nullradix_app::accounts::{AccountFolders, AccountService};
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::comments::{Author, CommentService};
+use nullradix_app::dispatch::accounts::{
+    AccountLimits, AccountPause, AccountPauseRepository, AccountPick, AccountRequest, PauseReason,
+    PickMode, UsageSampleRepository,
+};
 use nullradix_app::dispatch::assemble::{Dispatcher, DispatcherDeps, assemble};
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
@@ -34,14 +38,15 @@ use nullradix_app::tickets::{
     NewTicket, TicketPatch, TicketRead, TicketRepository, TicketScope, TicketService,
     TicketSnapshot, TicketWrite, WriteOptions,
 };
+use nullradix_app::usage::{AccountStatus, AccountUsage, UsageReason, UsageWindow};
 use nullradix_app::worktrees::{
     CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, StartMode,
     WorktreeRemoval, WorktreeService,
 };
-use nullradix_app::{AppError, ChangeSignal, Clock, UuidV7Generator};
+use nullradix_app::{AppError, Change, ChangeSignal, Clock, UuidV7Generator};
 use nullradix_domain::{
-    Actor, ActorKind, Board, ConfigDir, DispatchOutcome, Id, Run, RunEnd, RunOutcome, Runner,
-    SetupState, SystemMarker, TicketStatus, Timestamp, Version, WorktreeSetupStep,
+    Account, Actor, ActorKind, Board, ConfigDir, DispatchOutcome, Id, Run, RunEnd, RunOutcome,
+    Runner, SetupState, SystemMarker, TicketStatus, Timestamp, Version, WorktreeSetupStep,
 };
 use nullradix_store::Store;
 use tokio::sync::Notify;
@@ -245,6 +250,95 @@ impl AccountFolders for NoFolders {
     }
 }
 
+/// Usage readings the test sets; a reading can wait for a gate.
+#[derive(Default)]
+struct FakeLimits {
+    usage: Mutex<HashMap<Id<Account>, AccountUsage>>,
+    /// The next reading waits for this gate when set.
+    hold: Mutex<Option<Arc<Notify>>>,
+    entered: Notify,
+}
+
+impl FakeLimits {
+    fn set(&self, account: Id<Account>, five: u32, week: u32, resets: Option<Timestamp>) {
+        let window = |percent| {
+            Some(UsageWindow {
+                percent,
+                resets_at: resets,
+            })
+        };
+        self.usage.lock().unwrap().insert(
+            account,
+            AccountUsage {
+                reason: None,
+                plan: None,
+                five_hour: window(five),
+                seven_day: window(week),
+                fetched_at: None,
+            },
+        );
+    }
+}
+
+#[async_trait]
+impl AccountLimits for FakeLimits {
+    async fn status(&self, accounts: &[Account], _fresh: bool) -> Vec<AccountStatus> {
+        let gate = self.hold.lock().unwrap().take();
+        if let Some(gate) = gate {
+            self.entered.notify_one();
+            gate.notified().await;
+        }
+        let usage = self.usage.lock().unwrap();
+        accounts
+            .iter()
+            .map(|account| AccountStatus {
+                account: account.id(),
+                logged_in: true,
+                email: None,
+                folder: String::new(),
+                usage: usage
+                    .get(&account.id())
+                    .cloned()
+                    .unwrap_or_else(|| AccountUsage::unavailable(UsageReason::RequestFailed, None)),
+            })
+            .collect()
+    }
+}
+
+/// Pause storage that adds a pause right after the next read, as another writer would.
+struct InjectingPauses {
+    inner: Arc<Store>,
+    inject: Mutex<Option<AccountPause>>,
+}
+
+#[async_trait]
+impl AccountPauseRepository for InjectingPauses {
+    async fn all(&self) -> Result<Vec<AccountPause>, AppError> {
+        let rows = self.inner.all().await?;
+        let pause = self.inject.lock().unwrap().take();
+        if let Some(pause) = pause {
+            self.inner.put(&pause).await?;
+        }
+        Ok(rows)
+    }
+
+    async fn put(&self, pause: &AccountPause) -> Result<Change, AppError> {
+        self.inner.put(pause).await
+    }
+
+    async fn remove(
+        &self,
+        account: Id<Account>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        self.inner.remove(account, at).await
+    }
+
+    async fn clear(&self, at: Timestamp) -> Result<Vec<Change>, AppError> {
+        self.inner.clear(at).await
+    }
+}
+
 /// Setup double that holds every setup until the test lets it go.
 #[derive(Default)]
 struct ScriptedSetup {
@@ -342,6 +436,9 @@ struct Fixture {
     machine: Arc<Machine>,
     setup: Arc<ScriptedSetup>,
     dispatcher: Dispatcher,
+    accounts: Arc<AccountService>,
+    limits: Arc<FakeLimits>,
+    pauses: Arc<InjectingPauses>,
     config: Arc<DispatcherConfigService>,
     tickets: Arc<TicketService>,
     comments: Arc<CommentService>,
@@ -471,7 +568,7 @@ async fn fixture() -> Fixture {
     let dispatch = Arc::new(DispatchRuns::new(
         runs.clone(),
         config.clone(),
-        accounts,
+        accounts.clone(),
         store.clone(),
         store.clone(),
         machine.clone(),
@@ -481,10 +578,19 @@ async fn fixture() -> Fixture {
         tickets.clone(),
         questions.clone(),
     ));
+    let limits = Arc::new(FakeLimits::default());
+    let pauses = Arc::new(InjectingPauses {
+        inner: store.clone(),
+        inject: Mutex::new(None),
+    });
     let dispatcher = assemble(DispatcherDeps {
         config: config.clone(),
         states: store.clone(),
         log: store.clone(),
+        accounts: accounts.clone(),
+        limits: limits.clone(),
+        pauses: pauses.clone(),
+        samples: store.clone(),
         setup: setup.clone(),
         actors: store.clone(),
         boards: store.clone(),
@@ -507,6 +613,9 @@ async fn fixture() -> Fixture {
         machine,
         setup,
         dispatcher,
+        accounts,
+        limits,
+        pauses,
         config,
         tickets,
         comments,
@@ -1755,4 +1864,471 @@ async fn failed_starts_do_not_crowd_finished_runs_out_of_the_batch() {
     let run = f.finish_run(&key).await;
     f.dispatcher.pass.run().await;
     assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Done));
+}
+
+const HOUR: i64 = 60 * MINUTE;
+
+impl Fixture {
+    async fn account(&self, name: &str) -> Account {
+        self.accounts.create(name, None).await.unwrap()
+    }
+
+    async fn disable(&self, slug: &str) {
+        let account = self.accounts.find(slug).await.unwrap();
+        let patch = nullradix_app::accounts::AccountPatch {
+            enabled: Some(false),
+            ..Default::default()
+        };
+        self.accounts
+            .update(account.id(), patch, account.version())
+            .await
+            .unwrap();
+    }
+
+    /// The default account is off, so the test accounts are the only choice.
+    async fn with_accounts(&self, names: &[&str]) -> Vec<Account> {
+        self.enable().await;
+        self.disable("default").await;
+        let mut accounts = Vec::new();
+        for name in names {
+            accounts.push(self.account(name).await);
+        }
+        accounts
+    }
+
+    async fn active_runs(&self) -> Vec<nullradix_domain::Run> {
+        nullradix_app::runs::RunRepository::active(self.store.as_ref())
+            .await
+            .unwrap()
+    }
+
+    async fn run_accounts(&self) -> Vec<Option<uuid::Uuid>> {
+        self.active_runs()
+            .await
+            .iter()
+            .map(|run| run.dispatch().unwrap().account)
+            .collect()
+    }
+
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "the readings take an optional reset"
+    )]
+    fn resets_in(hours: i64) -> Option<Timestamp> {
+        Some(Timestamp::from_millis(START + hours * HOUR))
+    }
+
+    async fn pause(&self, account: &Account, until: Timestamp) {
+        self.dispatcher
+            .pauses
+            .pause_account(account.id(), until, PauseReason::UsageLimit, None)
+            .await
+            .unwrap();
+    }
+
+    async fn status_row(&self, key: &str) -> String {
+        let status = self.dispatcher.service.status(None).await.unwrap();
+        status
+            .tickets
+            .iter()
+            .find(|row| row.key == key)
+            .unwrap()
+            .reason
+            .clone()
+    }
+}
+
+#[tokio::test]
+async fn the_run_starts_with_the_freest_account_and_the_start_comment_says_why() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    let (max, pro) = (&accounts[0], &accounts[1]);
+    f.limits.set(max.id(), 80, 10, Fixture::resets_in(4));
+    f.limits.set(pro.id(), 10, 5, Fixture::resets_in(4));
+    let key = f.ready("Build", &["auto"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started, [key.clone()], "{report:?}");
+    assert_eq!(f.run_accounts().await, [Some(pro.id().as_uuid())]);
+    let spec = f.machine.specs.lock().unwrap()[0].clone();
+    assert_eq!(spec.env.set["CLAUDE_CONFIG_DIR"], "/accounts/pro");
+    let comments = f.comments.list(&key).await.unwrap();
+    let body = comments.last().unwrap().comment.body().to_owned();
+    assert!(
+        body.contains(
+            "\nAccount: pro (all accounts -> pro, most free capacity: max (80 %), pro (10 %); \
+             skipped default: disabled; reserve 5 h 10 %, week 2 % (buffer))."
+        ),
+        "{body}"
+    );
+    let run = f.active_runs().await[0].id();
+    let starts = UsageSampleRepository::starts(f.store.as_ref(), &[run])
+        .await
+        .unwrap();
+    assert_eq!(starts[&run].five_hour, Some(10));
+    assert_eq!(starts[&run].seven_day, Some(5));
+}
+
+#[tokio::test]
+async fn with_no_account_free_the_ticket_waits_unclaimed_and_the_status_says_why() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    f.limits
+        .set(accounts[0].id(), 95, 10, Fixture::resets_in(3));
+    f.limits
+        .set(accounts[1].id(), 20, 91, Fixture::resets_in(5));
+    let key = f.ready("Build", &["auto"]).await;
+    let other = f.ready("Other", &["auto"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.started.is_empty(), "{report:?}");
+    assert!(report.queued.is_empty(), "no place is taken");
+    let idle = report.idle.unwrap();
+    assert!(
+        idle.starts_with(&format!(
+            "{key} waits - no account free (default: disabled; max: full (5 h 95 %) until "
+        )),
+        "{idle}"
+    );
+    assert!(idle.contains("; pro: full (week 91 %) until "), "{idle}");
+    assert!(
+        !idle.contains("free again"),
+        "a disabled account has no end: {idle}"
+    );
+    let record = f.record(&key).await;
+    assert_eq!(record.assignee, None);
+    assert_eq!(record.status, nullradix_domain::TicketStatus::Planned);
+    assert!(f.record(&other).await.assignee.is_none());
+    assert!(f.started_cwds().is_empty());
+    let row = f.status_row(&key).await;
+    assert!(
+        row.starts_with("waits - no account free (default: disabled; max: full"),
+        "{row}"
+    );
+    let status = f.dispatcher.service.status(None).await.unwrap();
+    assert_eq!(status.message, idle);
+    // the limit resets: the next pass starts the ticket
+    f.limits
+        .set(accounts[0].id(), 10, 10, Fixture::resets_in(3));
+    assert_eq!(f.dispatcher.pass.run().await.started, [key]);
+}
+
+#[tokio::test]
+async fn a_waiting_ticket_does_not_take_the_place_of_a_ready_one() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    f.limits
+        .set(accounts[0].id(), 10, 10, Fixture::resets_in(3));
+    f.limits
+        .set(accounts[1].id(), 99, 10, Fixture::resets_in(3));
+    let pinned = f.ready("Pinned", &["auto", "account:pro"]).await;
+    let free = f.ready("Free", &["auto", "account:max"]).await;
+    // the only place goes to the ticket that has an account
+    let status = f.dispatcher.service.status(None).await.unwrap();
+    let rows: Vec<&str> = status
+        .tickets
+        .iter()
+        .map(|row| row.reason.as_str())
+        .collect();
+    assert!(
+        rows[0].starts_with("waits - no account free (pro: full"),
+        "{rows:?}"
+    );
+    assert_eq!(rows[1], "ready");
+    assert_eq!(f.dispatcher.pass.run().await.started, [free]);
+    assert!(f.record(&pinned).await.assignee.is_none());
+}
+
+#[tokio::test]
+async fn labels_and_profiles_limit_the_accounts_and_the_list_order_counts() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro", "Team"]).await;
+    for account in &accounts {
+        f.limits.set(account.id(), 10, 10, Fixture::resets_in(4));
+    }
+    f.limits
+        .set(accounts[0].id(), 50, 10, Fixture::resets_in(4));
+    f.configure(|config| {
+        config.wip = 5;
+        config.account_strategy = nullradix_domain::AccountStrategy::Order;
+        let default = config.default_profile.clone();
+        for profile in &mut config.profiles {
+            if profile.name == default {
+                profile.accounts = vec![String::from("team"), String::from("max")];
+            }
+        }
+    })
+    .await;
+    let by_profile = f.ready("Profile", &["auto"]).await;
+    let by_label = f.ready("Label", &["auto", "account:pro"]).await;
+    let unknown = f.ready("Unknown", &["auto", "account:zed"]).await;
+    let bad = f.ready("Bad", &["auto", "account:Max Private"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started, [by_profile, by_label], "{report:?}");
+    let ids: Vec<_> = accounts.iter().map(|a| Some(a.id().as_uuid())).collect();
+    let mut used = f.run_accounts().await;
+    used.sort();
+    let mut wanted = vec![ids[2], ids[1]];
+    wanted.sort();
+    assert_eq!(used, wanted, "the profile list puts team before max");
+    assert!(
+        f.status_row(&unknown)
+            .await
+            .contains("waits - no account free (zed: does not exist)")
+    );
+    assert_eq!(
+        f.status_row(&bad).await,
+        "label account:Max Private - not a valid account id"
+    );
+}
+
+#[tokio::test]
+async fn a_paused_account_is_skipped_until_it_resumes() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    let (max, pro) = (&accounts[0], &accounts[1]);
+    f.limits.set(max.id(), 10, 10, Fixture::resets_in(4));
+    f.limits.set(pro.id(), 60, 10, Fixture::resets_in(4));
+    f.configure(|config| config.wip = 3).await;
+    f.ready("First", &["auto"]).await;
+    f.pause(max, Timestamp::from_millis(START + 2 * HOUR)).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.run_accounts().await, [Some(pro.id().as_uuid())]);
+    let active = f.dispatcher.pauses.active().await.unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].until.as_millis(), START + 2 * HOUR);
+    // resuming ends the pause before its time
+    assert!(f.dispatcher.pauses.resume_account(max.id()).await.unwrap());
+    assert!(!f.dispatcher.pauses.resume_account(max.id()).await.unwrap());
+    f.ready("Second", &["auto"]).await;
+    f.dispatcher.pass.run().await;
+    assert!(f.run_accounts().await.contains(&Some(max.id().as_uuid())));
+    // a pause ends by time alone
+    f.pause(pro, Timestamp::from_millis(START + HOUR)).await;
+    assert_eq!(f.dispatcher.pauses.active().await.unwrap().len(), 1);
+    f.advance(61);
+    assert!(f.dispatcher.pauses.active().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn pauses_are_checked_and_resuming_the_dispatcher_ends_them_all() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    let pauses = &f.dispatcher.pauses;
+    let past = Timestamp::from_millis(START - 1);
+    let far = Timestamp::from_millis(START + 15 * 24 * HOUR);
+    for until in [past, far] {
+        let error = pauses
+            .pause_account(accounts[0].id(), until, PauseReason::Manual, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "account-pause-invalid");
+    }
+    let unknown = Id::from_uuid(uuid::Uuid::from_u128(9));
+    let until = Timestamp::from_millis(START + HOUR);
+    let error = pauses
+        .pause_account(unknown, until, PauseReason::Manual, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "account-not-found");
+    f.pause(&accounts[0], until).await;
+    f.pause(&accounts[1], until).await;
+    f.dispatcher.service.resume().await.unwrap();
+    assert!(pauses.active().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn resuming_an_account_ends_a_dispatcher_pause_only_when_it_had_a_pause() {
+    use nullradix_app::dispatch::control::PauseFor;
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max"]).await;
+    f.dispatcher
+        .service
+        .pause(PauseFor::Minutes(30))
+        .await
+        .unwrap();
+    f.dispatcher
+        .pauses
+        .resume_account(accounts[0].id())
+        .await
+        .unwrap();
+    let status = f.dispatcher.service.status(None).await.unwrap();
+    assert!(status.paused_until.is_some(), "no account pause, no resume");
+    f.pause(&accounts[0], Timestamp::from_millis(START + HOUR))
+        .await;
+    f.dispatcher
+        .pauses
+        .resume_account(accounts[0].id())
+        .await
+        .unwrap();
+    let status = f.dispatcher.service.status(None).await.unwrap();
+    assert!(status.paused_until.is_none());
+}
+
+#[tokio::test]
+async fn a_pause_during_the_usage_reading_keeps_the_run_off_that_account() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    let (max, pro) = (&accounts[0], &accounts[1]);
+    f.limits.set(max.id(), 10, 10, Fixture::resets_in(4));
+    f.limits.set(pro.id(), 50, 10, Fixture::resets_in(4));
+    let gate = Arc::new(Notify::new());
+    *f.limits.hold.lock().unwrap() = Some(gate.clone());
+    f.ready("Build", &["auto"]).await;
+    let pass = tokio::spawn({
+        let pass = f.dispatcher.pass.clone();
+        async move { pass.run().await }
+    });
+    f.limits.entered.notified().await;
+    f.pause(max, Timestamp::from_millis(START + HOUR)).await;
+    gate.notify_one();
+    let report = pass.await.unwrap();
+    assert_eq!(report.started.len(), 1, "{report:?}");
+    assert_eq!(f.run_accounts().await, [Some(pro.id().as_uuid())]);
+}
+
+#[tokio::test]
+async fn a_pause_that_lands_right_after_the_pauses_were_read_is_caught_by_the_check() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    let (max, pro) = (&accounts[0], &accounts[1]);
+    f.limits.set(max.id(), 10, 10, Fixture::resets_in(4));
+    f.limits.set(pro.id(), 50, 10, Fixture::resets_in(4));
+    *f.pauses.inject.lock().unwrap() = Some(AccountPause {
+        account: max.id(),
+        until: Timestamp::from_millis(START + HOUR),
+        reason: PauseReason::UsageLimit,
+        run: None,
+        created_at: Timestamp::from_millis(START),
+    });
+    let config = f.config.get().await.unwrap().config;
+    let pick = f
+        .dispatcher
+        .accounts
+        .pick(&AccountRequest::default(), &config, PickMode::Start)
+        .await
+        .unwrap();
+    let AccountPick::Picked(chosen) = pick else {
+        panic!("no account picked: {pick:?}");
+    };
+    assert_eq!(chosen.account, pro.id());
+}
+
+#[tokio::test]
+async fn a_pause_during_the_setup_moves_the_run_to_another_account() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max", "Pro"]).await;
+    let (max, pro) = (&accounts[0], &accounts[1]);
+    f.configure(setup_config).await;
+    f.limits.set(max.id(), 10, 10, Fixture::resets_in(4));
+    f.limits.set(pro.id(), 50, 10, Fixture::resets_in(4));
+    let gate = Arc::new(Notify::new());
+    *f.setup.release.lock().unwrap() = Some(gate.clone());
+    f.ready("Build", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started.len(), 1);
+    f.setup.entered.notified().await;
+    f.pause(max, Timestamp::from_millis(START + HOUR)).await;
+    gate.notify_one();
+    f.dispatcher.starter.wait_idle().await;
+    assert_eq!(f.run_accounts().await, [Some(pro.id().as_uuid())]);
+}
+
+#[tokio::test]
+async fn a_pause_during_the_setup_that_leaves_no_account_gives_the_claim_back() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max"]).await;
+    f.configure(setup_config).await;
+    f.limits
+        .set(accounts[0].id(), 10, 10, Fixture::resets_in(4));
+    let gate = Arc::new(Notify::new());
+    *f.setup.release.lock().unwrap() = Some(gate.clone());
+    let key = f.ready("Build", &["auto"]).await;
+    f.dispatcher.pass.run().await;
+    f.setup.entered.notified().await;
+    f.pause(&accounts[0], Timestamp::from_millis(START + HOUR))
+        .await;
+    gate.notify_one();
+    f.dispatcher.starter.wait_idle().await;
+    assert!(f.run_accounts().await.is_empty());
+    assert_eq!(f.record(&key).await.assignee, None);
+}
+
+#[tokio::test]
+async fn only_a_disabled_default_account_leaves_nothing_to_start_with() {
+    let f = fixture().await;
+    f.enable().await;
+    f.disable("default").await;
+    let key = f.ready("Build", &["auto"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.started.is_empty());
+    assert_eq!(
+        report.idle.unwrap(),
+        format!("{key} waits - no account free (default: disabled)")
+    );
+}
+
+#[tokio::test]
+async fn the_default_account_runs_with_the_servers_own_login() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.ready("Build", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started, [key]);
+    let default = f.accounts.find("default").await.unwrap();
+    assert_eq!(f.run_accounts().await, [Some(default.id().as_uuid())]);
+    let spec = f.machine.specs.lock().unwrap()[0].clone();
+    assert!(!spec.env.set.contains_key("CLAUDE_CONFIG_DIR"));
+}
+
+/// Starts `count` tickets at once and ends them with the given use of the account.
+async fn finished_runs(f: &Fixture, account: &Account, count: usize, used: u32) {
+    f.configure(|config| config.wip = 20).await;
+    for n in 0..count {
+        f.ready(&format!("History {n}"), &["auto"]).await;
+    }
+    let picker = &f.dispatcher.accounts;
+    assert_eq!(f.dispatcher.pass.run().await.started.len(), count);
+    f.advance(10);
+    f.limits
+        .set(account.id(), 10 + used, 20 + used, Fixture::resets_in(4));
+    for run in f.active_runs().await {
+        picker.record_end(run.id(), account.id()).await;
+        let ended = run.lost(f.clock.now()).unwrap();
+        nullradix_app::runs::RunRepository::update(f.store.as_ref(), &ended, run.version())
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn the_reserve_comes_from_the_history_of_finished_runs_instead_of_the_buffer() {
+    let f = fixture().await;
+    let accounts = f.with_accounts(&["Max"]).await;
+    let max = &accounts[0];
+    f.limits.set(max.id(), 10, 20, Fixture::resets_in(4));
+    // a limit of its own makes the usage get read although there is one account
+    let patch = nullradix_app::accounts::AccountPatch {
+        limit_five_hour: Some(Some(90)),
+        ..Default::default()
+    };
+    f.accounts
+        .update(max.id(), patch, max.version())
+        .await
+        .unwrap();
+    finished_runs(&f, max, 5, 6).await;
+    // 84 % used: the buffer of 10 would make the account tight, the measured 6 does not
+    f.limits.set(max.id(), 84, 20, Fixture::resets_in(4));
+    let key = f.ready("Next", &["auto"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started, [key.clone()], "{report:?}");
+    let comments = f.comments.list(&key).await.unwrap();
+    let body = comments.last().unwrap().comment.body().to_owned();
+    assert!(
+        body.contains("reserve 5 h 6 %, week 6 % (from 5 runs profile:"),
+        "{body}"
+    );
+    assert!(body.contains("); duration about 10 min)."), "{body}");
+    // at 85 % the run under way still needs 5 of its 6 points, so a new one does not fit
+    f.limits.set(max.id(), 85, 20, Fixture::resets_in(4));
+    f.configure(|config| config.wip = 21).await;
+    let blocked = f.ready("Blocked", &["auto"]).await;
+    let row = f.status_row(&blocked).await;
+    assert!(row.contains("tight (5 h 85 % + 11 % expected"), "{row}");
 }

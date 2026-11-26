@@ -19,6 +19,8 @@
         "limitFiveHour": null,
         "limitWeek": null,
         "name": "Max",
+        "pauseReason": null,
+        "pausedUntil": null,
         "slug": "max",
         "updatedAt": "<TIME>",
         "version": 1
@@ -258,6 +260,8 @@
           "limitFiveHour": null,
           "limitWeek": null,
           "name": "new@example.com",
+          "pauseReason": null,
+          "pausedUntil": null,
           "slug": "new-example-com",
           "updatedAt": "<TIME>",
           "version": 1
@@ -349,6 +353,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "Default",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "default",
             "updatedAt": "<TIME>",
             "version": 1
@@ -363,6 +369,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "Max",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "max",
             "updatedAt": "<TIME>",
             "version": 1
@@ -377,6 +385,8 @@
             "limitFiveHour": null,
             "limitWeek": null,
             "name": "new@example.com",
+            "pauseReason": null,
+            "pausedUntil": null,
             "slug": "new-example-com",
             "updatedAt": "<TIME>",
             "version": 1

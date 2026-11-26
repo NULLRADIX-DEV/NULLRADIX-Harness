@@ -5,6 +5,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::AppError;
 use nullradix_app::accounts::AccountPatch;
+use nullradix_app::dispatch::accounts::AccountPause;
 use nullradix_domain::{Account, Id};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -32,6 +33,10 @@ pub struct AccountDto {
     pub limit_week: Option<i64>,
     /// Whether runs of this account start with a stored long-lived token.
     pub has_run_token: bool,
+    /// Unix milliseconds until which the dispatcher keeps runs off the account, if it does.
+    pub paused_until: Option<i64>,
+    /// `usage-limit`, `auth-missing` or `manual` while the account is paused.
+    pub pause_reason: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub version: i64,
@@ -51,11 +56,29 @@ impl From<Account> for AccountDto {
                 .map(|limit| i64::from(limit.percent())),
             limit_week: account.limit_week().map(|limit| i64::from(limit.percent())),
             has_run_token: account.token_ref().is_some(),
+            paused_until: None,
+            pause_reason: None,
             created_at: account.created_at().as_millis(),
             updated_at: account.updated_at().as_millis(),
             version: account.version().value(),
         }
     }
+}
+
+impl AccountDto {
+    fn paused(mut self, pause: Option<&AccountPause>) -> Self {
+        self.paused_until = pause.map(|pause| pause.until.as_millis());
+        self.pause_reason = pause.map(|pause| pause.reason.as_str().to_owned());
+        self
+    }
+}
+
+/// The account with the pause it has now.
+async fn present_account(state: &ApiState, account: Account) -> Result<AccountDto, ApiError> {
+    let id = account.id();
+    let pauses = state.account_pauses.active().await?;
+    let pause = pauses.iter().find(|pause| pause.account == id);
+    Ok(AccountDto::from(account).paused(pause))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -157,12 +180,16 @@ pub(crate) struct AccountPath {
 pub(crate) async fn list_accounts(
     State(state): State<ApiState>,
 ) -> Result<Json<AccountList>, ApiError> {
+    let pauses = state.account_pauses.active().await?;
     let items = state
         .accounts
         .list()
         .await?
         .into_iter()
-        .map(AccountDto::from)
+        .map(|account| {
+            let pause = pauses.iter().find(|pause| pause.account == account.id());
+            AccountDto::from(account).paused(pause)
+        })
         .collect();
     Ok(Json(AccountList {
         items,
@@ -231,7 +258,7 @@ pub(crate) async fn update_account(
         .accounts
         .update(Id::from_uuid(path.account_id), changes, expected)
         .await?;
-    Ok(Json(account.into()))
+    Ok(Json(present_account(&state, account).await?))
 }
 
 #[utoipa::path(
@@ -292,7 +319,7 @@ pub(crate) async fn set_run_token(
             AppError::client_version(input.version)?,
         )
         .await?;
-    Ok(Json(account.into()))
+    Ok(Json(present_account(&state, account).await?))
 }
 
 #[utoipa::path(
@@ -320,7 +347,29 @@ pub(crate) async fn clear_run_token(
             AppError::client_version(query.version)?,
         )
         .await?;
-    Ok(Json(account.into()))
+    Ok(Json(present_account(&state, account).await?))
+}
+
+/// Lets the dispatcher use the account again before its pause ends.
+#[utoipa::path(
+    post,
+    path = "/accounts/{accountId}/resume",
+    tag = "accounts",
+    params(AccountPath),
+    responses(
+        (status = 200, description = "The account has no pause now", body = AccountDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+    )
+)]
+pub(crate) async fn resume_account(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<AccountPath>,
+) -> Result<Json<AccountDto>, ApiError> {
+    let id = Id::from_uuid(path.account_id);
+    state.account_pauses.resume_account(id).await?;
+    let account = state.accounts.get(id).await?;
+    Ok(Json(present_account(&state, account).await?))
 }
 
 #[cfg(test)]
@@ -618,6 +667,65 @@ mod tests {
         assert_eq!(status, 200);
         assert_eq!(cleared["hasRunToken"], false);
         assert_eq!(cleared["version"], 3);
+    }
+
+    #[tokio::test]
+    async fn a_paused_account_shows_its_pause_and_resume_ends_it() {
+        use nullradix_app::dispatch::accounts::PauseReason;
+        use nullradix_app::{Clock, SystemClock};
+
+        let api = test_api().await;
+        let (_, created) = call(
+            &api,
+            Request::post("/api/v1/accounts"),
+            Some(json!({ "name": "Max" })),
+        )
+        .await;
+        let id = created["id"].as_str().unwrap().to_owned();
+        assert_eq!(created["pausedUntil"], serde_json::Value::Null);
+        let until = SystemClock
+            .now()
+            .checked_add(std::time::Duration::from_hours(1))
+            .unwrap();
+        let account = nullradix_domain::Id::from_uuid(id.parse().unwrap());
+        api.pauses
+            .pause_account(account, until, PauseReason::UsageLimit, None)
+            .await
+            .unwrap();
+        let (_, list) = call(&api, Request::get("/api/v1/accounts"), None).await;
+        let max = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["slug"] == "max")
+            .unwrap();
+        assert_eq!(max["pausedUntil"], until.as_millis());
+        assert_eq!(max["pauseReason"], "usage-limit");
+        let (status, resumed) = call(
+            &api,
+            Request::post(format!("/api/v1/accounts/{id}/resume")),
+            None,
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(resumed["pausedUntil"], serde_json::Value::Null);
+        assert_eq!(resumed["pauseReason"], serde_json::Value::Null);
+        // resuming again changes nothing
+        let (status, _) = call(
+            &api,
+            Request::post(format!("/api/v1/accounts/{id}/resume")),
+            None,
+        )
+        .await;
+        assert_eq!(status, 200);
+        let unknown = "0199ffff-ffff-7fff-8fff-ffffffffffff";
+        let (status, missing) = call(
+            &api,
+            Request::post(format!("/api/v1/accounts/{unknown}/resume")),
+            None,
+        )
+        .await;
+        assert_eq!(problem(status, &missing), (404, "account-not-found"));
     }
 
     #[test]
