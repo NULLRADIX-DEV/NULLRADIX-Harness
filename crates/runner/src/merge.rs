@@ -328,14 +328,18 @@ async fn squash(cwd: &Path, request: &MergeRequest, tip: &str) -> Result<MergeSt
             return Ok(MergeStep::Merged(short_head(cwd).await?));
         }
         abort(cwd, MergeStrategy::Squash).await?;
+        // the reset keeps the message git wrote; the person's next commit must not open with it
+        if let (false, Some(path)) = (pending_before, squash_msg_path(cwd).await?) {
+            let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
+        }
         let detail = [done.err, done.out]
             .into_iter()
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join("\n");
-        return Ok(MergeStep::Refused(format!(
+        return Ok(MergeStep::Refused(bounded(&format!(
             "the squash commit failed: {detail}"
-        )));
+        ))));
     }
     let unmerged = attempt(cwd, &["ls-files", "-u"]).await?;
     let started = (!pending_before && squash_pending(cwd).await?)
@@ -371,17 +375,24 @@ async fn squash_message(
     Ok(paragraphs)
 }
 
-async fn squash_pending(cwd: &Path) -> Result<bool, AppError> {
+/// Where git keeps the message of a squash in this checkout.
+async fn squash_msg_path(cwd: &Path) -> Result<Option<PathBuf>, AppError> {
     let Some(found) = attempt(cwd, &["rev-parse", "--git-path", "SQUASH_MSG"]).await? else {
-        return Ok(false);
+        return Ok(None);
     };
     let path = PathBuf::from(&found);
-    let full = if path.is_absolute() {
+    Ok(Some(if path.is_absolute() {
         path
     } else {
         cwd.join(path)
-    };
-    exists(full).await
+    }))
+}
+
+async fn squash_pending(cwd: &Path) -> Result<bool, AppError> {
+    match squash_msg_path(cwd).await? {
+        Some(path) => exists(path).await,
+        None => Ok(false),
+    }
 }
 
 /// Lists the conflicted files, undoes our own attempt and tells conflict from refusal.
@@ -775,6 +786,27 @@ mod tests {
         let again = merged(&request(&root, None, MergeStrategy::Squash)).await;
         assert_eq!(again.2, tip);
         assert_eq!(git_sync(&root, &["rev-parse", "HEAD^"]), before);
+    }
+
+    #[tokio::test]
+    async fn a_failed_squash_commit_is_undone_without_its_message() {
+        let (_dir, root) = repository();
+        let head = git_sync(&root, &["rev-parse", "HEAD"]);
+        // signing that cannot work makes the commit fail after the squash staged everything
+        git_sync(&root, &["config", "commit.gpgsign", "true"]);
+        git_sync(&root, &["config", "gpg.program", "nullradix-no-such-gpg"]);
+        let outcome = LocalMergeGit
+            .merge(&request(&root, None, MergeStrategy::Squash))
+            .await
+            .unwrap();
+        assert!(
+            matches!(&outcome, MergeOutcome::Refused { reason } if reason.starts_with("the squash commit failed")),
+            "{outcome:?}"
+        );
+        assert_eq!(git_sync(&root, &["rev-parse", "HEAD"]), head);
+        assert_eq!(git_sync(&root, &["status", "--porcelain"]), "");
+        let message = git_sync(&root, &["rev-parse", "--git-path", "SQUASH_MSG"]);
+        assert!(!root.join(message).exists());
     }
 
     #[tokio::test]
