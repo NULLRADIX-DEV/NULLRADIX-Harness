@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.state AS \"state!: String\"\n               FROM reviews r JOIN runs u ON u.id = r.run_id\n               WHERE u.subject_key = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "state!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "reviews",
+            "name": "state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8b98f19ad9fc9b74e9701207d31125b6972d3dd660e21a91b9a0786135ac05dd"
+}

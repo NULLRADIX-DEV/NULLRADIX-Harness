@@ -129,6 +129,75 @@ impl ReviewRepository for Store {
         Ok(())
     }
 
+    async fn decide(
+        &self,
+        ticket: &str,
+        state: ReviewState,
+        by: Id<Actor>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        let state = state.as_str();
+        let by = by.as_uuid();
+        let at = at.as_millis();
+        let mut tx = self.begin().await?;
+        let found = sqlx::query!(
+            r#"SELECT r.id AS "id: Uuid", r.worktree_id AS "worktree_id: Uuid"
+               FROM reviews r JOIN runs u ON u.id = r.run_id
+               WHERE u.subject_key = ? AND r.state = 'pending'
+               ORDER BY r.created_at DESC, r.id DESC LIMIT 1"#,
+            ticket,
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(database)?;
+        let Some(found) = found else {
+            return Ok(None);
+        };
+        let done = sqlx::query!(
+            "UPDATE reviews SET state = ?, decided_by = ?, decided_at = ?, version = version + 1
+             WHERE id = ? AND state = 'pending'",
+            state,
+            by,
+            at,
+            found.id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(database)?;
+        if done.rows_affected() == 0 {
+            return Ok(None);
+        }
+        let change = change_feed::record(
+            &mut tx,
+            Entity::Worktree,
+            found.worktree_id,
+            ChangeOp::Update,
+            Timestamp::from_millis(at),
+        )
+        .await?;
+        tx.commit().await.map_err(database)?;
+        Ok(Some(change))
+    }
+
+    async fn state_of(&self, ticket: &str) -> Result<Option<ReviewState>, AppError> {
+        let state = sqlx::query_scalar!(
+            r#"SELECT r.state AS "state!: String"
+               FROM reviews r JOIN runs u ON u.id = r.run_id
+               WHERE u.subject_key = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1"#,
+            ticket,
+        )
+        .fetch_optional(&self.reader)
+        .await
+        .map_err(database)?;
+        state
+            .map(|state| {
+                state
+                    .parse::<ReviewState>()
+                    .map_err(|_| AppError::from(corrupt("state")))
+            })
+            .transpose()
+    }
+
     async fn latest(&self, worktree: Id<Worktree>) -> Result<Option<StoredReview>, AppError> {
         let uuid = worktree.as_uuid();
         let Some(row) = sqlx::query_as!(

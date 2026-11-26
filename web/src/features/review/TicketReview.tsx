@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { problemText } from './messages';
 import { reviewQuery } from './queries';
+import { ReviewDecision } from './ReviewDecision';
 import { ReviewFiles } from './ReviewFiles';
 import { ReviewTests } from './ReviewTests';
 import { ARROW } from './symbols';
@@ -9,7 +10,15 @@ import './review.css';
 const BASE_LENGTH = 8;
 
 // The branch of a ticket against its target, and the tests of the run that finished it.
-export function TicketReview({ ticketKey }: { ticketKey: string }) {
+export function TicketReview({
+  ticketKey,
+  version,
+  waiting,
+}: {
+  ticketKey: string;
+  version: number;
+  waiting: boolean;
+}) {
   const { status, data, error } = useQuery(reviewQuery(ticketKey));
   if (status === 'pending') return <p className="muted">Loading the review...</p>;
   if (status === 'error') return <p className="form-error">{problemText(error)}</p>;
@@ -25,8 +34,11 @@ export function TicketReview({ ticketKey }: { ticketKey: string }) {
           </>
         )}
       </p>
-      {data.state === 'pending' && (
-        <p className="muted">The ticket waits for a review before it is merged.</p>
+      {data.state === 'pending' && waiting && (
+        <>
+          <p className="muted">The ticket waits for a review before it is merged.</p>
+          <ReviewDecision ticketKey={ticketKey} version={version} />
+        </>
       )}
       {!data.available && data.reason && <p className="muted">{data.reason}</p>}
       {data.available && (

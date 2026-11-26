@@ -1,0 +1,1395 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "file": "<WORK>/arches/README.md",
+    "lines": 0,
+    "name": "the readme"
+  },
+  {
+    "file": "<WORK>/arches/src/price.ts",
+    "lines": 0,
+    "name": "the price module"
+  },
+  {
+    "file": "<WORK>/arches/src/old.ts",
+    "lines": 0,
+    "name": "a module that goes away"
+  },
+  {
+    "file": "<WORK>/arches/docs/note.md",
+    "lines": 0,
+    "name": "a note that moves"
+  },
+  {
+    "name": "stage the files",
+    "request": {
+      "body": {
+        "args": [
+          "add",
+          "-A"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git add",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git add",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "staged",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "name": "first commit",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "-q",
+          "-m",
+          "init"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git commit",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-6>",
+        "label": "git commit",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-6>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "committed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-6>"
+  },
+  {
+    "name": "long paths on already, so every platform prints the same",
+    "request": {
+      "body": {
+        "args": [
+          "config",
+          "core.longpaths",
+          "true"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git config",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-7>",
+        "label": "git config",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-7>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "configured",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-7>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Build the discount",
+      "--board",
+      "<ID-2>",
+      "--label",
+      "auto",
+      "--acceptance",
+      "The price drops by the discount",
+      "--planned"
+    ],
+    "exitCode": 0,
+    "name": "a ready ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Build the discount\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Check the shipping",
+      "--board",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "a ticket the dispatcher never takes",
+    "stderr": "",
+    "stdout": "ARC-0002 created: Check the shipping\n"
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-1",
+      "--plan",
+      "Apply it",
+      "--handbook",
+      "npx vitest run"
+    ],
+    "exitCode": 0,
+    "name": "plan the first",
+    "stderr": "",
+    "stdout": "ARC-0001 planned (planned)\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "enable"
+    ],
+    "exitCode": 0,
+    "name": "switch on",
+    "stderr": "",
+    "stdout": "idle: Idle\n0 of 1 places in use, 0 planning\n  ARC-0001 Build the discount: ready\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass starts the ticket",
+    "stderr": "",
+    "stdout": "started: ARC-0001\n"
+  },
+  {
+    "field": "items.0.status",
+    "name": "the run ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+  },
+  {
+    "cli": [
+      "ticket",
+      "move",
+      "ARC-1",
+      "done",
+      "--acceptance",
+      "The price drops by the discount",
+      "--author",
+      "worker-ARC-0001"
+    ],
+    "exitCode": 0,
+    "name": "the agent finishes its ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 -> done\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "the next pass holds the finished ticket for review",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "name": "the ticket waits for a person",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 5 files changed (+2/-2), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "systemMarker": "review",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "14 characters"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-discount"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "worker-ARC-0001",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "worker-ARC-0001",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: review before merge"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The price drops by the discount",
+          "assignee": null,
+          "blockedReason": "Human Interaction: review before merge",
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-build-the-discount",
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "npx vitest run",
+          "id": "<ID-12>",
+          "key": "ARC-0001",
+          "labels": [
+            "auto"
+          ],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Apply it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the discount",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 8,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "return",
+      "ARC-1",
+      "--feedback",
+      "   "
+    ],
+    "exitCode": 1,
+    "name": "a return without feedback text",
+    "stderr": "error: the daemon refused the request: the feedback is empty (feedback-empty)\n",
+    "stdout": ""
+  },
+  {
+    "name": "a return without a feedback field",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/review/return"
+    },
+    "response": {
+      "json": {
+        "code": "input-invalid",
+        "detail": "Failed to deserialize the JSON body into the target type: missing field `feedback` at line 1 column 2",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:input-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a return with blank feedback",
+    "request": {
+      "body": {
+        "feedback": "   "
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/review/return"
+    },
+    "response": {
+      "json": {
+        "code": "feedback-empty",
+        "detail": "the feedback is empty",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:feedback-empty"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a return with feedback that is no text",
+    "request": {
+      "body": {
+        "feedback": 7
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/review/return"
+    },
+    "response": {
+      "json": {
+        "code": "input-invalid",
+        "detail": "Failed to deserialize the JSON body into the target type: feedback: invalid type: integer `7`, expected a string at line 2 column 15",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:input-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a return with feedback over the limit",
+    "request": {
+      "body": {
+        "feedback": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/review/return"
+    },
+    "response": {
+      "json": {
+        "code": "value-too-long",
+        "detail": "the feedback has more than 10000 characters",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:value-too-long"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a return of a ticket that waits for no review",
+    "request": {
+      "body": {
+        "feedback": "Please add a test."
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-2/review/return"
+    },
+    "response": {
+      "json": {
+        "code": "return-not-possible",
+        "detail": "ARC-0002 cannot go back to the agent: it waits for no review (only blocked with \"Human Interaction: ...\" and a branch)",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:return-not-possible"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a return of an unknown ticket",
+    "request": {
+      "body": {
+        "feedback": "Please add a test."
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-99/review/return"
+    },
+    "response": {
+      "json": {
+        "code": "ticket-not-found",
+        "detail": "ticket ARC-0099 does not exist",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:ticket-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a return on a stale version",
+    "request": {
+      "body": {
+        "feedback": "Please add a test.",
+        "version": 1
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/review/return"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "ticket ARC-0001 was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "return",
+      "ARC-1",
+      "--feedback",
+      "Please add a test for the discount."
+    ],
+    "exitCode": 0,
+    "name": "back to the agent with feedback",
+    "stderr": "",
+    "stdout": "ARC-0001 returned to the agent (planned)\n"
+  },
+  {
+    "name": "the ticket is planned again and keeps its branch and worktree",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 5 files changed (+2/-2), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "systemMarker": "review",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review-returned (by tester): Please add a test for the discount.",
+            "createdAt": "<TIME>",
+            "id": "<ID-13>",
+            "systemMarker": "review-returned",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "14 characters"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-discount"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "worker-ARC-0001",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "worker-ARC-0001",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: review before merge"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": null,
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "Human Interaction: review before merge",
+            "note": null,
+            "to": null
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The price drops by the discount",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-build-the-discount",
+          "column": "planned",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "npx vitest run",
+          "id": "<ID-12>",
+          "key": "ARC-0001",
+          "labels": [
+            "auto"
+          ],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Apply it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "planned",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the discount",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 10,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the feedback is a comment of the dispatcher",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/comments"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 5 files changed (+2/-2), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "systemMarker": "review",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review-returned (by tester): Please add a test for the discount.",
+            "createdAt": "<TIME>",
+            "id": "<ID-13>",
+            "systemMarker": "review-returned",
+            "ticketKey": "ARC-0001"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the review stays readable and is returned",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/review"
+    },
+    "response": {
+      "json": {
+        "available": true,
+        "base": "<COMMIT>",
+        "branch": "ticket/ARC-0001-build-the-discount",
+        "files": [
+          {
+            "additions": 0,
+            "binary": false,
+            "deletions": 0,
+            "oldPath": "docs/note.md",
+            "path": "docs/hint.md",
+            "status": "R"
+          },
+          {
+            "additions": 0,
+            "binary": true,
+            "deletions": 0,
+            "path": "logo.bin",
+            "status": "A"
+          },
+          {
+            "additions": 1,
+            "binary": false,
+            "deletions": 0,
+            "path": "src/discount.ts",
+            "status": "A"
+          },
+          {
+            "additions": 0,
+            "binary": false,
+            "deletions": 1,
+            "path": "src/old.ts",
+            "status": "D"
+          },
+          {
+            "additions": 1,
+            "binary": false,
+            "deletions": 1,
+            "path": "src/price.ts",
+            "status": "M"
+          }
+        ],
+        "filesTruncated": false,
+        "reason": null,
+        "runId": "<ID-14>",
+        "state": "returned",
+        "target": "main",
+        "tests": [
+          {
+            "command": "npx vitest run",
+            "ok": true,
+            "output": "Tests 7 passed (7)"
+          },
+          {
+            "command": "npm run lint",
+            "ok": false,
+            "output": "1 problem (1 error, 0 warnings)"
+          }
+        ],
+        "testsAt": "<TIME>",
+        "ticketKey": "ARC-0001"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the next instruction carries the feedback",
+    "request": {
+      "body": {
+        "key": "ARC-1",
+        "kind": "work"
+      },
+      "method": "POST",
+      "path": "/api/v1/dispatcher/prompt-previews"
+    },
+    "response": {
+      "json": {
+        "key": "ARC-0001",
+        "kind": "work",
+        "prompt": "You are worker-ARC-0001, a junior developer agent. Implement ticket ARC-0001 (\"Build the discount\").\n\nEverything you need for this run is in this instruction. You do not have to load the \"board\" skill.\n\nImportant:\n- The ticket is already assigned to you. Do not claim it again and do not touch any other ticket.\n- Read first: nullradix ticket show ARC-0001 (plan, handbook, comments; older agent comments with --all-comments).\n- You work in the current folder (your own worktree) on branch ticket/ARC-0001-build-the-discount. Existing commits come from an\n  earlier run - continue there instead of starting over. Do not push, do not merge, do not switch branches.\n- Never delete or imitate comments that start with \"[dispatch]\" - the dispatcher counts its attempts by them.\n- Do not create links, junctions or symlinks to the main folder or other worktrees (not even for node_modules).\n  If dependencies are missing, install them in the worktree itself (for example npm ci); if that is not possible, use the outcome \"blocked with reason\".\n- Read files with Read and change them with Edit or Write - not through cat/sed/head or node/python scripts.\n  Use Bash/PowerShell only for commands (tests, build, git, nullradix), each with a short description.\n- Always run commands in the foreground (no run_in_background, no Monitor/ScheduleWakeup), long ones with timeout: 1800000.\n  If a command ends up in the background anyway, do not wait for it: restart it in the foreground and wait for the result.\n\nFeedback from the review (work instruction, takes precedence over plan and handbook):\n- Please add a test for the discount.\nA person looked at your implementation and sent it back. Apply the feedback on the same branch, then finish with \"done\" again.\n- Run tests, build and lint with Bash or PowerShell - the results show up in the review before the merge.\n- Check off steps: nullradix step check ARC-0001 <n>\n- Post progress as a comment: nullradix ticket comment ARC-0001 \"...\" --author worker-ARC-0001\n- Anything you notice that does not belong to this ticket becomes a note, not a comment. First read nullradix note list --md:\n  if the finding is already there, nullradix note seen <n> --from ARC-0001; otherwise nullradix note add \"<one sentence on what is broken - without a ticket key>\" --details \"<where, how to see it, cause, proposal>\" --from ARC-0001 --author worker-ARC-0001.\n  Write for someone who does not know this ticket; no \"unrelated to ...\" or \"not caused by me\".\n- End with exactly one of four outcomes:\n  done - everything committed, evidence as a comment, then: nullradix ticket done ARC-0001 --acceptance \"<how to tell it is done>\" --author worker-ARC-0001;\n  Human Interaction - finished, a person still has to look at it: nullradix ticket set ARC-0001 --status blocked --blocked-reason \"Human Interaction: <what>\" --author worker-ARC-0001;\n  question - you need a decision before it makes sense to go on:\n    nullradix question add \"<question>\" --description \"<description>\" --ticket ARC-0001 --author worker-ARC-0001\n    Write title and description by the writing rules below. Then end the run, do not wait - the dispatcher continues once it is decided;\n  blocked with reason - something is missing that is not a decision (access, environment): nullradix ticket set ARC-0001 --status blocked --blocked-reason \"<reason>\" --author worker-ARC-0001.\n- Without one of these outcomes the run counts as aborted and the ticket goes back.\n\nWriting rules for a question. The reader is an outsider: they know neither the ticket nor the code and still must be able to decide in two minutes.\n- One question, one decision. Several related decisions become several questions; the later one refers to the earlier one with --depends <question>.\n- Title: a question with a question mark, at most 80 characters, in the language of the domain, without a ticket number and without class names.\n- Description (Markdown, at most 200 words) in these sections:\n  **What it is about** - 2-3 sentences: what happens today and why that needs a decision;\n  **Today** - up to 4 bullet points, described as behavior;\n  **To decide** - one sentence;\n  **Options** - one line per option: title - most important consequence;\n  **Recommendation** - one sentence with the reason.\n- Spell out abbreviations on first use; class and file names only if nothing is understandable without them.",
+        "sample": false,
+        "standIns": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the same return again changes nothing",
+    "request": {
+      "body": {
+        "feedback": "Please add a test for the discount."
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/review/return"
+    },
+    "response": {
+      "json": {
+        "acceptance": "The price drops by the discount",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": "ticket/ARC-0001-build-the-discount",
+        "column": "planned",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "npx vitest run",
+        "id": "<ID-12>",
+        "key": "ARC-0001",
+        "labels": [
+          "auto"
+        ],
+        "needsPlanning": false,
+        "number": 1,
+        "openQuestions": [],
+        "plan": "Apply it",
+        "plannedAt": "<TIME>",
+        "plannedBy": "tester",
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "planned",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Build the discount",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 10,
+        "waiting": false,
+        "worktree": "<WORK>/arches-worktrees/ARC-0001"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a return with other words is refused",
+    "request": {
+      "body": {
+        "feedback": "And another hint."
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/review/return"
+    },
+    "response": {
+      "json": {
+        "code": "return-not-possible",
+        "detail": "ARC-0001 cannot go back to the agent: it waits for no review (only blocked with \"Human Interaction: ...\" and a branch)",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:return-not-possible"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the ticket after the repeat",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-9>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review: waiting for approval - 5 files changed (+2/-2), tests: 1 green, 1 red.\nAccept it or return it to the agent in the review panel.",
+            "createdAt": "<TIME>",
+            "id": "<ID-10>",
+            "systemMarker": "review",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-8>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] review-returned (by tester): Please add a test for the discount.",
+            "createdAt": "<TIME>",
+            "id": "<ID-13>",
+            "systemMarker": "review-returned",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "14 characters"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-discount"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-11>",
+            "actorName": "worker-ARC-0001",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": "worker-ARC-0001",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-8>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Human Interaction: review before merge"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": null,
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "Human Interaction: review before merge",
+            "note": null,
+            "to": null
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The price drops by the discount",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-build-the-discount",
+          "column": "planned",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "npx vitest run",
+          "id": "<ID-12>",
+          "key": "ARC-0001",
+          "labels": [
+            "auto"
+          ],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Apply it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "planned",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the discount",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 10,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "an accept of a ticket that is planned again",
+    "request": {
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-1/review/accept"
+    },
+    "response": {
+      "json": {
+        "code": "accept-not-possible",
+        "detail": "ARC-0001 waits for no acceptance; only blocked with \"Human Interaction: ...\"",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:accept-not-possible"
+      },
+      "status": 422
+    }
+  }
+]

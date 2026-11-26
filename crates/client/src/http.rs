@@ -15,11 +15,11 @@ use nullradix_api::{
     PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto, ProjectList, PromoteNote,
     PromotedNote, PromptDetail, PromptKindDto, PromptListDto, PromptPreviewDto, QuestionCommentDto,
     QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket, RenameBoard,
-    RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SaveThemeSettings,
-    SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository,
-    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, SubmitResearch,
-    ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList,
-    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
+    RenameProject, RepositoryList, ReturnReview, RunDto, RunList, RunOutput, RunnerList,
+    SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList,
+    SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
+    SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto,
+    TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
     UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
@@ -1170,6 +1170,10 @@ impl Client {
         self.ticket_action(key, "accept", input)
     }
 
+    pub fn return_ticket(&self, key: &str, input: &ReturnReview) -> Result<TicketDto, ClientError> {
+        self.ticket_action(key, "review/return", input)
+    }
+
     pub fn claim_planning(
         &self,
         key: &str,
@@ -1754,6 +1758,7 @@ mod tests {
             questions,
             worktrees,
             reviews,
+            decisions: assembled.decisions,
             notes,
             inbox: inbox_service(&store, &signal),
             runners,

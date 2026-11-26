@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ticketRunsQuery } from '../runs/dispatchQueries';
 import { TicketRuns } from '../runs/TicketRuns';
+import { waitsForReview } from '../review/reason';
 import { TicketReview } from '../review/TicketReview';
 import type { TicketDetail } from '../tickets/queries';
 import { TextTab, type TextField } from './TextTab';
@@ -72,7 +73,14 @@ export function TicketTabs({ detail, actions }: { detail: TicketDetail; actions:
             label: 'Review',
             filled: false,
             // the review reads git, so it loads only while it is shown
-            content: active === 'review' ? <TicketReview ticketKey={ticket.key} /> : null,
+            content:
+              active === 'review' ? (
+                <TicketReview
+                  ticketKey={ticket.key}
+                  version={ticket.version}
+                  waiting={waitsForReview(ticket.status, ticket.blockedReason)}
+                />
+              ) : null,
           },
         ]
       : []),

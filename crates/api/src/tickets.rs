@@ -1172,7 +1172,7 @@ pub(crate) async fn accept_ticket(
     ApiJson(input): ApiJson<AcceptTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
     let view = state
-        .worktrees
+        .decisions
         .accept(
             &path.ticket_key,
             &state.person,

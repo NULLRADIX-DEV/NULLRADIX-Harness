@@ -6,8 +6,8 @@ use anyhow::Context;
 use clap::Subcommand;
 use nullradix_api::{
     AcceptTicket, ClaimTicket, CleanedWorktree, ColumnDto, CreateTicket, FinishTicket,
-    FinishedTicket, MoveTicket, PriorityDto, ReleaseTicket, StartTicket, StartedTicket,
-    TicketDetailDto, TicketDto, UpdateTicket,
+    FinishedTicket, MoveTicket, PriorityDto, ReleaseTicket, ReturnReview, StartTicket,
+    StartedTicket, TicketDetailDto, TicketDto, UpdateTicket,
 };
 use nullradix_client::Client;
 use nullradix_domain::{Priority, TicketKey, TicketStatus, Timestamp};
@@ -115,6 +115,22 @@ pub(crate) enum TicketCommand {
     /// Finish a ticket that waits for a person
     Accept {
         key: String,
+        #[arg(long)]
+        version: Option<i64>,
+    },
+    /// Send a ticket that waits for its review back to the agent
+    Return {
+        key: String,
+        /// What the agent changes next
+        #[arg(
+            long,
+            conflicts_with = "feedback_file",
+            required_unless_present = "feedback_file"
+        )]
+        feedback: Option<String>,
+        /// Read the feedback from this file
+        #[arg(long)]
+        feedback_file: Option<PathBuf>,
         #[arg(long)]
         version: Option<i64>,
     },
@@ -300,6 +316,28 @@ pub(crate) fn text(inline: Option<String>, file: Option<&Path>) -> anyhow::Resul
     }
 }
 
+fn send_back(
+    client: &Client,
+    key: &str,
+    feedback: Option<String>,
+    file: Option<&Path>,
+    version: Option<i64>,
+) -> anyhow::Result<()> {
+    let Some(feedback) = text(feedback, file)? else {
+        anyhow::bail!("give --feedback or --feedback-file");
+    };
+    let input = ReturnReview { feedback, version };
+    report(
+        &client.return_ticket(&canonical(key)?, &input)?,
+        "returned to the agent",
+    );
+    Ok(())
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one arm per ticket command reads best in one place"
+)]
 pub(crate) fn run(
     command: TicketCommand,
     client: &Client,
@@ -397,6 +435,14 @@ pub(crate) fn run(
                 &client.accept_ticket(&canonical(&key)?, &input)?,
                 "accepted",
             );
+        }
+        TicketCommand::Return {
+            key,
+            feedback,
+            feedback_file,
+            version,
+        } => {
+            send_back(client, &key, feedback, feedback_file.as_deref(), version)?;
         }
         TicketCommand::Delete { key, version } => {
             let key = TicketKey::parse(&key)?.to_string();
@@ -842,6 +888,44 @@ mod tests {
     struct Cli {
         #[command(subcommand)]
         command: TicketCommand,
+    }
+
+    #[test]
+    fn accept_and_return_parse_with_their_feedback() {
+        use clap::Parser;
+        let parse = |args: &[&str]| Cli::try_parse_from([&["ticket"], args].concat());
+        assert!(matches!(
+            parse(&["accept", "ARC-1", "--version", "3"])
+                .unwrap()
+                .command,
+            TicketCommand::Accept {
+                version: Some(3),
+                ..
+            }
+        ));
+        let command = parse(&["return", "ARC-1", "--feedback", "add a test"])
+            .unwrap()
+            .command;
+        let TicketCommand::Return {
+            feedback, version, ..
+        } = command
+        else {
+            panic!("not a return");
+        };
+        assert_eq!((feedback.as_deref(), version), (Some("add a test"), None));
+        assert!(parse(&["return", "ARC-1"]).is_err(), "feedback is required");
+        assert!(
+            parse(&[
+                "return",
+                "ARC-1",
+                "--feedback",
+                "x",
+                "--feedback-file",
+                "f.txt"
+            ])
+            .is_err()
+        );
+        assert!(parse(&["return", "ARC-1", "--feedback-file", "f.txt"]).is_ok());
     }
 
     #[test]

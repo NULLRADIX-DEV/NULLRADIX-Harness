@@ -5,13 +5,13 @@ use std::sync::Arc;
 use nullradix_domain::{
     AnsweredQuestion, DispatcherConfig, MergeRun, PlaceholderInfo, PlanRun, PromptKind, PromptRun,
     QuestionState, ResearchRun, TicketKey, Version, WorkRun, default_template, describe,
-    missing_parts, placeholders, render_prompt, required_parts, size_problem, ticket_branch,
-    unknown_placeholders,
+    missing_parts, pending_feedback, placeholders, render_prompt, required_parts, size_problem,
+    ticket_branch, unknown_placeholders,
 };
 
 use crate::dispatcher_config::{ConfigView, DispatcherConfigService};
 use crate::questions::{QuestionFilter, QuestionService};
-use crate::tickets::TicketService;
+use crate::tickets::{TicketDetail, TicketService};
 use crate::{AppError, FieldProblem};
 
 /// Target branch of a merge when the ticket names none.
@@ -21,10 +21,16 @@ const SAMPLE_TICKET: &str = "ARC-0042";
 const SAMPLE_QUESTION: &str = "ARC-Q0007";
 const SAMPLE_TITLE: &str = "Sample ticket: preview of the instruction";
 
-const FEEDBACK_STAND_IN: &str =
-    "(preview) Feedback from a person's review appears here once reviews exist.";
 const ATTEMPTS_STAND_IN: &str =
     "(preview) The report of earlier failed merge sessions appears here once merge sessions exist.";
+
+/// The feedback a person returned the ticket with since the agent started last.
+fn feedback_of(detail: &TicketDetail) -> Vec<String> {
+    pending_feedback(detail.comments.iter().map(|line| {
+        let record = line.comment.record();
+        (record.system_marker, record.body.as_str())
+    }))
+}
 
 /// A prompt kind with its default, its own template and what an editor needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -250,16 +256,12 @@ impl DispatcherPromptService {
     }
 
     /// The instruction of a work run on a ticket that works on `branch`.
-    pub async fn work_prompt(
-        &self,
-        key: &str,
-        branch: &str,
-        feedback: Vec<String>,
-    ) -> Result<String, AppError> {
+    pub async fn work_prompt(&self, key: &str, branch: &str) -> Result<String, AppError> {
         let config = self.config.get().await?.config;
         let detail = self.tickets.get(key).await?;
         let record = detail.view.ticket.record();
         let ticket = record.key.to_string();
+        let feedback = feedback_of(&detail);
         let run = PromptRun::Work(WorkRun {
             agent: config.work_agent(&ticket),
             autopilot: config.autopilot_applies(&record.labels),
@@ -316,6 +318,7 @@ impl DispatcherPromptService {
         let (run, stand_ins) = match kind {
             PromptKind::Work => {
                 let answers = self.answers(&record.key, record.project).await?;
+                let feedback = feedback_of(&detail);
                 let run = WorkRun {
                     agent: config.work_agent(&ticket),
                     autopilot: config.autopilot_applies(&record.labels),
@@ -323,9 +326,9 @@ impl DispatcherPromptService {
                     title,
                     branch,
                     answers,
-                    feedback: vec![FEEDBACK_STAND_IN.to_owned()],
+                    feedback,
                 };
-                (PromptRun::Work(run), vec!["feedback"])
+                (PromptRun::Work(run), Vec::new())
             }
             PromptKind::Plan => (
                 PromptRun::Plan(PlanRun {

@@ -372,7 +372,7 @@ async fn a_work_preview_for_a_ticket_uses_its_facts() {
         .unwrap();
     assert!(!preview.sample);
     assert_eq!(preview.key.as_deref(), Some(key.as_str()));
-    assert_eq!(preview.stand_ins, ["feedback"]);
+    assert_eq!(preview.stand_ins, Vec::<&str>::new());
     let text = preview.prompt;
     assert!(text.contains(&format!("You are worker-{key}, a junior developer agent.")));
     assert!(text.contains("branch ticket/ARC-0001-fix-the-login"));
@@ -381,7 +381,7 @@ async fn a_work_preview_for_a_ticket_uses_its_facts() {
     )));
     assert!(text.contains("(.$ npm ci)"));
     assert!(text.contains("Human Interaction: <what>"));
-    assert!(text.contains("(preview) Feedback from a person's review"));
+    assert!(!text.contains("Feedback from the review"));
     assert!(text.ends_with("\n\nHouse rule: no any."));
 }
 

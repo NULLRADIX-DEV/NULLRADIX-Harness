@@ -17,6 +17,7 @@ use super::log::{DispatchLog, DispatcherLogRepository};
 use super::pass::{DispatchPass, PassPhase};
 use super::pauses::{DispatchPauses, PauseParts};
 use super::research::{ResearchOrphans, ResearchParts, ResearchRuns, StartResearch};
+use super::review_decide::{DecisionParts, ReviewDecisions};
 use super::review_gate::ReviewGate;
 use super::runs::DispatchRuns;
 use super::setup::WorktreeSetupPort;
@@ -80,6 +81,8 @@ pub struct Dispatcher {
     /// Settles finished runs; the pause hook of a later slice is set here.
     pub evaluate: Arc<EvaluateRuns>,
     pub research: Arc<ResearchRuns>,
+    /// Accept and return of a held review, serialized with the pass.
+    pub decisions: Arc<ReviewDecisions>,
 }
 
 impl std::fmt::Debug for Dispatcher {
@@ -134,7 +137,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         candidates: candidates.clone(),
         tickets: deps.tickets.clone(),
         comments: deps.comments.clone(),
-        worktrees: deps.worktrees,
+        worktrees: deps.worktrees.clone(),
         runners: deps.runners.clone(),
         runs: deps.runs.clone(),
         dispatch: deps.dispatch.clone(),
@@ -189,7 +192,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         .with_notifier(deps.notifier.clone())
         .with_gate(Arc::new(
             ReviewGate::new(
-                deps.reviews,
+                deps.reviews.clone(),
                 deps.tickets.clone(),
                 deps.comments.clone(),
                 deps.runs.clone(),
@@ -221,7 +224,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
     pass.set_step(
         PassPhase::ReleaseStale,
         Arc::new(ReleaseStale::new(
-            deps.tickets,
+            deps.tickets.clone(),
             aborts.clone(),
             deps.runs.clone(),
             starter.clone(),
@@ -239,6 +242,15 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         PassPhase::StartResearch,
         Arc::new(StartResearch(research.clone())),
     );
+    let decisions = Arc::new(ReviewDecisions::new(DecisionParts {
+        pass: pass.clone(),
+        tickets: deps.tickets.clone(),
+        comments: deps.comments.clone(),
+        worktrees: deps.worktrees,
+        reviews: deps.reviews,
+        runs: deps.runs.clone(),
+        starter: starter.clone(),
+    }));
     let service = Arc::new(DispatcherService::new(ControlParts {
         research: research.clone(),
         config: deps.config,
@@ -261,5 +273,6 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         pauses,
         evaluate,
         research,
+        decisions,
     }
 }

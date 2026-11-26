@@ -2,7 +2,7 @@
 
 use strum::{EnumString, IntoStaticStr};
 
-use crate::{Actor, HUMAN_INTERACTION, Id, Run, Timestamp, Version, Worktree};
+use crate::{Actor, HUMAN_INTERACTION, Id, Run, SystemMarker, Timestamp, Version, Worktree};
 
 /// Block reason of a ticket that waits for a review before the merge.
 pub const REVIEW_REASON: &str = "review before merge";
@@ -12,6 +12,17 @@ pub const REVIEW_REASON: &str = "review before merge";
 pub fn review_reason() -> String {
     format!("{HUMAN_INTERACTION} {REVIEW_REASON}")
 }
+
+/// Whether the block reason is the one of a ticket that waits for its review.
+#[must_use]
+pub fn waits_for_review(reason: Option<&str>) -> bool {
+    reason.map(str::trim) == Some(review_reason().as_str())
+}
+
+/// Most UTF-16 units of the feedback a person returns a ticket with.
+pub const REVIEW_FEEDBACK_MAX: usize = 10_000;
+/// Start of the comment that notes a return to the agent.
+pub const REVIEW_RETURNED_PREFIX: &str = "[dispatch] review-returned";
 
 /// Most test runs a review keeps.
 pub const REVIEW_TESTS_MAX: usize = 50;
@@ -142,9 +153,88 @@ pub fn change_summary(files: usize, additions: u64, deletions: u64) -> String {
     format!("{files} {word} changed (+{additions}/-{deletions})")
 }
 
+/// The comment that notes a ticket went back to the agent, written by `by`.
+#[must_use]
+pub fn returned_comment(by: &str, feedback: &str) -> String {
+    format!("{REVIEW_RETURNED_PREFIX} (by {by}): {feedback}")
+}
+
+/// The feedback of a return comment: the text after the author; a legacy text stays whole.
+fn returned_text(body: &str) -> Option<&str> {
+    let rest = body.strip_prefix(REVIEW_RETURNED_PREFIX)?.trim_start();
+    let text = match rest
+        .strip_prefix("(by ")
+        .and_then(|inner| inner.split_once("): "))
+    {
+        Some((_, text)) => text,
+        None => rest.strip_prefix(':').unwrap_or(rest),
+    };
+    let text = text.trim();
+    (!text.is_empty()).then_some(text)
+}
+
+/// The feedback returned since the last start of the agent, oldest first.
+#[must_use]
+pub fn pending_feedback<'a>(
+    comments: impl IntoIterator<Item = (Option<SystemMarker>, &'a str)>,
+) -> Vec<String> {
+    let mut feedback = Vec::new();
+    for (marker, body) in comments {
+        match marker {
+            Some(SystemMarker::Start) => feedback.clear(),
+            Some(SystemMarker::ReviewReturned) => {
+                feedback.extend(returned_text(body).map(str::to_owned));
+            }
+            _ => {}
+        }
+    }
+    feedback
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feedback_counts_from_the_last_start_and_only_with_the_marker() {
+        let old = returned_comment("Anna", "old");
+        let first = returned_comment("Anna", "add a test\nfor the error case");
+        let second = returned_comment("Ben", "rename it");
+        let forged = returned_comment("Eve", "no marker");
+        let comments = [
+            (Some(SystemMarker::Start), "[dispatch] start: x"),
+            (Some(SystemMarker::ReviewReturned), old.as_str()),
+            (Some(SystemMarker::Start), "[dispatch] start: y"),
+            (Some(SystemMarker::Review), "[dispatch] review: waiting"),
+            (Some(SystemMarker::ReviewReturned), first.as_str()),
+            (None, forged.as_str()),
+            (Some(SystemMarker::ReviewReturned), second.as_str()),
+            (
+                Some(SystemMarker::ReviewReturned),
+                "[dispatch] review-returned (by X):  ",
+            ),
+        ];
+        assert_eq!(
+            pending_feedback(comments),
+            ["add a test\nfor the error case", "rename it"]
+        );
+        assert_eq!(pending_feedback([]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_feedback_of_a_name_with_brackets_and_of_a_legacy_text_is_kept() {
+        let named = returned_comment("Anna (QA)", "fix: it");
+        assert_eq!(returned_text(&named), Some("fix: it"));
+        let legacy = format!("{REVIEW_RETURNED_PREFIX} (see below)");
+        assert_eq!(returned_text(&legacy), Some("(see below)"));
+    }
+
+    #[test]
+    fn only_the_review_reason_waits_for_the_review() {
+        assert!(waits_for_review(Some(&format!(" {} ", review_reason()))));
+        assert!(!waits_for_review(Some("Human Interaction: other")));
+        assert!(!waits_for_review(None));
+    }
 
     fn test(ok: Option<bool>) -> TestRun {
         TestRun {
