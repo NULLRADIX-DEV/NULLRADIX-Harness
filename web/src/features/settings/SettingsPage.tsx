@@ -5,6 +5,7 @@ import { DispatcherSection } from '../dispatcher/DispatcherSection';
 import { ProjectsSection } from '../projects/ProjectsSection';
 import { CustomizationsSection } from '../customizations/CustomizationsSection';
 import { ThemeSettingsPanel } from '../themes/ThemeSettingsPanel';
+import { CatalogSection } from '../themes/CatalogSection';
 import { ThemesSection } from '../themes/ThemesSection';
 
 export function SettingsPage() {
@@ -39,6 +40,7 @@ export function SettingsPage() {
         </label>
       </section>
       <ThemesSection />
+      <CatalogSection />
       <ThemeSettingsPanel />
       <CustomizationsSection />
     </div>
