@@ -107,14 +107,8 @@ impl TestRuns {
                 if self.runs.len() == REVIEW_TESTS_MAX {
                     self.runs.remove(0);
                 }
-                self.runs.push((
-                    id.to_owned(),
-                    TestRun {
-                        command,
-                        ok: None,
-                        output: String::new(),
-                    },
-                ));
+                self.runs
+                    .push((id.to_owned(), TestRun::new(&command, None, String::new())));
             }
         } else if kind == Some("tool_result") {
             let Some(id) = block.get("tool_use_id").and_then(Value::as_str) else {
@@ -301,6 +295,25 @@ mod tests {
             extract(&[call("a", "npm test", "Bash")]),
             vec![run("npm test", None, "")]
         );
+    }
+
+    #[test]
+    fn keeps_the_start_of_a_command_just_over_the_limit() {
+        let command = format!(
+            "cargo test {}",
+            "x".repeat(nullradix_domain::REVIEW_COMMAND_MAX - 10)
+        );
+        assert_eq!(
+            command.chars().count(),
+            nullradix_domain::REVIEW_COMMAND_MAX + 1
+        );
+        let runs = extract(&[call("a", &command, "Bash")]);
+        assert_eq!(
+            runs[0].command.chars().count(),
+            nullradix_domain::REVIEW_COMMAND_MAX
+        );
+        assert!(runs[0].command.starts_with("cargo test xxx"));
+        assert!(runs[0].command.ends_with('\u{2026}'));
     }
 
     #[test]

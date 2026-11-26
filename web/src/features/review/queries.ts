@@ -2,7 +2,6 @@ import { queryOptions } from '@tanstack/react-query';
 import { api, type components } from '../../shared/api/client';
 import { unwrap } from '../../shared/api/errors';
 import type { ChangeRegistry } from '../../shared/live/registry';
-import { ticketKeys } from '../tickets/queries';
 
 export type Review = components['schemas']['ReviewDto'];
 export type ReviewFile = components['schemas']['ReviewFileDto'];
@@ -10,9 +9,9 @@ export type ReviewPatch = components['schemas']['ReviewPatchDto'];
 export type ReviewFileContent = components['schemas']['ReviewFileContentDto'];
 export type TestRun = components['schemas']['TestRunDto'];
 
-// Below the ticket keys, so every change of a ticket reloads its review as well.
+// Apart from the ticket keys, so a change of any ticket does not reload patches and files.
 export const reviewKeys = {
-  all: [...ticketKeys.all, 'review'] as const,
+  all: ['review'] as const,
   of: (ticketKey: string) => [...reviewKeys.all, ticketKey] as const,
   patch: (ticketKey: string, path: string) => [...reviewKeys.of(ticketKey), 'patch', path] as const,
   file: (ticketKey: string, path: string) => [...reviewKeys.of(ticketKey), 'file', path] as const,

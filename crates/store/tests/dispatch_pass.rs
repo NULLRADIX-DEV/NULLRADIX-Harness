@@ -4031,6 +4031,30 @@ async fn a_pass_that_stopped_after_the_review_was_written_finishes_the_hold_once
 }
 
 #[tokio::test]
+async fn a_held_run_with_its_comment_is_not_blocked_again_after_a_person_accepted() {
+    let f = fixture().await;
+    f.review_on().await;
+    let (key, run) = f.finished_with_tests().await;
+    f.earlier_review(&key, run, START - 1).await;
+    let ticket = f.record(&key).await;
+    f.comments
+        .add_system(
+            &ticket.key,
+            "[dispatch] review: waiting for approval",
+            Some(SystemMarker::Review),
+            Some(run),
+            &f.person,
+        )
+        .await
+        .unwrap();
+    // the ticket is done: a person accepted it before the pass settled the run
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Review));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(f.markers(&key, SystemMarker::Review).await, 1);
+}
+
+#[tokio::test]
 async fn a_pass_that_stopped_after_blocking_the_ticket_settles_the_run_as_held() {
     let f = fixture().await;
     f.review_on().await;

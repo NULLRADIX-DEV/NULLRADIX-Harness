@@ -113,7 +113,16 @@ impl ReviewGate {
         Ok(tests.finish())
     }
 
-    /// Comments that the ticket waits for approval, unless the comment of this run is there.
+    /// Whether the comment of this run, that the ticket waits for approval, is there.
+    async fn commented(&self, ticket: &TicketRecord, run: &Run) -> Result<bool, AppError> {
+        let detail = self.tickets.get(&ticket.key.to_string()).await?;
+        Ok(detail.comments.iter().any(|line| {
+            let record = line.comment.record();
+            record.system_marker == Some(SystemMarker::Review) && record.run == Some(run.id())
+        }))
+    }
+
+    /// Comments that the ticket waits for approval.
     async fn comment(
         &self,
         ticket: &TicketRecord,
@@ -121,15 +130,6 @@ impl ReviewGate {
         tests: &[TestRun],
         changes: &str,
     ) -> Result<(), AppError> {
-        let key = ticket.key.to_string();
-        let detail = self.tickets.get(&key).await?;
-        let posted = detail.comments.iter().any(|line| {
-            let record = line.comment.record();
-            record.system_marker == Some(SystemMarker::Review) && record.run == Some(run.id())
-        });
-        if posted {
-            return Ok(());
-        }
         let body = format!(
             "[dispatch] review: waiting for approval - {changes}, tests: {}.\nAccept it or return it to the agent in the review panel.",
             test_summary(tests)
@@ -200,8 +200,13 @@ impl DoneGate for ReviewGate {
             return Ok(DispatchOutcome::Done);
         }
         let tests = self.tests_of(run).await?;
-        if self.review.hold(ticket, run.id(), &tests).await? == Held::NoWorktree {
-            return Ok(DispatchOutcome::Done);
+        match self.review.hold(ticket, run.id(), &tests).await? {
+            Held::NoWorktree | Held::NoBranch => return Ok(DispatchOutcome::Done),
+            // held and commented: a person may have accepted it since, so it is not blocked again
+            Held::Already if self.commented(ticket, run).await? => {
+                return Ok(DispatchOutcome::Review);
+            }
+            Held::New | Held::Already => {}
         }
         let changes = self.review.summary(ticket).await?;
         self.comment(ticket, run, &tests, &changes).await?;

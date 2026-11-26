@@ -99,8 +99,8 @@ pub use repository::{
     RunnerName, RunnerOs, RunnerRecord,
 };
 pub use review::{
-    REVIEW_REASON, REVIEW_TESTS_MAX, Review, ReviewRecord, ReviewState, TestRun, change_summary,
-    review_reason, test_summary,
+    REVIEW_COMMAND_MAX, REVIEW_REASON, REVIEW_TESTS_MAX, Review, ReviewRecord, ReviewState,
+    TestRun, change_summary, review_reason, test_summary,
 };
 pub use run::{Run, RunEnd, RunError, RunLabel, RunOutcome, RunRecord, RunStatus};
 pub use session::{

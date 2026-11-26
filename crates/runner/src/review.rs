@@ -32,7 +32,12 @@ struct Capped {
 async fn capped(cwd: &Path, args: &[&str], cap: usize) -> Result<Capped, AppError> {
     let mut command = tokio::process::Command::new("git");
     command
-        .args(["--no-optional-locks", "-c", "core.quotepath=false"])
+        .args([
+            "--no-optional-locks",
+            "--literal-pathspecs",
+            "-c",
+            "core.quotepath=false",
+        ])
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::null())
@@ -126,34 +131,59 @@ async fn base_of(root: &Path, target: Option<&str>) -> Result<Base, AppError> {
     }
 }
 
-struct Listed {
-    changes: BranchChanges,
+/// What the branch is compared by: the range, the base and where they meet.
+struct Compared {
     range: String,
+    base: Base,
+    merge_base: String,
 }
 
-async fn list(request: &ReviewRequest) -> Result<Listed, AppError> {
+async fn compare(request: &ReviewRequest) -> Result<Compared, AppError> {
     let root = Path::new(&request.root);
     let branch = branch_ref(root, &request.branch).await?;
     let base = base_of(root, request.target.as_deref()).await?;
     let merge_base = git(root, &["merge-base", &base.reference, &branch]).await?;
     let range = format!("{}...{branch}", base.reference);
-    let diff = ["diff", "-M", "--no-ext-diff", "--no-textconv", "-z"];
+    Ok(Compared {
+        range,
+        base,
+        merge_base,
+    })
+}
+
+const DIFF: [&str; 5] = ["diff", "-M", "--no-ext-diff", "--no-textconv", "-z"];
+
+async fn list(request: &ReviewRequest, max_files: usize) -> Result<BranchChanges, AppError> {
+    let root = Path::new(&request.root);
+    let Compared {
+        range,
+        base,
+        merge_base,
+    } = compare(request).await?;
     let counted = capped(
         root,
-        &[&diff[..], &["--numstat", range.as_str()]].concat(),
+        &[&DIFF[..], &["--numstat", range.as_str(), "--"]].concat(),
         MAX_LIST_BYTES,
     )
     .await?;
     let named = capped(
         root,
-        &[&diff[..], &["--name-status", range.as_str()]].concat(),
+        &[&DIFF[..], &["--name-status", range.as_str(), "--"]].concat(),
         MAX_LIST_BYTES,
     )
     .await?;
-    let lines = numstat_of(&String::from_utf8_lossy(&counted.bytes));
-    let mut entries = name_status_of(&String::from_utf8_lossy(&named.bytes));
-    let truncated = named.cut || entries.len() > MAX_REVIEW_FILES;
-    entries.truncate(MAX_REVIEW_FILES);
+    let cut = named.cut;
+    // the lists are large, so parsing them stays off the async runtime
+    let (lines, mut entries) = tokio::task::spawn_blocking(move || {
+        (
+            numstat_of(&String::from_utf8_lossy(&counted.bytes)),
+            name_status_of(&String::from_utf8_lossy(&named.bytes)),
+        )
+    })
+    .await
+    .map_err(AppError::internal)?;
+    let truncated = cut || entries.len() > max_files;
+    entries.truncate(max_files);
     let files = entries
         .into_iter()
         .map(|entry| {
@@ -175,31 +205,54 @@ async fn list(request: &ReviewRequest) -> Result<Listed, AppError> {
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| String::from("HEAD")),
     };
-    Ok(Listed {
-        changes: BranchChanges {
-            target,
-            base: merge_base,
-            files,
-            truncated,
-        },
-        range,
+    Ok(BranchChanges {
+        target,
+        base: merge_base,
+        files,
+        truncated,
     })
 }
 
 /// The files the branch changed against its target.
 pub(crate) async fn changes(request: &ReviewRequest) -> Result<BranchChanges, AppError> {
-    Ok(list(request).await?.changes)
+    list(request, MAX_REVIEW_FILES).await
 }
 
-/// The patch of one file of the changes; a path outside the list is refused.
+/// The status of one path of the changes, with the earlier path of a rename; none if unchanged.
+async fn entry_of(root: &Path, range: &str, path: &str) -> Result<Option<StatusEntry>, AppError> {
+    let one = capped(
+        root,
+        &[&DIFF[..], &["--name-status", range, "--", path]].concat(),
+        MAX_LIST_BYTES,
+    )
+    .await?;
+    let found = name_status_of(&String::from_utf8_lossy(&one.bytes))
+        .into_iter()
+        .find(|entry| entry.path == path);
+    // limited to its own path a rename shows as an added file, so only then are all names read
+    if found.as_ref().is_some_and(|entry| entry.status == "A") {
+        let all = capped(
+            root,
+            &[&DIFF[..], &["--name-status", range, "--"]].concat(),
+            MAX_LIST_BYTES,
+        )
+        .await?;
+        let renamed = name_status_of(&String::from_utf8_lossy(&all.bytes))
+            .into_iter()
+            .find(|entry| entry.path == path);
+        return Ok(renamed.or(found));
+    }
+    Ok(found)
+}
+
+/// The patch of one file of the changes; a path outside the changes is refused.
 pub(crate) async fn patch(request: &ReviewRequest, path: &str) -> Result<FilePatch, AppError> {
     check_review_path(path, &request.branch)?;
-    let listed = list(request).await?;
-    let entry = listed
-        .changes
-        .files
-        .iter()
-        .find(|file| file.path == path)
+    let root = Path::new(&request.root);
+    let compared = compare(request).await?;
+    let range = compared.range.as_str();
+    let entry = entry_of(root, range, path)
+        .await?
         .ok_or_else(|| review_file_unknown(path, &request.branch))?;
     let mut args = vec![
         "diff",
@@ -207,14 +260,14 @@ pub(crate) async fn patch(request: &ReviewRequest, path: &str) -> Result<FilePat
         "--no-ext-diff",
         "--no-textconv",
         "--no-color",
-        listed.range.as_str(),
+        range,
         "--",
     ];
     if let Some(old) = &entry.old_path {
         args.push(old);
     }
     args.push(&entry.path);
-    let read = capped(Path::new(&request.root), &args, MAX_PATCH_BYTES).await?;
+    let read = capped(root, &args, MAX_PATCH_BYTES).await?;
     Ok(FilePatch {
         patch: utf8_prefix(&read.bytes),
         truncated: read.cut,
@@ -364,6 +417,8 @@ mod tests {
     use std::process::Command;
 
     use super::*;
+
+    const CAP: usize = 3;
 
     fn git_in(dir: &Path, args: &[&str]) -> String {
         let output = Command::new("git")
@@ -532,7 +587,7 @@ mod tests {
     async fn lists_no_more_files_than_the_limit_and_says_so() {
         let (_dir, root) = repository();
         git_in(&root, &["checkout", "-q", "ticket/x"]);
-        let names: Vec<String> = (0..MAX_REVIEW_FILES)
+        let names: Vec<String> = (0..=CAP + 2)
             .map(|number| format!("many/f{number}.txt"))
             .collect();
         let files: Vec<(&str, &[u8])> = names
@@ -541,9 +596,11 @@ mod tests {
             .collect();
         commit(&root, &files, "many");
         git_in(&root, &["checkout", "-q", "main"]);
-        let changes = changes(&request(&root, None)).await.unwrap();
-        assert!(changes.truncated);
-        assert_eq!(changes.files.len(), MAX_REVIEW_FILES);
+        let listed = list(&request(&root, None), CAP).await.unwrap();
+        assert!(listed.truncated);
+        assert_eq!(listed.files.len(), CAP);
+        let all = list(&request(&root, None), MAX_REVIEW_FILES).await.unwrap();
+        assert!(!all.truncated);
     }
 
     #[tokio::test]
@@ -553,6 +610,38 @@ mod tests {
         assert!(moved.patch.contains("rename to moved.txt"));
         let image = patch(&request(&root, None), "image.bin").await.unwrap();
         assert!(image.patch.contains("Binary files"));
+    }
+
+    fn blob(root: &Path, text: &str) -> String {
+        let mut child = Command::new("git")
+            .args(["hash-object", "-w", "--stdin"])
+            .current_dir(root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(&mut child.stdin.take().unwrap(), text.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[tokio::test]
+    async fn a_path_with_glob_characters_names_only_that_file() {
+        let (_dir, root) = repository();
+        let star = blob(&root, "star\n");
+        let plain = blob(&root, "plain\n");
+        git_in(&root, &["checkout", "-q", "ticket/x"]);
+        // plumbing, as a file named with a star or question mark cannot be written on every system
+        for (name, id) in [("[ab].txt", &star), ("a.txt", &plain)] {
+            let entry = format!("100644,{id},{name}");
+            git_in(&root, &["update-index", "--add", "--cacheinfo", &entry]);
+        }
+        git_in(&root, &["commit", "-q", "-m", "glob"]);
+        git_in(&root, &["checkout", "-q", "main"]);
+        let patch = patch(&request(&root, None), "[ab].txt").await.unwrap();
+        assert!(patch.patch.contains("+star"));
+        assert!(!patch.patch.contains("+plain"));
+        assert!(!patch.patch.contains("old.txt"));
     }
 
     #[tokio::test]

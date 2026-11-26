@@ -15,6 +15,8 @@ pub fn review_reason() -> String {
 
 /// Most test runs a review keeps.
 pub const REVIEW_TESTS_MAX: usize = 50;
+/// Most characters of a test command a review keeps; a longer one ends in an ellipsis.
+pub const REVIEW_COMMAND_MAX: usize = 2000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoStaticStr, EnumString)]
 #[strum(serialize_all = "snake_case")]
@@ -38,6 +40,25 @@ pub struct TestRun {
     /// `None` when the call has no result.
     pub ok: Option<bool>,
     pub output: String,
+}
+
+impl TestRun {
+    /// A test run whose command is cut to [`REVIEW_COMMAND_MAX`] characters.
+    #[must_use]
+    pub fn new(command: &str, ok: Option<bool>, output: String) -> Self {
+        let command = if command.chars().count() > REVIEW_COMMAND_MAX {
+            let mut cut: String = command.chars().take(REVIEW_COMMAND_MAX - 1).collect();
+            cut.push('\u{2026}');
+            cut
+        } else {
+            command.to_owned()
+        };
+        Self {
+            command,
+            ok,
+            output,
+        }
+    }
 }
 
 /// Every stored field of a review, for persistence adapters.
@@ -131,6 +152,15 @@ mod tests {
             ok,
             output: String::new(),
         }
+    }
+
+    #[test]
+    fn a_command_over_the_limit_is_cut_with_a_mark() {
+        let exact = "c".repeat(REVIEW_COMMAND_MAX);
+        assert_eq!(TestRun::new(&exact, None, String::new()).command, exact);
+        let cut = TestRun::new(&format!("{exact}x"), None, String::new()).command;
+        assert_eq!(cut.chars().count(), REVIEW_COMMAND_MAX);
+        assert!(cut.starts_with("ccc") && cut.ends_with('\u{2026}'));
     }
 
     #[test]

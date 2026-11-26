@@ -175,6 +175,8 @@ pub enum Held {
     Already,
     /// The ticket has no worktree to review.
     NoWorktree,
+    /// The ticket has no branch to review.
+    NoBranch,
 }
 
 /// Where the branch of a ticket is read.
@@ -401,13 +403,12 @@ impl ReviewService {
         run: Id<Run>,
         tests: &[TestRun],
     ) -> Result<Held, AppError> {
+        let Some(branch) = ticket.branch.clone() else {
+            return Ok(Held::NoBranch);
+        };
         let Some(entry) = self.worktrees.of_ticket(ticket.id).await? else {
             return Ok(Held::NoWorktree);
         };
-        let branch = ticket
-            .branch
-            .clone()
-            .unwrap_or_else(|| entry.worktree.record().branch.as_str().to_owned());
         let review = Review::pending(
             self.ids.as_ref().next(),
             entry.worktree.id(),
