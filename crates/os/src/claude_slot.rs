@@ -235,10 +235,12 @@ fn apply_with(
     }
     let before = fs::read(slot.join(MARKER_FILE)).ok();
     let wanted_lower: BTreeSet<String> = wanted.iter().map(|path| path.to_lowercase()).collect();
-    // a case-only rename is the same file on a case-insensitive disk
-    let leftover: Vec<&String> = old
-        .difference(&wanted)
-        .filter(|path| !wanted_lower.contains(&path.to_lowercase()))
+    let leftover: Vec<&String> = old.difference(&wanted).collect();
+    // a case-only rename is the same file on a case-insensitive disk, so only its own entry goes
+    let renamed: BTreeSet<&String> = leftover
+        .iter()
+        .copied()
+        .filter(|path| wanted_lower.contains(&path.to_lowercase()))
         .collect();
     let changes = before.as_deref() != Some(marker.as_slice())
         || !leftover.is_empty()
@@ -256,6 +258,9 @@ fn apply_with(
         }
     }
     for stale in leftover {
+        if renamed.contains(stale) && !has_second_spelling(&slot, stale) {
+            continue;
+        }
         if remove_file(&slot, stale)? {
             applied.removed += 1;
         }
@@ -484,6 +489,22 @@ fn write_if_changed(
     }
     write(&target, data)?;
     Ok(true)
+}
+
+/// Whether a case-only rename left a second file: a case-insensitive disk shows only one.
+fn has_second_spelling(slot: &Path, relative: &str) -> bool {
+    let path = slot.join(relative);
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return false;
+    };
+    let lower = name.to_string_lossy().to_lowercase();
+    fs::read_dir(parent).is_ok_and(|entries| {
+        entries
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().to_lowercase() == lower)
+            .count()
+            > 1
+    })
 }
 
 /// Removes a file or link of the slot, without following links, and the folders it leaves empty.
@@ -953,6 +974,9 @@ mod tests {
             .collect();
         assert!(names.contains(&String::from("extra.ts")), "{names:?}");
         assert!(fs::read_to_string(slot.join("extra.ts")).is_ok_and(|text| text == "a"));
+        // a case-sensitive disk must not keep the old spelling behind
+        assert!(clear(config.path()).unwrap());
+        assert!(!slot.exists());
     }
 
     #[test]
