@@ -15,10 +15,15 @@ pub(crate) enum Launch {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum LaunchError {
-    #[error("claude-not-found: {0} does not exist")]
+    #[error("{}", not_found(.0))]
     NotFound(String),
     #[error("claude-arg-unsafe: an argument contains a character cmd would interpret")]
     UnsafeArgument,
+}
+
+/// The one message for a Claude program that cannot be found, the same on every system.
+pub(crate) fn not_found(program: &str) -> String {
+    format!("claude-not-found: {program} does not exist")
 }
 
 fn has_separator(program: &str) -> bool {
@@ -186,6 +191,18 @@ mod tests {
         let (found, launch) = plan("claude", &[], "C:\\npm;C:\\bin", &exists).unwrap();
         assert_eq!(found, "C:\\npm\\claude.cmd");
         assert!(matches!(launch, Launch::Batch(_)));
+    }
+
+    #[test]
+    fn the_missing_program_message_names_the_program() {
+        assert_eq!(
+            not_found("claude"),
+            "claude-not-found: claude does not exist"
+        );
+        assert_eq!(
+            LaunchError::NotFound(String::from("claude")).to_string(),
+            not_found("claude")
+        );
     }
 
     #[test]
