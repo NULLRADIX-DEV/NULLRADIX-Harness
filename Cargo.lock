@@ -1329,6 +1329,7 @@ dependencies = [
  "nullradix-app",
  "nullradix-domain",
  "nullradix-os",
+ "parking_lot 0.13.0",
  "regex",
  "serde",
  "serde_json",
@@ -1336,6 +1337,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tracing",
  "uuid",
 ]
 

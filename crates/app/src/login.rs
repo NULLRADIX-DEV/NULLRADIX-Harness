@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -154,6 +155,8 @@ struct Login {
     task: Option<tokio::task::JoinHandle<()>>,
     /// Turns true once the process is over and its output is read.
     ended: Option<watch::Receiver<bool>>,
+    /// Turns true as soon as the process itself has exited, before its output is settled.
+    exited: Arc<AtomicBool>,
 }
 
 impl Login {
@@ -271,6 +274,7 @@ impl LoginService {
                         kill: None,
                         task: None,
                         ended: None,
+                        exited: Arc::new(AtomicBool::new(true)),
                     },
                 );
                 return Ok(shown);
@@ -279,7 +283,9 @@ impl LoginService {
         let kill: Arc<dyn Fn() + Send + Sync> = Arc::from(process.kill);
         let input = process.input.clone();
         let (finish, ended) = watch::channel(false);
+        let exited = Arc::new(AtomicBool::new(false));
         let watcher = Watch {
+            exited: Arc::clone(&exited),
             finish,
             service: Arc::clone(self),
             status: Arc::clone(&status),
@@ -297,6 +303,7 @@ impl LoginService {
                 kill: Some(kill),
                 task: Some(task),
                 ended: Some(ended),
+                exited,
             },
         );
         Ok(shown)
@@ -354,7 +361,14 @@ impl LoginService {
                 if let Some(kill) = &login.kill {
                     kill();
                 }
-                ended.clone_from(&login.ended);
+                // an exited process holds no files; its follow-up may wait on the caller
+                let exited = login.exited.load(Ordering::SeqCst);
+                if !exited {
+                    ended.clone_from(&login.ended);
+                }
+                if exited && let Some(task) = login.task.take() {
+                    task.abort();
+                }
             }
             if abort && let Some(task) = login.task.take() {
                 task.abort();
@@ -405,6 +419,7 @@ impl RemovalHook for LoginService {
 
 /// Follows one running login: collects its output, watches the clock and settles the outcome.
 struct Watch {
+    exited: Arc<AtomicBool>,
     service: Arc<LoginService>,
     status: Arc<Mutex<LoginStatus>>,
     account: Account,
@@ -452,6 +467,7 @@ impl Watch {
                 return;
             }
         };
+        self.exited.store(true, Ordering::SeqCst);
         // the readers may still hold the last lines when the process has ended
         let rest = async {
             while let Some(chunk) = output.recv().await {

@@ -18,6 +18,7 @@ struct Folders {
     existing: Mutex<Vec<String>>,
     removed: Mutex<Vec<String>>,
     fail_remove: std::sync::atomic::AtomicBool,
+    fail_once: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -62,6 +63,12 @@ impl AccountFolders for Folders {
     }
 
     async fn remove(&self, dir: &ConfigDir) -> Result<(), AppError> {
+        if self
+            .fail_once
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(AppError::internal(std::io::Error::other("a new file")));
+        }
         if self.fail_remove.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(AppError::internal(std::io::Error::other(
                 "files are in use",
@@ -735,6 +742,72 @@ async fn a_folder_that_cannot_be_deleted_keeps_the_account() {
         .await
         .unwrap();
     assert_eq!(*f.folders.removed.lock().unwrap(), ["/accounts/max"]);
+}
+
+#[tokio::test]
+async fn a_folder_that_gains_a_file_during_removal_goes_on_the_second_try() {
+    let f = fixture().await;
+    let max = f.add("Max").await;
+    f.folders
+        .fail_once
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    f.accounts
+        .remove(max.id(), max.version(), true)
+        .await
+        .unwrap();
+    assert_eq!(*f.folders.removed.lock().unwrap(), ["/accounts/max"]);
+}
+
+/// Records when a folder is held and released around its removal.
+struct Renewer {
+    events: Arc<Mutex<Vec<&'static str>>>,
+}
+
+struct Release(Arc<Mutex<Vec<&'static str>>>);
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        self.0.lock().unwrap().push("released");
+    }
+}
+
+#[async_trait]
+impl nullradix_app::usage::LoginRenewal for Renewer {
+    async fn renew(&self, _dir: Option<&ConfigDir>) -> nullradix_app::usage::Renewal {
+        nullradix_app::usage::Renewal::Failed
+    }
+
+    async fn hold(&self, _dir: Option<&ConfigDir>) -> Box<dyn Send> {
+        self.events.lock().unwrap().push("held");
+        Box::new(Release(self.events.clone()))
+    }
+}
+
+#[tokio::test]
+async fn a_removal_holds_the_login_renewal_of_the_folder_until_it_is_done() {
+    let f = fixture().await;
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let accounts = AccountService::new(
+        f.store.clone(),
+        f.secrets.clone(),
+        f.folders.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        ChangeSignal::new(),
+    )
+    .with_renewal(Arc::new(Renewer {
+        events: events.clone(),
+    }));
+    let max = accounts.create("Max", None).await.unwrap();
+    f.folders
+        .fail_once
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    accounts
+        .remove(max.id(), max.version(), true)
+        .await
+        .unwrap();
+    assert_eq!(*f.folders.removed.lock().unwrap(), ["/accounts/max"]);
+    assert_eq!(*events.lock().unwrap(), ["held", "released"]);
 }
 
 /// A secret store whose deletes can be made to fail.

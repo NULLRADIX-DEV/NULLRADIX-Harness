@@ -32,8 +32,8 @@ use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_domain::{Actor, ConfigDir};
 use nullradix_runner::{
-    CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalLoginRunner, LocalRunner,
-    SupervisorCommand, TranscriptRoots,
+    CurlTokenEndpoint, CurlUsageApi, LocalAccountFolders, LocalClaudeLogins, LocalLoginRenewal,
+    LocalLoginRunner, LocalRunner, SupervisorCommand, TranscriptRoots,
 };
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -247,11 +247,19 @@ async fn start_accounts(
         signal.clone(),
     ));
     let files = Arc::new(claude_logins(config));
-    let usage = Arc::new(UsageService::new(
+    let renewal = LocalLoginRenewal::new(
         files.clone(),
-        Arc::new(CurlUsageApi::anthropic()),
+        Arc::new(CurlTokenEndpoint::anthropic()),
         Arc::new(SystemClock),
-    ));
+    );
+    let usage = Arc::new(
+        UsageService::new(
+            files.clone(),
+            Arc::new(CurlUsageApi::anthropic()),
+            Arc::new(SystemClock),
+        )
+        .with_renewal(Arc::new(renewal)),
+    );
     let logins = Arc::new(LoginService::new(
         Arc::new(login_runner(config)),
         accounts.clone(),
