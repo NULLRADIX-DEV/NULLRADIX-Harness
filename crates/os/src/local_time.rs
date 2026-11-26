@@ -43,20 +43,20 @@ mod tests {
 
     // The test runs itself with a zone set, so no test mutates its own environment.
     #[cfg(unix)]
-    fn in_child(test: &str, zone: &str) {
+    fn in_child(name: &str, zone: &str) {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", test, "--nocapture"])
+            .args(["--exact", name, "--nocapture"])
             .env("NULLRADIX_TZ_CHILD", "1")
             .env("TZ", zone)
             .output()
             .unwrap();
-        let text = String::from_utf8_lossy(&output.stdout);
-        assert!(output.status.success(), "{text}");
+        let printed = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{printed}");
         assert!(
-            text.contains("running 1 test"),
-            "the child ran no test: {text}"
+            printed.contains("running 1 test"),
+            "the child ran no test: {printed}"
         );
-        assert!(text.contains("1 passed"), "{text}");
+        assert!(printed.contains("1 passed"), "{printed}");
     }
 
     #[cfg(unix)]

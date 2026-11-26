@@ -41,7 +41,7 @@ impl LocalTime for Berlin {
     }
 }
 
-/// UTC-4 until 2026-09-06 04:00 UTC, when local midnight is skipped and the clock jumps to 01:00 at UTC-3.
+/// UTC-4 until 2026-09-06 04:00 UTC, then a jump over local midnight to UTC-3.
 struct Santiago;
 
 #[async_trait]
