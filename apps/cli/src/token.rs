@@ -1,30 +1,16 @@
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::Path;
 
 use nullradix_app::auth::Secret;
 pub(crate) use nullradix_client::token::{path, read};
 
-/// Writes the token so only the current user can read it; on Windows the profile ACL applies.
+/// Writes the token so only the current user can read it: mode 0600, or an owner-only ACL.
 pub(crate) fn write(path: &Path, secret: &Secret) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         private_dir(dir)?;
     }
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    }
-    file.write_all(secret.expose().as_bytes())?;
-    file.sync_all()
+    nullradix_os::write_private(path, secret.expose().as_bytes())
 }
 
 fn private_dir(dir: &Path) -> io::Result<()> {

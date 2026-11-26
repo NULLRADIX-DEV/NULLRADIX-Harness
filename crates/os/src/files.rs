@@ -101,6 +101,36 @@ mod tests {
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_private_file_has_an_owner_only_protected_acl() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cli-token");
+        write_private(&path, b"one").unwrap();
+        write_private(&path, b"two").unwrap();
+        let user = crate::windows::UserSid::current().unwrap();
+        let sid = user.text();
+        // SDDL names the built-in administrator LA instead of its SID
+        let name = if sid.ends_with("-500") { "LA" } else { sid };
+        let acl = crate::windows::dacl_sddl(&path).unwrap();
+        // owned by the user, protected from inheritance, one entry: full access for that SID
+        assert!(acl.starts_with(&format!("O:{name}D:P")), "{acl}");
+        assert_eq!(acl.matches('(').count(), 1, "{acl}");
+        assert!(acl.contains(&format!(";FA;;;{name})")), "{acl}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "two");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_file_is_readable_by_its_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cli-token");
+        write_private(&path, b"one").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
     #[test]
     fn treats_sharing_violations_as_transient() {
         assert!(transient(&io::Error::from_raw_os_error(32)));
