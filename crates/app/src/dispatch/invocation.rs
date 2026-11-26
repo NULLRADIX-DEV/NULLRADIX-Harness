@@ -30,7 +30,7 @@ pub const RESEARCH_TOOLS: [&str; 12] = [
 ];
 
 /// Denials beat every permission, including the user's own settings.
-pub const RESEARCH_DENIED_TOOLS: [&str; 17] = [
+pub const RESEARCH_DENIED_TOOLS: [&str; 22] = [
     "MultiEdit",
     "NotebookEdit",
     "Bash(git commit:*)",
@@ -49,6 +49,11 @@ pub const RESEARCH_DENIED_TOOLS: [&str; 17] = [
     "Bash(git diff*--output*)",
     "Bash(git log*--output*)",
     "Bash(git show*--output*)",
+    "Bash(nullradix dispatcher:*)",
+    "Bash(nullradix research start:*)",
+    "Bash(nullradix question answer:*)",
+    "Bash(nullradix question discard:*)",
+    "Bash(nullradix question reopen:*)",
 ];
 
 /// The only tools of a plan run.
@@ -72,12 +77,21 @@ pub const PLANNING_TOOLS: [&str; 16] = [
 ];
 
 /// Denied in plan runs on top of the research denials; `plan import` changes the ticket.
-pub const PLANNING_ONLY_DENIED_TOOLS: [&str; 5] = [
+pub const PLANNING_ONLY_DENIED_TOOLS: [&str; 14] = [
     "Bash(nullradix ticket set:*)",
     "Bash(nullradix ticket claim:*)",
     "Bash(nullradix ticket start:*)",
     "Bash(nullradix ticket done:*)",
     "Bash(nullradix ticket delete:*)",
+    "Bash(nullradix ticket move:*)",
+    "Bash(nullradix ticket accept:*)",
+    "Bash(nullradix ticket return:*)",
+    "Bash(nullradix ticket release:*)",
+    "Bash(nullradix plan start:*)",
+    "Bash(nullradix plan write:*)",
+    "Bash(nullradix plan claim:*)",
+    "Bash(nullradix plan release:*)",
+    "Bash(nullradix plan next:*)",
 ];
 
 /// Claude Code backgrounds long Bash calls and `-p` then ends early, so raise the limits.
@@ -424,6 +438,42 @@ mod tests {
             plan.args
                 .contains(&String::from("Bash(nullradix ticket done:*)"))
         );
+    }
+
+    #[test]
+    fn plan_runs_deny_status_changers_and_both_deny_the_dispatcher_and_decisions() {
+        let config = config();
+        let denied = |kind| {
+            let call = call(kind, &config, &[]);
+            let at = position(&call.args, "--disallowedTools");
+            call.args[at + 1..position(&call.args, "--allowedTools")].to_vec()
+        };
+        let plan = denied(RunKind::Plan);
+        let research = denied(RunKind::Research);
+        for tool in [
+            "Bash(nullradix dispatcher:*)",
+            "Bash(nullradix research start:*)",
+            "Bash(nullradix question answer:*)",
+            "Bash(nullradix question discard:*)",
+            "Bash(nullradix question reopen:*)",
+        ] {
+            assert!(plan.contains(&tool.to_owned()), "plan {tool}");
+            assert!(research.contains(&tool.to_owned()), "research {tool}");
+        }
+        for tool in [
+            "Bash(nullradix ticket move:*)",
+            "Bash(nullradix ticket accept:*)",
+            "Bash(nullradix ticket return:*)",
+            "Bash(nullradix ticket release:*)",
+            "Bash(nullradix plan start:*)",
+            "Bash(nullradix plan write:*)",
+            "Bash(nullradix plan claim:*)",
+            "Bash(nullradix plan release:*)",
+            "Bash(nullradix plan next:*)",
+        ] {
+            assert!(plan.contains(&tool.to_owned()), "plan {tool}");
+            assert!(!research.contains(&tool.to_owned()), "research {tool}");
+        }
     }
 
     #[test]

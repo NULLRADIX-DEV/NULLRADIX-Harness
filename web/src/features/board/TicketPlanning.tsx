@@ -8,7 +8,7 @@ import { ticketKeys, type Ticket } from '../tickets/queries';
 
 const MESSAGES: ProblemMessages = {
   'plan-not-possible':
-    'This ticket cannot be planned now: it is being worked on, done or not needed.',
+    'This ticket cannot be planned now: it is being worked on, done or not needed, or another run of it is under way.',
   'plan-waiting-question': 'An open question holds this ticket back; decide it first.',
   'plan-running': 'A planning of this ticket is running already.',
   'plan-claimed': 'Another agent is planning this ticket right now.',

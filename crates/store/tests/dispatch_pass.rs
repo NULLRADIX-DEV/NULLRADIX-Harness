@@ -6326,6 +6326,28 @@ async fn a_ticket_that_is_worked_on_or_on_a_board_without_a_repository_is_refuse
 }
 
 #[tokio::test]
+async fn an_ended_unsettled_work_run_does_not_hold_back_planning() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    // a live work run of the ticket blocks planning
+    let version = f.record(&key).await.version;
+    let patch = TicketPatch {
+        status: Some(String::from("planned")),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    assert_eq!(f.plan_error(&key).await, "plan-not-possible");
+    // the same run ended but not yet settled does not
+    f.finish_run(&key).await;
+    f.dispatcher.service.start_planning(&key).await.unwrap();
+    assert_eq!(f.plan_runs(&key).await.len(), 1);
+}
+
+#[tokio::test]
 async fn a_failed_planning_start_removes_its_worktree_and_claim_again() {
     let f = fixture().await;
     let key = f.unplanned("Plan me", None).await;

@@ -220,11 +220,14 @@ impl PlanningRuns {
             ..RunFilter::default()
         };
         let runs = self.parts.runs.find(&filter, 20).await?;
-        let open: Vec<&Run> = runs.iter().filter(|run| run.outcome().is_none()).collect();
-        let kinds: Vec<RunKind> = open
+        let kinds: Vec<RunKind> = runs
             .iter()
-            .filter_map(|run| run.dispatch())
-            .map(|dispatch| dispatch.kind)
+            .filter_map(|run| {
+                let kind = run.dispatch()?.kind;
+                let under_way =
+                    run.status().is_active() || (kind == RunKind::Plan && run.outcome().is_none());
+                under_way.then_some(kind)
+            })
             .collect();
         if kinds.contains(&RunKind::Plan) {
             return Err(running(&key));

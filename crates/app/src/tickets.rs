@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    ASSIGNEE_MAX, Actor, BLOCKED_REASON_MAX, Board, Column, DependencyIndex, HUMAN_INTERACTION,
-    HistoryEntry, Id, Priority, Project, ProjectKey, RuleError, StatusFacts, StatusLock,
-    StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError, Ticket, TicketDraft,
-    TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle, Timestamp, Tombstone, Version,
-    changes, check_status_change, check_target_lock, display_order, normalize_dependencies,
-    normalize_labels, optional_text, planning_candidate, planning_claim_alive, step, strip_fence,
-    validate_dependencies, waits_for_a_person,
+    ASSIGNEE_MAX, Actor, ActorKind, BLOCKED_REASON_MAX, Board, Column, DependencyIndex,
+    HUMAN_INTERACTION, HistoryEntry, Id, Priority, Project, ProjectKey, RuleError, StatusFacts,
+    StatusLock, StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError, Ticket,
+    TicketDraft, TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle, Timestamp,
+    Tombstone, Version, changes, check_status_change, check_target_lock, display_order,
+    normalize_dependencies, normalize_labels, optional_text, planning_candidate,
+    planning_claim_alive, step, strip_fence, validate_dependencies, waits_for_a_person,
 };
 
 use crate::comments::{CommentLine, CommentWrite};
@@ -1000,6 +1000,20 @@ impl TicketService {
             }
         }
         let status = optional_status(input.status.as_deref())?.unwrap_or(TicketStatus::Planned);
+        if actor.kind() != ActorKind::Human
+            && !matches!(
+                status,
+                TicketStatus::Planned | TicketStatus::Blocked | TicketStatus::InPlanning
+            )
+        {
+            return Err(AppError::invalid(
+                "plan-status-denied",
+                format!(
+                    "an agent plans only into planned, blocked or in-planning, not {}",
+                    status.as_str()
+                ),
+            ));
+        }
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let before = load(write.as_mut(), &key, None).await?;

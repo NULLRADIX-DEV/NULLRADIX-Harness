@@ -829,6 +829,39 @@ pub(crate) async fn author_of(
     state.comments.author(author, &state.person).await
 }
 
+/// An agent named after a ticket writes only to that ticket; a person writes anywhere.
+pub(crate) async fn check_agent_target(
+    state: &ApiState,
+    principal: &Principal,
+    name: Option<&str>,
+    ticket_key: &str,
+) -> Result<(), AppError> {
+    let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
+        return Ok(());
+    };
+    if matches!(principal, Principal::Session { .. }) {
+        return Ok(());
+    }
+    let work = state.dispatcher_config.get().await?.config.agent_prefix;
+    let target = nullradix_domain::TicketKey::parse(ticket_key)
+        .map_or_else(|_| ticket_key.to_owned(), |key| key.to_string());
+    let named = [
+        nullradix_domain::PLAN_AGENT_PREFIX,
+        nullradix_domain::RESEARCH_AGENT_PREFIX,
+        work.as_str(),
+    ]
+    .into_iter()
+    .filter(|prefix| !prefix.is_empty())
+    .find_map(|prefix| name.strip_prefix(prefix));
+    match named {
+        Some(own) if own != target => Err(AppError::invalid(
+            "author-other-ticket",
+            format!("the agent {name} may write only to its own ticket, not to {target}"),
+        )),
+        _ => Ok(()),
+    }
+}
+
 fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
     value.map(AppError::client_version).transpose()
 }
@@ -1215,6 +1248,13 @@ pub(crate) async fn write_plan(
         acceptance: input.acceptance,
         status: input.status,
     };
+    check_agent_target(
+        &state,
+        &principal,
+        input.author.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let actor = author_of(
         &state,
         &principal,

@@ -1458,6 +1458,46 @@ async fn plans_and_planning_claims_follow_the_legacy_rules() {
 }
 
 #[tokio::test]
+async fn an_agent_plans_only_into_planned_blocked_or_in_planning() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("One"), AGENT).await.unwrap();
+    let agent = Actor::new(
+        fx.person.id(),
+        nullradix_domain::ActorKind::Session,
+        fx.person.name().clone(),
+        SystemClock.now(),
+    );
+    for status in ["backlog", "in-progress", "done", "not-needed"] {
+        let input = PlanInput {
+            plan: Some(String::from("Do it")),
+            status: Some(status.to_owned()),
+            ..PlanInput::default()
+        };
+        let refused = fx.tickets.plan("ARC-1", &input, &agent).await;
+        assert_eq!(
+            refused.unwrap_err().code(),
+            "plan-status-denied",
+            "{status}"
+        );
+    }
+    for status in ["planned", "blocked", "in-planning"] {
+        let input = PlanInput {
+            plan: Some(String::from("Do it")),
+            status: Some(status.to_owned()),
+            ..PlanInput::default()
+        };
+        fx.tickets.plan("ARC-1", &input, &agent).await.unwrap();
+    }
+    let input = PlanInput {
+        plan: Some(String::from("Do it")),
+        status: Some(String::from("done")),
+        ..PlanInput::default()
+    };
+    fx.tickets.plan("ARC-1", &input, &fx.person).await.unwrap();
+}
+
+#[tokio::test]
 async fn a_plan_text_above_the_cap_is_a_field_problem_and_one_at_the_cap_is_kept() {
     let fx = fixture().await;
     let (_, board) = fx.board("ARC").await;

@@ -166,6 +166,13 @@ pub(crate) async fn add_comment(
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<AddComment>,
 ) -> Result<(StatusCode, Json<CommentDto>), ApiError> {
+    crate::tickets::check_agent_target(
+        &state,
+        &principal,
+        input.author.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let author = Author {
         by_person: matches!(principal, Principal::Session { .. }),
         name: input.author.as_deref(),
@@ -210,6 +217,15 @@ mod tests {
 
     async fn post(api: &TestApi, path: &str, body: &Value) -> (u16, Value) {
         let request = bearer(Request::post(path), &api.token)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        (status.as_u16(), json)
+    }
+
+    async fn put(api: &TestApi, path: &str, body: &Value) -> (u16, Value) {
+        let request = bearer(Request::put(path), &api.token)
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))
             .unwrap();
@@ -291,6 +307,52 @@ mod tests {
             (status, problem["code"].as_str()),
             (404, Some("ticket-not-found"))
         );
+    }
+
+    #[tokio::test]
+    async fn an_agent_named_after_another_ticket_may_not_comment_or_plan_there() {
+        let api = with_ticket().await;
+        for path in ["comments", "plan"] {
+            let url = format!("/api/v1/tickets/ARC-1/{path}");
+            for name in ["planner-ARC-0002", "worker-ARC-0002", "research-ARC-Q1"] {
+                let field = if path == "plan" { "plan" } else { "body" };
+                let body = json!({ field: "x", "author": name });
+                let (status, problem) = if path == "plan" {
+                    put(&api, &url, &body).await
+                } else {
+                    post(&api, &url, &body).await
+                };
+                assert_eq!(
+                    (status, problem["code"].as_str()),
+                    (422, Some("author-other-ticket")),
+                    "{path} {name}"
+                );
+            }
+        }
+        let own_comment = json!({ "body": "x", "author": "planner-ARC-0001" });
+        let own_plan = json!({ "plan": "x", "author": "planner-ARC-0001" });
+        assert_eq!(
+            post(&api, "/api/v1/tickets/ARC-1/comments", &own_comment)
+                .await
+                .0,
+            201
+        );
+        assert_eq!(
+            put(&api, "/api/v1/tickets/ARC-1/plan", &own_plan).await.0,
+            200
+        );
+        let person = json!({ "body": "x", "author": "planner-ARC-0002" });
+        let (status, _) = {
+            let request = local(Request::post("/api/v1/tickets/ARC-1/comments"))
+                .header(axum::http::header::COOKIE, &open_session(&api).await)
+                .header(axum::http::header::ORIGIN, "http://127.0.0.1:4711")
+                .header("content-type", "application/json")
+                .body(Body::from(person.to_string()))
+                .unwrap();
+            let (status, _, json) = send(&api.router, request).await;
+            (status.as_u16(), json)
+        };
+        assert_eq!(status, 201);
     }
 
     #[tokio::test]
