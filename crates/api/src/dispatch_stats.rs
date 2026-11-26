@@ -244,7 +244,7 @@ impl From<OutcomeCount> for OutcomeCountDto {
 #[serde(rename_all = "camelCase")]
 pub struct DispatchStatsDto {
     pub filter: StatsFilterDto,
-    /// When the newest configuration first appeared, for `from=config`.
+    /// When the newest configuration in force up to the range end first appeared.
     pub config_changed_at: Option<i64>,
     pub kpis: StatsKpisDto,
     pub usage: StatsUsageDto,

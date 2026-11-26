@@ -2160,7 +2160,7 @@ export interface components {
             byProfile: components["schemas"]["ProfileRowDto"][];
             /**
              * Format: int64
-             * @description When the newest configuration first appeared, for `from=config`.
+             * @description When the newest configuration in force up to the range end first appeared.
              */
             configChangedAt?: number | null;
             /**

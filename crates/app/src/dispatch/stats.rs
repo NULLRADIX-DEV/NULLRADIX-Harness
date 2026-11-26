@@ -48,7 +48,7 @@ pub struct StatsReport {
     pub board: Option<Id<Board>>,
     pub range: StatsRange,
     pub kind: RunKind,
-    /// When the newest dispatcher configuration first appeared.
+    /// When the newest configuration in force up to the range end first appeared.
     pub config_changed_at: Option<Timestamp>,
     pub stats: DispatchStats,
 }
@@ -114,22 +114,22 @@ impl DispatchStatsService {
         }
         let now = self.clock.now();
         let offset = offset_minutes(self.local.as_ref(), now).await;
-        let config_changed_at = if wants_config(request.from) {
-            self.config
-                .versions()
-                .await?
-                .last()
-                .map(|version| version.first_seen_at)
-        } else {
-            None
-        };
-        let range = StatsRange::resolve(
-            request.from,
-            request.to,
-            local_day_of(now, offset),
-            config_changed_at.map(|at| local_day_of(at, offset)),
-        )
-        .map_err(|error| refused(&error))?;
+        let today = local_day_of(now, offset);
+        let end = StatsRange::resolve(request.from, request.to, today, None)
+            .map_err(|error| refused(&error))?
+            .end(offset);
+        let config_changed_at = self
+            .config
+            .versions()
+            .await?
+            .iter()
+            .rfind(|version| version.first_seen_at < end)
+            .map(|version| version.first_seen_at);
+        let config_day = config_changed_at
+            .filter(|_| wants_config(request.from))
+            .map(|at| local_day_of(at, offset));
+        let range = StatsRange::resolve(request.from, request.to, today, config_day)
+            .map_err(|error| refused(&error))?;
         let limit = u32::try_from(STATS_MAX_RUNS + 1).unwrap_or(u32::MAX);
         let runs = self
             .repository

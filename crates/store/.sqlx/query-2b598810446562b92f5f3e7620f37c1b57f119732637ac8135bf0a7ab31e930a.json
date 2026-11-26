@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.created_at, r.subject_key AS \"subject_key!\", r.kind AS \"kind!\",\n                      r.profile_name, r.outcome, r.abort_category,\n                      EXISTS (SELECT 1 FROM runs e\n                              WHERE e.subject_key = r.subject_key AND e.kind = r.kind\n                                AND e.outcome IN ('abort', 'abort-final')\n                                AND e.created_at < r.created_at) AS \"retried!: bool\",\n                      CASE WHEN r.started_at IS NOT NULL AND r.finished_at >= r.started_at\n                           THEN r.finished_at - r.started_at END AS duration_ms,\n                      r.cost_usd, r.input_tokens, r.output_tokens, r.cache_read_tokens,\n                      r.cache_write_tokens\n               FROM runs r\n               WHERE r.kind IS NOT NULL AND r.subject_key IS NOT NULL\n                 AND r.created_at >= ?1 AND r.created_at < ?2\n                 AND (?3 IS NULL OR r.kind = 'research'\n                      OR r.subject_key IN (SELECT p.key || '-' || printf('%04d', t.number)\n                                           FROM tickets t JOIN projects p ON p.id = t.project_id\n                                           WHERE t.board_id = ?3))\n               ORDER BY r.created_at, r.id\n               LIMIT ?4",
+  "query": "SELECT r.created_at, r.subject_key AS \"subject_key!\", r.kind AS \"kind!\",\n                      r.profile_name, r.outcome, r.abort_category,\n                      CASE WHEN r.started_at IS NOT NULL AND r.finished_at >= r.started_at\n                           THEN r.finished_at - r.started_at END AS duration_ms,\n                      r.cost_usd, r.input_tokens, r.output_tokens, r.cache_read_tokens,\n                      r.cache_write_tokens\n               FROM runs r\n               WHERE r.kind IS NOT NULL AND r.kind <> 'plan' AND r.subject_key IS NOT NULL\n                 AND r.created_at >= ?1 AND r.created_at < ?2\n                 AND (?3 IS NULL OR r.kind = 'research'\n                      OR r.subject_key IN (SELECT p.key || '-' || printf('%04d', t.number)\n                                           FROM tickets t JOIN projects p ON p.id = t.project_id\n                                           WHERE t.board_id = ?3))\n               ORDER BY r.created_at, r.id\n               LIMIT ?4",
   "describe": {
     "columns": [
       {
@@ -70,20 +70,14 @@
         }
       },
       {
-        "name": "retried!: bool",
+        "name": "duration_ms",
         "ordinal": 6,
         "type_info": "Integer",
         "origin": "Expression"
       },
       {
-        "name": "duration_ms",
-        "ordinal": 7,
-        "type_info": "Integer",
-        "origin": "Expression"
-      },
-      {
         "name": "cost_usd",
-        "ordinal": 8,
+        "ordinal": 7,
         "type_info": "Float",
         "origin": {
           "Table": {
@@ -94,7 +88,7 @@
       },
       {
         "name": "input_tokens",
-        "ordinal": 9,
+        "ordinal": 8,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -105,7 +99,7 @@
       },
       {
         "name": "output_tokens",
-        "ordinal": 10,
+        "ordinal": 9,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -116,7 +110,7 @@
       },
       {
         "name": "cache_read_tokens",
-        "ordinal": 11,
+        "ordinal": 10,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -127,7 +121,7 @@
       },
       {
         "name": "cache_write_tokens",
-        "ordinal": 12,
+        "ordinal": 11,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -147,7 +141,6 @@
       true,
       true,
       true,
-      false,
       true,
       true,
       true,
@@ -156,5 +149,5 @@
       true
     ]
   },
-  "hash": "259cc0c91bb6417edae267f0b3483169596a45b09aac1e6c211f2062fd06a93d"
+  "hash": "2b598810446562b92f5f3e7620f37c1b57f119732637ac8135bf0a7ab31e930a"
 }

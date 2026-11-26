@@ -562,3 +562,110 @@ async fn a_range_with_too_many_runs_is_refused_instead_of_cut() {
     let error = f.stats.get(week_request()).await.unwrap_err();
     assert_eq!(error.code(), "stats-range-too-busy");
 }
+
+#[tokio::test]
+async fn the_config_time_is_reported_for_any_range_up_to_its_end() {
+    let f = fixture().await;
+    f.clock
+        .0
+        .store(at("2026-11-24T08:00:00Z"), Ordering::SeqCst);
+    f.config.sync_hash().await.unwrap();
+    let seen = Some(Timestamp::from_millis(at("2026-11-24T08:00:00Z")));
+    let default = f.stats.get(week_request()).await.unwrap();
+    assert_eq!(default.config_changed_at, seen);
+    assert_eq!(default.range.days(), 7);
+    let before = f
+        .stats
+        .get(StatsRequest {
+            from: Some("2026-11-10"),
+            to: Some("2026-11-23"),
+            ..StatsRequest::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(before.config_changed_at, None);
+}
+
+#[tokio::test]
+async fn an_old_abort_before_a_success_does_not_make_a_new_first_run_a_retry() {
+    let f = fixture().await;
+    f.raw
+        .run(run(
+            "ARC-0001",
+            "small",
+            "2026-06-01T10:00:00Z",
+            "abort",
+            Some("timeout"),
+        ))
+        .await;
+    f.raw
+        .run(run(
+            "ARC-0001",
+            "small",
+            "2026-06-02T10:00:00Z",
+            "done",
+            None,
+        ))
+        .await;
+    f.raw
+        .run(run(
+            "ARC-0001",
+            "small",
+            "2026-11-25T10:00:00Z",
+            "done",
+            None,
+        ))
+        .await;
+    f.raw
+        .run(run(
+            "ARC-0002",
+            "small",
+            "2026-11-24T10:00:00Z",
+            "abort",
+            Some("timeout"),
+        ))
+        .await;
+    f.raw
+        .run(run(
+            "ARC-0002",
+            "small",
+            "2026-11-25T10:00:00Z",
+            "done",
+            None,
+        ))
+        .await;
+    let found = f
+        .store
+        .runs(&StatsQuery {
+            from: Timestamp::from_millis(at("2026-11-20T00:00:00Z")),
+            until: Timestamp::from_millis(at("2026-11-28T00:00:00Z")),
+            board: None,
+            limit: 10,
+        })
+        .await
+        .unwrap();
+    let retried: Vec<_> = found
+        .iter()
+        .map(|run| (run.subject.as_str(), run.retried))
+        .collect();
+    assert_eq!(
+        retried,
+        [("ARC-0002", false), ("ARC-0001", false), ("ARC-0002", true)]
+    );
+}
+
+#[tokio::test]
+async fn plan_runs_do_not_count_toward_the_run_cap() {
+    let f = fixture().await;
+    sqlx::query(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100001)
+         INSERT INTO runs (id, label, status, created_at, kind, subject_key, profile_name)
+         SELECT randomblob(16), 'x', 'succeeded', ?, 'plan', 'ARC-0001', 'small' FROM n",
+    )
+    .bind(at("2026-11-25T10:00:00Z"))
+    .execute(&f.raw.0)
+    .await
+    .unwrap();
+    let report = f.stats.get(week_request()).await.unwrap();
+    assert_eq!(report.stats.kpis.runs, 0);
+}

@@ -10688,7 +10688,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "When the newest configuration first appeared, for `from=config`."
+            "description": "When the newest configuration in force up to the range end first appeared."
           },
           "configurableAbortShare": {
             "type": [

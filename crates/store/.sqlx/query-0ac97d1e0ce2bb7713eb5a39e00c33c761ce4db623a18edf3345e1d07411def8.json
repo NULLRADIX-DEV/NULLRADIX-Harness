@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT subject_key AS \"subject_key!\", kind, outcome AS \"outcome!\", created_at\n               FROM runs\n               WHERE subject_key IN (SELECT value FROM json_each(?1))\n                 AND outcome IN ('abort', 'abort-final', 'done', 'review', 'human',\n                                 'merge-session', 'research')\n                 AND created_at < ?2\n               ORDER BY subject_key, created_at",
+  "describe": {
+    "columns": [
+      {
+        "name": "subject_key!",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "subject_key"
+          }
+        }
+      },
+      {
+        "name": "kind",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "outcome!",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "outcome"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "0ac97d1e0ce2bb7713eb5a39e00c33c761ce4db623a18edf3345e1d07411def8"
+}
