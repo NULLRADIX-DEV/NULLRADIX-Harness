@@ -1,14 +1,17 @@
-import { queryOptions, useMutation } from '@tanstack/react-query';
+import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type components } from '../api/client';
 import { unwrap, unwrapEmpty } from '../api/errors';
 import type { ChangeRegistry } from '../live/registry';
 import { useInvalidate } from './useInvalidate';
 
 export type Theme = components['schemas']['ThemeDto'];
+export type ThemeSettingSpec = components['schemas']['ThemeSettingDto'];
+export type ThemeSettings = components['schemas']['ThemeSettingsDto'];
 
 export const themeKeys = {
   all: ['themes'] as const,
   list: () => [...themeKeys.all, 'list'] as const,
+  settings: (id: string) => [...themeKeys.all, 'settings', id] as const,
 };
 
 // The chosen theme is a setting of the daemon, so its changes arrive as setting changes.
@@ -55,6 +58,46 @@ export function useRemoveTheme() {
     mutationFn: async ({ id, version }: { id: string; version: number }) => {
       unwrapEmpty(
         await api.DELETE('/api/v1/themes/{id}', {
+          params: { path: { id }, query: { version } },
+        }),
+      );
+    },
+    onSettled: invalidate,
+  });
+}
+
+export function themeSettingsQuery(id: string) {
+  return queryOptions({
+    queryKey: themeKeys.settings(id),
+    queryFn: async () =>
+      unwrap(await api.GET('/api/v1/themes/{id}/settings', { params: { path: { id } } })),
+  });
+}
+
+export function useSaveThemeSettings(id: string) {
+  const invalidate = useInvalidate(themeKeys.all);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ThemeSettings) =>
+      unwrap(
+        await api.PUT('/api/v1/themes/{id}/settings', {
+          params: { path: { id } },
+          body: input,
+        }),
+      ),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(themeKeys.settings(id), saved);
+    },
+    onSettled: invalidate,
+  });
+}
+
+export function useResetThemeSettings(id: string) {
+  const invalidate = useInvalidate(themeKeys.all);
+  return useMutation({
+    mutationFn: async (version: number) => {
+      unwrapEmpty(
+        await api.DELETE('/api/v1/themes/{id}/settings', {
           params: { path: { id }, query: { version } },
         }),
       );

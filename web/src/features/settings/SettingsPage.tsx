@@ -4,6 +4,7 @@ import { AccountsSection } from '../accounts/AccountsSection';
 import { DispatcherSection } from '../dispatcher/DispatcherSection';
 import { ProjectsSection } from '../projects/ProjectsSection';
 import { CustomizationsSection } from '../customizations/CustomizationsSection';
+import { ThemeSettingsPanel } from '../themes/ThemeSettingsPanel';
 import { ThemesSection } from '../themes/ThemesSection';
 
 export function SettingsPage() {
@@ -38,6 +39,7 @@ export function SettingsPage() {
         </label>
       </section>
       <ThemesSection />
+      <ThemeSettingsPanel />
       <CustomizationsSection />
     </div>
   );
