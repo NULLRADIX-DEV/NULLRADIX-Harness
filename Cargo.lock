@@ -1273,6 +1273,7 @@ dependencies = [
 name = "nullradix-client"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "nullradix-api",
  "nullradix-app",
  "nullradix-domain",
