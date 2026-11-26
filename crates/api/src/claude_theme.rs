@@ -123,6 +123,58 @@ pub(crate) async fn set_claude_theme(
 }
 
 #[cfg(test)]
+pub(crate) mod fake {
+    use async_trait::async_trait;
+    use nullradix_app::claude_theme::{
+        ClaudeSlots, SlotApplied, SlotFailure, SlotState, SlotTheme,
+    };
+    use parking_lot::Mutex;
+
+    /// Records every apply and clear; the default folder is always a target.
+    #[derive(Default)]
+    pub(crate) struct Slots(Mutex<Vec<String>>);
+
+    impl Slots {
+        pub(crate) fn calls(&self) -> usize {
+            self.0.lock().len()
+        }
+
+        pub(crate) fn recorded(&self) -> Vec<String> {
+            self.0.lock().clone()
+        }
+    }
+
+    #[async_trait]
+    impl ClaudeSlots for Slots {
+        fn default_dir(&self) -> Option<String> {
+            Some(String::from("/default"))
+        }
+
+        fn key(&self, dir: &str) -> String {
+            dir.to_owned()
+        }
+
+        fn settings_hash(&self, _theme: &SlotTheme) -> String {
+            String::new()
+        }
+
+        async fn inspect(&self, _dir: &str) -> Result<SlotState, SlotFailure> {
+            Ok(SlotState::Empty)
+        }
+
+        async fn apply(&self, dir: &str, theme: &SlotTheme) -> Result<SlotApplied, SlotFailure> {
+            self.0.lock().push(format!("apply {dir} {}", theme.id));
+            Ok(SlotApplied::default())
+        }
+
+        async fn clear(&self, dir: &str) -> Result<bool, SlotFailure> {
+            self.0.lock().push(format!("clear {dir}"));
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use axum::body::Body;
     use axum::http::{Request, header};
@@ -153,7 +205,8 @@ mod tests {
             off,
             json!({
                 "enabled": false, "state": "none", "themeId": null,
-                "themeName": null, "targets": []
+                "themeName": null,
+                "targets": [{ "path": "/default", "state": "none", "message": null }]
             })
         );
         let (status, on) = call(&api, "PUT", Some(json!({ "enabled": true }))).await;
@@ -187,5 +240,117 @@ mod tests {
             let (status, _, _) = send(&api.router, request.body(Body::empty()).unwrap()).await;
             assert_eq!(status, 401);
         }
+    }
+
+    const THEME: &str = r##"{
+        "id": "night-blue", "name": "Night Blue", "version": "1.2.0", "author": "Ada",
+        "sdkVersion": "^1.3", "colorScheme": "dark", "startColor": "#101018",
+        "slots": [], "claudeTheme": true, "permissions": { "network": [] },
+        "settingsSchema": { "dim": { "type": "boolean", "label": "Dim", "default": true } }
+    }"##;
+
+    async fn upload(api: &TestApi) {
+        let bytes = format!(
+            "manifest.json={THEME}\n--\ntheme.css=a {{}}\n--\nclaude/hooks/hooks.json={{}}"
+        )
+        .into_bytes();
+        let request = bearer(Request::post("/api/v1/themes"), &api.token)
+            .body(Body::from(bytes))
+            .unwrap();
+        let (status, _, body) = send(&api.router, request).await;
+        assert!(status.is_success(), "{body}");
+    }
+
+    /// Runs `action` and asserts the folders were brought in line afterwards.
+    async fn resyncs(api: &TestApi, what: &str, action: Value) -> Value {
+        let before = api.slots.calls();
+        let method = action["method"].as_str().unwrap();
+        let path = action["path"].as_str().unwrap();
+        let body = action.get("body").cloned();
+        let (status, json) = call_at(api, method, path, body).await;
+        assert!(status < 300, "{what}: {status} {json}");
+        assert!(api.slots.calls() > before, "{what} did not re-sync");
+        json
+    }
+
+    async fn call_at(api: &TestApi, method: &str, path: &str, body: Option<Value>) -> (u16, Value) {
+        let request = bearer(Request::builder().method(method).uri(path), &api.token)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body.map_or_else(Body::empty, |body| Body::from(body.to_string())))
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        (status.as_u16(), json)
+    }
+
+    #[tokio::test]
+    async fn every_change_that_affects_the_folders_brings_them_in_line() {
+        let api = test_api().await;
+        let created = resyncs(
+            &api,
+            "create account",
+            json!({ "method": "POST", "path": "/api/v1/accounts", "body": { "name": "Max" } }),
+        )
+        .await;
+        resyncs(
+            &api,
+            "create and login",
+            json!({ "method": "POST", "path": "/api/v1/accounts/login",
+                    "body": { "email": "me@example.com" } }),
+        )
+        .await;
+        let path = format!(
+            "/api/v1/accounts/{}?version={}",
+            created["id"].as_str().unwrap(),
+            created["version"]
+        );
+        resyncs(
+            &api,
+            "delete account",
+            json!({ "method": "DELETE", "path": path }),
+        )
+        .await;
+
+        upload(&api).await;
+        resyncs(
+            &api,
+            "choose theme",
+            json!({ "method": "PUT", "path": "/api/v1/settings/theme",
+                    "body": { "theme": "night-blue" } }),
+        )
+        .await;
+        let saved = resyncs(
+            &api,
+            "save settings",
+            json!({ "method": "PUT", "path": "/api/v1/themes/night-blue/settings",
+                    "body": { "values": { "dim": false }, "version": 0 } }),
+        )
+        .await;
+        let path = format!(
+            "/api/v1/themes/night-blue/settings?version={}",
+            saved["version"]
+        );
+        resyncs(
+            &api,
+            "reset settings",
+            json!({ "method": "DELETE", "path": path }),
+        )
+        .await;
+        let (_, listed) = call_at(&api, "GET", "/api/v1/themes", None).await;
+        let path = format!(
+            "/api/v1/themes/night-blue?version={}",
+            listed["items"][0]["version"]
+        );
+        resyncs(
+            &api,
+            "remove theme",
+            json!({ "method": "DELETE", "path": path }),
+        )
+        .await;
+        assert!(
+            api.slots
+                .recorded()
+                .iter()
+                .any(|call| call == "clear /default")
+        );
     }
 }

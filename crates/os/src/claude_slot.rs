@@ -21,6 +21,7 @@ const MANAGED_BY: &str = "nullradix";
 const MARKER_MAX_BYTES: u64 = 1024 * 1024;
 const PATH_MAX_SEGMENTS: usize = 16;
 const SEGMENT_MAX_BYTES: usize = 255;
+const WALK_MAX_FILES: usize = 10_000;
 
 /// A value of a theme setting as the theme sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +47,8 @@ pub enum SlotState {
     Managed {
         theme_id: String,
         theme_version: String,
+        /// Hash of the settings the files were written with; empty when unknown.
+        settings_hash: String,
     },
     /// A folder or file NULLRADIX did not create; it is never written or deleted.
     Foreign,
@@ -84,6 +87,7 @@ fn absolute(config_dir: &Path) -> Result<(), SlotError> {
 struct Marker {
     theme_id: String,
     theme_version: String,
+    settings_hash: String,
     files: BTreeSet<String>,
 }
 
@@ -97,22 +101,61 @@ fn read_marker(slot: &Path) -> Option<Marker> {
     if value.get("managedBy")?.as_str()? != MANAGED_BY {
         return None;
     }
-    let files = value
-        .get("files")
-        .and_then(Value::as_array)
-        .map_or_default(|files| {
-            files
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|path| safe_relative(path))
-                .map(str::to_owned)
-                .collect()
-        });
+    let files = match value.get("files").and_then(Value::as_array) {
+        Some(files) => files
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|path| safe_relative(path))
+            .map(str::to_owned)
+            .collect(),
+        // a legacy marker lists nothing and owned the whole folder
+        None => walk(slot),
+    };
     Some(Marker {
         theme_id: value.get("themeId")?.as_str()?.to_owned(),
         theme_version: value.get("themeVersion")?.as_str()?.to_owned(),
+        settings_hash: value
+            .get("settingsHash")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
         files,
     })
+}
+
+/// Files and links below the slot, links listed and never followed.
+fn walk(slot: &Path) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    let mut pending = vec![(slot.to_path_buf(), String::new(), 0_usize)];
+    while let Some((dir, prefix, depth)) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if found.len() >= WALK_MAX_FILES {
+                return found;
+            }
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let relative = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            };
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                if depth + 1 < PATH_MAX_SEGMENTS {
+                    pending.push((entry.path(), relative, depth + 1));
+                }
+            } else if relative != MARKER_FILE && safe_relative(&relative) {
+                found.insert(relative);
+            }
+        }
+    }
+    found
 }
 
 /// Plain relative names only: what a marker on disk lists is data, never trusted.
@@ -146,6 +189,7 @@ pub fn inspect(config_dir: &Path) -> Result<SlotState, SlotError> {
         Some(marker) => SlotState::Managed {
             theme_id: marker.theme_id,
             theme_version: marker.theme_version,
+            settings_hash: marker.settings_hash,
         },
         None => SlotState::Foreign,
     })
@@ -158,6 +202,16 @@ pub fn apply(
     theme: &SlotTheme<'_>,
     limits: Limits,
 ) -> Result<Applied, SlotError> {
+    apply_with(config_dir, source, theme, limits, &write_private)
+}
+
+fn apply_with(
+    config_dir: &Path,
+    source: &Path,
+    theme: &SlotTheme<'_>,
+    limits: Limits,
+    write: &dyn Fn(&Path, &[u8]) -> io::Result<()>,
+) -> Result<Applied, SlotError> {
     absolute(config_dir)?;
     let slot = slot_dir(config_dir);
     let state = inspect(config_dir)?;
@@ -166,17 +220,19 @@ pub fn apply(
     }
     let files = desired_files(source, theme, limits)?;
     let wanted: BTreeSet<String> = files.keys().cloned().collect();
-    let marker = marker_bytes(theme, &wanted);
+    let marker = marker_bytes(theme, &wanted, &settings_hash(theme.settings));
     let old = read_marker(&slot).map_or_default(|marker| marker.files);
     let mut applied = Applied::default();
     if state == SlotState::Empty {
         create_private_dir(&slot)?;
-        // the marker comes first, so an interrupted write still leaves a folder that clears
-        write_private(&slot.join(MARKER_FILE), &marker)?;
-        applied.written += 1;
+    }
+    if !wanted.is_subset(&old) {
+        // old and new files are listed before any is written, so an interrupted apply still clears
+        let both: BTreeSet<String> = old.union(&wanted).cloned().collect();
+        write(&slot.join(MARKER_FILE), &marker_bytes(theme, &both, ""))?;
     }
     for (path, data) in &files {
-        if write_if_changed(&slot, path, data)? {
+        if write_if_changed(&slot, path, data, write)? {
             applied.written += 1;
         }
     }
@@ -186,7 +242,7 @@ pub fn apply(
         }
     }
     // the marker names the new theme only once everything for it is there
-    if write_if_changed(&slot, MARKER_FILE, &marker)? {
+    if write_if_changed(&slot, MARKER_FILE, &marker, write)? {
         applied.written += 1;
     }
     Ok(applied)
@@ -223,8 +279,18 @@ fn desired_files(
     })?;
     let mut files = BTreeMap::new();
     for entry in entries {
-        if !safe_relative(&entry.path) {
+        if !safe_relative(&entry.path) || entry.path.contains('~') {
             return Err(SlotError::Source(format!("unsafe path {}", entry.path)));
+        }
+        let lower = entry.path.to_lowercase();
+        if [PLUGIN_FILE, MARKER_FILE, SETTINGS_FILE]
+            .iter()
+            .any(|reserved| overlaps(&lower, &reserved.to_lowercase()))
+        {
+            return Err(SlotError::Source(format!(
+                "{} is a path NULLRADIX generates",
+                entry.path
+            )));
         }
         files.insert(entry.path, entry.data);
     }
@@ -242,6 +308,15 @@ fn desired_files(
         settings_module(theme.settings).into_bytes(),
     );
     Ok(files)
+}
+
+/// Equal, or one is a folder of the other; both lowercase.
+fn overlaps(a: &str, b: &str) -> bool {
+    let inside = |path: &str, dir: &str| {
+        path.strip_prefix(dir)
+            .is_some_and(|rest| rest.starts_with('/'))
+    };
+    a == b || inside(a, b) || inside(b, a)
 }
 
 fn settings_value(settings: &BTreeMap<String, SlotValue>) -> Value {
@@ -266,12 +341,24 @@ fn settings_module(settings: &BTreeMap<String, SlotValue>) -> String {
     )
 }
 
-fn marker_bytes(theme: &SlotTheme<'_>, files: &BTreeSet<String>) -> Vec<u8> {
+/// Stable fingerprint (FNV-1a) of the settings file a theme gets.
+#[must_use]
+pub fn settings_hash(settings: &BTreeMap<String, SlotValue>) -> String {
+    let hash = settings_module(settings)
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+    format!("{hash:016x}")
+}
+
+fn marker_bytes(theme: &SlotTheme<'_>, files: &BTreeSet<String>, hash: &str) -> Vec<u8> {
     pretty(&json!({
         "managedBy": MANAGED_BY,
         "themeId": theme.id,
         "themeVersion": theme.version,
         "settings": settings_value(theme.settings),
+        "settingsHash": hash,
         "files": files,
     }))
 }
@@ -302,7 +389,12 @@ fn prepare_parents(slot: &Path, relative: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn write_if_changed(slot: &Path, relative: &str, data: &[u8]) -> io::Result<bool> {
+fn write_if_changed(
+    slot: &Path,
+    relative: &str,
+    data: &[u8],
+    write: &dyn Fn(&Path, &[u8]) -> io::Result<()>,
+) -> io::Result<bool> {
     let target = slot.join(relative);
     let unchanged = fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.is_file())
         && fs::read(&target).is_ok_and(|current| current == data);
@@ -313,12 +405,15 @@ fn write_if_changed(slot: &Path, relative: &str, data: &[u8]) -> io::Result<bool
     if fs::symlink_metadata(&target).is_ok_and(|metadata| !metadata.is_file()) {
         remove_entry(&target)?;
     }
-    write_private(&target, data)?;
+    write(&target, data)?;
     Ok(true)
 }
 
 /// Removes a file or link of the slot, without following links, and the folders it leaves empty.
 fn remove_file(slot: &Path, relative: &str) -> io::Result<bool> {
+    if !real_parents(slot, relative)? {
+        return Ok(false);
+    }
     let target = slot.join(relative);
     match fs::symlink_metadata(&target) {
         Ok(metadata) if metadata.is_dir() => return Ok(false),
@@ -332,6 +427,23 @@ fn remove_file(slot: &Path, relative: &str) -> io::Result<bool> {
             break;
         }
         parent = dir.parent();
+    }
+    Ok(true)
+}
+
+/// Whether every folder between the slot and the file is a real folder, not a link.
+fn real_parents(slot: &Path, relative: &str) -> io::Result<bool> {
+    let mut current = slot.to_path_buf();
+    let mut segments: Vec<&str> = relative.split('/').collect();
+    segments.pop();
+    for segment in segments {
+        current.push(segment);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => return Ok(false),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        }
     }
     Ok(true)
 }
@@ -416,7 +528,8 @@ mod tests {
             inspect(config.path()).unwrap(),
             SlotState::Managed {
                 theme_id: "night".into(),
-                theme_version: "1.2.0".into()
+                theme_version: "1.2.0".into(),
+                settings_hash: settings_hash(&values)
             }
         );
         let marker: Value =
@@ -620,5 +733,194 @@ mod tests {
             let mode = fs::metadata(slot.join(file)).unwrap().permissions().mode();
             assert_eq!(mode & 0o077, 0, "{file} is open to others");
         }
+    }
+
+    /// A folder link: a symlink on Unix, a junction on Windows.
+    fn link_dir(link: &Path, target: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        {
+            let made = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .unwrap();
+            assert!(made.status.success(), "no junction: {made:?}");
+            assert!(link.exists());
+        }
+    }
+
+    fn legacy_slot(config: &tempfile::TempDir) -> PathBuf {
+        let slot = slot_of(config);
+        fs::create_dir_all(slot.join("hooks/deep")).unwrap();
+        fs::write(slot.join("hooks/hooks.json"), "{}").unwrap();
+        fs::write(slot.join("hooks/deep/old.ts"), "a").unwrap();
+        fs::write(slot.join("plugin.json"), "{}").unwrap();
+        fs::write(
+            slot.join(MARKER_FILE),
+            r#"{"managedBy":"nullradix","themeId":"night","themeVersion":"1.0.0","settings":{}}"#,
+        )
+        .unwrap();
+        slot
+    }
+
+    #[test]
+    fn a_legacy_marker_without_files_clears_the_whole_slot() {
+        let config = config();
+        let slot = legacy_slot(&config);
+        assert!(matches!(
+            inspect(config.path()).unwrap(),
+            SlotState::Managed { .. }
+        ));
+        assert!(clear(config.path()).unwrap());
+        assert!(!slot.exists());
+    }
+
+    #[test]
+    fn a_legacy_slot_is_taken_over_by_apply() {
+        let (config, source, values) = (config(), source(), settings("blue"));
+        let slot = legacy_slot(&config);
+        let applied = apply(config.path(), source.path(), &theme(&values), LIMITS).unwrap();
+        assert_eq!(applied.removed, 2);
+        assert!(!slot.join("hooks/deep").exists());
+        assert!(!slot.join("plugin.json").exists());
+        assert!(slot.join("hooks/register.tsx").is_file());
+    }
+
+    #[test]
+    fn a_link_inside_a_legacy_slot_is_removed_not_followed() {
+        let config = config();
+        let slot = legacy_slot(&config);
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("keep.txt"), "keep").unwrap();
+        link_dir(&slot.join("linked"), outside.path());
+        assert!(clear(config.path()).unwrap());
+        assert_eq!(
+            fs::read_to_string(outside.path().join("keep.txt")).unwrap(),
+            "keep"
+        );
+    }
+
+    #[test]
+    fn clear_and_stale_removal_skip_paths_through_a_linked_folder() {
+        let (config, source, values) = (config(), source(), settings("blue"));
+        apply(config.path(), source.path(), &theme(&values), LIMITS).unwrap();
+        let slot = slot_of(&config);
+        let outside = tempfile::tempdir().unwrap();
+        for name in ["register.tsx", "old.ts"] {
+            fs::write(outside.path().join(name), "outside").unwrap();
+        }
+        fs::remove_dir_all(slot.join("hooks")).unwrap();
+        link_dir(&slot.join("hooks"), outside.path());
+        let listed = ["hooks/register.tsx", "hooks/old.ts"];
+        let marker = json!({
+            "managedBy": "nullradix", "themeId": "night", "themeVersion": "1.2.0",
+            "files": listed,
+        });
+        fs::write(slot.join(MARKER_FILE), marker.to_string()).unwrap();
+        assert!(!remove_file(&slot, "hooks/old.ts").unwrap());
+        assert!(clear(config.path()).unwrap());
+        for name in ["register.tsx", "old.ts"] {
+            assert!(outside.path().join(name).is_file(), "{name} was removed");
+        }
+    }
+
+    #[test]
+    fn a_failed_apply_leaves_a_slot_that_clear_empties() {
+        let (config, source, values) = (config(), source(), settings("blue"));
+        let fail_on = |name: &'static str| {
+            move |path: &Path, data: &[u8]| {
+                if path.ends_with(name) {
+                    Err(io::Error::other("disk full"))
+                } else {
+                    write_private(path, data)
+                }
+            }
+        };
+        // a first apply that stops after some files
+        let first = apply_with(
+            config.path(),
+            source.path(),
+            &theme(&values),
+            LIMITS,
+            &fail_on("register.tsx"),
+        );
+        assert!(matches!(first, Err(SlotError::Io(_))));
+        assert!(clear(config.path()).unwrap());
+        assert!(!slot_of(&config).exists());
+
+        // an update that adds files and stops halfway
+        apply(config.path(), source.path(), &theme(&values), LIMITS).unwrap();
+        fs::write(source.path().join("a.ts"), "a").unwrap();
+        fs::write(source.path().join("z.ts"), "z").unwrap();
+        let second = apply_with(
+            config.path(),
+            source.path(),
+            &theme(&values),
+            LIMITS,
+            &fail_on("z.ts"),
+        );
+        assert!(second.is_err());
+        let slot = slot_of(&config);
+        assert!(slot.join("a.ts").is_file());
+        assert!(clear(config.path()).unwrap());
+        assert!(!slot.exists());
+    }
+
+    #[test]
+    fn theme_files_on_generated_paths_or_with_short_names_are_refused() {
+        let (config, values) = (config(), settings("blue"));
+        for bad in [
+            "hooks/Nullradix-Settings.ts",
+            "HOOKS/nullradix-settings.ts",
+            ".CLAUDE-PLUGIN/Plugin.json",
+            "hooks/NULLRA~1.TS",
+            "PROGRA~1/x.ts",
+        ] {
+            let source = source();
+            let path = source.path().join(bad);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, "x").unwrap();
+            let result = apply(config.path(), source.path(), &theme(&values), LIMITS);
+            assert!(
+                matches!(result, Err(SlotError::Source(_))),
+                "{bad}: {result:?}"
+            );
+        }
+        assert!(!slot_of(&config).exists());
+    }
+
+    #[test]
+    fn an_outdated_settings_hash_differs_from_the_current_one() {
+        let (config, source, blue) = (config(), source(), settings("blue"));
+        apply(config.path(), source.path(), &theme(&blue), LIMITS).unwrap();
+        let red = settings("red");
+        assert_ne!(settings_hash(&blue), settings_hash(&red));
+        let Ok(SlotState::Managed {
+            settings_hash: on_disk,
+            ..
+        }) = inspect(config.path())
+        else {
+            panic!("not managed");
+        };
+        assert_eq!(on_disk, settings_hash(&blue));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_as_slot_is_foreign() {
+        let (config, source, values) = (config(), source(), settings("blue"));
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(config.path().join("skills")).unwrap();
+        link_dir(&slot_of(&config), outside.path());
+        assert_eq!(inspect(config.path()).unwrap(), SlotState::Foreign);
+        assert!(matches!(
+            apply(config.path(), source.path(), &theme(&values), LIMITS),
+            Err(SlotError::Foreign(_))
+        ));
+        assert!(matches!(clear(config.path()), Err(SlotError::Foreign(_))));
+        assert!(fs::read_dir(outside.path()).unwrap().next().is_none());
     }
 }

@@ -1,5 +1,6 @@
 //! The Claude config folders of this machine: where a theme's Claude files go.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
@@ -29,6 +30,19 @@ fn failure(error: SlotError) -> SlotFailure {
     }
 }
 
+fn slot_values(settings: &BTreeMap<String, SettingValue>) -> BTreeMap<String, SlotValue> {
+    settings
+        .iter()
+        .map(|(key, value)| {
+            let value = match value {
+                SettingValue::Switch(on) => SlotValue::Switch(*on),
+                SettingValue::Choice(text) => SlotValue::Choice(text.clone()),
+            };
+            (key.clone(), value)
+        })
+        .collect()
+}
+
 async fn blocking<T, F>(work: F) -> Result<T, SlotFailure>
 where
     T: Send + 'static,
@@ -55,6 +69,10 @@ impl ClaudeSlots for FolderSlots {
         }
     }
 
+    fn settings_hash(&self, theme: &SlotTheme) -> String {
+        nullradix_os::claude_slot_settings_hash(&slot_values(&theme.settings))
+    }
+
     async fn inspect(&self, dir: &str) -> Result<SlotState, SlotFailure> {
         let dir = PathBuf::from(dir);
         blocking(move || {
@@ -64,9 +82,11 @@ impl ClaudeSlots for FolderSlots {
                     nullradix_os::SlotState::Managed {
                         theme_id,
                         theme_version,
+                        settings_hash,
                     } => SlotState::Managed {
                         theme_id,
                         theme_version,
+                        settings_hash,
                     },
                     nullradix_os::SlotState::Foreign => SlotState::Foreign,
                 },
@@ -80,17 +100,7 @@ impl ClaudeSlots for FolderSlots {
         let source = self.themes.join(&theme.id).join(CLAUDE_DIR);
         let theme = theme.clone();
         blocking(move || {
-            let settings = theme
-                .settings
-                .iter()
-                .map(|(key, value)| {
-                    let value = match value {
-                        SettingValue::Switch(on) => SlotValue::Switch(*on),
-                        SettingValue::Choice(text) => SlotValue::Choice(text.clone()),
-                    };
-                    (key.clone(), value)
-                })
-                .collect();
+            let settings = slot_values(&theme.settings);
             let input = nullradix_os::SlotTheme {
                 id: &theme.id,
                 version: &theme.version,
@@ -260,6 +270,24 @@ mod tests {
         let status = s.service.set_enabled(true).await.unwrap();
         assert_eq!(status.state, TargetState::Error);
         assert!(!s.root.join("default/skills").exists());
+    }
+
+    #[tokio::test]
+    async fn a_legacy_slot_goes_away_at_startup_while_the_switch_is_off() {
+        let s = setup().await;
+        let slot = s.root.join("default/skills/nullradix-theme");
+        fs::create_dir_all(slot.join("hooks")).unwrap();
+        fs::write(slot.join("hooks/hooks.json"), "{}").unwrap();
+        fs::write(slot.join("plugin.json"), "{}").unwrap();
+        fs::write(
+            slot.join(".nullradix-theme.json"),
+            r#"{"managedBy":"nullradix","themeId":"night","themeVersion":"1.0.0","settings":{}}"#,
+        )
+        .unwrap();
+        let status = s.service.reconcile().await.unwrap();
+        assert!(!status.enabled);
+        assert!(!slot.exists());
+        assert!(s.root.join("default/skills").is_dir());
     }
 
     #[test]

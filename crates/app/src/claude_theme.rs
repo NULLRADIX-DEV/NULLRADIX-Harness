@@ -34,6 +34,8 @@ pub enum SlotState {
     Managed {
         theme_id: String,
         theme_version: String,
+        /// Hash of the settings the files were written with; empty when unknown.
+        settings_hash: String,
     },
     /// Not created by NULLRADIX; never written or deleted.
     Foreign,
@@ -71,6 +73,8 @@ pub trait ClaudeSlots: Send + Sync {
     fn default_dir(&self) -> Option<String>;
     /// Comparable spelling of a folder; equal keys mean the same folder.
     fn key(&self, dir: &str) -> String;
+    /// What a folder shows as `settings_hash` once it holds the theme with its settings.
+    fn settings_hash(&self, theme: &SlotTheme) -> String;
     async fn inspect(&self, dir: &str) -> Result<SlotState, SlotFailure>;
     async fn apply(&self, dir: &str, theme: &SlotTheme) -> Result<SlotApplied, SlotFailure>;
     /// `true` when something was removed.
@@ -89,6 +93,10 @@ impl ClaudeSlots for NoSlots {
 
     fn key(&self, dir: &str) -> String {
         dir.to_owned()
+    }
+
+    fn settings_hash(&self, _theme: &SlotTheme) -> String {
+        String::new()
     }
 
     async fn inspect(&self, _dir: &str) -> Result<SlotState, SlotFailure> {
@@ -291,7 +299,11 @@ impl ClaudeThemeService {
             Ok(SlotState::Managed {
                 theme_id,
                 theme_version,
-            }) if theme_id == theme.id && theme_version == theme.version => {
+                settings_hash,
+            }) if theme_id == theme.id
+                && theme_version == theme.version
+                && settings_hash == self.slots.settings_hash(theme) =>
+            {
                 (TargetState::Active, None)
             }
             Ok(SlotState::Foreign) => (

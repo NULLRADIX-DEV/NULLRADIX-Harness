@@ -97,6 +97,10 @@ impl ClaudeSlots for Slots {
         dir.to_lowercase()
     }
 
+    fn settings_hash(&self, theme: &SlotTheme) -> String {
+        format!("{:?}", theme.settings)
+    }
+
     async fn inspect(&self, dir: &str) -> Result<SlotState, SlotFailure> {
         if self.foreign.lock().unwrap().contains(dir) {
             return Ok(SlotState::Foreign);
@@ -104,8 +108,9 @@ impl ClaudeSlots for Slots {
         Ok(self
             .holds(dir)
             .map_or(SlotState::Empty, |theme| SlotState::Managed {
-                theme_id: theme.id,
-                theme_version: theme.version,
+                theme_id: theme.id.clone(),
+                theme_version: theme.version.clone(),
+                settings_hash: self.settings_hash(&theme),
             }))
     }
 
@@ -276,6 +281,27 @@ async fn saving_theme_settings_and_reinstalling_carry_over() {
     f.themes.install(newer.into_bytes()).await.unwrap();
     f.service.reconcile().await.unwrap();
     assert_eq!(f.slots.holds("/home/.claude").unwrap().version, "1.1.0");
+}
+
+#[tokio::test]
+async fn a_folder_written_with_older_settings_is_not_reported_active() {
+    let f = fixture().await;
+    f.themes.install(package("night-blue", true)).await.unwrap();
+    f.themes.select("night-blue").await.unwrap();
+    assert_eq!(
+        f.service.set_enabled(true).await.unwrap().state,
+        TargetState::Active
+    );
+    let values = BTreeMap::from([(String::from("dim"), SettingValue::Switch(false))]);
+    f.themes
+        .save_settings("night-blue", values, None)
+        .await
+        .unwrap();
+    assert_eq!(f.service.status().await.unwrap().state, TargetState::Error);
+    assert_eq!(
+        f.service.reconcile().await.unwrap().state,
+        TargetState::Active
+    );
 }
 
 #[tokio::test]

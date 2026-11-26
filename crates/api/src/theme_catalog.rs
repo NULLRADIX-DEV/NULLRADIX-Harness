@@ -558,6 +558,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn installing_from_the_catalog_brings_the_claude_folders_in_line() {
+        let api = test_api().await;
+        let bytes = package();
+        let (_, added) = add(&api, SOURCE).await;
+        let id = added["id"].as_str().unwrap();
+        api.fetcher.answer(SOURCE, Ok(index(&bytes)));
+        api.fetcher.answer(PACKAGE, Ok(bytes));
+        let before = api.slots.calls();
+        let path = format!("/api/v1/theme-catalog/sources/{id}/themes/night-blue/install");
+        let (status, _) = call(&api, "POST", &path, None).await;
+        assert_eq!(status, 201);
+        assert!(api.slots.calls() > before);
+    }
+
+    #[tokio::test]
     async fn a_theme_from_elsewhere_is_replaced_only_on_request() {
         let api = test_api().await;
         let bytes = package();

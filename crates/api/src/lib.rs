@@ -548,6 +548,7 @@ pub(crate) mod tests {
         pub(crate) logins: Arc<LoginService>,
         pub(crate) fetcher: Arc<crate::theme_catalog::fake::Fetcher>,
         pub(crate) store: Arc<Store>,
+        pub(crate) slots: Arc<crate::claude_theme::fake::Slots>,
         pub(crate) _accounts_dir: tempfile::TempDir,
     }
 
@@ -866,6 +867,7 @@ pub(crate) mod tests {
             signal.clone(),
         ));
         let fetcher = Arc::new(crate::theme_catalog::fake::Fetcher::default());
+        let slots = Arc::new(crate::claude_theme::fake::Slots::default());
         let catalog = Arc::new(CatalogService::new(
             store.clone(),
             fetcher.clone(),
@@ -947,7 +949,7 @@ pub(crate) mod tests {
                 store.clone(),
                 themes.clone(),
                 store.clone(),
-                Arc::new(nullradix_app::claude_theme::NoSlots),
+                slots.clone(),
                 Arc::new(SystemClock),
                 signal.clone(),
             )),
@@ -975,6 +977,7 @@ pub(crate) mod tests {
             logins,
             fetcher,
             store: store.clone(),
+            slots,
             _accounts_dir: accounts_dir,
         }
     }
