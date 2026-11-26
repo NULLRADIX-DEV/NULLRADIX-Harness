@@ -1590,7 +1590,7 @@ async fn a_pass_that_stopped_after_the_question_comment_does_not_post_it_again()
         .add_system(
             &ticket_key,
             "[dispatch] question: waiting on ARC-Q0001 - earlier pass",
-            SystemMarker::Question,
+            Some(SystemMarker::Question),
             Some(run),
             actor,
         )
@@ -1691,7 +1691,7 @@ async fn autopilot_accepts_a_ticket_that_waits_for_a_person() {
         .filter(|line| {
             let record = line.comment.record();
             line.comment.body() == accepted
-                && record.system_marker == Some(SystemMarker::Review)
+                && record.system_marker.is_none()
                 && record.run == Some(run)
         })
         .count();

@@ -148,7 +148,7 @@ impl CommentService {
         &self,
         key: &TicketKey,
         body: &str,
-        marker: SystemMarker,
+        marker: Option<SystemMarker>,
         run: Option<Id<Run>>,
         actor: &Actor,
     ) -> Result<(), AppError> {

@@ -156,7 +156,13 @@ impl EvaluateRuns {
         if !asked {
             let body = question_comment(questions, record.branch.as_deref());
             self.comments
-                .add_system(&key, &body, SystemMarker::Question, Some(run.id()), actor)
+                .add_system(
+                    &key,
+                    &body,
+                    Some(SystemMarker::Question),
+                    Some(run.id()),
+                    actor,
+                )
                 .await?;
         }
         // the comment moved the ticket on; only a ticket still with the agent is given back
@@ -207,18 +213,12 @@ impl EvaluateRuns {
         let posted = detail.comments.iter().any(|line| {
             let comment = line.comment.record();
             line.comment.body() == body
-                && comment.system_marker == Some(SystemMarker::Review)
+                && comment.system_marker.is_none()
                 && comment.run == Some(run.id())
         });
         if !posted {
             self.comments
-                .add_system(
-                    &record.key,
-                    &body,
-                    SystemMarker::Review,
-                    Some(run.id()),
-                    actor,
-                )
+                .add_system(&record.key, &body, None, Some(run.id()), actor)
                 .await?;
             version = self.tickets.get(&key).await?.view.ticket.record().version;
         }

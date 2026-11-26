@@ -111,7 +111,7 @@ impl Comment {
         subject: CommentOn,
         author: Id<Actor>,
         body: CommentBody,
-        marker: SystemMarker,
+        marker: Option<SystemMarker>,
         run: Option<Id<Run>>,
         now: Timestamp,
     ) -> Self {
@@ -120,7 +120,7 @@ impl Comment {
             subject,
             author,
             body,
-            system_marker: Some(marker),
+            system_marker: marker,
             run,
             delivered_at: Some(now),
             created_at: now,

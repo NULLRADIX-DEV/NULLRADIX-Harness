@@ -683,7 +683,7 @@ impl TicketStarter {
         };
         if let Err(error) = self
             .comments
-            .add_system(key, body, marker, run, actor)
+            .add_system(key, body, Some(marker), run, actor)
             .await
         {
             self.log
