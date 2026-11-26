@@ -4,6 +4,7 @@ mod accounts;
 mod auth;
 mod boards;
 mod change_feed;
+mod claude_theme;
 mod comments;
 mod customizations;
 mod dispatch_accounts;

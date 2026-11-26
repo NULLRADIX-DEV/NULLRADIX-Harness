@@ -5,6 +5,7 @@ pub mod auth;
 mod authors;
 pub mod boards;
 mod changes;
+pub mod claude_theme;
 mod clock;
 pub mod comments;
 pub mod customizations;

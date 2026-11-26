@@ -9,6 +9,7 @@ use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
 use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
 use nullradix_app::boards::{BoardService, local_person};
+use nullradix_app::claude_theme::ClaudeThemeService;
 use nullradix_app::comments::CommentService;
 use nullradix_app::customizations::{CustomizationService, NoStandards};
 use nullradix_app::dispatch::accounts::AccountPauses;
@@ -49,6 +50,7 @@ use tokio::net::TcpListener;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
+use crate::claude_slots::{FolderSlots, default_claude_dir};
 use crate::config::Config;
 use crate::intake;
 use crate::logging;
@@ -148,6 +150,10 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     )
     .await?;
     let (themes, catalog, customizations) = start_extensions(config, &store, &signal);
+    let claude_theme = start_claude_theme(config, &store, &themes, &signal);
+    if let Err(error) = claude_theme.reconcile().await {
+        tracing::warn!(%error, "cannot sync the Claude theme");
+    }
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
@@ -192,6 +198,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         favorites,
         themes,
         catalog,
+        claude_theme,
         customizations,
         changes: Arc::new(store.clone()),
         signal,
@@ -492,6 +499,27 @@ fn start_extensions(
         signal.clone(),
     ));
     (themes, catalog, customizations)
+}
+
+/// The Claude part of themes goes into the default Claude folder and every account's folder.
+fn start_claude_theme(
+    config: &Config,
+    store: &Store,
+    themes: &Arc<ThemeService>,
+    signal: &ChangeSignal,
+) -> Arc<ClaudeThemeService> {
+    let home = config.isolated.then_some(config.paths.data.as_path());
+    Arc::new(ClaudeThemeService::new(
+        Arc::new(store.clone()),
+        themes.clone(),
+        Arc::new(store.clone()),
+        Arc::new(FolderSlots::new(
+            config.paths.themes(),
+            default_claude_dir(home),
+        )),
+        Arc::new(SystemClock),
+        signal.clone(),
+    ))
 }
 
 struct BoardServices {
