@@ -312,6 +312,7 @@ fn request(subject: &str) -> StartDispatchRun {
         account: None,
         extra_tools: Vec::new(),
         agent: None,
+        overrides: nullradix_domain::LabelOverrides::default(),
     }
 }
 

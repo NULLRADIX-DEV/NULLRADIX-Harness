@@ -21,6 +21,7 @@ use nullradix_app::dispatch::accounts::{
 };
 use nullradix_app::dispatch::assemble::{Dispatcher, DispatcherDeps, assemble};
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
+use nullradix_app::dispatch::pause::{PauseHook, PauseKind};
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
 use nullradix_app::dispatch::setup::{SetupFailure, SetupOutcome, SetupRequest, WorktreeSetupPort};
 use nullradix_app::dispatcher_config::DispatcherConfigService;
@@ -45,8 +46,9 @@ use nullradix_app::worktrees::{
 };
 use nullradix_app::{AppError, Change, ChangeSignal, Clock, UuidV7Generator};
 use nullradix_domain::{
-    Account, Actor, ActorKind, Board, ConfigDir, DispatchOutcome, Id, Run, RunEnd, RunOutcome,
-    Runner, SetupState, SystemMarker, TicketStatus, Timestamp, Version, WorktreeSetupStep,
+    Abort, AbortCategory, Account, Actor, ActorKind, Board, ConfigDir, DispatchOutcome, Id, Run,
+    RunEnd, RunOutcome, RunResult, Runner, SetupState, SystemMarker, TicketStatus, Timestamp,
+    Version, WorktreeSetupStep,
 };
 use nullradix_store::Store;
 use tokio::sync::Notify;
@@ -89,6 +91,7 @@ struct Machine {
     hold_create: Mutex<Option<Arc<Notify>>>,
     create_entered: Notify,
     fail_create: std::sync::atomic::AtomicBool,
+    fail_start: std::sync::atomic::AtomicBool,
     /// The next run start waits for this gate when set.
     hold_start: Mutex<Option<Arc<Notify>>>,
     start_entered: Notify,
@@ -103,6 +106,12 @@ impl RunnerPort for Machine {
 
     async fn start(&self, _run: Id<Run>, spec: &RunSpec) -> Result<u32, AppError> {
         self.specs.lock().unwrap().push(spec.clone());
+        if self.fail_start.load(Ordering::SeqCst) {
+            return Err(AppError::unavailable(
+                "claude-missing",
+                "claude is not installed",
+            ));
+        }
         let gate = self.hold_start.lock().unwrap().take();
         if let Some(gate) = gate {
             self.start_entered.notify_one();
@@ -866,14 +875,15 @@ async fn a_started_ticket_without_news_is_given_back_after_the_stale_limit() {
     let key = f.ready("Build", &["auto"]).await;
     f.dispatcher.pass.run().await;
     f.dispatcher.service.set_enabled(false).await.unwrap();
-    // the run ended without telling: a cancelled run is no longer active
+    // the run is over and settled, yet the claim lingers
     let runs = f.store.clone();
     let active = nullradix_app::runs::RunRepository::active(runs.as_ref())
         .await
         .unwrap();
     for run in active {
         let ended = run.lost(f.clock.now()).unwrap();
-        nullradix_app::runs::RunRepository::update(runs.as_ref(), &ended, run.version())
+        let settled = ended.settled(DispatchOutcome::Other).unwrap();
+        nullradix_app::runs::RunRepository::update(runs.as_ref(), &settled, run.version())
             .await
             .unwrap();
     }
@@ -886,6 +896,13 @@ async fn a_started_ticket_without_news_is_given_back_after_the_stale_limit() {
     assert_eq!(record.assignee, None);
     assert_eq!(record.status, nullradix_domain::TicketStatus::Planned);
     assert!(record.branch.is_some());
+    // the idle claim counts as an aborted attempt
+    let bodies = f.abort_bodies(&key).await;
+    assert_eq!(bodies.len(), 1);
+    assert!(
+        bodies[0]
+            .starts_with("[dispatch] abort: attempt 1/2: no sign of life for more than 150 min")
+    );
 }
 
 #[tokio::test]
@@ -1229,7 +1246,7 @@ async fn shutdown_cancels_running_setups_and_gives_their_tickets_back() {
 }
 
 #[tokio::test]
-async fn a_start_that_always_fails_is_not_tried_again_until_the_ticket_changes() {
+async fn a_start_that_always_fails_counts_attempts_until_the_ticket_is_blocked() {
     let f = fixture().await;
     f.enable().await;
     f.machine.fail_create.store(true, Ordering::SeqCst);
@@ -1238,24 +1255,52 @@ async fn a_start_that_always_fails_is_not_tried_again_until_the_ticket_changes()
     assert_eq!(first.errors.len(), 1, "{first:?}");
     let after_first = f.record(&key).await;
     assert_eq!(after_first.assignee, None, "the claim was given back");
-    let second = f.dispatcher.pass.run().await;
-    assert!(second.errors.is_empty(), "{second:?}");
+    assert_eq!(after_first.status, TicketStatus::Planned);
     assert_eq!(
-        f.record(&key).await,
-        after_first,
-        "no claim and release again"
+        f.abort_bodies(&key).await,
+        [
+            "[dispatch] abort: attempt 1/2: the worker could not be started: git is broken.\nThe ticket goes back to planned."
+        ]
     );
-    // an edit of the ticket is a reason to try again
+    let second = f.dispatcher.pass.run().await;
+    assert_eq!(second.errors.len(), 1, "{second:?}");
+    let last = f.record(&key).await;
+    assert_eq!(last.status, TicketStatus::Blocked);
+    assert_eq!(last.assignee, None);
+    assert_eq!(
+        last.blocked_reason.as_deref(),
+        Some("Automatic implementation aborted 2 times - please look at it")
+    );
+    let bodies = f.abort_bodies(&key).await;
+    assert_eq!(bodies.len(), 2);
+    assert!(bodies[1].contains("attempt 2/2"));
+    assert!(bodies[1].contains("the ticket goes to blocked."));
+    // a blocked ticket is left alone
+    let third = f.dispatcher.pass.run().await;
+    assert!(third.errors.is_empty(), "{third:?}");
+    assert_eq!(f.record(&key).await, last);
+}
+
+#[tokio::test]
+async fn a_failed_start_of_a_ticket_a_person_claimed_meanwhile_is_not_counted() {
+    let f = fixture().await;
+    f.enable().await;
+    f.machine.fail_create.store(true, Ordering::SeqCst);
+    let key = f.ready("Build", &["auto"]).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.abort_bodies(&key).await.len(), 1);
+    let version = f.record(&key).await.version;
     let patch = TicketPatch {
-        plan: Some(String::from("Do it differently.")),
+        assignee: Some(Some(String::from("anna"))),
         ..TicketPatch::default()
     };
     f.tickets
-        .update(&key, &patch, &f.person, after_first.version, FORCE)
+        .update(&key, &patch, &f.person, version, FORCE)
         .await
         .unwrap();
-    f.machine.fail_create.store(false, Ordering::SeqCst);
-    assert_eq!(f.dispatcher.pass.run().await.started, [key]);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.abort_bodies(&key).await.len(), 1);
+    assert_eq!(f.record(&key).await.assignee.as_deref(), Some("anna"));
 }
 
 #[tokio::test]
@@ -1586,7 +1631,8 @@ impl Fixture {
     }
 
     async fn start_tickets(&self, count: usize) -> Vec<String> {
-        self.configure(|config| config.wip = 3).await;
+        self.configure(|config| config.wip = i64::try_from(count.max(3)).unwrap())
+            .await;
         let mut keys = Vec::new();
         for index in 0..count {
             keys.push(self.ready(&format!("Ticket {index}"), &["auto"]).await);
@@ -1773,18 +1819,6 @@ async fn a_ticket_a_person_took_or_deleted_is_settled_as_taken_or_gone() {
 }
 
 #[tokio::test]
-async fn a_run_without_a_marker_outcome_stays_open_for_the_abort_slice() {
-    let f = fixture().await;
-    f.enable().await;
-    let key = f.start_tickets(1).await.remove(0);
-    let run = f.finish_run(&key).await;
-    f.dispatcher.pass.run().await;
-    assert_eq!(f.outcome(run).await, None);
-    assert_eq!(f.record(&key).await.status, TicketStatus::InProgress);
-    assert_eq!(f.markers(&key, SystemMarker::Abort).await, 0);
-}
-
-#[tokio::test]
 async fn autopilot_accepts_a_ticket_that_waits_for_a_person() {
     let f = fixture().await;
     f.enable().await;
@@ -1842,25 +1876,751 @@ async fn a_run_is_judged_by_the_agent_it_started_under() {
     assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Done));
 }
 
+fn abort_of(category: AbortCategory, reason: &str) -> Abort {
+    Abort {
+        category,
+        reason: reason.to_owned(),
+    }
+}
+
+const TIMEOUT_REASON: &str = "time limit of 90 min reached, run stopped";
+
+impl Fixture {
+    async fn latest_run(&self, key: &str) -> Run {
+        let filter = RunFilter {
+            subject_key: Some(key.to_owned()),
+            ..RunFilter::default()
+        };
+        nullradix_app::runs::RunRepository::find(self.store.as_ref(), &filter, 1)
+            .await
+            .unwrap()
+            .remove(0)
+    }
+
+    /// The newest run of the ticket ends the way the runner reports it.
+    async fn end_run(
+        &self,
+        key: &str,
+        outcome: RunOutcome,
+        exit_code: Option<i32>,
+        abort: Option<Abort>,
+    ) -> Id<Run> {
+        let run = self.latest_run(key).await;
+        let end = RunEnd {
+            exit_code,
+            error: None,
+        };
+        let result = RunResult {
+            abort,
+            ..RunResult::default()
+        };
+        let now = Timestamp::from_millis(self.clock.now().as_millis());
+        let next = run.finished_with(outcome, end, Some(result), now).unwrap();
+        nullradix_app::runs::RunRepository::update(self.store.as_ref(), &next, run.version())
+            .await
+            .unwrap();
+        run.id()
+    }
+
+    async fn time_out(&self, key: &str) -> Id<Run> {
+        let abort = abort_of(AbortCategory::Timeout, TIMEOUT_REASON);
+        self.end_run(key, RunOutcome::TimedOut, None, Some(abort))
+            .await
+    }
+
+    async fn marked(&self, key: &str, marker: SystemMarker) -> Vec<String> {
+        self.comments
+            .list(key)
+            .await
+            .unwrap()
+            .iter()
+            .filter(|line| line.comment.record().system_marker == Some(marker))
+            .map(|line| line.comment.body().to_owned())
+            .collect()
+    }
+
+    async fn abort_bodies(&self, key: &str) -> Vec<String> {
+        self.marked(key, SystemMarker::Abort).await
+    }
+
+    async fn profile_of(&self, run: Id<Run>) -> nullradix_domain::RunProfile {
+        self.run_of(run).await.dispatch().unwrap().profile.clone()
+    }
+
+    async fn stop_starting(&self) {
+        self.dispatcher.service.set_enabled(false).await.unwrap();
+    }
+}
+
 #[tokio::test]
-async fn failed_starts_do_not_crowd_finished_runs_out_of_the_batch() {
+async fn a_run_that_ran_out_of_time_is_an_aborted_attempt_and_the_ticket_goes_back() {
     let f = fixture().await;
     f.enable().await;
     let key = f.start_tickets(1).await.remove(0);
-    f.agent_changes(&key, "done", None).await;
-    let started = nullradix_app::runs::RunRepository::find(
-        f.store.as_ref(),
-        &RunFilter {
-            subject_key: Some(key.clone()),
-            ..RunFilter::default()
-        },
-        1,
+    f.stop_starting().await;
+    let run = f.time_out(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Abort));
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Planned);
+    assert_eq!(record.assignee, None);
+    assert_eq!(
+        f.abort_bodies(&key).await,
+        [format!(
+            "[dispatch] abort: attempt 1/2: {TIMEOUT_REASON}.\nThe ticket goes back to planned.\nRun: {run}"
+        )]
+    );
+    // a second pass counts nothing again
+    let version = f.run_of(run).await.version();
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.run_of(run).await.version(), version);
+    assert_eq!(f.abort_bodies(&key).await.len(), 1);
+}
+
+#[tokio::test]
+async fn every_way_a_run_can_end_without_an_outcome_counts_with_its_own_reason() {
+    let f = fixture().await;
+    f.enable().await;
+    let keys = f.start_tickets(5).await;
+    f.stop_starting().await;
+    let max_turns = "maximum number of turns (80) reached";
+    let exit = "claude exited with code 2";
+    let error = "claude reported an error (error_during_execution)";
+    let context = "context full: prompt is too long";
+    let none = "run ended without a result - the ticket is neither done nor blocked and has no open question";
+    let cases = [
+        (
+            RunOutcome::Failed,
+            Some(1),
+            Some(abort_of(AbortCategory::MaxTurns, max_turns)),
+            max_turns,
+        ),
+        (
+            RunOutcome::Failed,
+            Some(2),
+            Some(abort_of(AbortCategory::ExitCode, exit)),
+            exit,
+        ),
+        (
+            RunOutcome::Failed,
+            Some(0),
+            Some(abort_of(AbortCategory::ClaudeError, error)),
+            error,
+        ),
+        (
+            RunOutcome::Failed,
+            Some(1),
+            Some(abort_of(AbortCategory::Context, context)),
+            context,
+        ),
+        (RunOutcome::Succeeded, Some(0), None, none),
+    ];
+    let mut runs = Vec::new();
+    for (key, (outcome, code, abort, _)) in keys.iter().zip(cases.iter().cloned()) {
+        runs.push(f.end_run(key, outcome, code, abort).await);
+    }
+    f.dispatcher.pass.run().await;
+    for ((key, run), case) in keys.iter().zip(runs).zip(&cases) {
+        assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Abort), "{key}");
+        let bodies = f.abort_bodies(key).await;
+        assert_eq!(bodies.len(), 1, "{key}");
+        assert!(
+            bodies[0].starts_with(&format!("[dispatch] abort: attempt 1/2: {}.", case.3)),
+            "{}",
+            bodies[0]
+        );
+        assert_eq!(f.record(key).await.status, TicketStatus::Planned);
+    }
+}
+
+#[tokio::test]
+async fn a_vanished_run_is_an_aborted_attempt() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    let run = f.latest_run(&key).await;
+    let lost = run.lost(f.clock.now()).unwrap();
+    nullradix_app::runs::RunRepository::update(f.store.as_ref(), &lost, run.version())
+        .await
+        .unwrap();
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run.id()).await, Some(DispatchOutcome::Abort));
+    assert!(
+        f.abort_bodies(&key).await[0]
+            .starts_with("[dispatch] abort: attempt 1/2: the run vanished without a result.")
+    );
+}
+
+#[tokio::test]
+async fn the_last_attempt_blocks_the_ticket_and_ends_as_a_final_abort() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    let first = f.time_out(&key).await;
+    // the pass settles the first run and starts the second attempt
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started, [key.clone()], "{report:?}");
+    assert_eq!(f.outcome(first).await, Some(DispatchOutcome::Abort));
+    let exit = abort_of(AbortCategory::ExitCode, "claude exited with code 2");
+    let second = f
+        .end_run(&key, RunOutcome::Failed, Some(2), Some(exit))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(second).await, Some(DispatchOutcome::AbortFinal));
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Blocked);
+    assert_eq!(record.assignee, None);
+    assert_eq!(
+        record.blocked_reason.as_deref(),
+        Some("Automatic implementation aborted 2 times - please look at it")
+    );
+    let bodies = f.abort_bodies(&key).await;
+    assert_eq!(bodies.len(), 2);
+    assert!(bodies[1].starts_with("[dispatch] abort: attempt 2/2: claude exited with code 2."));
+    assert!(bodies[1].contains("That was the last automatic attempt"));
+    // nothing starts again
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.started.is_empty(), "{report:?}");
+    assert_eq!(f.machine.specs.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn three_aborts_end_as_a_final_abort_and_each_start_climbs_the_ladder() {
+    let f = fixture().await;
+    f.configure(|config| {
+        config.enabled = true;
+        config.max_attempts = 3;
+    })
+    .await;
+    let key = f.ready("Build", &["auto"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started, [key.clone()]);
+    let first = f.latest_run(&key).await.id();
+    assert_eq!(f.profile_of(first).await.name, "medium");
+    f.time_out(&key).await;
+    f.dispatcher.pass.run().await;
+    let second = f.latest_run(&key).await.id();
+    assert_ne!(second, first);
+    let profile = f.profile_of(second).await;
+    assert_eq!(
+        (profile.name.as_str(), profile.effort.as_deref()),
+        ("large", Some("max"))
+    );
+    let starts = f.marked(&key, SystemMarker::Start).await;
+    assert_eq!(starts.len(), 2);
+    assert!(starts[0].contains("profile medium"));
+    assert!(starts[1].contains("profile large"));
+    assert!(
+        starts[1].contains("default profile medium, attempt 2: escalated to large"),
+        "{}",
+        starts[1]
+    );
+    f.time_out(&key).await;
+    f.dispatcher.pass.run().await;
+    // the top step repeats
+    let third = f.latest_run(&key).await.id();
+    assert_ne!(third, second);
+    assert_eq!(f.profile_of(third).await.name, "large");
+    f.time_out(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(third).await, Some(DispatchOutcome::AbortFinal));
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
+    let bodies = f.abort_bodies(&key).await;
+    assert_eq!(bodies.len(), 3);
+    assert!(bodies[2].contains("attempt 3/3"));
+}
+
+#[tokio::test]
+async fn escalation_can_be_switched_off() {
+    let f = fixture().await;
+    f.configure(|config| {
+        config.enabled = true;
+        config.escalate = false;
+        config.max_attempts = 3;
+    })
+    .await;
+    let key = f.ready("Build", &["auto"]).await;
+    f.dispatcher.pass.run().await;
+    f.time_out(&key).await;
+    f.dispatcher.pass.run().await;
+    let second = f.latest_run(&key).await.id();
+    assert_eq!(f.profile_of(second).await.name, "medium");
+}
+
+#[tokio::test]
+async fn model_and_effort_labels_override_the_profile_and_are_named_in_the_start_comment() {
+    let f = fixture().await;
+    f.configure(|config| {
+        config.enabled = true;
+        config.wip = 3;
+    })
+    .await;
+    let cheap = f
+        .ready("Cheap", &["auto", "model:haiku", "effort:low"])
+        .await;
+    let other = f
+        .ready("Other", &["auto", "model:opus", "effort:low"])
+        .await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started.len(), 2, "{report:?}");
+    let haiku = f.profile_of(f.latest_run(&cheap).await.id()).await;
+    assert_eq!(haiku.model.as_deref(), Some("haiku"));
+    assert_eq!(haiku.effort, None, "haiku knows no effort");
+    let opus = f.profile_of(f.latest_run(&other).await.id()).await;
+    assert_eq!(
+        (
+            opus.name.as_str(),
+            opus.model.as_deref(),
+            opus.effort.as_deref()
+        ),
+        ("medium", Some("opus"), Some("low"))
+    );
+    let args: Vec<Vec<String>> = f
+        .machine
+        .specs
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|spec| spec.args.clone())
+        .collect();
+    let pair = |args: &[String], flag: &str| {
+        args.iter()
+            .position(|arg| arg == flag)
+            .and_then(|at| args.get(at + 1).cloned())
+    };
+    // the specs come in the order the tickets started
+    let started_cheap = pair(&args[0], "--model").as_deref() == Some("haiku");
+    let (cheap_args, other_args) = if started_cheap {
+        (&args[0], &args[1])
+    } else {
+        (&args[1], &args[0])
+    };
+    assert_eq!(pair(cheap_args, "--model").as_deref(), Some("haiku"));
+    assert_eq!(pair(cheap_args, "--effort"), None);
+    assert_eq!(pair(other_args, "--effort").as_deref(), Some("low"));
+    let start = f.marked(&other, SystemMarker::Start).await.remove(0);
+    assert!(
+        start.contains("default profile medium, label model:opus, label effort:low"),
+        "{start}"
+    );
+}
+
+#[tokio::test]
+async fn a_haiku_label_drops_the_effort_the_profile_names() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.ready("Cheap", &["auto", "model:haiku"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.started, [key.clone()], "{report:?}");
+    let profile = f.profile_of(f.latest_run(&key).await.id()).await;
+    assert_eq!(profile.model.as_deref(), Some("haiku"));
+    assert_eq!(profile.effort, None);
+    let specs = f.machine.specs.lock().unwrap();
+    assert!(specs[0].args.iter().any(|arg| arg == "haiku"));
+    assert!(!specs[0].args.iter().any(|arg| arg == "--effort"));
+}
+
+#[tokio::test]
+async fn an_invalid_model_label_keeps_the_ticket_from_starting() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.ready("Bad", &["auto", "model:gpt"]).await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.started.is_empty(), "{report:?}");
+    assert_eq!(f.record(&key).await.status, TicketStatus::Planned);
+}
+
+/// Answers the pause hook and notes what it was asked.
+struct Pauses {
+    answer: Option<DispatchOutcome>,
+    asked: Mutex<Vec<(PauseKind, String)>>,
+}
+
+#[async_trait]
+impl PauseHook for Pauses {
+    async fn paused(
+        &self,
+        _run: &Run,
+        ticket: &nullradix_domain::TicketRecord,
+        kind: PauseKind,
+        _config: &nullradix_domain::DispatcherConfig,
+    ) -> Result<Option<DispatchOutcome>, AppError> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push((kind, ticket.key.to_string()));
+        Ok(self.answer)
+    }
+}
+
+#[tokio::test]
+async fn usage_limit_and_missing_claude_go_to_the_pause_hook() {
+    let f = fixture().await;
+    f.enable().await;
+    let keys = f.start_tickets(2).await;
+    f.stop_starting().await;
+    let hook = Arc::new(Pauses {
+        answer: Some(DispatchOutcome::PauseLimit),
+        asked: Mutex::new(Vec::new()),
+    });
+    f.dispatcher.evaluate.set_pause_hook(hook.clone());
+    let limit = abort_of(AbortCategory::UsageLimit, "usage limit: limit reached");
+    let limit = f
+        .end_run(&keys[0], RunOutcome::Failed, Some(1), Some(limit))
+        .await;
+    let missing = abort_of(
+        AbortCategory::StartFailed,
+        "claude could not be started: not found",
+    );
+    let missing = f
+        .end_run(&keys[1], RunOutcome::Failed, Some(127), Some(missing))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(limit).await, Some(DispatchOutcome::PauseLimit));
+    assert_eq!(f.outcome(missing).await, Some(DispatchOutcome::PauseLimit));
+    let asked = hook.asked.lock().unwrap().clone();
+    assert_eq!(
+        asked,
+        [
+            (PauseKind::UsageLimit, keys[0].clone()),
+            (PauseKind::ClaudeMissing, keys[1].clone())
+        ]
+    );
+    // the hook took the runs: no attempt is counted and the tickets are left to it
+    for key in &keys {
+        assert!(f.abort_bodies(key).await.is_empty());
+        assert_eq!(f.record(key).await.status, TicketStatus::InProgress);
+    }
+}
+
+#[tokio::test]
+async fn without_a_pause_hook_a_usage_limit_counts_no_attempt_and_the_ticket_waits() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    let limit = abort_of(AbortCategory::UsageLimit, "usage limit: limit reached");
+    let run = f
+        .end_run(&key, RunOutcome::Failed, Some(1), Some(limit))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::PauseLimit));
+    assert!(f.abort_bodies(&key).await.is_empty());
+    let record = f.record(&key).await;
+    assert_eq!(
+        (record.status, record.assignee),
+        (TicketStatus::Planned, None)
+    );
+    let starts = f.machine.specs.lock().unwrap().len();
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.started.is_empty(), "{report:?}");
+    // the default pause is 60 minutes
+    f.advance(61);
+    assert_eq!(f.dispatcher.pass.run().await.started, [key.clone()]);
+    assert_eq!(f.machine.specs.lock().unwrap().len(), starts + 1);
+    assert!(f.abort_bodies(&key).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_runner_that_cannot_start_counts_no_attempt_and_the_ticket_waits() {
+    let f = fixture().await;
+    f.enable().await;
+    f.machine.fail_start.store(true, Ordering::SeqCst);
+    let key = f.ready("Build", &["auto"]).await;
+    let first = f.dispatcher.pass.run().await;
+    assert_eq!(first.errors.len(), 1, "{first:?}");
+    let run = f.latest_run(&key).await;
+    assert!(f.abort_bodies(&key).await.is_empty());
+    assert_eq!(
+        f.record(&key).await.assignee,
+        None,
+        "the claim was given back"
+    );
+    let second = f.dispatcher.pass.run().await;
+    assert!(
+        second.started.is_empty() && second.errors.is_empty(),
+        "{second:?}"
+    );
+    assert_eq!(
+        f.outcome(run.id()).await,
+        Some(DispatchOutcome::PauseClaudeMissing)
+    );
+    assert!(f.abort_bodies(&key).await.is_empty());
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.machine.specs.lock().unwrap().len(), 1, "not tried again");
+    f.machine.fail_start.store(false, Ordering::SeqCst);
+    f.advance(61);
+    assert_eq!(f.dispatcher.pass.run().await.started, [key.clone()]);
+    assert!(f.abort_bodies(&key).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_changed_ticket_ends_the_wait_after_a_start_that_failed() {
+    let f = fixture().await;
+    f.enable().await;
+    f.machine.fail_start.store(true, Ordering::SeqCst);
+    let key = f.ready("Build", &["auto"]).await;
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.machine.specs.lock().unwrap().len(), 1);
+    f.machine.fail_start.store(false, Ordering::SeqCst);
+    let version = f.record(&key).await.version;
+    let patch = TicketPatch {
+        title: Some(String::from("Build it")),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    assert_eq!(f.dispatcher.pass.run().await.started, [key]);
+}
+
+#[tokio::test]
+async fn a_failed_runner_start_is_never_settled_as_an_aborted_attempt() {
+    let f = fixture().await;
+    f.enable().await;
+    f.machine.fail_start.store(true, Ordering::SeqCst);
+    let key = f.ready("Build", &["auto"]).await;
+    f.dispatcher.pass.run().await;
+    let run = f.latest_run(&key).await;
+    // a person claims the ticket before the pass settles the run
+    let version = f.record(&key).await.version;
+    let patch = TicketPatch {
+        assignee: Some(Some(String::from("anna"))),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    f.dispatcher.pass.run().await;
+    let outcome = f.outcome(run.id()).await;
+    assert_ne!(outcome, Some(DispatchOutcome::Abort));
+    assert_ne!(outcome, Some(DispatchOutcome::AbortFinal));
+    assert!(f.abort_bodies(&key).await.is_empty());
+    assert_eq!(f.record(&key).await.assignee.as_deref(), Some("anna"));
+}
+
+impl Fixture {
+    /// An older run of a ticket that ended already, as left by an earlier attempt.
+    async fn old_run(
+        &self,
+        template: &Run,
+        key: &str,
+        id: u128,
+        created: i64,
+        abort: Option<Abort>,
+        settled: Option<DispatchOutcome>,
+    ) -> Id<Run> {
+        let mut dispatch = template.dispatch().unwrap().clone();
+        dispatch.subject_key = Some(key.to_owned());
+        dispatch.agent = None;
+        let label = nullradix_domain::RunLabel::parse("work").unwrap();
+        let id = Id::from_uuid(uuid::Uuid::from_u128(id));
+        let run = Run::new(id, label, Timestamp::from_millis(created)).with_dispatch(dispatch);
+        let store = self.store.as_ref();
+        nullradix_app::runs::RunRepository::insert(store, &run)
+            .await
+            .unwrap();
+        let end = RunEnd {
+            exit_code: None,
+            error: None,
+        };
+        let result = RunResult {
+            abort,
+            ..RunResult::default()
+        };
+        let now = Timestamp::from_millis(created);
+        let ended = run
+            .finished_with(RunOutcome::TimedOut, end, Some(result), now)
+            .unwrap();
+        nullradix_app::runs::RunRepository::update(store, &ended, run.version())
+            .await
+            .unwrap();
+        if let Some(outcome) = settled {
+            let next = ended.settled(outcome).unwrap();
+            nullradix_app::runs::RunRepository::update(store, &next, ended.version())
+                .await
+                .unwrap();
+        }
+        id
+    }
+}
+
+#[tokio::test]
+async fn an_old_run_whose_ticket_was_restarted_leaves_the_ticket_to_the_newer_run() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    let template = f.latest_run(&key).await;
+    let old = f.time_out(&key).await;
+    // the comment is written, then a person's edit makes the give-back conflict
+    *f.hook.rename_on_get.lock().unwrap() = Some((key.clone(), 3));
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(old).await, None, "left for the next pass");
+    assert_eq!(f.abort_bodies(&key).await.len(), 1);
+    // the ticket was started again meanwhile and its newer run ended and is settled
+    f.advance(1);
+    let created = f.clock.now().as_millis();
+    f.old_run(
+        &template,
+        &key,
+        500,
+        created,
+        None,
+        Some(DispatchOutcome::Other),
     )
-    .await
-    .unwrap()
-    .remove(0);
-    let mut dispatch = started.dispatch().unwrap().clone();
-    dispatch.subject_key = Some(String::from("ARC-9999"));
+    .await;
+    let before = f.record(&key).await;
+    assert_eq!(before.status, TicketStatus::InProgress);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(old).await, Some(DispatchOutcome::Abort));
+    assert_eq!(f.record(&key).await, before, "the newer claim is untouched");
+    assert_eq!(f.abort_bodies(&key).await.len(), 1);
+}
+
+#[tokio::test]
+async fn an_old_run_does_not_touch_a_ticket_whose_new_run_is_still_being_set_up() {
+    let f = fixture().await;
+    f.configure(|config| {
+        setup_config(config);
+        config.wip = 3;
+    })
+    .await;
+    let first = f.ready("First", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started, [first.clone()]);
+    f.dispatcher.starter.wait_idle().await;
+    let template = f.latest_run(&first).await;
+    let gate = Arc::new(Notify::new());
+    *f.setup.release.lock().unwrap() = Some(gate.clone());
+    let key = f.ready("Second", &["auto"]).await;
+    assert_eq!(f.dispatcher.pass.run().await.started, [key.clone()]);
+    assert!(f.dispatcher.starter.launching_keys().contains(&key));
+    let timeout = abort_of(AbortCategory::Timeout, TIMEOUT_REASON);
+    let old = f
+        .old_run(&template, &key, 600, START - MINUTE, Some(timeout), None)
+        .await;
+    let before = f.record(&key).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(old).await, None, "left until the setup is over");
+    assert!(f.abort_bodies(&key).await.is_empty());
+    assert_eq!(f.record(&key).await, before);
+    gate.notify_one();
+    f.dispatcher.starter.wait_idle().await;
+}
+
+#[tokio::test]
+async fn a_pass_that_stopped_after_the_abort_comment_finishes_the_ticket_without_a_second_comment()
+{
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    let run = f.time_out(&key).await;
+    // a person edits the ticket right after the comment: the give-back is based on a stale read
+    *f.hook.rename_on_get.lock().unwrap() = Some((key.clone(), 3));
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.outcome(run).await, None, "left for the next pass");
+    assert_eq!(f.abort_bodies(&key).await.len(), 1);
+    assert_eq!(f.record(&key).await.status, TicketStatus::InProgress);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Abort));
+    assert_eq!(f.abort_bodies(&key).await.len(), 1, "counted once");
+    assert_eq!(f.record(&key).await.status, TicketStatus::Planned);
+    assert_eq!(f.record(&key).await.assignee, None);
+}
+
+#[tokio::test]
+async fn a_pass_that_stopped_after_the_last_abort_comment_still_blocks_the_ticket() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    let first = f.time_out(&key).await;
+    // the pass settles the first run and starts the second attempt
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(first).await, Some(DispatchOutcome::Abort));
+    f.stop_starting().await;
+    let second = f.time_out(&key).await;
+    assert_ne!(second, first);
+    *f.hook.rename_on_get.lock().unwrap() = Some((key.clone(), 3));
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(second).await, None);
+    assert_eq!(f.abort_bodies(&key).await.len(), 2);
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(second).await, Some(DispatchOutcome::AbortFinal));
+    assert_eq!(f.abort_bodies(&key).await.len(), 2);
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
+}
+
+#[tokio::test]
+async fn a_person_who_took_the_ticket_is_not_counted_against_the_agent() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    let run = f.time_out(&key).await;
+    let version = f.record(&key).await.version;
+    let patch = TicketPatch {
+        assignee: Some(Some(String::from("anna"))),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Taken));
+    assert!(f.abort_bodies(&key).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_run_that_never_spawned_is_settled_as_a_pause_and_counts_nothing() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.stop_starting().await;
+    let started = f.latest_run(&key).await;
+    let dispatch = started.dispatch().unwrap().clone();
+    let label = nullradix_domain::RunLabel::parse("work").unwrap();
+    let id = Id::from_uuid(uuid::Uuid::from_u128(77));
+    let run = Run::new(id, label, Timestamp::from_millis(START - 10)).with_dispatch(dispatch);
+    nullradix_app::runs::RunRepository::insert(f.store.as_ref(), &run)
+        .await
+        .unwrap();
+    let failed = run
+        .failed_to_start(String::from("no"), Timestamp::from_millis(START - 5))
+        .unwrap();
+    nullradix_app::runs::RunRepository::update(f.store.as_ref(), &failed, run.version())
+        .await
+        .unwrap();
+    // its start counted no attempt; the pass only records the end
+    let ended = f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(
+        f.outcome(id).await,
+        Some(DispatchOutcome::PauseClaudeMissing)
+    );
+    assert_eq!(f.outcome(ended).await, Some(DispatchOutcome::Abort));
+    assert_eq!(
+        f.abort_bodies(&key).await.len(),
+        1,
+        "only the run that ended"
+    );
+}
+
+#[tokio::test]
+async fn many_settled_aborts_do_not_crowd_a_later_done_run_out_of_the_batch() {
+    let f = fixture().await;
+    f.enable().await;
+    let keys = f.start_tickets(2).await;
+    f.stop_starting().await;
+    f.agent_changes(&keys[1], "done", None).await;
+    let started = f.latest_run(&keys[0]).await;
+    let dispatch = started.dispatch().unwrap().clone();
+    let mut old = Vec::new();
     for index in 0..55 {
         let label = nullradix_domain::RunLabel::parse("work").unwrap();
         let id = Id::from_uuid(uuid::Uuid::from_u128(1_000 + index));
@@ -1869,16 +2629,47 @@ async fn failed_starts_do_not_crowd_finished_runs_out_of_the_batch() {
         nullradix_app::runs::RunRepository::insert(f.store.as_ref(), &run)
             .await
             .unwrap();
+        let end = RunEnd {
+            exit_code: Some(1),
+            error: None,
+        };
+        let result = RunResult {
+            abort: Some(abort_of(
+                AbortCategory::ExitCode,
+                "claude exited with code 1",
+            )),
+            ..RunResult::default()
+        };
         let failed = run
-            .failed_to_start(String::from("no"), Timestamp::from_millis(START - 5))
+            .finished_with(
+                RunOutcome::Failed,
+                end,
+                Some(result),
+                Timestamp::from_millis(START - 5),
+            )
             .unwrap();
         nullradix_app::runs::RunRepository::update(f.store.as_ref(), &failed, run.version())
             .await
             .unwrap();
+        old.push(id);
     }
-    let run = f.finish_run(&key).await;
+    let last = f
+        .end_run(&keys[0], RunOutcome::Succeeded, Some(0), None)
+        .await;
+    let done = f.finish_run(&keys[1]).await;
     f.dispatcher.pass.run().await;
-    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::Done));
+    let mut open = 0;
+    for run in &old {
+        open += usize::from(f.outcome(*run).await.is_none());
+    }
+    assert_eq!(open, 5, "a pass settles fifty runs");
+    assert_eq!(f.outcome(done).await, None);
+    f.dispatcher.pass.run().await;
+    for run in &old {
+        assert!(f.outcome(*run).await.is_some());
+    }
+    assert_eq!(f.outcome(done).await, Some(DispatchOutcome::Done));
+    assert!(f.outcome(last).await.is_some());
 }
 
 const HOUR: i64 = 60 * MINUTE;

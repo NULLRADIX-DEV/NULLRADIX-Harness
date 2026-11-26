@@ -75,9 +75,10 @@ pub fn allowed_accounts(
             from: Some(format!("label {ACCOUNT_LABEL_PREFIX}{slug}")),
         };
     }
+    // an escalated profile brings its own accounts
     let rule = choice
         .rule
-        .filter(|_| choice.reason == ProfileReason::Rule)
+        .filter(|_| choice.reason == ProfileReason::Rule && choice.escalated_from.is_none())
         .and_then(|place| {
             config
                 .rules
@@ -896,7 +897,19 @@ mod tests {
             reason,
             rule,
             why: String::new(),
+            escalated_from: None,
         }
+    }
+
+    #[test]
+    fn an_escalated_profile_brings_its_own_accounts_instead_of_the_rule_ones() {
+        let config = config_with_accounts();
+        let mut ruled = choice_of(&config, ProfileReason::Rule, Some(1));
+        ruled.escalated_from = Some(String::from("small"));
+        let allowed = allowed_accounts(&config, &ruled, &[]);
+        assert_eq!(allowed.slugs, vec![String::from("p1")]);
+        let labels = vec![String::from("account:max")];
+        assert_eq!(allowed_accounts(&config, &ruled, &labels).slugs, ["max"]);
     }
 
     #[test]

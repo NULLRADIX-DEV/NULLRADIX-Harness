@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::abort::AbortAttempts;
 use super::accounts::{
     AccountLimits, AccountPauseRepository, AccountPauses, AccountPicker, PickerParts,
     UsageSampleRepository,
@@ -63,6 +64,8 @@ pub struct Dispatcher {
     pub starter: Arc<TicketStarter>,
     pub accounts: Arc<AccountPicker>,
     pub pauses: Arc<AccountPauses>,
+    /// Settles finished runs; the pause hook of a later slice is set here.
+    pub evaluate: Arc<EvaluateRuns>,
 }
 
 impl std::fmt::Debug for Dispatcher {
@@ -109,6 +112,11 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         deps.boards.clone(),
         deps.runners.clone(),
     ));
+    let aborts = Arc::new(AbortAttempts::new(
+        deps.tickets.clone(),
+        deps.comments.clone(),
+        log.clone(),
+    ));
     let starter = TicketStarter::new(StarterParts {
         candidates: candidates.clone(),
         tickets: deps.tickets.clone(),
@@ -122,6 +130,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         setup: deps.setup,
         actors: deps.actors,
         log: log.clone(),
+        aborts: aborts.clone(),
         clock: deps.clock.clone(),
         ids: deps.ids,
     });
@@ -132,24 +141,23 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         deps.local_time.clone(),
         log.clone(),
     );
-    pass.set_step(
-        PassPhase::Evaluate,
-        Arc::new(
-            EvaluateRuns::new(
-                deps.tickets.clone(),
-                deps.comments.clone(),
-                deps.runs.clone(),
-                starter.clone(),
-                log.clone(),
-            )
-            .with_accounts(accounts.clone()),
-        ),
+    let evaluate = Arc::new(
+        EvaluateRuns::new(
+            deps.tickets.clone(),
+            deps.comments.clone(),
+            deps.runs.clone(),
+            starter.clone(),
+            log.clone(),
+            aborts.clone(),
+        )
+        .with_accounts(accounts.clone()),
     );
+    pass.set_step(PassPhase::Evaluate, evaluate.clone());
     pass.set_step(
         PassPhase::ReleaseStale,
         Arc::new(ReleaseStale::new(
             deps.tickets,
-            deps.comments,
+            aborts.clone(),
             deps.runs.clone(),
             starter.clone(),
         )),
@@ -181,5 +189,6 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         starter,
         accounts,
         pauses,
+        evaluate,
     }
 }

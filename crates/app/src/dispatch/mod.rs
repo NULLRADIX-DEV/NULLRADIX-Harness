@@ -1,5 +1,6 @@
 //! Claude runs of the dispatcher: the call, what the output says and the use cases around them.
 
+pub mod abort;
 pub mod accounts;
 pub mod assemble;
 pub mod candidates;
@@ -10,6 +11,7 @@ pub mod local_time;
 pub mod log;
 pub mod outcome;
 pub mod pass;
+pub mod pause;
 pub mod runs;
 pub mod scheduler;
 pub mod setup;

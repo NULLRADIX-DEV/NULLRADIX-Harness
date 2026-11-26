@@ -4,11 +4,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nullradix_domain::{Run, SystemMarker, TicketStatus};
+use nullradix_domain::{Run, TicketStatus};
 
+use super::abort::{AbortAttempts, AbortRequest, Aborted, Standing};
 use super::pass::{PassContext, PassReport, PassStep};
 use super::start::TicketStarter;
-use crate::comments::CommentService;
 use crate::runs::RunService;
 use crate::tickets::{TicketFilter, TicketService};
 use crate::{AppError, ErrorKind};
@@ -19,7 +19,7 @@ pub const PLANNED_CLAIM_STALE_MINUTES: i64 = 5;
 
 pub struct ReleaseStale {
     tickets: Arc<TicketService>,
-    comments: Arc<CommentService>,
+    aborts: Arc<AbortAttempts>,
     runs: Arc<RunService>,
     starter: Arc<TicketStarter>,
 }
@@ -34,13 +34,13 @@ impl ReleaseStale {
     #[must_use]
     pub fn new(
         tickets: Arc<TicketService>,
-        comments: Arc<CommentService>,
+        aborts: Arc<AbortAttempts>,
         runs: Arc<RunService>,
         starter: Arc<TicketStarter>,
     ) -> Self {
         Self {
             tickets,
-            comments,
+            aborts,
             runs,
             starter,
         }
@@ -90,25 +90,35 @@ impl PassStep for ReleaseStale {
             if idle <= limit {
                 continue;
             }
-            let was = record.status;
+            if record.status == TicketStatus::InProgress {
+                // a claim without a run counts as an aborted attempt, as in legacy
+                let reason = format!(
+                    "no sign of life for more than {} min (the worker probably crashed or the machine restarted)",
+                    config.stale_minutes
+                );
+                let request = AbortRequest {
+                    key: &record.key,
+                    run: None,
+                    agent: assignee,
+                    reason: &reason,
+                    standing: Standing::Claimed,
+                    expected: Some(record.version),
+                    superseded: false,
+                };
+                match self.aborts.abort(&request, config, actor).await {
+                    Ok(Aborted::Counted { .. }) => report.released.push(key.clone()),
+                    // someone changed the ticket since the list: it is not stale after all
+                    Ok(Aborted::Postponed) => {}
+                    Err(error) => report.errors.push(format!("{key}: {}", error.message())),
+                }
+                continue;
+            }
             match self
                 .tickets
                 .release(&key, Some("planned"), actor, Some(record.version))
                 .await
             {
-                Ok(_) => {
-                    report.released.push(key.clone());
-                    if was == TicketStatus::InProgress {
-                        let body = format!(
-                            "[dispatch] abort: no sign of life for more than {} min (the worker probably crashed or the machine restarted)",
-                            config.stale_minutes
-                        );
-                        let _ = self
-                            .comments
-                            .add_system(&record.key, &body, Some(SystemMarker::Abort), None, actor)
-                            .await;
-                    }
-                }
+                Ok(_) => report.released.push(key.clone()),
                 // someone changed the ticket since the list: it is not stale after all
                 Err(error) if error.kind() == ErrorKind::Conflict => {}
                 Err(error) => report.errors.push(format!("{key}: {}", error.message())),

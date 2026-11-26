@@ -32,6 +32,8 @@ pub struct ProfileChoice {
     /// One-based place of the rule that matched.
     pub rule: Option<usize>,
     pub why: String,
+    /// The profile before the ladder lifted it after aborts.
+    pub escalated_from: Option<String>,
 }
 
 fn word(text: &str) -> &str {
@@ -135,6 +137,7 @@ pub fn choose_profile(
             reason: ProfileReason::Label,
             rule: None,
             why: format!("label {PROFILE_LABEL_PREFIX}{name}"),
+            escalated_from: None,
         };
     }
     let estimate = plan_estimate(plan);
@@ -147,6 +150,7 @@ pub fn choose_profile(
             reason: ProfileReason::Plan,
             rule: None,
             why: format!("effort from the plan: {name}"),
+            escalated_from: None,
         };
     }
     let note = estimate.map_or_else(String::new, |text| {
@@ -163,6 +167,7 @@ pub fn choose_profile(
             reason: ProfileReason::Rule,
             rule: Some(index + 1),
             why: format!("rule {} -> {}{note}", index + 1, rule.profile),
+            escalated_from: None,
         };
     }
     ProfileChoice {
@@ -170,6 +175,7 @@ pub fn choose_profile(
         reason: ProfileReason::Default,
         rule: None,
         why: format!("default profile {}{note}", config.default_profile),
+        escalated_from: None,
     }
 }
 

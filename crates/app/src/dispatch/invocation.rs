@@ -107,8 +107,14 @@ pub fn effective_model(claude: &ClaudeSettings, profile: &Profile) -> Option<Str
     profile.model.clone().or_else(|| claude.model.clone())
 }
 
+/// The effort of a run; Haiku knows none.
 #[must_use]
 pub fn effective_effort(claude: &ClaudeSettings, profile: &Profile) -> Option<String> {
+    let haiku = effective_model(claude, profile)
+        .is_some_and(|model| model.starts_with("haiku") || model.contains("-haiku"));
+    if haiku {
+        return None;
+    }
     profile.effort.clone().or_else(|| claude.effort.clone())
 }
 
@@ -412,6 +418,37 @@ mod tests {
             effective_model(&config.claude, &profile).as_deref(),
             Some("opus")
         );
+    }
+
+    #[test]
+    fn haiku_gets_no_effort_even_when_the_profile_names_one() {
+        let mut config = config();
+        let mut profile = config.profile("medium").unwrap().clone();
+        profile.effort = Some(String::from("high"));
+        profile.model = Some(String::from("opus"));
+        assert_eq!(
+            effective_effort(&config.claude, &profile).as_deref(),
+            Some("high")
+        );
+        for model in ["haiku", "claude-haiku-4-5"] {
+            profile.model = Some(String::from(model));
+            assert_eq!(effective_effort(&config.claude, &profile), None, "{model}");
+            let args = build(&input(
+                &config.claude,
+                &profile,
+                RunKind::Work,
+                Some("ARC-0001"),
+                None,
+                None,
+            ))
+            .args;
+            assert!(args.contains(&String::from(model)), "{args:?}");
+            assert!(!args.contains(&String::from("--effort")), "{args:?}");
+        }
+        // the general model counts when the profile names none
+        profile.model = None;
+        config.claude.model = Some(String::from("haiku"));
+        assert_eq!(effective_effort(&config.claude, &profile), None);
     }
 
     #[test]
