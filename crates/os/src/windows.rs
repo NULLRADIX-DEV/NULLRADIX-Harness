@@ -12,8 +12,8 @@ use std::process::{Child, Command};
 use std::ptr;
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, ERROR_NOT_FOUND, FILETIME, GetLastError, HANDLE,
-    INVALID_HANDLE_VALUE, LocalFree, SYSTEMTIME,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_NOT_FOUND, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
+    LocalFree,
 };
 #[cfg(test)]
 use windows_sys::Win32::Security::Authorization::GetNamedSecurityInfoW;
@@ -47,9 +47,6 @@ use windows_sys::Win32::System::Threading::{
     CreateProcessW, DETACHED_PROCESS, GetCurrentProcess, GetExitCodeProcess, OpenProcess,
     OpenProcessToken, OpenThread, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
     ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOW, THREAD_SUSPEND_RESUME,
-};
-use windows_sys::Win32::System::Time::{
-    FileTimeToSystemTime, SystemTimeToFileTime, SystemTimeToTzSpecificLocalTime,
 };
 
 const STILL_ACTIVE: u32 = 259;
@@ -527,40 +524,6 @@ fn restrict_with(apply: impl FnOnce(PSID, *const ACL) -> u32) -> io::Result<()> 
     // SAFETY: descriptor was allocated by the conversion and is freed exactly once.
     unsafe { LocalFree(descriptor) };
     result
-}
-
-/// 100 ns ticks from 1601-01-01 to 1970-01-01 in milliseconds.
-const EPOCH_GAP_MS: i64 = 11_644_473_600_000;
-const TICKS_PER_MS: i64 = 10_000;
-const TICKS_PER_MINUTE: i64 = 600_000_000;
-
-fn ticks(time: FILETIME) -> i64 {
-    (i64::from(time.dwHighDateTime) << 32) | i64::from(time.dwLowDateTime)
-}
-
-/// Minutes local time is ahead of UTC at a moment, by the rules of that moment's date.
-pub(crate) fn utc_offset_minutes(at_millis: i64) -> Option<i32> {
-    let utc_ticks = at_millis
-        .checked_add(EPOCH_GAP_MS)?
-        .checked_mul(TICKS_PER_MS)
-        .filter(|ticks| *ticks >= 0)?;
-    let utc_file = FILETIME {
-        dwLowDateTime: u32::try_from(utc_ticks & 0xFFFF_FFFF).ok()?,
-        dwHighDateTime: u32::try_from(utc_ticks >> 32).ok()?,
-    };
-    // SAFETY: the structures are plain data that the calls fill in.
-    let (mut utc, mut local, mut local_file): (SYSTEMTIME, SYSTEMTIME, FILETIME) =
-        unsafe { std::mem::zeroed() };
-    // SAFETY: the pointers are valid for each call; a null zone means the current zone.
-    let converted = unsafe {
-        FileTimeToSystemTime(&raw const utc_file, &raw mut utc) != 0
-            && SystemTimeToTzSpecificLocalTime(ptr::null(), &raw const utc, &raw mut local) != 0
-            && SystemTimeToFileTime(&raw const local, &raw mut local_file) != 0
-    };
-    if !converted {
-        return None;
-    }
-    i32::try_from((ticks(local_file) - utc_ticks).div_euclid(TICKS_PER_MINUTE)).ok()
 }
 
 /// Owner, protection and allow entries (SID text and access mask) of a file or folder.

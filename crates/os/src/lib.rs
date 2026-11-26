@@ -11,8 +11,6 @@ mod local_time;
 mod paths;
 mod process;
 mod secrets;
-#[cfg(not(windows))]
-mod unix_time;
 #[cfg(windows)]
 mod windows;
 
