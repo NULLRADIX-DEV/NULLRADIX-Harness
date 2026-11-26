@@ -30,7 +30,7 @@ pub const RESEARCH_TOOLS: [&str; 12] = [
 ];
 
 /// Denials beat every permission, including the user's own settings.
-pub const RESEARCH_DENIED_TOOLS: [&str; 14] = [
+pub const RESEARCH_DENIED_TOOLS: [&str; 17] = [
     "MultiEdit",
     "NotebookEdit",
     "Bash(git commit:*)",
@@ -45,6 +45,10 @@ pub const RESEARCH_DENIED_TOOLS: [&str; 14] = [
     "Bash(git diff --output:*)",
     "Bash(git log --output:*)",
     "Bash(git show --output:*)",
+    // the option may follow other words or carry its value after `=`
+    "Bash(git diff*--output*)",
+    "Bash(git log*--output*)",
+    "Bash(git show*--output*)",
 ];
 
 /// The only tools of a plan run.
@@ -375,6 +379,7 @@ mod tests {
             assert!(tools.iter().any(|allowed| allowed == tool), "{tool}");
         }
         assert!(RESEARCH_DENIED_TOOLS.contains(&"Bash(git diff --output:*)"));
+        assert!(RESEARCH_DENIED_TOOLS.contains(&"Bash(git diff*--output*)"));
     }
 
     #[test]
