@@ -1,0 +1,476 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "name": "first commit",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "init"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git commit",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git commit",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "committed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "name": "long paths on already, so every platform prints the same",
+    "request": {
+      "body": {
+        "args": [
+          "config",
+          "core.longpaths",
+          "true"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git config",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-6>",
+        "label": "git config",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-6>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "configured",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-6>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Build the login",
+      "--board",
+      "<ID-2>",
+      "--label",
+      "auto",
+      "--acceptance",
+      "Login works",
+      "--planned"
+    ],
+    "exitCode": 0,
+    "name": "a ready ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Build the login\n"
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-1",
+      "--plan",
+      "Build it",
+      "--handbook",
+      "cargo test"
+    ],
+    "exitCode": 0,
+    "name": "plan the ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 planned (planned)\n"
+  },
+  {
+    "file": "<WORK>/attempts.json",
+    "lines": 1,
+    "name": "write three attempts"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/attempts.json"
+    ],
+    "exitCode": 0,
+    "name": "allow three attempts",
+    "stderr": "",
+    "stdout": "saved dispatcher configuration, version 2 (fb1afefc20d8a472)\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "enable"
+    ],
+    "exitCode": 0,
+    "name": "switch on",
+    "stderr": "",
+    "stdout": "idle: Idle\n0 of 1 places in use, 0 planning\n  ARC-0001 Build the login: ready\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass starts the first attempt",
+    "stderr": "",
+    "stdout": "started: ARC-0001\n"
+  },
+  {
+    "field": "items.0.status",
+    "name": "the first run ran out of turns",
+    "reached": "failed",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "the next pass counts the first abort and starts the second attempt one step higher",
+    "stderr": "",
+    "stdout": "started: ARC-0001\n"
+  },
+  {
+    "field": "items.0.status",
+    "name": "the second run ran out of turns",
+    "reached": "failed",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "the next pass counts the second abort and starts the third attempt",
+    "stderr": "",
+    "stdout": "started: ARC-0001\n"
+  },
+  {
+    "field": "items.0.status",
+    "name": "the third run ran out of turns",
+    "reached": "failed",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "the next pass counts the last abort and blocks the ticket",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "name": "the numbers of the three aborted runs",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/stats/dispatch"
+    },
+    "response": {
+      "json": {
+        "abortReasons": [
+          {
+            "category": "max-turns",
+            "count": 3,
+            "label": "Turn limit"
+          }
+        ],
+        "byProfile": [
+          {
+            "done": 0,
+            "escalated": 1,
+            "final": 1,
+            "other": 0,
+            "profile": "large",
+            "runs": 2
+          },
+          {
+            "done": 0,
+            "escalated": 1,
+            "final": 0,
+            "other": 0,
+            "profile": "medium",
+            "runs": 1
+          }
+        ],
+        "configurableAbortShare": 1.0,
+        "filter": {
+          "kind": "work"
+        },
+        "kpis": {
+          "aborted": 3,
+          "done": 0,
+          "escalationRate": 1.0,
+          "finalFailures": 1,
+          "firstTryRate": 0.0,
+          "runs": 3,
+          "solved": 0,
+          "subjects": 1,
+          "successRate": 0.0
+        },
+        "ladder": {
+          "afterEscalation": 0.0,
+          "final": 1.0,
+          "finished": 1,
+          "firstTry": 0.0
+        },
+        "outcomes": [
+          {
+            "count": 2,
+            "outcome": "abort"
+          },
+          {
+            "count": 1,
+            "outcome": "abort-final"
+          }
+        ],
+        "staleRuns": 0,
+        "usagePauses": 0
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the same numbers for the board of the ticket",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/stats/dispatch?boardId=<ID-2>&kind=work"
+    },
+    "response": {
+      "json": {
+        "abortReasons": [
+          {
+            "category": "max-turns",
+            "count": 3,
+            "label": "Turn limit"
+          }
+        ],
+        "kpis": {
+          "finalFailures": 1,
+          "runs": 3
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "merge runs there are none",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/stats/dispatch?kind=merge"
+    },
+    "response": {
+      "json": {
+        "abortReasons": [],
+        "kpis": {
+          "runs": 0
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a range turned around is refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/stats/dispatch?from=2026-02-01&to=2026-01-01"
+    },
+    "response": {
+      "json": {
+        "code": "stats-range-invalid",
+        "detail": "from is after to",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:stats-range-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a range beyond a year is refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/stats/dispatch?from=2025-01-01&to=2026-06-01"
+    },
+    "response": {
+      "json": {
+        "code": "stats-range-invalid",
+        "detail": "the range is too long (517 days, at most 366)",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:stats-range-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "an unknown kind is refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/stats/dispatch?kind=plan"
+    },
+    "response": {
+      "json": {
+        "code": "stats-kind-invalid",
+        "detail": "kind must be work, merge or research",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:stats-kind-invalid"
+      },
+      "status": 422
+    }
+  }
+]

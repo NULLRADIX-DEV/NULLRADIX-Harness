@@ -54,6 +54,9 @@ pub(crate) struct Http {
     pub(crate) body: Option<Value>,
     #[serde(default)]
     pub(crate) auth: Auth,
+    /// Dotted paths of the JSON response to record; the rest varies from day to day.
+    #[serde(default)]
+    pub(crate) keep: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

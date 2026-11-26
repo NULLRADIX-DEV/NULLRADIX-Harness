@@ -1714,6 +1714,13 @@ mod tests {
             accounts: accounts.clone(),
             dispatcher_prompts: prompts,
             dispatcher: assembled.service,
+            dispatch_stats: Arc::new(nullradix_app::dispatch::stats::DispatchStatsService::new(
+                store.clone(),
+                dispatcher_config.clone(),
+                store.clone(),
+                Arc::new(SystemClock),
+                Arc::new(nullradix_app::dispatch::local_time::UtcTime),
+            )),
             account_pauses: assembled.pauses,
             dispatcher_config,
             usage,

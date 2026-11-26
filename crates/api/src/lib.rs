@@ -7,6 +7,7 @@ mod claude_theme;
 mod comments;
 mod customizations;
 mod dispatch_runs;
+mod dispatch_stats;
 mod dispatcher_config;
 mod dispatcher_control;
 mod dispatcher_prompts;
@@ -53,6 +54,7 @@ use nullradix_app::customizations::CustomizationService;
 use nullradix_app::dispatch::accounts::AccountPauses;
 use nullradix_app::dispatch::control::DispatcherService;
 use nullradix_app::dispatch::runs::DispatchRuns;
+use nullradix_app::dispatch::stats::DispatchStatsService;
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::dispatcher_prompts::DispatcherPromptService;
 use nullradix_app::favorites::FavoriteService;
@@ -97,6 +99,10 @@ pub use dispatch_runs::{
     AbortCategoryDto, AbortDto, DeniedToolDto, DispatchDto, LineKindDto, ModelUsageDto,
     RunDetailDto, RunKindDto, RunProfileDto, RunResultDto, RunTriggerDto, RunUsageDto,
     ScreenshotDto, ScreenshotList, StartDispatchRunBody, TranscriptDto, TranscriptLineDto,
+};
+pub use dispatch_stats::{
+    AbortReasonDto, DispatchStatsDto, OutcomeCountDto, ProfileRowDto, SeriesPointDto,
+    SeriesUnitDto, StatsFilterDto, StatsKpisDto, StatsLadderDto, StatsSeriesDto, StatsUsageDto,
 };
 pub use dispatcher_config::{
     AccountStrategyDto, AutopilotSettingsDto, ClaudeSettingsDto, DispatcherConfigDto,
@@ -220,6 +226,7 @@ pub struct ApiState {
     pub dispatcher_config: Arc<DispatcherConfigService>,
     pub dispatcher_prompts: Arc<DispatcherPromptService>,
     pub dispatcher: Arc<DispatcherService>,
+    pub dispatch_stats: Arc<DispatchStatsService>,
     pub account_pauses: Arc<AccountPauses>,
     pub usage: Arc<UsageService>,
     pub logins: Arc<LoginService>,
@@ -328,6 +335,7 @@ fn dispatcher_routes() -> OpenApiRouter<ApiState> {
             dispatcher_prompts::reset_prompt
         ))
         .routes(routes!(dispatcher_prompts::preview_prompt))
+        .routes(routes!(dispatch_stats::get_dispatch_stats))
         .routes(routes!(dispatch_runs::start_dispatch_run))
         .routes(routes!(
             dispatcher_control::get_dispatcher,
@@ -943,6 +951,13 @@ pub(crate) mod tests {
             dispatcher_config: dispatcher_config.clone(),
             dispatcher_prompts: prompts,
             dispatcher: assembled.service,
+            dispatch_stats: Arc::new(DispatchStatsService::new(
+                store.clone(),
+                dispatcher_config.clone(),
+                store.clone(),
+                Arc::new(SystemClock),
+                Arc::new(nullradix_app::dispatch::local_time::UtcTime),
+            )),
             account_pauses: pauses.clone(),
             usage,
             logins: logins.clone(),

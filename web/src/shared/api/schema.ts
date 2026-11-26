@@ -1157,6 +1157,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stats/dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_dispatch_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/theme-catalog/sources": {
         parameters: {
             query?: never;
@@ -1598,6 +1614,13 @@ export interface components {
         AbortDto: {
             category: components["schemas"]["AbortCategoryDto"];
             reason: string;
+        };
+        AbortReasonDto: {
+            /** @description An abort category, or `other` when the run recorded none. */
+            category: string;
+            /** Format: int32 */
+            count: number;
+            label: string;
         };
         AcceptTicket: {
             /** Format: int64 */
@@ -2130,6 +2153,39 @@ export interface components {
          * @enum {string}
          */
         DispatchOutcomeDto: "done" | "review" | "human" | "abort" | "abort-final" | "blocked" | "question" | "pause-limit" | "pause-claude-missing" | "setup-failed" | "taken" | "gone" | "other" | "merge-session" | "research" | "planned";
+        /** @description The dashboard numbers of the dispatcher over a range of days. */
+        DispatchStatsDto: {
+            /** @description Aborts by category, the most frequent first. */
+            abortReasons: components["schemas"]["AbortReasonDto"][];
+            byProfile: components["schemas"]["ProfileRowDto"][];
+            /**
+             * Format: int64
+             * @description When the newest configuration first appeared, for `from=config`.
+             */
+            configChangedAt?: number | null;
+            /**
+             * Format: double
+             * @description Share of the aborts caused by turn or time limits or a full context.
+             */
+            configurableAbortShare?: number | null;
+            filter: components["schemas"]["StatsFilterDto"];
+            kpis: components["schemas"]["StatsKpisDto"];
+            ladder: components["schemas"]["StatsLadderDto"];
+            /** @description Every outcome of the runs counted, the most frequent first. */
+            outcomes: components["schemas"]["OutcomeCountDto"][];
+            series: components["schemas"]["StatsSeriesDto"];
+            /**
+             * Format: int32
+             * @description Runs the worker lost in the range, runs of every kind.
+             */
+            staleRuns: number;
+            usage: components["schemas"]["StatsUsageDto"];
+            /**
+             * Format: int32
+             * @description Pauses for a usage limit in the range, runs of every kind.
+             */
+            usagePauses: number;
+        };
         /** @description The dispatcher's whole configuration; a save replaces all of it. */
         DispatcherConfigDto: {
             /** Format: int64 */
@@ -2651,6 +2707,11 @@ export interface components {
             text: string;
             title: string;
         };
+        OutcomeCountDto: {
+            /** Format: int32 */
+            count: number;
+            outcome: components["schemas"]["DispatchOutcomeDto"];
+        };
         OutputLineDto: {
             /** Format: int64 */
             seq: number;
@@ -2758,6 +2819,26 @@ export interface components {
             name: string;
             /** Format: int64 */
             timeoutMinutes: number;
+        };
+        /** @description How the runs of one profile ended. */
+        ProfileRowDto: {
+            /** Format: int32 */
+            done: number;
+            /**
+             * Format: int32
+             * @description Aborted and tried again.
+             */
+            escalated: number;
+            /** Format: int32 */
+            final: number;
+            /**
+             * Format: int32
+             * @description Question, blocked and runs still open.
+             */
+            other: number;
+            profile: string;
+            /** Format: int32 */
+            runs: number;
         };
         /** @description A project as the API shows it; timestamps are Unix milliseconds. */
         ProjectDto: {
@@ -3233,6 +3314,21 @@ export interface components {
             /** @description Key of the ticket it stood out at. */
             source?: string | null;
         };
+        SeriesPointDto: {
+            /** Format: int32 */
+            aborted: number;
+            /** Format: int32 */
+            done: number;
+            /**
+             * Format: int32
+             * @description Waiting for a person: question or blocked.
+             */
+            other: number;
+            /** @description First day of the bucket, `YYYY-MM-DD`; a Monday for weeks. */
+            start: string;
+        };
+        /** @enum {string} */
+        SeriesUnitDto: "day" | "week";
         SessionChangesDto: {
             /** @description Base branch for changes from git. */
             base?: string | null;
@@ -3420,6 +3516,85 @@ export interface components {
             warnings: string[];
             /** @description Folder of the worktree on the runner, with forward slashes. */
             worktree: string;
+        };
+        /** @description The range and filters the numbers were worked out for. */
+        StatsFilterDto: {
+            /** Format: uuid */
+            boardId?: string | null;
+            /** @description First day, `YYYY-MM-DD`. */
+            from: string;
+            kind: components["schemas"]["RunKindDto"];
+            /** @description Last day, `YYYY-MM-DD`. */
+            to: string;
+        };
+        StatsKpisDto: {
+            /** Format: int32 */
+            aborted: number;
+            /** Format: int32 */
+            done: number;
+            /**
+             * Format: double
+             * @description Subjects with a run after an abort.
+             */
+            escalationRate?: number | null;
+            /** Format: int32 */
+            finalFailures: number;
+            /**
+             * Format: double
+             * @description Finished subjects solved by the first run, without an abort before.
+             */
+            firstTryRate?: number | null;
+            /** Format: int32 */
+            runs: number;
+            /**
+             * Format: int32
+             * @description Subjects with a successful run.
+             */
+            solved: number;
+            /**
+             * Format: int32
+             * @description Tickets or questions the runs were about.
+             */
+            subjects: number;
+            /**
+             * Format: double
+             * @description Solved among the subjects that finished.
+             */
+            successRate?: number | null;
+        };
+        /** @description How the finished subjects ended, as shares. */
+        StatsLadderDto: {
+            /** Format: double */
+            afterEscalation?: number | null;
+            /** Format: double */
+            final?: number | null;
+            /** Format: int32 */
+            finished: number;
+            /** Format: double */
+            firstTry?: number | null;
+        };
+        /** @description Runs over time: a point per day up to 28 days, per week beyond. */
+        StatsSeriesDto: {
+            points: components["schemas"]["SeriesPointDto"][];
+            unit: components["schemas"]["SeriesUnitDto"];
+        };
+        /** @description Cost, tokens and time of the runs counted. */
+        StatsUsageDto: {
+            /**
+             * Format: int64
+             * @description Mean over the runs with a known duration.
+             */
+            averageDurationMs?: number | null;
+            /** Format: int64 */
+            cacheReadTokens: number;
+            /** Format: int64 */
+            cacheWriteTokens: number;
+            /** Format: double */
+            costUsd: number;
+            /** Format: int64 */
+            inputTokens: number;
+            /** Format: int64 */
+            outputTokens: number;
         };
         /** @description A work step; numbers count from 1. */
         StepDto: {
@@ -8592,6 +8767,60 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_dispatch_stats: {
+        parameters: {
+            query?: {
+                /** @description First day as `YYYY-MM-DD`, or `config`; 56 days before `to` when left out. */
+                from?: string;
+                /** @description Last day as `YYYY-MM-DD` in local time; today when left out. A range has at most 366 days. */
+                to?: string;
+                /** @description `work` (default), `merge` or `research`. */
+                kind?: string;
+                /** @description Count the runs of this board's tickets only. */
+                boardId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchStatsDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown board */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Bad range or kind, or too many runs in the range */
             422: {
                 headers: {
                     [name: string]: unknown;
