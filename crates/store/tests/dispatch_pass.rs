@@ -25,6 +25,9 @@ use nullradix_app::dispatch::detached::{
     DetachedWorktreePort, detached_path,
 };
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
+use nullradix_app::dispatch::merge_git::{
+    BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier,
+};
 use nullradix_app::dispatch::pause::{NoPauseHook, PauseHook, PauseKind};
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
 use nullradix_app::dispatch::setup::{SetupFailure, SetupOutcome, SetupRequest, WorktreeSetupPort};
@@ -471,6 +474,86 @@ impl AccountPauseRepository for InjectingPauses {
     }
 }
 
+/// Git double for the merge: answers come from the test, requests are kept.
+#[derive(Default)]
+struct ScriptedGit {
+    /// The branch is gone.
+    gone: std::sync::atomic::AtomicBool,
+    merges: Mutex<std::collections::VecDeque<MergeOutcome>>,
+    earlier: Mutex<Option<MergedEarlier>>,
+    integrated: std::sync::atomic::AtomicBool,
+    created: Mutex<Option<String>>,
+    deletion: Mutex<Option<BranchDeletion>>,
+    requests: Mutex<Vec<MergeRequest>>,
+    deleted: Mutex<Vec<DeleteBranch>>,
+    /// The next merge waits for this gate when set.
+    hold_merge: Mutex<Option<Arc<Notify>>>,
+    merge_entered: Notify,
+    /// The next merge fails with this error.
+    fail_merge: Mutex<Option<AppError>>,
+}
+
+#[async_trait]
+impl MergeGit for ScriptedGit {
+    async fn ensure_target(&self, _root: &str, _target: &str) -> Result<Option<String>, AppError> {
+        Ok(self.created.lock().unwrap().take())
+    }
+
+    async fn branch_tip(&self, _root: &str, _branch: &str) -> Result<Option<String>, AppError> {
+        Ok((!self.gone.load(Ordering::SeqCst)).then(|| String::from("tip0001")))
+    }
+
+    async fn integrated(
+        &self,
+        _root: &str,
+        _branch: &str,
+        _target: Option<&str>,
+    ) -> Result<bool, AppError> {
+        Ok(self.integrated.load(Ordering::SeqCst))
+    }
+
+    async fn merged_earlier(
+        &self,
+        _root: &str,
+        _branch: &str,
+        _target: Option<&str>,
+    ) -> Result<Option<MergedEarlier>, AppError> {
+        Ok(self.earlier.lock().unwrap().clone())
+    }
+
+    async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
+        self.requests.lock().unwrap().push(request.clone());
+        if let Some(error) = self.fail_merge.lock().unwrap().take() {
+            return Err(error);
+        }
+        let gate = self.hold_merge.lock().unwrap().take();
+        if let Some(gate) = gate {
+            self.merge_entered.notify_one();
+            gate.notified().await;
+        }
+        let scripted = self.merges.lock().unwrap().pop_front();
+        Ok(scripted.unwrap_or_else(|| MergeOutcome::Merged {
+            into: request
+                .target
+                .clone()
+                .unwrap_or_else(|| String::from("main")),
+            commit: String::from("abc1234"),
+            tip: String::from("tip0001"),
+            warning: None,
+        }))
+    }
+
+    async fn delete_merged(&self, request: &DeleteBranch) -> Result<BranchDeletion, AppError> {
+        self.deleted.lock().unwrap().push(request.clone());
+        Ok(self
+            .deletion
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or(BranchDeletion::Deleted))
+    }
+}
+
 /// Setup double that holds every setup until the test lets it go.
 #[derive(Default)]
 struct ScriptedSetup {
@@ -593,6 +676,7 @@ struct Fixture {
     hook: Arc<Hooked>,
     clock: Arc<FakeClock>,
     machine: Arc<Machine>,
+    git: Arc<ScriptedGit>,
     setup: Arc<ScriptedSetup>,
     detached: Arc<Detached>,
     dispatcher: Dispatcher,
@@ -624,6 +708,7 @@ async fn fixture() -> Fixture {
     let machine = Arc::new(Machine::default());
     let setup = Arc::new(ScriptedSetup::default());
     let detached = Arc::new(Detached::default());
+    let git = Arc::new(ScriptedGit::default());
     let runners = Arc::new(
         RunnerService::start(
             store.clone(),
@@ -782,6 +867,9 @@ async fn fixture() -> Fixture {
         tickets: tickets.clone(),
         comments: comments.clone(),
         worktrees: worktrees.clone(),
+        worktree_repository: store.clone(),
+        merge_jobs: store.clone(),
+        merge_git: git.clone(),
         reviews: reviews.clone(),
         clock: clock.clone(),
         ids,
@@ -795,6 +883,7 @@ async fn fixture() -> Fixture {
         hook,
         clock,
         machine,
+        git,
         setup,
         detached,
         dispatcher,
@@ -1868,8 +1957,9 @@ async fn finished_runs_are_settled_as_done_human_and_blocked() {
     assert_eq!(f.outcome(runs[0]).await, Some(DispatchOutcome::Done));
     assert_eq!(f.outcome(runs[1]).await, Some(DispatchOutcome::Human));
     assert_eq!(f.outcome(runs[2]).await, Some(DispatchOutcome::Blocked));
-    // the tickets stay as the agent left them and no comment is added
+    // the tickets stay as the agent left them; only the merge of the done one is noted
     assert_eq!(f.record(&keys[0]).await.status, TicketStatus::Done);
+    before[0] += 1;
     let blocked = f.record(&keys[1]).await;
     assert_eq!(blocked.assignee.as_deref(), Some("worker-ARC-0002"));
     let mut after = Vec::new();
@@ -5496,4 +5586,454 @@ async fn a_decision_waits_for_the_pass_that_is_under_way() {
     accept.await.unwrap().unwrap();
     assert_eq!(f.record(&key).await.status, TicketStatus::Done);
     assert_eq!(f.review_state(&key).await, Some(ReviewState::Approved));
+}
+
+impl Fixture {
+    /// A ticket the agent finished and whose run ended, with no review in the way.
+    async fn finished_ticket(&self) -> String {
+        self.enable().await;
+        let key = self.start_tickets(1).await.remove(0);
+        self.agent_changes(&key, "done", None).await;
+        self.finish_run(&key).await;
+        key
+    }
+
+    async fn jobs_of(&self, key: &str) -> Vec<nullradix_app::dispatch::merge_jobs::StoredMergeJob> {
+        let id = self.tickets.get(key).await.unwrap().view.ticket.id();
+        self.dispatcher.merges.of_ticket(id).await.unwrap()
+    }
+
+    async fn bodies(&self, key: &str) -> Vec<String> {
+        self.comments
+            .list(key)
+            .await
+            .unwrap()
+            .iter()
+            .map(|line| line.comment.body().to_owned())
+            .collect()
+    }
+}
+
+#[tokio::test]
+async fn a_finished_ticket_without_review_is_merged_and_cleaned_up_in_the_same_pass() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    let before = f.record(&key).await;
+    let branch = before.branch.clone().unwrap();
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(report.merged, vec![key.clone()]);
+    let requests = f.git.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].branch, branch);
+    assert_eq!(requests[0].target, None);
+    assert_eq!(
+        requests[0].message,
+        format!("Merge {key} \"Ticket 0\" ({branch})")
+    );
+    // the branch goes by compare-and-swap at the tip that was merged
+    let deleted = f.git.deleted.lock().unwrap().clone();
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(
+        (deleted[0].tip.as_str(), deleted[0].into.as_str()),
+        ("tip0001", "main")
+    );
+    let after = f.record(&key).await;
+    assert_eq!((after.branch, after.status), (None, TicketStatus::Done));
+    let jobs = f.jobs_of(&key).await;
+    assert_eq!(jobs.len(), 1);
+    let job = jobs[0].job.record();
+    assert_eq!(job.phase, nullradix_domain::MergePhase::Merged);
+    assert_eq!(job.merged_commit.as_deref(), Some("abc1234"));
+    assert_eq!(jobs[0].branch, branch);
+    let note = f.bodies(&key).await.pop().unwrap();
+    assert!(
+        note.starts_with("[dispatch] merged into main (abc1234). Branch ticket/"),
+        "{note}"
+    );
+    assert_eq!(f.markers(&key, SystemMarker::Merged).await, 1);
+    assert!(
+        f.notices
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|notice| notice.kind == NoticeKind::Merged)
+    );
+    // nothing is left to do on the next pass
+    let comments = f.comment_count(&key).await;
+    let again = f.dispatcher.pass.run().await;
+    assert!(
+        again.merged.is_empty() && again.errors.is_empty(),
+        "{again:?}"
+    );
+    assert_eq!(f.comment_count(&key).await, comments);
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn the_ticket_target_and_the_squash_strategy_reach_the_merge() {
+    let f = fixture().await;
+    f.configure(|config| config.merge_strategy = nullradix_domain::MergeStrategy::Squash)
+        .await;
+    f.enable().await;
+    let key = f.ready("Targeted", &["auto"]).await;
+    f.tickets
+        .update(
+            &key,
+            &TicketPatch {
+                target_branch: Some(Some(String::from("release/1"))),
+                ..TicketPatch::default()
+            },
+            &f.person,
+            f.record(&key).await.version,
+            FORCE,
+        )
+        .await
+        .unwrap();
+    f.dispatcher.pass.run().await;
+    f.agent_changes(&key, "done", None).await;
+    f.finish_run(&key).await;
+    *f.git.created.lock().unwrap() = Some(String::from("origin/release/1"));
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged, vec![key.clone()], "{report:?}");
+    let request = f.git.requests.lock().unwrap().remove(0);
+    assert_eq!(request.target.as_deref(), Some("release/1"));
+    assert_eq!(request.strategy, nullradix_domain::MergeStrategy::Squash);
+    assert!(
+        request
+            .message
+            .ends_with("(squash of ticket/ARC-0001-targeted)"),
+        "{}",
+        request.message
+    );
+    let created = f.bodies(&key).await.into_iter().any(|body| {
+        body == "[dispatch] merge: target branch release/1 created from origin/release/1."
+    });
+    assert!(created);
+    assert_eq!(
+        f.jobs_of(&key).await[0].job.record().strategy,
+        nullradix_domain::MergeStrategy::Squash
+    );
+}
+
+#[tokio::test]
+async fn a_ticket_held_for_review_queues_its_merge_when_a_person_accepts() {
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    assert!(f.jobs_of(&key).await.is_empty());
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.merged.is_empty());
+    f.dispatcher
+        .decisions
+        .accept(&key, &f.person, None, true)
+        .await
+        .unwrap();
+    let queued = f.jobs_of(&key).await;
+    assert_eq!(queued.len(), 1);
+    assert_eq!(
+        queued[0].job.record().phase,
+        nullradix_domain::MergePhase::Pending
+    );
+    // a repeat of the accept queues nothing twice
+    f.dispatcher
+        .decisions
+        .accept(&key, &f.person, None, true)
+        .await
+        .unwrap();
+    assert_eq!(f.jobs_of(&key).await.len(), 1);
+    let merged = f.dispatcher.pass.run().await;
+    assert_eq!(merged.merged, vec![key.clone()], "{merged:?}");
+    assert_eq!(f.record(&key).await.branch, None);
+}
+
+#[tokio::test]
+async fn a_conflict_stops_the_job_with_a_state_a_merge_session_can_pick_up() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Conflict {
+            files: vec![String::from("a.rs"), String::from("b.rs")],
+        });
+    let report = f.dispatcher.pass.run().await;
+    assert!(
+        report.merged.is_empty() && report.errors.is_empty(),
+        "{report:?}"
+    );
+    let jobs = f.jobs_of(&key).await;
+    let job = jobs[0].job.record();
+    assert_eq!(job.phase, nullradix_domain::MergePhase::Waiting);
+    assert!(job.conflict_seen);
+    assert_eq!(job.problem.as_deref(), Some("merge conflict in a.rs, b.rs"));
+    // the ticket keeps its branch and stays done; nothing is blocked yet
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Done);
+    assert!(record.branch.is_some());
+    assert_eq!(f.markers(&key, SystemMarker::MergeConflict).await, 1);
+    assert!(f.git.deleted.lock().unwrap().is_empty());
+    // later passes leave the conflict alone instead of merging and undoing it again
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+    assert_eq!(f.markers(&key, SystemMarker::MergeConflict).await, 1);
+}
+
+#[tokio::test]
+async fn a_refused_merge_blocks_the_tickets_with_a_merge_reason() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Refused {
+            reason: String::from("changes are staged\nin the checkout"),
+        });
+    let report = f.dispatcher.pass.run().await;
+    assert!(
+        report.merged.is_empty() && report.errors.is_empty(),
+        "{report:?}"
+    );
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Blocked);
+    assert_eq!(
+        record.blocked_reason.as_deref(),
+        Some("Merge: changes are staged in the checkout")
+    );
+    assert!(record.branch.is_some());
+    let jobs = f.jobs_of(&key).await;
+    assert_eq!(
+        jobs[0].job.record().phase,
+        nullradix_domain::MergePhase::Failed
+    );
+    assert_eq!(f.markers(&key, SystemMarker::Merge).await, 1);
+    assert!(
+        f.notices
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|notice| notice.kind == NoticeKind::Blocked)
+    );
+    // a failed job is not processed again
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_branch_that_cannot_be_deleted_keeps_the_links_and_says_so() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    *f.git.deletion.lock().unwrap() = Some(BranchDeletion::Kept(String::from(
+        "branch b stays: it has new commits since the merge",
+    )));
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged, vec![key.clone()], "{report:?}");
+    assert!(f.record(&key).await.branch.is_some());
+    let note = f.bodies(&key).await.pop().unwrap();
+    assert!(
+        note.contains("Cleanup incomplete:\nbranch b stays"),
+        "{note}"
+    );
+    assert_eq!(
+        f.jobs_of(&key).await[0].job.record().phase,
+        nullradix_domain::MergePhase::Merged
+    );
+}
+
+#[tokio::test]
+async fn a_branch_that_is_gone_but_merged_earlier_is_finished_without_merging() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.git.gone.store(true, Ordering::SeqCst);
+    *f.git.earlier.lock().unwrap() = Some(nullradix_app::dispatch::merge_git::MergedEarlier {
+        into: String::from("main"),
+        commit: String::from("1234abc"),
+    });
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged, vec![key.clone()], "{report:?}");
+    assert!(f.git.requests.lock().unwrap().is_empty());
+    assert!(f.git.deleted.lock().unwrap().is_empty());
+    assert_eq!(f.record(&key).await.branch, None);
+    assert_eq!(
+        f.jobs_of(&key).await[0]
+            .job
+            .record()
+            .merged_commit
+            .as_deref(),
+        Some("1234abc")
+    );
+}
+
+#[tokio::test]
+async fn a_merge_blocked_ticket_is_done_again_once_its_branch_merged() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    f.git
+        .merges
+        .lock()
+        .unwrap()
+        .push_back(MergeOutcome::Refused {
+            reason: String::from("no"),
+        });
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.record(&key).await.status, TicketStatus::Blocked);
+    // a person fixes the checkout and moves the ticket back to done, then it is queued again
+    f.agent_changes(&key, "done", None).await;
+    let record = f.record(&key).await;
+    assert!(f.dispatcher.merges.queue(&record).await.unwrap());
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged, vec![key.clone()], "{report:?}");
+    let after = f.record(&key).await;
+    assert_eq!(
+        (after.status, after.blocked_reason),
+        (TicketStatus::Done, None)
+    );
+    assert_eq!(f.jobs_of(&key).await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_ticket_that_is_open_holds_the_merge_back_and_says_so_once() {
+    let f = fixture().await;
+    f.enable().await;
+    let first = f.ready("First", &["auto"]).await;
+    let second = f.ready("Second", &["auto"]).await;
+    f.worktrees
+        .start(&first, f.local, ROOT, StartMode::New, false, &f.person)
+        .await
+        .unwrap();
+    f.worktrees
+        .start(
+            &second,
+            f.local,
+            ROOT,
+            StartMode::JoinTicket(first.clone()),
+            false,
+            &f.person,
+        )
+        .await
+        .unwrap();
+    f.agent_changes(&first, "done", None).await;
+    let record = f.record(&first).await;
+    let branch = record.branch.clone().unwrap();
+    assert!(f.dispatcher.merges.queue(&record).await.unwrap());
+    let report = f.dispatcher.pass.run().await;
+    assert!(
+        report.merged.is_empty() && report.errors.is_empty(),
+        "{report:?}"
+    );
+    let jobs = f.jobs_of(&first).await;
+    assert_eq!(
+        jobs[0].job.record().phase,
+        nullradix_domain::MergePhase::Waiting
+    );
+    let waiting = f.bodies(&first).await.pop().unwrap();
+    assert_eq!(
+        waiting,
+        format!("[dispatch] merge-waiting: waiting for {second} before {branch} is merged.")
+    );
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.markers(&first, SystemMarker::MergeWait).await, 1);
+    assert!(f.git.requests.lock().unwrap().is_empty());
+    // the second ticket finishes: one merge for the branch, named after both tickets
+    f.agent_changes(&second, "done", None).await;
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged.len(), 2, "{report:?}");
+    let requests = f.git.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].message,
+        format!("Merge {first}, {second} ({branch})")
+    );
+    assert_eq!(f.record(&second).await.branch, None);
+}
+
+#[tokio::test]
+async fn a_pass_that_overlaps_an_accept_queues_one_job() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    let record = f.record(&key).await;
+    let (first, second) = tokio::join!(
+        f.dispatcher.merges.queue(&record),
+        f.dispatcher.merges.queue(&record)
+    );
+    assert_eq!(u8::from(first.unwrap()) + u8::from(second.unwrap()), 1);
+    assert_eq!(f.jobs_of(&key).await.len(), 1);
+}
+
+#[tokio::test]
+async fn catch_up_queues_a_finished_autopilot_ticket_nobody_queued() {
+    let f = fixture().await;
+    f.configure(|config| config.autopilot.enabled = true).await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.agent_changes(&key, "done", None).await;
+    let run = f.finish_run(&key).await;
+    // the run is settled elsewhere, so the done gate never saw it
+    f.runs
+        .settle_outcome(run, DispatchOutcome::Done)
+        .await
+        .unwrap();
+    assert!(f.jobs_of(&key).await.is_empty());
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.merged, vec![key.clone()], "{report:?}");
+    assert_eq!(f.jobs_of(&key).await.len(), 1);
+    // a branch that is in the target already is left alone
+    let second = f.ready("Second", &["auto"]).await;
+    f.dispatcher.pass.run().await;
+    f.agent_changes(&second, "done", None).await;
+    let run = f.finish_run(&second).await;
+    f.runs
+        .settle_outcome(run, DispatchOutcome::Done)
+        .await
+        .unwrap();
+    f.git.integrated.store(true, Ordering::SeqCst);
+    let again = f.dispatcher.pass.run().await;
+    assert!(again.merged.is_empty(), "{again:?}");
+    assert!(f.jobs_of(&second).await.is_empty());
+}
+
+#[tokio::test]
+async fn catch_up_does_nothing_with_autopilot_off() {
+    let f = fixture().await;
+    f.enable().await;
+    let key = f.start_tickets(1).await.remove(0);
+    f.agent_changes(&key, "done", None).await;
+    let run = f.finish_run(&key).await;
+    f.runs
+        .settle_outcome(run, DispatchOutcome::Done)
+        .await
+        .unwrap();
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.merged.is_empty(), "{report:?}");
+    assert!(f.jobs_of(&key).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_folder_that_cannot_be_cleaned_up_blocks_and_any_other_failure_is_tried_again() {
+    let f = fixture().await;
+    let key = f.finished_ticket().await;
+    *f.git.fail_merge.lock().unwrap() = Some(AppError::unavailable("runner-failed", "boom"));
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.errors.len(), 1, "{report:?}");
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_eq!(
+        f.jobs_of(&key).await[0].job.record().phase,
+        nullradix_domain::MergePhase::Pending
+    );
+    *f.git.fail_merge.lock().unwrap() = Some(AppError::invalid(
+        "merge-abort-failed",
+        "the folder is still in the merge state",
+    ));
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    let record = f.record(&key).await;
+    assert_eq!(record.status, TicketStatus::Blocked);
+    assert_eq!(
+        record.blocked_reason.as_deref(),
+        Some("Merge: the folder is still in the merge state")
+    );
 }
