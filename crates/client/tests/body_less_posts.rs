@@ -5,18 +5,27 @@ use std::time::Duration;
 
 use axum::Json;
 use axum::Router;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::routing::post;
 use nullradix_app::auth::Secret;
 use nullradix_client::{Client, ClientError};
 use uuid::Uuid;
 
-/// A POST route that declares no body answers at once without reading one.
-async fn answer() -> (StatusCode, Json<serde_json::Value>) {
+/// Answers 409 for a request without a body and 400 for one that carries any.
+async fn answer(headers: HeaderMap) -> (StatusCode, Json<serde_json::Value>) {
+    let sized = headers
+        .get(header::CONTENT_LENGTH)
+        .is_some_and(|length| length != "0");
+    let chunked = headers.contains_key(header::TRANSFER_ENCODING);
+    let status = if sized || chunked {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::CONFLICT
+    };
     let problem = serde_json::json!({
-        "type": "about:blank", "title": "t", "status": 409, "detail": "d", "code": "c"
+        "type": "about:blank", "title": "t", "status": status.as_u16(), "detail": "d", "code": "c"
     });
-    (StatusCode::CONFLICT, Json(problem))
+    (status, Json(problem))
 }
 
 async fn start() -> SocketAddr {
@@ -37,40 +46,24 @@ fn client(address: SocketAddr) -> Client {
     Client::new(address, timeout, timeout).with_token(Secret::parse(&"a".repeat(64)).unwrap())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn posts_without_input_are_not_reset_by_a_daemon_that_reads_no_body() {
+#[tokio::test(flavor = "multi_thread")]
+async fn posts_without_input_send_no_body() {
     let address = start().await;
-    let mut tasks = Vec::new();
-    for _ in 0..8 {
-        tasks.push(tokio::task::spawn_blocking(move || {
-            let mut lost = Vec::new();
-            for _ in 0..40 {
-                let client = client(address);
-                let results = [
-                    client.resume_dispatcher().map(drop),
-                    client.run_dispatcher_pass().map(drop),
-                    client.resume_account(Uuid::nil()).map(drop),
-                    client.start_research_run("ARC-Q1").map(drop),
-                    client.start_plan_run("ARC-1").map(drop),
-                ];
-                for result in results {
-                    match result {
-                        Err(ClientError::Refused { .. }) => {}
-                        other => lost.push(format!("{other:?}")),
-                    }
-                }
-            }
-            lost
-        }));
-    }
-    let mut lost = Vec::new();
-    for task in tasks {
-        lost.extend(task.await.unwrap());
-    }
-    assert!(
-        lost.is_empty(),
-        "{} lost, first: {:?}",
-        lost.len(),
-        lost.first()
-    );
+    let statuses = tokio::task::spawn_blocking(move || {
+        let client = client(address);
+        [
+            client.resume_dispatcher().map(drop),
+            client.run_dispatcher_pass().map(drop),
+            client.resume_account(Uuid::nil()).map(drop),
+            client.start_research_run("ARC-Q1").map(drop),
+            client.start_plan_run("ARC-1").map(drop),
+        ]
+        .map(|result| match result {
+            Err(ClientError::Refused { status, .. }) => status,
+            other => panic!("unexpected {other:?}"),
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(statuses, [409; 5]);
 }

@@ -24,7 +24,7 @@ nullradix-runner.workspace = true
 nullradix-store.workspace = true
 tokio-util.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["net", "rt-multi-thread", "sync"] }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync"] }
 
 [lints]
 workspace = true
