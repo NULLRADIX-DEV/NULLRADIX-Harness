@@ -4237,6 +4237,72 @@ async fn a_run_that_leaves_no_research_comments_the_question_once() {
 }
 
 #[tokio::test]
+async fn a_usage_limit_in_a_research_pauses_the_dispatcher_and_leaves_the_question_to_start_again()
+{
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    f.dispatcher.service.start_research(&key).await.unwrap();
+    let run = f
+        .end_run(&key, RunOutcome::Failed, Some(1), Some(limit_abort()))
+        .await;
+    f.dispatcher.pass.run().await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(f.outcome(run).await, Some(DispatchOutcome::PauseLimit));
+    assert_eq!(
+        f.paused_until().await.map(Timestamp::as_millis),
+        Some(START + 60 * MINUTE)
+    );
+    let detail = f.questions.get(&key).await.unwrap();
+    assert_eq!(detail.comments.len(), 1);
+    let comment = detail.comments[0].comment.record();
+    assert_eq!(comment.system_marker, Some(SystemMarker::ResearchEmpty));
+    let body = comment.body.as_str();
+    assert!(
+        body.starts_with("[dispatch] research-empty: usage limit reached, research not stored."),
+        "{body}"
+    );
+    assert!(
+        body.contains("Start the research again afterwards."),
+        "{body}"
+    );
+    assert_eq!(f.notice_kinds(), [NoticeKind::Paused]);
+    assert!(f.detached.folders.lock().unwrap().is_empty());
+    // the pause starts nothing new
+    assert_eq!(f.research_runs(&key).await.len(), 1);
+}
+
+#[tokio::test]
+async fn missing_claude_in_a_research_pauses_the_dispatcher() {
+    let f = fixture().await;
+    let key = f.open_question("Which database?").await;
+    f.dispatcher.service.start_research(&key).await.unwrap();
+    let missing = abort_of(
+        AbortCategory::StartFailed,
+        "claude could not be started: not found",
+    );
+    let run = f
+        .end_run(&key, RunOutcome::Failed, Some(127), Some(missing))
+        .await;
+    f.dispatcher.pass.run().await;
+    assert_eq!(
+        f.outcome(run).await,
+        Some(DispatchOutcome::PauseClaudeMissing)
+    );
+    assert_eq!(
+        f.paused_until().await.map(Timestamp::as_millis),
+        Some(START + 60 * MINUTE)
+    );
+    let detail = f.questions.get(&key).await.unwrap();
+    assert_eq!(detail.comments.len(), 1);
+    let body = detail.comments[0].comment.record().body.as_str();
+    assert!(
+        body.contains("Claude Code was not found (command \"claude\")"),
+        "{body}"
+    );
+    assert_eq!(f.notice_kinds(), [NoticeKind::Paused]);
+}
+
+#[tokio::test]
 async fn a_worktree_that_stays_is_removed_by_a_later_pass_but_not_while_its_run_lives() {
     let f = fixture().await;
     let key = f.open_question("Which database?").await;

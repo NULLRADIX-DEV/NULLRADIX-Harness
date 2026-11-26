@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    AUTOPILOT_PREFIX, Board, DispatchOutcome, DispatcherConfig, Id, IdleReason, LabelOverrides,
-    ProfileChoice, ProfileReason, Project, QuestionKey, QuestionOption, QuestionRecord,
-    QuestionState, RESEARCH_AGENT_PREFIX, Run, RunKind, RunStatus, RunTrigger, SystemMarker,
-    TicketRecord, TicketStatus, Timestamp, escalate, idle_reason,
+    AUTOPILOT_PREFIX, AbortCategory, Board, DispatchOutcome, DispatcherConfig, Id, IdleReason,
+    LabelOverrides, ProfileChoice, ProfileReason, Project, QuestionKey, QuestionOption,
+    QuestionRecord, QuestionState, RESEARCH_AGENT_PREFIX, Run, RunKind, RunStatus, RunTrigger,
+    SystemMarker, TicketRecord, TicketStatus, Timestamp, escalate, idle_reason,
 };
 use parking_lot::Mutex;
 use uuid::Uuid;
@@ -22,6 +22,7 @@ use super::detached::{
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, LogLevel};
 use super::pass::{DispatchPass, PassContext, PassReport, PassStep};
+use super::pause::{PauseHook, PauseKind};
 use super::runs::{DispatchRuns, StartDispatchRun};
 use super::start::TicketStarter;
 use super::state::DispatcherStateService;
@@ -446,12 +447,15 @@ impl ResearchRuns {
         &self,
         run: &Run,
         config: &DispatcherConfig,
+        pauses: &dyn PauseHook,
     ) -> Result<DispatchOutcome, AppError> {
         let Some(dispatch) = run.dispatch() else {
             return Ok(DispatchOutcome::Other);
         };
         let key = dispatch.subject_key.clone().unwrap_or_default();
-        let outcome = self.outcome(run, &key, dispatch.agent.as_deref()).await;
+        let outcome = self
+            .outcome(run, &key, dispatch.agent.as_deref(), config, pauses)
+            .await;
         if let Some((root, path)) = detached_root(DetachedPurpose::Research, &dispatch.cwd) {
             self.remove(&root, &path).await;
         }
@@ -475,6 +479,8 @@ impl ResearchRuns {
         run: &Run,
         key: &str,
         agent: Option<&str>,
+        config: &DispatcherConfig,
+        pauses: &dyn PauseHook,
     ) -> Result<DispatchOutcome, AppError> {
         let detail = match self.parts.questions.get(key).await {
             Ok(detail) => detail,
@@ -501,16 +507,47 @@ impl ResearchRuns {
                 .await;
             return Ok(DispatchOutcome::Research);
         }
+        let kind = match run
+            .result()
+            .and_then(|result| result.abort.as_ref())
+            .map(|abort| abort.category)
+        {
+            Some(AbortCategory::UsageLimit) => Some(PauseKind::UsageLimit),
+            Some(AbortCategory::StartFailed) => Some(PauseKind::ClaudeMissing),
+            _ => None,
+        };
+        let outcome_of = |kind: PauseKind| match kind {
+            PauseKind::UsageLimit => DispatchOutcome::PauseLimit,
+            PauseKind::ClaudeMissing => DispatchOutcome::PauseClaudeMissing,
+        };
         // a pass that stopped after the comment is picked up where it was
         if commented(&detail, run) {
-            return Ok(DispatchOutcome::Other);
+            return Ok(kind.map_or(DispatchOutcome::Other, outcome_of));
+        }
+        let actor = self.parts.starter.actor().await?;
+        // a limit or missing Claude pauses as it does for tickets and counts for nothing
+        if let Some(kind) = kind {
+            let title = detail.view.row.question.record().title.as_str();
+            if let Some(text) = pauses.paused_research(run, title, kind, config).await? {
+                let body = format!("{text}\n\nRun: {}", run.id());
+                self.parts
+                    .questions
+                    .comment_system(
+                        key,
+                        &body,
+                        SystemMarker::ResearchEmpty,
+                        Some(run.id()),
+                        actor,
+                    )
+                    .await?;
+                return Ok(outcome_of(kind));
+            }
         }
         let why = why_empty(run);
         let body = format!(
             "[dispatch] research-empty: {why}.\nNo automatic retry - \"Research\" on the question starts a new one.\n\nRun: {}",
             run.id()
         );
-        let actor = self.parts.starter.actor().await?;
         self.parts
             .questions
             .comment_system(

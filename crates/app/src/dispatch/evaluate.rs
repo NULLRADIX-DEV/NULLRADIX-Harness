@@ -165,7 +165,7 @@ impl EvaluateRuns {
         let Some(research) = &self.research else {
             return;
         };
-        match research.settle(run, config).await {
+        match research.settle(run, config, &*self.pause_hook()).await {
             Ok(outcome) => match self.runs.settle_outcome(run.id(), outcome).await {
                 Ok(_) => {
                     self.record_end(run).await;

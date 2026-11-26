@@ -28,6 +28,18 @@ pub trait PauseHook: Send + Sync {
         kind: PauseKind,
         config: &DispatcherConfig,
     ) -> Result<Option<DispatchOutcome>, AppError>;
+
+    /// Pauses for a research run, which has no ticket; the text goes to its question.
+    /// `None` when no hook pauses.
+    async fn paused_research(
+        &self,
+        _run: &Run,
+        _title: &str,
+        _kind: PauseKind,
+        _config: &DispatcherConfig,
+    ) -> Result<Option<String>, AppError> {
+        Ok(None)
+    }
 }
 
 /// Pauses nothing yet, so these runs count as aborted attempts.
