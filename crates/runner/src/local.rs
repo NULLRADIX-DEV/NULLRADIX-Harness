@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::dispatch::runs::RunFilesPort;
 use nullradix_app::repositories::Located;
+use nullradix_app::review::{BranchChanges, BranchFile, FilePatch, ReviewRequest};
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
 use nullradix_app::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
@@ -202,6 +203,27 @@ impl RunnerPort for LocalRunner {
 
     async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError> {
         self.transcripts.diff(request).await
+    }
+
+    async fn review_changes(&self, request: &ReviewRequest) -> Result<BranchChanges, AppError> {
+        crate::review::changes(request).await
+    }
+
+    async fn review_patch(
+        &self,
+        request: &ReviewRequest,
+        path: &str,
+    ) -> Result<FilePatch, AppError> {
+        crate::review::patch(request, path).await
+    }
+
+    async fn review_file(
+        &self,
+        root: &str,
+        branch: &str,
+        path: &str,
+    ) -> Result<BranchFile, AppError> {
+        crate::review::file(root, branch, path).await
     }
 }
 

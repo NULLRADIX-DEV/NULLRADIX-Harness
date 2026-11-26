@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE reviews SET blocked_at = ? WHERE run_id = ? AND blocked_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "5e158d05bc5e0e97bcb3562c631bda701400f5f360133cb01db053339f36ce1a"
+}

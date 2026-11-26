@@ -30,6 +30,7 @@ use nullradix_app::notes::NoteService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
+use nullradix_app::review::{ReviewParts, ReviewService};
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
 use nullradix_app::theme_catalog::CatalogService;
@@ -187,6 +188,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         comments: board.comments,
         questions: board.questions,
         worktrees: board.worktrees,
+        reviews: board.reviews,
         notes: board.notes,
         inbox: board.inbox,
         runners,
@@ -321,6 +323,7 @@ fn start_dispatcher(
         tickets: parts.board.tickets.clone(),
         comments: parts.board.comments.clone(),
         worktrees: parts.board.worktrees.clone(),
+        reviews: parts.board.reviews.clone(),
         clock: Arc::new(SystemClock),
         ids: Arc::new(UuidV7Generator),
         signal: signal.clone(),
@@ -529,6 +532,7 @@ struct BoardServices {
     comments: Arc<CommentService>,
     questions: Arc<QuestionService>,
     worktrees: Arc<WorktreeService>,
+    reviews: Arc<ReviewService>,
     notes: Arc<NoteService>,
     inbox: Arc<InboxService>,
     /// The person every token and browser session acts for.
@@ -586,6 +590,15 @@ async fn start_board(
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
+    let reviews = Arc::new(ReviewService::new(ReviewParts {
+        tickets: Arc::clone(&tickets),
+        worktrees: Arc::new(store.clone()),
+        runners: Arc::clone(runners),
+        reviews: Arc::new(store.clone()),
+        clock: Arc::new(SystemClock),
+        ids: Arc::new(UuidV7Generator),
+        signal: signal.clone(),
+    }));
     let notes = Arc::new(NoteService::new(
         Arc::new(store.clone()),
         Arc::clone(&tickets),
@@ -601,6 +614,7 @@ async fn start_board(
         comments,
         questions,
         worktrees,
+        reviews,
         notes,
         inbox: Arc::new(InboxService::new(
             Arc::new(store.clone()),

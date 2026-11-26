@@ -18,6 +18,7 @@ mod notes;
 mod projects;
 mod questions;
 mod repositories;
+mod reviews;
 mod runs;
 mod sessions;
 mod theme_catalog;

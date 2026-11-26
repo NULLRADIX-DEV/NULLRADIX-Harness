@@ -19,6 +19,7 @@ use nullradix_app::dispatch::stream::{ClaudeStream, Pipe};
 use nullradix_app::dispatcher_config::DispatcherConfigService;
 use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::Located;
+use nullradix_app::review::{BranchChanges, BranchFile, FilePatch, ReviewRequest};
 use nullradix_app::runs::{
     ClaudeReport, OutputLine, OutputStream, RunLink, RunProgress, RunReport, RunRepository,
     RunService, RunSpec, RunnerPort,
@@ -145,6 +146,27 @@ impl RunnerPort for ScriptedRunner {
 
     async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError> {
         common::FolderRunner.session_diff(request).await
+    }
+
+    async fn review_changes(&self, request: &ReviewRequest) -> Result<BranchChanges, AppError> {
+        common::FolderRunner.review_changes(request).await
+    }
+
+    async fn review_patch(
+        &self,
+        request: &ReviewRequest,
+        path: &str,
+    ) -> Result<FilePatch, AppError> {
+        common::FolderRunner.review_patch(request, path).await
+    }
+
+    async fn review_file(
+        &self,
+        root: &str,
+        branch: &str,
+        path: &str,
+    ) -> Result<BranchFile, AppError> {
+        common::FolderRunner.review_file(root, branch, path).await
     }
 }
 

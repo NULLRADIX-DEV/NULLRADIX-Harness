@@ -14,6 +14,7 @@ mod local;
 mod login_process;
 mod oauth_refresh;
 mod protocol;
+mod review;
 mod setup;
 mod supervisor;
 mod transcript;

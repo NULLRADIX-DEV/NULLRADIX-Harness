@@ -36,6 +36,10 @@ pub trait DoneGate: Send + Sync {
         run: &Run,
         config: &DispatcherConfig,
     ) -> Result<DispatchOutcome, AppError>;
+    /// Whether the gate already took this run, so that settling it again gives the same outcome.
+    async fn held(&self, _ticket: &TicketRecord, _run: &Run) -> Result<bool, AppError> {
+        Ok(false)
+    }
 }
 
 /// Holds and merges nothing yet.
@@ -161,6 +165,11 @@ impl EvaluateRuns {
             }
             Err(error) => return Err(error),
         };
+        // a pass lost after the hold settles the run as held, unless the ticket is still done
+        let current = detail.view.ticket.record();
+        if current.status != TicketStatus::Done && self.gate.held(current, run).await? {
+            return Ok(Settled::Yes(DispatchOutcome::Review));
+        }
         let record = detail.view.ticket.record();
         let questions: Vec<QuestionKey> = detail
             .view

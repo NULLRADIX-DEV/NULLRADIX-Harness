@@ -8,6 +8,7 @@ use nullradix_domain::{
     RunnerOs,
 };
 
+use crate::review::{BranchChanges, BranchFile, FilePatch, ReviewRequest};
 use crate::runs::RunnerPort;
 use crate::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
@@ -253,6 +254,36 @@ impl RunnerService {
         request: &DiffRequest,
     ) -> Result<FileDiff, AppError> {
         self.port(runner).await?.session_diff(request).await
+    }
+
+    pub(crate) async fn review_changes(
+        &self,
+        runner: Id<Runner>,
+        request: &ReviewRequest,
+    ) -> Result<BranchChanges, AppError> {
+        self.port(runner).await?.review_changes(request).await
+    }
+
+    pub(crate) async fn review_patch(
+        &self,
+        runner: Id<Runner>,
+        request: &ReviewRequest,
+        path: &str,
+    ) -> Result<FilePatch, AppError> {
+        self.port(runner).await?.review_patch(request, path).await
+    }
+
+    pub(crate) async fn review_file(
+        &self,
+        runner: Id<Runner>,
+        root: &str,
+        branch: &str,
+        path: &str,
+    ) -> Result<BranchFile, AppError> {
+        self.port(runner)
+            .await?
+            .review_file(root, branch, path)
+            .await
     }
 
     /// Root of the repository's checkout on the runner, if it has one.

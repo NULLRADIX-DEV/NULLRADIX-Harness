@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::dispatch::stream::{ClaudeOutput, Ending, classify};
 
 use crate::repositories::Located;
+use crate::review::{BranchChanges, BranchFile, FilePatch, ReviewRequest};
 use crate::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
     TranscriptSource, TranscriptSummary,
@@ -166,6 +167,21 @@ pub trait RunnerPort: Send + Sync {
     async fn session_changes(&self, request: &ChangeRequest) -> Result<SessionChanges, AppError>;
     /// Diff of one changed file from the same source as `session_changes`.
     async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError>;
+    /// Files the branch changed against its target, from their merge base.
+    async fn review_changes(&self, request: &ReviewRequest) -> Result<BranchChanges, AppError>;
+    /// The patch of one file of [`Self::review_changes`]; a file outside the list is refused.
+    async fn review_patch(
+        &self,
+        request: &ReviewRequest,
+        path: &str,
+    ) -> Result<FilePatch, AppError>;
+    /// A file of the branch as it is at its head.
+    async fn review_file(
+        &self,
+        root: &str,
+        branch: &str,
+        path: &str,
+    ) -> Result<BranchFile, AppError>;
 }
 
 /// A file a run left on its runner.

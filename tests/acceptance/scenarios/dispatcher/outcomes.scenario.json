@@ -1,5 +1,5 @@
 {
-  "title": "Finished runs are settled as done and blocked and the agent commands are attributed to the run",
+  "title": "A finished ticket is held for review, a blocked one stays blocked, and the agent commands are attributed to the run",
   "env": { "FAKE_CLAUDE_MODE": "cwd" },
   "steps": [
     {

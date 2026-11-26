@@ -23,6 +23,7 @@ pub mod notifier;
 pub mod projects;
 pub mod questions;
 pub mod repositories;
+pub mod review;
 pub mod runs;
 pub mod secrets;
 pub mod session_detail;

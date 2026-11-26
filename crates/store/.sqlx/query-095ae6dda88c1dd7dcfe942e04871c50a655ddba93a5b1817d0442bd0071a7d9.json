@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO review_test_runs (review_id, position, command, ok, output)\n                 VALUES (?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "095ae6dda88c1dd7dcfe942e04871c50a655ddba93a5b1817d0442bd0071a7d9"
+}

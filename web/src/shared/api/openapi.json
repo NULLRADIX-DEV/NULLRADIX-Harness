@@ -8059,6 +8059,231 @@
         }
       }
     },
+    "/api/v1/tickets/{ticketKey}/review": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "operationId": "get_review",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A malformed ticket key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/review/diff": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "operationId": "get_review_diff",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Path of a changed file, as the review lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewPatchDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "No branch to review, a file outside the changes or git failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticketKey}/review/files/{*path}": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "operationId": "get_review_file",
+        "parameters": [
+          {
+            "name": "ticketKey",
+            "in": "path",
+            "description": "Ticket key such as `ARC-0007`; case and padding do not matter.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Path of the file inside the repository.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewFileContentDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "No branch to review, or a path that is no file of the branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The runner is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticketKey}/sessions": {
       "get": {
         "tags": [
@@ -13104,6 +13329,199 @@
           }
         }
       },
+      "ReviewDto": {
+        "type": "object",
+        "description": "What a person needs to review a ticket's branch.",
+        "required": [
+          "ticketKey",
+          "files",
+          "filesTruncated",
+          "tests",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "False when the changes cannot be shown; `reason` says why."
+          },
+          "base": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The merge base commit."
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewFileDto"
+            }
+          },
+          "filesTruncated": {
+            "type": "boolean",
+            "description": "More files changed than are listed."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReviewStateDto",
+                "description": "Absent until a finished run opened a review."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The target branch, or the branch of the main checkout when the target does not exist."
+          },
+          "tests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestRunDto"
+            },
+            "description": "The tests the agent ran in the run that finished the ticket."
+          },
+          "testsAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the review was opened, in Unix milliseconds."
+          },
+          "ticketKey": {
+            "type": "string"
+          }
+        }
+      },
+      "ReviewFileContentDto": {
+        "type": "object",
+        "description": "A file as it is at the head of the ticket's branch.",
+        "required": [
+          "path",
+          "size",
+          "binary",
+          "truncated"
+        ],
+        "properties": {
+          "binary": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size in bytes.",
+            "minimum": 0
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The content; absent for a binary file."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "The file is larger than the limit and `text` holds its start."
+          }
+        }
+      },
+      "ReviewFileDto": {
+        "type": "object",
+        "description": "A file the ticket's branch changed against its target.",
+        "required": [
+          "path",
+          "status",
+          "additions",
+          "deletions",
+          "binary"
+        ],
+        "properties": {
+          "additions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "binary": {
+            "type": "boolean"
+          },
+          "deletions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "oldPath": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The earlier path of a renamed or copied file."
+          },
+          "path": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "The first letter of git's status: A, M, D, R, C or T."
+          }
+        }
+      },
+      "ReviewPatchDto": {
+        "type": "object",
+        "description": "The patch of one changed file in git's unified format.",
+        "required": [
+          "path",
+          "patch",
+          "truncated"
+        ],
+        "properties": {
+          "patch": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "The patch is longer than the limit and was cut."
+          }
+        }
+      },
+      "ReviewStateDto": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "returned"
+        ]
+      },
       "RuleConditionDto": {
         "type": "object",
         "description": "Conditions of a rule; all that are set must hold.",
@@ -14381,6 +14799,30 @@
           "from": {
             "type": "string",
             "description": "Such as `origin/release`, or the branch or commit of the main checkout."
+          }
+        }
+      },
+      "TestRunDto": {
+        "type": "object",
+        "description": "A command the agent ran to check its work.",
+        "required": [
+          "command",
+          "output"
+        ],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "ok": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Unknown when the call has no result."
+          },
+          "output": {
+            "type": "string",
+            "description": "The end of its output."
           }
         }
       },

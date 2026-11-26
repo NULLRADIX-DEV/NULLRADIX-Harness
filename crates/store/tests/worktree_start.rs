@@ -8,6 +8,9 @@ use async_trait::async_trait;
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::repositories::{Located, RunnerService, not_a_git_project};
+use nullradix_app::review::{
+    BranchChanges, BranchFile, FilePatch, ReviewRequest, review_not_available,
+};
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
 use nullradix_app::session_detail::{
     ChangeRequest, DiffRequest, FileDiff, SessionChanges, TranscriptChunk, TranscriptRead,
@@ -162,6 +165,27 @@ impl RunnerPort for FakeGit {
 
     async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError> {
         Err(change_not_found(&request.path))
+    }
+
+    async fn review_changes(&self, _request: &ReviewRequest) -> Result<BranchChanges, AppError> {
+        Err(review_not_available("this runner reads no branches"))
+    }
+
+    async fn review_patch(
+        &self,
+        _request: &ReviewRequest,
+        _path: &str,
+    ) -> Result<FilePatch, AppError> {
+        Err(review_not_available("this runner reads no branches"))
+    }
+
+    async fn review_file(
+        &self,
+        _root: &str,
+        _branch: &str,
+        _path: &str,
+    ) -> Result<BranchFile, AppError> {
+        Err(review_not_available("this runner reads no branches"))
     }
 }
 
