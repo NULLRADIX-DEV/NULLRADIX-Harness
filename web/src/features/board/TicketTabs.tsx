@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { TicketMerges } from '../merge/TicketMerges';
 import { ticketRunsQuery } from '../runs/dispatchQueries';
 import { TicketRuns } from '../runs/TicketRuns';
 import { waitsForReview } from '../review/reason';
@@ -11,7 +12,7 @@ import { TicketHistory } from './TicketHistory';
 import { TicketSteps } from './TicketSteps';
 import type { TicketActions } from './useTicketActions';
 
-type TabKey = TextField | 'steps' | 'comments' | 'review' | 'runs' | 'history';
+type TabKey = TextField | 'steps' | 'comments' | 'review' | 'merges' | 'runs' | 'history';
 
 interface Tab {
   key: TabKey;
@@ -84,6 +85,22 @@ export function TicketTabs({ detail, actions }: { detail: TicketDetail; actions:
           },
         ]
       : []),
+    {
+      key: 'merges',
+      label: 'Merges',
+      filled: false,
+      // the list reads git-side jobs, so it loads only while it is shown
+      content:
+        active === 'merges' ? (
+          <TicketMerges
+            ticketKey={ticket.key}
+            version={ticket.version}
+            status={ticket.status}
+            blockedReason={ticket.blockedReason}
+            branch={ticket.branch}
+          />
+        ) : null,
+    },
     {
       key: 'runs',
       label: runs.length > 0 ? `Runs (${String(runs.length)})` : 'Runs',

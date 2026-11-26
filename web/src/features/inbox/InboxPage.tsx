@@ -69,7 +69,14 @@ function InboxRow({
   const action = useInboxAction();
   const [over, setOver] = useState(false);
   const key = entryKey(item);
-  const label = item.kind === 'accept' ? 'Accept' : item.kind === 'note' ? 'Make ticket' : null;
+  const label =
+    item.kind === 'accept'
+      ? 'Accept'
+      : item.kind === 'merge'
+        ? 'Retry merge'
+        : item.kind === 'note'
+          ? 'Make ticket'
+          : null;
   const dragProps = reorderable
     ? {
         draggable: true,

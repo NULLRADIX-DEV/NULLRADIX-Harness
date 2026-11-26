@@ -379,6 +379,20 @@ describe('InboxPage', () => {
     expect(api.requests(`GET ${INBOX}`).length).toBeGreaterThan(1);
   });
 
+  it('retries a failed merge from its row', async () => {
+    const { api } = server();
+    api.set('POST /api/v1/tickets/ARC-0001/merge', () =>
+      json(200, { outcome: 'merged', text: 'merged', ticket: {} }),
+    );
+    renderApp('/inbox');
+    await screen.findByText('Which store?');
+    expect(screen.getByText('Merge: conflict in a.rs')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry merge' }));
+    expect(api.requests('POST /api/v1/tickets/ARC-0001/merge')).toHaveLength(1);
+    const sent = (await api.requests('POST /api/v1/tickets/ARC-0001/merge')[0]?.json()) as unknown;
+    expect(sent).toEqual({});
+  });
+
   it('says when nothing waits', async () => {
     server([]);
     renderApp('/inbox');
