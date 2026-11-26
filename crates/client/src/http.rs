@@ -672,6 +672,26 @@ impl Client {
         decode(&mut response, expected)
     }
 
+    /// Whether the Claude part of the chosen theme is put into the Claude folders, and where.
+    pub fn claude_theme(&self) -> Result<nullradix_api::ClaudeThemeDto, ClientError> {
+        self.get_json("/settings/claude-theme")
+    }
+
+    /// Puts the Claude part of the chosen theme into the Claude folders, or takes it out.
+    pub fn set_claude_theme(
+        &self,
+        enabled: bool,
+    ) -> Result<nullradix_api::ClaudeThemeDto, ClientError> {
+        let input = nullradix_api::SetClaudeTheme { enabled };
+        let mut response = self
+            .agent
+            .put(&self.url("/settings/claude-theme"))
+            .header("Authorization", &self.authorization()?)
+            .send_json(&input)
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 200)
+    }
+
     /// Chooses a built-in or an installed theme.
     pub fn choose_theme(&self, theme: &str) -> Result<ChooseTheme, ClientError> {
         let input = ChooseTheme {
@@ -1701,6 +1721,14 @@ mod tests {
             favorites,
             themes: themes.clone(),
             catalog: catalog_service(&store, &themes, &signal),
+            claude_theme: Arc::new(nullradix_app::claude_theme::ClaudeThemeService::new(
+                store.clone(),
+                themes.clone(),
+                store.clone(),
+                Arc::new(nullradix_app::claude_theme::NoSlots),
+                Arc::new(SystemClock),
+                signal.clone(),
+            )),
             customizations: customization_service(&store, &signal),
             changes: store,
             signal,

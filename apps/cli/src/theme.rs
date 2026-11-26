@@ -27,6 +27,11 @@ pub(crate) enum ThemeCommand {
         /// A built-in theme (nullradix, system, light, dark) or an installed id
         id: String,
     },
+    /// Show or switch the Claude part of the chosen theme in the Claude folders
+    Claude {
+        #[command(subcommand)]
+        action: Option<ClaudeAction>,
+    },
     /// Uninstall a theme; when it was chosen the default takes over
     Remove { id: String },
     /// Show the settings of an installed theme, set some or reset them all
@@ -48,6 +53,14 @@ pub(crate) enum ThemeCommand {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum ClaudeAction {
+    /// Put the Claude part of the chosen theme into every Claude folder
+    On,
+    /// Take it out again
+    Off,
 }
 
 #[derive(Subcommand)]
@@ -91,11 +104,37 @@ pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<Exit
             client.remove_theme(&id, theme.version)?;
             println!("removed {id}");
         }
+        ThemeCommand::Claude { action } => claude(client, action.as_ref())?,
         ThemeCommand::Settings { id, action } => settings(client, &id, action)?,
         ThemeCommand::Catalog { action } => crate::theme_catalog::run(action, client)?,
         ThemeCommand::Pack { .. } => bail!("pack runs without a daemon"),
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn claude(client: &Client, action: Option<&ClaudeAction>) -> anyhow::Result<()> {
+    let status = match action {
+        Some(&ClaudeAction::On) => client.set_claude_theme(true)?,
+        Some(&ClaudeAction::Off) => client.set_claude_theme(false)?,
+        None => client.claude_theme()?,
+    };
+    let theme = status.theme_id.as_deref().unwrap_or("none");
+    println!(
+        "claude theme {}: {} (chosen theme: {theme})",
+        if status.enabled { "on" } else { "off" },
+        serde_json::to_value(status.state)?
+            .as_str()
+            .unwrap_or("unknown"),
+    );
+    for target in &status.targets {
+        let state = serde_json::to_value(target.state)?;
+        let state = state.as_str().unwrap_or("unknown");
+        match &target.message {
+            Some(message) => println!("  {state:<8} {} ({message})", target.path),
+            None => println!("  {state:<8} {}", target.path),
+        }
+    }
+    Ok(())
 }
 
 fn key_of(setting: &ThemeSettingDto) -> &str {

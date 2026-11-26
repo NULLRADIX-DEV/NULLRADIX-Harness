@@ -4,6 +4,7 @@ mod archive;
 mod browser;
 #[cfg(target_os = "macos")]
 mod claude_keychain;
+mod claude_slot;
 mod command;
 mod files;
 mod local_time;
@@ -20,6 +21,11 @@ pub use archive::{
 pub use browser::open_url;
 #[cfg(target_os = "macos")]
 pub use claude_keychain::claude_keychain_password;
+pub use claude_slot::{
+    Applied, SLOT_NAME, SlotError, SlotState, SlotTheme, SlotValue, apply as apply_claude_slot,
+    clear as clear_claude_slot, inspect as inspect_claude_slot,
+    settings_hash as claude_slot_settings_hash,
+};
 pub use files::{create_private_dir, write_atomic, write_private};
 pub use local_time::local_utc_offset_minutes;
 pub use paths::{Paths, PathsError, claude_config_dirs, home_dir};

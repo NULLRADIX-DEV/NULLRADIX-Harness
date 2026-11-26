@@ -1,0 +1,293 @@
+[
+  {
+    "name": "off and nothing chosen",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/settings/claude-theme"
+    },
+    "response": {
+      "json": {
+        "enabled": false,
+        "state": "none",
+        "targets": [
+          {
+            "message": null,
+            "path": "<HOME>/data/.claude",
+            "state": "none"
+          }
+        ],
+        "themeId": null,
+        "themeName": null
+      },
+      "status": 200
+    }
+  },
+  {
+    "file": "<WORK>/night-blue/manifest.json",
+    "lines": 0,
+    "name": "manifest"
+  },
+  {
+    "file": "<WORK>/night-blue/theme.css",
+    "lines": 0,
+    "name": "stylesheet"
+  },
+  {
+    "file": "<WORK>/night-blue/claude/hooks/hooks.json",
+    "lines": 0,
+    "name": "hooks"
+  },
+  {
+    "file": "<WORK>/night-blue/claude/hooks/look.ts",
+    "lines": 0,
+    "name": "module"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-blue",
+      "--out",
+      "<WORK>/night-blue.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the folder",
+    "stderr": "",
+    "stdout": "packed night-blue 1.2.0 (4 files) into <WORK>/night-blue.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/night-blue.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "install the package",
+    "stderr": "",
+    "stdout": "installed night-blue 1.2.0\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "use",
+      "night-blue"
+    ],
+    "exitCode": 0,
+    "name": "choose the installed theme",
+    "stderr": "",
+    "stdout": "now using night-blue\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "installing and choosing do not apply it",
+    "stderr": "",
+    "stdout": "claude theme off: none (chosen theme: night-blue)\n  none     <HOME>/data/.claude\n"
+  },
+  {
+    "name": "the switch takes a switch only",
+    "request": {
+      "body": {
+        "enabled": "yes"
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/claude-theme"
+    },
+    "response": {
+      "json": {
+        "code": "input-invalid",
+        "detail": "Failed to deserialize the JSON body into the target type: enabled: invalid type: string \"yes\", expected a boolean at line 2 column 18",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:input-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "claude",
+      "on"
+    ],
+    "exitCode": 0,
+    "name": "turn it on over the cli",
+    "stderr": "",
+    "stdout": "claude theme on: active (chosen theme: night-blue)\n  active   <HOME>/data/.claude\n"
+  },
+  {
+    "name": "the status names the folder",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/settings/claude-theme"
+    },
+    "response": {
+      "json": {
+        "enabled": true,
+        "state": "active",
+        "targets": [
+          {
+            "message": null,
+            "path": "<HOME>/data/.claude",
+            "state": "active"
+          }
+        ],
+        "themeId": "night-blue",
+        "themeName": "Night Blue"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "saving theme settings applies them again",
+    "request": {
+      "body": {
+        "values": {
+          "dim": false
+        },
+        "version": 0
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-blue/settings"
+    },
+    "response": {
+      "json": {
+        "values": {
+          "dim": false
+        },
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "still active",
+    "stderr": "",
+    "stdout": "claude theme on: active (chosen theme: night-blue)\n  active   <HOME>/data/.claude\n"
+  },
+  {
+    "name": "a built-in theme brings no Claude part",
+    "request": {
+      "body": {
+        "theme": "light"
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/theme"
+    },
+    "response": {
+      "json": {
+        "theme": "light"
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "nothing is wanted now",
+    "stderr": "",
+    "stdout": "claude theme on: none (chosen theme: none)\n  none     <HOME>/data/.claude\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "use",
+      "night-blue"
+    ],
+    "exitCode": 0,
+    "name": "the installed theme again",
+    "stderr": "",
+    "stdout": "now using night-blue\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "it is back",
+    "stderr": "",
+    "stdout": "claude theme on: active (chosen theme: night-blue)\n  active   <HOME>/data/.claude\n"
+  },
+  {
+    "name": "turn it off over http",
+    "request": {
+      "body": {
+        "enabled": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/claude-theme"
+    },
+    "response": {
+      "json": {
+        "enabled": false,
+        "state": "none",
+        "targets": [
+          {
+            "message": null,
+            "path": "<HOME>/data/.claude",
+            "state": "none"
+          }
+        ],
+        "themeId": "night-blue",
+        "themeName": "Night Blue"
+      },
+      "status": 200
+    }
+  },
+  {
+    "file": "<WORK>/../data/.claude/skills/nullradix-theme/mine.txt",
+    "lines": 0,
+    "name": "a folder of someone else"
+  },
+  {
+    "cli": [
+      "theme",
+      "claude",
+      "on"
+    ],
+    "exitCode": 0,
+    "name": "it is refused and reported",
+    "stderr": "",
+    "stdout": "claude theme on: foreign (chosen theme: night-blue)\n  foreign  <HOME>/data/.claude (<HOME>/data/.claude/skills/nullradix-theme is not owned by NULLRADIX; rename or delete it so the Claude theme can go there)\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "claude",
+      "off"
+    ],
+    "exitCode": 0,
+    "name": "off again leaves it alone without an error",
+    "stderr": "",
+    "stdout": "claude theme off: none (chosen theme: night-blue)\n  none     <HOME>/data/.claude\n"
+  },
+  {
+    "name": "without a login the status is refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/settings/claude-theme"
+    },
+    "response": {
+      "json": {
+        "code": "credentials-missing",
+        "detail": "this route needs a token or a session",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:credentials-missing"
+      },
+      "status": 401
+    }
+  }
+]

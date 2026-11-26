@@ -6,6 +6,7 @@ import { ProjectsSection } from '../projects/ProjectsSection';
 import { CustomizationsSection } from '../customizations/CustomizationsSection';
 import { ThemeSettingsPanel } from '../themes/ThemeSettingsPanel';
 import { CatalogSection } from '../themes/CatalogSection';
+import { ClaudeThemeSection } from '../themes/ClaudeThemeSection';
 import { ThemesSection } from '../themes/ThemesSection';
 
 export function SettingsPage() {
@@ -42,6 +43,7 @@ export function SettingsPage() {
       <ThemesSection />
       <CatalogSection />
       <ThemeSettingsPanel />
+      <ClaudeThemeSection />
       <CustomizationsSection />
     </div>
   );

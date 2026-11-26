@@ -116,6 +116,7 @@ pub(crate) async fn create_account_login(
             input.email.as_deref(),
         )
         .await?;
+    crate::claude_theme::resync(&state).await;
     let body = AccountLoginDto {
         account: account.into(),
         login: login.into(),

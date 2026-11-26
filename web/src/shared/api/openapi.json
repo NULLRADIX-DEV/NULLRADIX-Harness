@@ -6076,6 +6076,80 @@
         }
       }
     },
+    "/api/v1/settings/claude-theme": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "claude_theme",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudeThemeDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "set_claude_theme",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetClaudeTheme"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The switch is set and the folders are in line; a folder that failed shows in its state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudeThemeDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/settings/theme": {
       "put": {
         "tags": [
@@ -9467,6 +9541,75 @@
           }
         },
         "additionalProperties": false
+      },
+      "ClaudeThemeDto": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "state",
+          "targets"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the person turned the switch on; it is off until then."
+          },
+          "state": {
+            "$ref": "#/components/schemas/ClaudeThemeStateDto",
+            "description": "The worst state of the folders."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaudeThemeTargetDto"
+            }
+          },
+          "themeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The chosen theme, when it is installed."
+          },
+          "themeName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ClaudeThemeStateDto": {
+        "type": "string",
+        "enum": [
+          "active",
+          "none",
+          "foreign",
+          "error"
+        ]
+      },
+      "ClaudeThemeTargetDto": {
+        "type": "object",
+        "required": [
+          "path",
+          "state"
+        ],
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the folder is `foreign` or in `error`."
+          },
+          "path": {
+            "type": "string",
+            "description": "Claude config folder: the default one or the folder of an account."
+          },
+          "state": {
+            "$ref": "#/components/schemas/ClaudeThemeStateDto"
+          }
+        }
       },
       "CleanedWorktree": {
         "type": "object",
@@ -13830,6 +13973,19 @@
             "type": "integer",
             "format": "int64",
             "description": "Version the change is based on."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetClaudeTheme": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Put the Claude part of the chosen theme into the Claude config folders, or take it out."
           }
         },
         "additionalProperties": false

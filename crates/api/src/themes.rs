@@ -318,6 +318,7 @@ pub(crate) async fn install_theme(
         )
     })?;
     let theme = state.themes.install(archive.to_vec()).await?;
+    crate::claude_theme::resync(&state).await;
     let dto = ThemeDto::from(&theme);
     let created = theme.record().version.value() == 1;
     let mut headers = HeaderMap::new();
@@ -349,6 +350,7 @@ pub(crate) async fn choose_theme(
     ApiJson(input): ApiJson<ChooseTheme>,
 ) -> Result<Json<ChooseTheme>, ApiError> {
     let theme = state.themes.select(&input.theme).await?;
+    crate::claude_theme::resync(&state).await;
     Ok(Json(ChooseTheme { theme }))
 }
 
@@ -374,6 +376,7 @@ pub(crate) async fn remove_theme(
         .themes
         .remove(&path.id, AppError::client_version(query.version)?)
         .await?;
+    crate::claude_theme::resync(&state).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -426,6 +429,7 @@ pub(crate) async fn save_theme_settings(
         .themes
         .save_settings(&path.id, values, expected)
         .await?;
+    crate::claude_theme::resync(&state).await;
     Ok(Json(ThemeSettingsDto::from(&saved)))
 }
 
@@ -449,6 +453,7 @@ pub(crate) async fn reset_theme_settings(
 ) -> Result<StatusCode, ApiError> {
     let expected = expected_version(query.version)?;
     state.themes.reset_settings(&path.id, expected).await?;
+    crate::claude_theme::resync(&state).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
