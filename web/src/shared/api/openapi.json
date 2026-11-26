@@ -10088,6 +10088,28 @@
           }
         }
       },
+      "DispatchOutcomeDto": {
+        "type": "string",
+        "description": "How the dispatcher settled a finished run; none while it is open.",
+        "enum": [
+          "done",
+          "review",
+          "human",
+          "abort",
+          "abort-final",
+          "blocked",
+          "question",
+          "pause-limit",
+          "pause-claude-missing",
+          "setup-failed",
+          "taken",
+          "gone",
+          "other",
+          "merge-session",
+          "research",
+          "planned"
+        ]
+      },
       "DispatcherConfigDto": {
         "type": "object",
         "description": "The dispatcher's whole configuration; a save replaces all of it.",
@@ -10701,6 +10723,13 @@
             ],
             "description": "Acceptance criteria set in the same step; done needs them here or on the ticket."
           },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
           "cwd": {
             "type": "string",
             "description": "Absolute folder in the board's repository; a worktree containing it stays."
@@ -10712,6 +10741,13 @@
           "runnerId": {
             "type": "string",
             "format": "uuid"
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
           },
           "version": {
             "type": [
@@ -11441,9 +11477,23 @@
               "null"
             ]
           },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
           "force": {
             "type": "boolean",
             "description": "Lifts the dependency, question and not-needed locks."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
           },
           "status": {
             "oneOf": [
@@ -13167,6 +13217,16 @@
             "format": "int32",
             "description": "Tool calls Claude Code refused; empty without a result to count them in.",
             "minimum": 0
+          },
+          "outcome": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DispatchOutcomeDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "usage": {
             "oneOf": [
@@ -15153,6 +15213,13 @@
               "null"
             ]
           },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
           "blockedReason": {
             "type": [
               "string",
@@ -15255,6 +15322,13 @@
                 "type": "null"
               }
             ]
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
           },
           "status": {
             "oneOf": [

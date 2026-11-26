@@ -10,8 +10,8 @@ use nullradix_app::dispatch::runs::{
 };
 use nullradix_app::runs::RunArtifact;
 use nullradix_domain::{
-    Abort, AbortCategory, DeniedTool, DispatchRun, Id, ModelUsage, RunKind, RunProfile, RunResult,
-    RunTrigger, RunUsage,
+    Abort, AbortCategory, DeniedTool, DispatchOutcome, DispatchRun, Id, ModelUsage, RunKind,
+    RunProfile, RunResult, RunTrigger, RunUsage,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -95,6 +95,51 @@ impl From<AbortCategory> for AbortCategoryDto {
             AbortCategory::UsageLimit => Self::UsageLimit,
             AbortCategory::StartFailed => Self::StartFailed,
             AbortCategory::Vanished => Self::Vanished,
+        }
+    }
+}
+
+/// How the dispatcher settled a finished run; none while it is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum DispatchOutcomeDto {
+    Done,
+    Review,
+    Human,
+    Abort,
+    AbortFinal,
+    Blocked,
+    Question,
+    PauseLimit,
+    PauseClaudeMissing,
+    SetupFailed,
+    Taken,
+    Gone,
+    Other,
+    MergeSession,
+    Research,
+    Planned,
+}
+
+impl From<DispatchOutcome> for DispatchOutcomeDto {
+    fn from(outcome: DispatchOutcome) -> Self {
+        match outcome {
+            DispatchOutcome::Done => Self::Done,
+            DispatchOutcome::Review => Self::Review,
+            DispatchOutcome::Human => Self::Human,
+            DispatchOutcome::Abort => Self::Abort,
+            DispatchOutcome::AbortFinal => Self::AbortFinal,
+            DispatchOutcome::Blocked => Self::Blocked,
+            DispatchOutcome::Question => Self::Question,
+            DispatchOutcome::PauseLimit => Self::PauseLimit,
+            DispatchOutcome::PauseClaudeMissing => Self::PauseClaudeMissing,
+            DispatchOutcome::SetupFailed => Self::SetupFailed,
+            DispatchOutcome::Taken => Self::Taken,
+            DispatchOutcome::Gone => Self::Gone,
+            DispatchOutcome::Other => Self::Other,
+            DispatchOutcome::MergeSession => Self::MergeSession,
+            DispatchOutcome::Research => Self::Research,
+            DispatchOutcome::Planned => Self::Planned,
         }
     }
 }
@@ -230,6 +275,7 @@ pub struct RunResultDto {
     pub denied_count: Option<u32>,
     pub abort: Option<AbortDto>,
     pub usage: Option<RunUsageDto>,
+    pub outcome: Option<DispatchOutcomeDto>,
 }
 
 impl From<&RunResult> for RunResultDto {
@@ -239,6 +285,7 @@ impl From<&RunResult> for RunResultDto {
             denied_count: result.denied_count,
             abort: result.abort.as_ref().map(AbortDto::from),
             usage: result.usage.as_ref().map(RunUsageDto::from),
+            outcome: result.outcome.map(DispatchOutcomeDto::from),
         }
     }
 }
