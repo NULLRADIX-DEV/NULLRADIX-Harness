@@ -1,8 +1,8 @@
 //! What a finished work run left on its ticket, decided as legacy `ResultHandler` did.
 
 use nullradix_domain::{
-    AbortCategory, DispatchOutcome, DispatcherConfig, QuestionKey, Run, TicketRecord, TicketStatus,
-    waits_for_a_person,
+    Abort, AbortCategory, DispatchOutcome, DispatcherConfig, QuestionKey, Run, RunStatus,
+    TicketRecord, TicketStatus, waits_for_a_person,
 };
 
 /// The decision for one finished work run; the first match in legacy order wins.
@@ -22,17 +22,17 @@ pub enum Decision {
     Taken,
     /// The ticket is neither done, blocked nor in progress.
     Other,
-    /// Left open: aborts, attempts and pauses belong to a later slice.
-    Pending(Pending),
+    /// The run ended without achieving anything; the attempt is counted.
+    Abort(Ended),
+    /// Starting the run failed; the start counted the attempt already.
+    StartFailed,
 }
 
-/// Why a run stays open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Pending {
-    /// The ticket is still the agent's and nothing says what the run achieved.
-    NoOutcome,
-    /// Starting the run failed; the start has given the ticket back already.
-    StartFailed,
+/// How a run that achieved nothing ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ended {
+    pub category: Option<AbortCategory>,
+    pub reason: String,
 }
 
 impl Decision {
@@ -46,7 +46,7 @@ impl Decision {
             Self::Question(_) => Some(DispatchOutcome::Question),
             Self::Taken => Some(DispatchOutcome::Taken),
             Self::Other => Some(DispatchOutcome::Other),
-            Self::Pending(_) => None,
+            Self::Abort(_) | Self::StartFailed => None,
         }
     }
 }
@@ -60,12 +60,12 @@ pub fn decide(
     ticket: &TicketRecord,
     open_questions: &[QuestionKey],
 ) -> Decision {
-    if run
-        .result()
-        .and_then(|result| result.abort.as_ref())
-        .is_some_and(|abort| abort.category == AbortCategory::StartFailed)
+    let abort = run.result().and_then(|result| result.abort.as_ref());
+    // Claude that was not found ran and exited; a run that never spawned was counted by its start
+    if abort.is_some_and(|abort| abort.category == AbortCategory::StartFailed)
+        && run.exit_code().is_none()
     {
-        return Decision::Pending(Pending::StartFailed);
+        return Decision::StartFailed;
     }
     let assignee = ticket.assignee.as_deref();
     if ticket.status == TicketStatus::Done {
@@ -96,7 +96,27 @@ pub fn decide(
     if !open_questions.is_empty() {
         return Decision::Question(open_questions.to_vec());
     }
-    Decision::Pending(Pending::NoOutcome)
+    Decision::Abort(ended(run, abort))
+}
+
+const NO_RESULT: &str =
+    "run ended without a result - the ticket is neither done nor blocked and has no open question";
+
+fn ended(run: &Run, abort: Option<&Abort>) -> Ended {
+    match abort {
+        Some(abort) => Ended {
+            category: Some(abort.category),
+            reason: abort.reason.clone(),
+        },
+        None => Ended {
+            category: None,
+            reason: String::from(if run.status() == RunStatus::Cancelled {
+                "the run was cancelled"
+            } else {
+                NO_RESULT
+            }),
+        },
+    }
 }
 
 /// The comment of a run that ended with questions open.
@@ -119,8 +139,8 @@ pub fn question_comment(questions: &[QuestionKey], branch: Option<&str>) -> Stri
 #[cfg(test)]
 mod tests {
     use nullradix_domain::{
-        DispatchRun, Id, Priority, RunKind, RunLabel, RunProfile, RunTrigger, TicketKey,
-        TicketTitle, Timestamp, Version,
+        DispatchRun, Id, Priority, RunEnd, RunKind, RunLabel, RunOutcome, RunProfile, RunResult,
+        RunTrigger, TicketKey, TicketTitle, Timestamp, Version,
     };
 
     use super::*;
@@ -249,7 +269,10 @@ mod tests {
         );
         assert_eq!(
             decide_for(&working, &[], false),
-            Decision::Pending(Pending::NoOutcome)
+            Decision::Abort(Ended {
+                category: None,
+                reason: String::from(NO_RESULT)
+            })
         );
         let moved = ticket(TicketStatus::Planned, Some(AGENT), None);
         assert_eq!(decide_for(&moved, &[], false), Decision::Other);
@@ -264,8 +287,78 @@ mod tests {
             .failed_to_start(String::from("no claude"), Timestamp::from_millis(2))
             .unwrap();
         let decision = decide(&DispatcherConfig::default(), AGENT, &failed, &record, &[]);
-        assert_eq!(decision, Decision::Pending(Pending::StartFailed));
+        assert_eq!(decision, Decision::StartFailed);
         assert_eq!(decision.outcome(), None);
+    }
+
+    fn finished_with(abort: Option<Abort>, status: RunStatus, exit: Option<i32>) -> Run {
+        let (outcome, code) = match status {
+            RunStatus::Cancelled => (RunOutcome::Cancelled, None),
+            RunStatus::TimedOut => (RunOutcome::TimedOut, None),
+            RunStatus::Succeeded => (RunOutcome::Succeeded, Some(0)),
+            _ => (RunOutcome::Failed, exit),
+        };
+        let started = run().started(1, Timestamp::from_millis(2)).unwrap();
+        let end = RunEnd {
+            exit_code: code,
+            error: None,
+        };
+        let result = RunResult {
+            abort,
+            ..RunResult::default()
+        };
+        started
+            .finished_with(outcome, end, Some(result), Timestamp::from_millis(3))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_run_that_achieved_nothing_is_an_abort_with_the_reason_of_its_end() {
+        let working = ticket(TicketStatus::InProgress, Some(AGENT), None);
+        let config = DispatcherConfig::default();
+        let timeout = Abort {
+            category: AbortCategory::Timeout,
+            reason: String::from("time limit of 90 min reached, run stopped"),
+        };
+        let run = finished_with(Some(timeout), RunStatus::TimedOut, None);
+        assert_eq!(
+            decide(&config, AGENT, &run, &working, &[]),
+            Decision::Abort(Ended {
+                category: Some(AbortCategory::Timeout),
+                reason: String::from("time limit of 90 min reached, run stopped")
+            })
+        );
+        let clean = finished_with(None, RunStatus::Succeeded, Some(0));
+        assert_eq!(
+            decide(&config, AGENT, &clean, &working, &[]),
+            Decision::Abort(Ended {
+                category: None,
+                reason: String::from(NO_RESULT)
+            })
+        );
+        let cancelled = finished_with(None, RunStatus::Cancelled, None);
+        let Decision::Abort(ended) = decide(&config, AGENT, &cancelled, &working, &[]) else {
+            panic!("not an abort");
+        };
+        assert_eq!(ended.reason, "the run was cancelled");
+    }
+
+    #[test]
+    fn claude_that_was_not_found_is_an_abort_of_its_own_category() {
+        let working = ticket(TicketStatus::InProgress, Some(AGENT), None);
+        let missing = Abort {
+            category: AbortCategory::StartFailed,
+            reason: String::from("claude could not be started: not found"),
+        };
+        let run = finished_with(Some(missing), RunStatus::Failed, Some(127));
+        let decision = decide(&DispatcherConfig::default(), AGENT, &run, &working, &[]);
+        assert!(matches!(
+            decision,
+            Decision::Abort(Ended {
+                category: Some(AbortCategory::StartFailed),
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -5,14 +5,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    AUTOPILOT_PREFIX, DispatchOutcome, DispatcherConfig, Id, QuestionKey, Run, RunKind,
-    SystemMarker, TicketRecord, TicketStatus,
+    ABORT_PREFIX, AUTOPILOT_PREFIX, AbortCategory, Actor, DispatchOutcome, DispatcherConfig, Id,
+    QuestionKey, Run, RunKind, SystemMarker, TicketRecord, TicketStatus, failed_attempts,
 };
+use parking_lot::RwLock;
 
+use super::abort::{AbortAttempts, AbortRequest, Aborted, Standing};
 use super::accounts::AccountPicker;
 use super::log::{DispatchLog, LogLevel};
-use super::outcome::{Decision, decide, question_comment};
+use super::outcome::{Decision, Ended, decide, question_comment};
 use super::pass::{PassContext, PassReport, PassStep};
+use super::pause::{NoPauseHook, PauseHook, PauseKind};
 use super::start::TicketStarter;
 use crate::comments::CommentService;
 use crate::runs::RunService;
@@ -56,8 +59,10 @@ pub struct EvaluateRuns {
     runs: Arc<RunService>,
     starter: Arc<TicketStarter>,
     log: Arc<DispatchLog>,
+    aborts: Arc<AbortAttempts>,
     gate: Arc<dyn DoneGate>,
     accounts: Option<Arc<AccountPicker>>,
+    pauses: RwLock<Arc<dyn PauseHook>>,
 }
 
 impl std::fmt::Debug for EvaluateRuns {
@@ -80,6 +85,7 @@ impl EvaluateRuns {
         runs: Arc<RunService>,
         starter: Arc<TicketStarter>,
         log: Arc<DispatchLog>,
+        aborts: Arc<AbortAttempts>,
     ) -> Self {
         Self {
             tickets,
@@ -87,9 +93,16 @@ impl EvaluateRuns {
             runs,
             starter,
             log,
+            aborts,
             gate: Arc::new(NoDoneGate),
             accounts: None,
+            pauses: RwLock::new(Arc::new(NoPauseHook)),
         }
+    }
+
+    /// Replaces what happens to runs that ended on the usage limit or without Claude.
+    pub fn set_pause_hook(&self, pauses: Arc<dyn PauseHook>) {
+        *self.pauses.write() = pauses;
     }
 
     /// Replaces what follows a finished ticket.
@@ -135,14 +148,24 @@ impl EvaluateRuns {
             .map(|question| question.key.clone())
             .collect();
         // a pass that stopped after the comment is picked up where it was
+        let actor = self.starter.actor().await?;
         let asked = question_posted(&detail, run);
+        let counted = abort_posted(&detail, run, actor);
         let decision = if asked {
             Decision::Question(questions)
+        } else if counted {
+            Decision::Abort(Ended {
+                category: None,
+                reason: String::new(),
+            })
         } else {
             decide(config, &agent_of(run, key, config), run, record, &questions)
         };
         let outcome = match &decision {
-            Decision::Pending(_) => return Ok(Settled::Later),
+            Decision::StartFailed => Self::settle_start_failed(&detail, config, actor),
+            Decision::Abort(ended) => {
+                return self.abort(run, record, ended, counted, config, actor).await;
+            }
             Decision::Question(questions) => {
                 if !self.ask(&detail, run, questions, asked, config).await? {
                     return Ok(Settled::Later);
@@ -157,6 +180,62 @@ impl EvaluateRuns {
             other => other.outcome().unwrap_or(DispatchOutcome::Other),
         };
         Ok(Settled::Yes(outcome))
+    }
+
+    fn pause_hook(&self) -> Arc<dyn PauseHook> {
+        self.pauses.read().clone()
+    }
+
+    /// A run that never spawned was counted by its start; this only records how it ended.
+    fn settle_start_failed(
+        detail: &TicketDetail,
+        config: &DispatcherConfig,
+        actor: &Actor,
+    ) -> DispatchOutcome {
+        let records = detail.comments.iter().map(|line| line.comment.record());
+        let counted = i64::try_from(failed_attempts(records, actor.id())).unwrap_or(i64::MAX);
+        if counted >= config.max_attempts {
+            DispatchOutcome::AbortFinal
+        } else {
+            DispatchOutcome::Abort
+        }
+    }
+
+    /// Counts the attempt of a run that achieved nothing, unless a pause takes the run.
+    async fn abort(
+        &self,
+        run: &Run,
+        record: &TicketRecord,
+        ended: &Ended,
+        counted: bool,
+        config: &DispatcherConfig,
+        actor: &Actor,
+    ) -> Result<Settled, AppError> {
+        let key = record.key.to_string();
+        let kind = match ended.category {
+            Some(AbortCategory::UsageLimit) => Some(PauseKind::UsageLimit),
+            Some(AbortCategory::StartFailed) => Some(PauseKind::ClaudeMissing),
+            _ => None,
+        };
+        if let Some(kind) = kind.filter(|_| !counted)
+            && let Some(outcome) = self.pause_hook().paused(run, record, kind, config).await?
+        {
+            return Ok(Settled::Yes(outcome));
+        }
+        let agent = agent_of(run, &key, config);
+        let request = AbortRequest {
+            key: &record.key,
+            run: Some(run),
+            agent: &agent,
+            reason: &ended.reason,
+            standing: Standing::Claimed,
+            expected: None,
+        };
+        Ok(match self.aborts.abort(&request, config, actor).await? {
+            Aborted::Counted { last: true, .. } => Settled::Yes(DispatchOutcome::AbortFinal),
+            Aborted::Counted { last: false, .. } => Settled::Yes(DispatchOutcome::Abort),
+            Aborted::Postponed => Settled::Later,
+        })
     }
 
     /// Comments, then gives the ticket back; false when the ticket changed in between.
@@ -253,6 +332,16 @@ fn agent_of(run: &Run, key: &str, config: &DispatcherConfig) -> String {
     run.dispatch()
         .and_then(|dispatch| dispatch.agent.clone())
         .unwrap_or_else(|| config.work_agent(key))
+}
+
+/// Whether the abort comment of this run is on the ticket already.
+fn abort_posted(detail: &TicketDetail, run: &Run, dispatcher: &Actor) -> bool {
+    detail.comments.iter().any(|line| {
+        let record = line.comment.record();
+        record.author == dispatcher.id()
+            && record.body.as_str().starts_with(ABORT_PREFIX)
+            && record.run == Some(run.id())
+    })
 }
 
 /// Whether the question comment of this run is on the ticket already.

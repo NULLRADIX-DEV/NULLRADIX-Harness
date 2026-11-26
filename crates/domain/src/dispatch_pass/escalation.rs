@@ -19,7 +19,7 @@ fn first_value<'a>(labels: &'a [String], prefix: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
-/// The valid `model:` and `effort:` labels; an invalid one is ignored here and refused by readiness.
+/// The valid `model:` and `effort:` labels; readiness refuses an invalid one.
 #[must_use]
 pub fn label_overrides(config: &DispatcherConfig, labels: &[String]) -> LabelOverrides {
     LabelOverrides {

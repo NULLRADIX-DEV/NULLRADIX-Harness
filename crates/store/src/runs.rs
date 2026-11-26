@@ -564,7 +564,6 @@ impl RunRepository for Store {
                FROM runs
                WHERE kind = 'work' AND subject_key IS NOT NULL AND outcome IS NULL
                  AND status NOT IN ('starting', 'running')
-                 AND (abort_category IS NULL OR abort_category <> 'start-failed')
                ORDER BY finished_at, id LIMIT ?"#,
             limit,
         )

@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    DeniedTool, DispatchRun, Id, Profile, QuestionKey, Run, RunKind, RunProfile, RunTrigger,
-    TicketKey,
+    DeniedTool, DispatchRun, Id, LabelOverrides, Profile, QuestionKey, Run, RunKind, RunProfile,
+    RunTrigger, TicketKey,
 };
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -44,6 +44,8 @@ pub struct StartDispatchRun {
     pub extra_tools: Vec<String>,
     /// The agent name the run works under, when it is one of a ticket.
     pub agent: Option<String>,
+    /// Model and effort from the ticket labels; they override the profile.
+    pub overrides: LabelOverrides,
 }
 
 /// Bytes of files a run left on its runner.
@@ -191,7 +193,14 @@ impl DispatchRuns {
         let subject = self.subject(request.kind, &request.subject).await?;
         self.config.sync_hash().await?;
         let view = self.config.get().await?;
-        let profile = profile_of(&view.config, &request)?;
+        let mut profile = profile_of(&view.config, &request)?.clone();
+        if let Some(model) = &request.overrides.model {
+            profile.model = Some(model.clone());
+        }
+        if let Some(effort) = &request.overrides.effort {
+            profile.effort = Some(effort.clone());
+        }
+        let profile = &profile;
         let account = match request.account {
             Some(id) => Some(self.accounts.get(id).await?),
             None => None,

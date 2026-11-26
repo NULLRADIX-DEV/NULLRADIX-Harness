@@ -6,13 +6,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nullradix_domain::{
-    Actor, ActorKind, ActorName, DispatcherConfig, Id, ProfileChoice, Run, RunKind, RunTrigger,
-    SETUP_REASON, SetupState, SystemMarker, TicketKey, TicketStatus, Version, choose_profile,
+    Actor, ActorKind, ActorName, DispatcherConfig, Id, LabelOverrides, ProfileChoice, Run, RunKind,
+    RunTrigger, SETUP_REASON, SetupState, SystemMarker, TicketKey, TicketStatus, Version,
+    choose_profile, escalate, failed_attempts, label_overrides,
 };
 use parking_lot::Mutex;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
+use super::abort::{AbortAttempts, AbortRequest, Standing};
 use super::accounts::{AccountPick, AccountPicker, AccountRequest, Chosen, PickMode};
 use super::candidates::{Candidate, Candidates};
 use super::log::DispatchLog;
@@ -64,6 +66,7 @@ struct Picked {
     choice: ProfileChoice,
     account: Chosen,
     request: AccountRequest,
+    overrides: LabelOverrides,
 }
 
 /// The pieces of a start that the background part needs as well.
@@ -91,13 +94,12 @@ pub struct TicketStarter {
     setup: Arc<dyn WorktreeSetupPort>,
     actors: Arc<dyn ActorRepository>,
     log: Arc<DispatchLog>,
+    aborts: Arc<AbortAttempts>,
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     actor: OnceCell<Actor>,
     /// Tickets whose setup runs in the background, with its folder; they count for the limit.
     launching: Mutex<HashMap<String, String>>,
-    /// Tickets whose start failed, with their version afterwards; they wait for a change.
-    failed: Mutex<HashMap<String, Version>>,
     /// Stops the setups that run in the background.
     cancel: CancellationToken,
 }
@@ -122,6 +124,7 @@ pub struct StarterParts {
     pub setup: Arc<dyn WorktreeSetupPort>,
     pub actors: Arc<dyn ActorRepository>,
     pub log: Arc<DispatchLog>,
+    pub aborts: Arc<AbortAttempts>,
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn IdGenerator>,
 }
@@ -159,11 +162,11 @@ impl TicketStarter {
             setup: parts.setup,
             actors: parts.actors,
             log: parts.log,
+            aborts: parts.aborts,
             clock: parts.clock,
             ids: parts.ids,
             actor: OnceCell::new(),
             launching: Mutex::default(),
-            failed: Mutex::default(),
             cancel: CancellationToken::new(),
         })
     }
@@ -259,11 +262,6 @@ impl TicketStarter {
             )));
         };
         let record = fresh.ticket().record();
-        if self.waits_for_change(&key.to_string(), record.version) {
-            return Ok(StartOutcome::Skipped(String::from(
-                "the last start failed; the ticket waits for a change",
-            )));
-        }
         // a run in the folder of the ticket must end first, the ticket stays unclaimed meanwhile
         if let Some(path) = &record.worktree
             && self.busy(path).await?
@@ -279,9 +277,28 @@ impl TicketStarter {
                 "a setup runs in the worktree",
             )));
         }
-        let choice = choose_profile(config, &record.labels, record.priority, &record.plan);
+        let actor = self.actor().await?;
+        let text = key.to_string();
+        let comments = self.tickets.get(&text).await?.comments;
+        let earlier = failed_attempts(
+            comments.iter().map(|line| line.comment.record()),
+            actor.id(),
+        );
+        let mut choice = escalate(
+            config,
+            choose_profile(config, &record.labels, record.priority, &record.plan),
+            earlier + 1,
+        );
+        let overrides = label_overrides(config, &record.labels);
+        choice.why.push_str(&overrides.note());
         // the account is chosen before the claim: with none free the ticket waits unclaimed
-        let request = AccountRequest::for_ticket(config, &choice, &record.labels);
+        let mut request = AccountRequest::for_ticket(config, &choice, &record.labels);
+        if let Some(model) = &overrides.model {
+            request.model = Some(model.clone());
+        }
+        if let Some(effort) = &overrides.effort {
+            request.effort = Some(effort.clone());
+        }
         let account = match self
             .accounts
             .pick(&request, config, PickMode::Start)
@@ -296,9 +313,8 @@ impl TicketStarter {
             choice,
             account,
             request,
+            overrides,
         };
-        let actor = self.actor().await?;
-        let text = key.to_string();
         let agent = config.work_agent(&text);
         let claimed = self
             .tickets
@@ -322,32 +338,45 @@ impl TicketStarter {
             }
         };
         let launched = self
-            .launch(&fresh, &root, config, picked, agent, version)
+            .launch(&fresh, &root, config, picked, agent.clone(), version)
             .await;
-        if launched.is_err() {
-            self.remember_failure(&text).await;
+        if let Err(error) = &launched {
+            self.count_failed_start(key, &agent, config, error.message())
+                .await;
         }
         launched
     }
 
-    /// Whether the ticket is unchanged since a start of it failed.
-    fn waits_for_change(&self, key: &str, version: Version) -> bool {
-        let mut failed = self.failed.lock();
-        match failed.get(key) {
-            Some(known) if *known == version => true,
-            Some(_) => {
-                failed.remove(key);
-                false
-            }
-            None => false,
-        }
-    }
-
-    /// Keeps the version a failed start left, so the next pass does not try it again.
-    async fn remember_failure(&self, key: &str) {
-        if let Ok(detail) = self.tickets.get(key).await {
-            let version = detail.view.ticket.record().version;
-            self.failed.lock().insert(key.to_owned(), version);
+    /// Counts a failed start as an aborted attempt, as legacy did; the claim is given back already.
+    async fn count_failed_start(
+        &self,
+        key: &TicketKey,
+        agent: &str,
+        config: &DispatcherConfig,
+        message: &str,
+    ) {
+        let Ok(actor) = self.actor().await else {
+            return;
+        };
+        let reason = format!("the worker could not be started: {message}");
+        let request = AbortRequest {
+            key,
+            run: None,
+            agent,
+            reason: &reason,
+            standing: Standing::GivenBack,
+            expected: None,
+        };
+        if let Err(error) = self.aborts.abort(&request, config, actor).await {
+            self.log
+                .error(
+                    &format!(
+                        "cannot count the failed start of {key}: {}",
+                        error.message()
+                    ),
+                    Some(&key.to_string()),
+                )
+                .await;
         }
     }
 
@@ -522,7 +551,8 @@ impl TicketStarter {
                 let message = format!("cannot start {text}: {}", error.message());
                 this.log.error(&message, Some(&text)).await;
                 this.give_back(&launch.key, &config, launch.version).await;
-                this.remember_failure(&text).await;
+                this.count_failed_start(&launch.key, &launch.agent, &config, error.message())
+                    .await;
             }
         });
         true
@@ -684,6 +714,7 @@ impl TicketStarter {
                 prompt,
                 cwd: PathBuf::from(&launch.cwd),
                 profile: Some(launch.picked.choice.profile.clone()),
+                overrides: launch.picked.overrides.clone(),
                 account: Some(account.account),
                 extra_tools: Vec::new(),
                 agent: Some(launch.agent.clone()),

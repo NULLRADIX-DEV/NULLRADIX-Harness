@@ -107,8 +107,14 @@ pub fn effective_model(claude: &ClaudeSettings, profile: &Profile) -> Option<Str
     profile.model.clone().or_else(|| claude.model.clone())
 }
 
+/// The effort of a run; Haiku knows none.
 #[must_use]
 pub fn effective_effort(claude: &ClaudeSettings, profile: &Profile) -> Option<String> {
+    let haiku = effective_model(claude, profile)
+        .is_some_and(|model| model.starts_with("haiku") || model.contains("-haiku"));
+    if haiku {
+        return None;
+    }
     profile.effort.clone().or_else(|| claude.effort.clone())
 }
 

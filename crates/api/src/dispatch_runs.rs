@@ -637,6 +637,7 @@ pub(crate) async fn start_dispatch_run(
             account: None,
             extra_tools: Vec::new(),
             agent: None,
+            overrides: nullradix_domain::LabelOverrides::default(),
         })
         .await?;
     let run = RunDto::from(run);

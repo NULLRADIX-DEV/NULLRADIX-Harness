@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id: Uuid\", label, status, pid, exit_code, error, created_at,\n                      started_at, finished_at, version, kind, triggered_by, subject_key,\n                      profile_id AS \"profile_id: Uuid\", profile_name, model, effort, max_turns,\n                      timeout_minutes, account_id AS \"account_id: Uuid\", config_hash, cwd,\n                      command_args, prompt, claude_session_id, abort_category, abort_reason,\n                      num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,\n                      cache_write_tokens, model_usage, denied_count, outcome, agent\n               FROM runs\n               WHERE kind = 'work' AND subject_key IS NOT NULL AND outcome IS NULL\n                 AND status NOT IN ('starting', 'running')\n                 AND (abort_category IS NULL OR abort_category <> 'start-failed')\n               ORDER BY finished_at, id LIMIT ?",
+  "query": "SELECT id AS \"id: Uuid\", label, status, pid, exit_code, error, created_at,\n                      started_at, finished_at, version, kind, triggered_by, subject_key,\n                      profile_id AS \"profile_id: Uuid\", profile_name, model, effort, max_turns,\n                      timeout_minutes, account_id AS \"account_id: Uuid\", config_hash, cwd,\n                      command_args, prompt, claude_session_id, abort_category, abort_reason,\n                      num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,\n                      cache_write_tokens, model_usage, denied_count, outcome, agent\n               FROM runs\n               WHERE kind = 'work' AND subject_key IS NOT NULL AND outcome IS NULL\n                 AND status NOT IN ('starting', 'running')\n               ORDER BY finished_at, id LIMIT ?",
   "describe": {
     "columns": [
       {
@@ -454,5 +454,5 @@
       true
     ]
   },
-  "hash": "087b0c2b8f5427198057f12e59fdf4cd723c4a0bc0be78769e67850cfa493005"
+  "hash": "10a98cf857211a8c590a25c4e1f2a622216db2a66e425f1b3da3f9bb61a36914"
 }
