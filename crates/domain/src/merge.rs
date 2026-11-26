@@ -103,6 +103,20 @@ pub struct MergeJobRecord {
     pub version: Version,
 }
 
+impl MergeJobRecord {
+    /// The target commit at the session start; `target_head` holds it first.
+    #[must_use]
+    pub fn session_target(&self) -> Option<&str> {
+        self.target_head.as_deref()?.split(' ').next()
+    }
+
+    /// The branch commit at the session start, after the target; none for older jobs.
+    #[must_use]
+    pub fn session_branch_tip(&self) -> Option<&str> {
+        self.target_head.as_deref()?.split(' ').nth(1)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergeJob(MergeJobRecord);
 
@@ -208,13 +222,19 @@ impl MergeJob {
         self
     }
 
-    /// Merge session number `sessions` runs for the conflict; the target stood at `head`.
+    /// Session `sessions` runs for the conflict; the target stood at `head`, the branch at `tip`.
     #[must_use]
-    pub fn session_started(mut self, sessions: u32, head: &str, files: &[String]) -> Self {
+    pub fn session_started(
+        mut self,
+        sessions: u32,
+        head: &str,
+        tip: &str,
+        files: &[String],
+    ) -> Self {
         self.0.phase = MergePhase::ConflictSession;
         self.0.session_used = true;
         self.0.conflict_sessions = sessions;
-        self.0.target_head = Some(head.to_owned());
+        self.0.target_head = Some(format!("{head} {tip}"));
         self.0.problem = Some(conflict_problem(files));
         self
     }
@@ -451,12 +471,13 @@ mod tests {
     #[test]
     fn a_session_marks_the_job_and_a_failed_one_makes_room_for_the_next() {
         let files = [String::from("a.rs")];
-        let started = pending_job().session_started(2, "abc123", &files);
+        let started = pending_job().session_started(2, "abc123", "def456", &files);
         let record = started.record();
         assert_eq!(record.phase, MergePhase::ConflictSession);
         assert!(record.phase.active() && record.session_used);
         assert_eq!(record.conflict_sessions, 2);
-        assert_eq!(record.target_head.as_deref(), Some("abc123"));
+        assert_eq!(record.session_target(), Some("abc123"));
+        assert_eq!(record.session_branch_tip(), Some("def456"));
         assert_eq!(record.problem.as_deref(), Some("merge conflict in a.rs"));
         let next = started.clone().next_session();
         let record = next.record();
@@ -467,7 +488,7 @@ mod tests {
 
     #[test]
     fn a_resolved_session_keeps_its_count_unless_the_target_moved() {
-        let started = pending_job().session_started(2, "abc123", &[]);
+        let started = pending_job().session_started(2, "abc123", "def456", &[]);
         let kept = started.clone().session_resolved(false);
         assert_eq!(kept.record().phase, MergePhase::Pending);
         assert!(kept.record().session_used);

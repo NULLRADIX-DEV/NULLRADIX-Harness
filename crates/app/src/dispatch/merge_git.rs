@@ -53,6 +53,35 @@ pub struct TargetTip {
     pub tip: String,
 }
 
+/// What a merge session left behind, judged by [`MergeGit::session_resolved`].
+#[derive(Debug, Clone, Copy)]
+pub struct SessionCheck<'a> {
+    pub root: &'a str,
+    /// The target commit the branch has to contain now.
+    pub target_head: &'a str,
+    /// The branch commit from before the session; it has to stay in the branch.
+    pub branch_tip: Option<&'a str>,
+    pub branch: &'a str,
+    /// The folder the session ran in.
+    pub folder: &'a str,
+}
+
+/// How a merge session left the branch and its folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionVerdict {
+    Resolved,
+    /// The target commit is not in the branch.
+    TargetMissing,
+    /// The branch commit from before the session is not in the branch any more.
+    WorkLost,
+    /// The folder is gone, has local changes or a git action under way.
+    Unclean,
+    /// Files the session changed that still hold conflict markers.
+    Markers(Vec<String>),
+    /// The target commit is not a commit id.
+    BadCommit(String),
+}
+
 /// A branch whose merge the target holds already.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergedEarlier {
@@ -102,14 +131,8 @@ pub trait MergeGit: Send + Sync {
         root: &str,
         target: Option<&str>,
     ) -> Result<Option<TargetTip>, AppError>;
-    /// Whether a merge session left the branch with `ancestor` in it and its folder clean.
-    async fn session_resolved(
-        &self,
-        root: &str,
-        ancestor: &str,
-        branch: &str,
-        folder: &str,
-    ) -> Result<bool, AppError>;
+    /// Whether a merge session left the branch with the target in it, its work kept and no markers.
+    async fn session_resolved(&self, check: &SessionCheck<'_>) -> Result<SessionVerdict, AppError>;
     /// Merges where the target is checked out, or in a merge worktree; a conflict is undone.
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError>;
     /// Deletes the branch when it is merged, still at `tip` and checked out nowhere.

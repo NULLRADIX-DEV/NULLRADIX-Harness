@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::dispatch::merge_git::{
-    BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier, TargetTip,
+    BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier,
+    SessionCheck, SessionVerdict, TargetTip,
 };
 use nullradix_app::review::check_branch;
 use nullradix_app::worktrees::git_failed;
 use nullradix_domain::{HoldKind, MergeStrategy, SQUASH_LIST_MAX, hold_files};
+use tokio::io::AsyncReadExt;
 
 use crate::git::local_key;
 use crate::worktree::{LONG_PATHS, attempt, ensure_target, exists, git, output};
@@ -397,6 +399,87 @@ async fn is_ancestor(cwd: &Path, ancestor: &str, of: &str) -> Result<bool, AppEr
     Ok(attempt(cwd, &["merge-base", "--is-ancestor", ancestor, of])
         .await?
         .is_some())
+}
+
+/// Whether the text is a full or abbreviated commit id.
+fn commit_id(text: &str) -> bool {
+    !text.is_empty() && text.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Bytes of `git diff --check` output that are read.
+const CHECK_OUTPUT_MAX: u64 = 64 * 1024;
+
+/// Files with leftover conflict markers that are named.
+const MARKER_FILES_MAX: usize = 20;
+
+/// The files `after` added conflict markers to since `before`; only markers count, no whitespace.
+async fn marker_files(root: &Path, before: &str, after: &str) -> Result<Vec<String>, AppError> {
+    let args = [
+        "--no-optional-locks",
+        "-c",
+        "core.quotePath=false",
+        "-c",
+        "core.whitespace=-trailing-space,-space-before-tab",
+        "diff",
+        "--check",
+        "--no-ext-diff",
+        "--no-textconv",
+        before,
+        after,
+        "--",
+    ];
+    let mut command = tokio::process::Command::new("git");
+    command
+        .args(args)
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|error| git_failed(&args, &error.to_string()))?;
+    let mut bytes = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        stdout
+            .take(CHECK_OUTPUT_MAX)
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(|error| git_failed(&args, &error.to_string()))?;
+    }
+    let capped = u64::try_from(bytes.len()).is_ok_and(|read| read >= CHECK_OUTPUT_MAX);
+    if capped {
+        // the rest is not read: the process ends with its pipe
+        drop(child.kill().await);
+    } else {
+        // 0: nothing found, 2: problems found
+        let status = child
+            .wait()
+            .await
+            .map_err(|error| git_failed(&args, &error.to_string()))?;
+        if !matches!(status.code(), Some(0 | 2)) {
+            return Err(git_failed(&args, "diff --check failed"));
+        }
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let mut files: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let Some(found) = line.strip_suffix(": leftover conflict marker") else {
+            continue;
+        };
+        let Some((file, _line)) = found.rsplit_once(':') else {
+            continue;
+        };
+        if files.len() < MARKER_FILES_MAX && !files.iter().any(|known| known == file) {
+            files.push(file.to_owned());
+        }
+    }
+    Ok(files)
 }
 
 /// Merge or squash in `cwd`; the folder is left as it was unless the merge went through.
@@ -829,31 +912,43 @@ impl MergeGit for LocalMergeGit {
             .map(|tip| TargetTip { into, tip }))
     }
 
-    async fn session_resolved(
-        &self,
-        root: &str,
-        ancestor: &str,
-        branch: &str,
-        folder: &str,
-    ) -> Result<bool, AppError> {
-        checked(branch)?;
-        if ancestor.is_empty() || !ancestor.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(AppError::invalid(
-                "merge-commit-invalid",
-                format!("\"{ancestor}\" is not a commit id"),
-            ));
+    async fn session_resolved(&self, check: &SessionCheck<'_>) -> Result<SessionVerdict, AppError> {
+        checked(check.branch)?;
+        for commit in std::iter::once(check.target_head).chain(check.branch_tip) {
+            if !commit_id(commit) {
+                return Ok(SessionVerdict::BadCommit(commit.to_owned()));
+            }
         }
-        if !is_ancestor(Path::new(root), ancestor, &refs(branch)).await? {
-            return Ok(false);
+        let root = Path::new(check.root);
+        let reference = refs(check.branch);
+        if !is_ancestor(root, check.target_head, &reference).await? {
+            return Ok(SessionVerdict::TargetMissing);
+        }
+        // a reset or a new branch under the old name drops the work of the ticket
+        if let Some(before) = check.branch_tip
+            && !is_ancestor(root, before, &reference).await?
+        {
+            return Ok(SessionVerdict::WorkLost);
         }
         // a folder that is gone or broken counts as not resolved
-        let cwd = Path::new(folder);
+        let cwd = Path::new(check.folder);
         let clean = async {
             Ok::<_, AppError>(
                 running(cwd).await?.is_none() && blocking(&status_of(cwd).await?).is_empty(),
             )
         };
-        Ok(clean.await.unwrap_or(false))
+        if !clean.await.unwrap_or(false) {
+            return Ok(SessionVerdict::Unclean);
+        }
+        if let Some(before) = check.branch_tip
+            && let Some(after) = tip_of(root, check.branch).await?
+        {
+            let files = marker_files(root, before, &after).await?;
+            if !files.is_empty() {
+                return Ok(SessionVerdict::Markers(files));
+            }
+        }
+        Ok(SessionVerdict::Resolved)
     }
 
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
@@ -1099,44 +1194,132 @@ mod tests {
         );
     }
 
+    /// The session verdict for the branch at its folder, with the tip from before the session.
+    async fn verdict(
+        root: &Path,
+        target: &str,
+        before: Option<&str>,
+        folder: &str,
+    ) -> SessionVerdict {
+        let at = slashed(root);
+        let check = SessionCheck {
+            root: &at,
+            target_head: target,
+            branch_tip: before,
+            branch: "ticket/x",
+            folder,
+        };
+        LocalMergeGit.session_resolved(&check).await.unwrap()
+    }
+
+    /// A conflicting merge of main into the ticket branch, left for a person to resolve.
+    fn merge_main_into_ticket(root: &Path) {
+        git_sync(root, &["checkout", "-q", "ticket/x"]);
+        let tried = Command::new("git")
+            .args(["merge", "main"])
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(!tried.status.success());
+    }
+
     #[tokio::test]
     async fn a_session_is_resolved_only_with_the_target_in_the_branch_and_a_clean_folder() {
         let (_dir, root) = repository();
         conflicting(&root);
         let at = slashed(&root);
         let target = git_sync(&root, &["rev-parse", "refs/heads/main"]);
+        let before = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
         let resolved = |folder: String| {
-            let (at, target) = (at.clone(), target.clone());
-            async move {
-                LocalMergeGit
-                    .session_resolved(&at, &target, "ticket/x", &folder)
-                    .await
-                    .unwrap()
-            }
+            let (root, target, before) = (root.clone(), target.clone(), before.clone());
+            async move { verdict(&root, &target, Some(&before), &folder).await }
         };
-        assert!(!resolved(at.clone()).await);
-        git_sync(&root, &["checkout", "-q", "ticket/x"]);
-        let tried = Command::new("git")
-            .args(["merge", "main"])
-            .current_dir(&root)
-            .output()
-            .unwrap();
-        assert!(!tried.status.success());
+        assert_eq!(resolved(at.clone()).await, SessionVerdict::TargetMissing);
+        merge_main_into_ticket(&root);
         fs::write(root.join("a.txt"), "both\n").unwrap();
         git_sync(&root, &["add", "-A"]);
         // the merge is still under way: not resolved yet
-        assert!(!resolved(at.clone()).await);
+        assert_eq!(resolved(at.clone()).await, SessionVerdict::TargetMissing);
         git_sync(&root, &["commit", "-q", "--no-edit"]);
-        assert!(resolved(at.clone()).await);
+        assert_eq!(resolved(at.clone()).await, SessionVerdict::Resolved);
         fs::write(root.join("left.tmp"), "x\n").unwrap();
-        assert!(!resolved(at.clone()).await);
-        assert!(!resolved(format!("{at}/gone")).await);
-        let invalid = LocalMergeGit
-            .session_resolved(&at, "--all", "ticket/x", &at)
-            .await;
-        assert_eq!(invalid.unwrap_err().code(), "merge-commit-invalid");
+        assert_eq!(resolved(at.clone()).await, SessionVerdict::Unclean);
+        assert_eq!(
+            resolved(format!("{at}/gone")).await,
+            SessionVerdict::Unclean
+        );
     }
 
+    #[tokio::test]
+    async fn a_session_with_a_commit_that_is_no_id_gets_a_typed_verdict() {
+        let (_dir, root) = repository();
+        let at = slashed(&root);
+        let bad = verdict(&root, "--all", None, &at).await;
+        assert_eq!(bad, SessionVerdict::BadCommit(String::from("--all")));
+        let target = git_sync(&root, &["rev-parse", "refs/heads/main"]);
+        let bad = verdict(&root, &target, Some("zz"), &at).await;
+        assert_eq!(bad, SessionVerdict::BadCommit(String::from("zz")));
+    }
+
+    #[tokio::test]
+    async fn a_session_that_drops_the_work_of_the_ticket_is_not_resolved() {
+        let (_dir, root) = repository();
+        conflicting(&root);
+        let at = slashed(&root);
+        let target = git_sync(&root, &["rev-parse", "refs/heads/main"]);
+        let before = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
+        // the branch is reset to the target: the target is in it, the work is not
+        git_sync(&root, &["checkout", "-q", "-B", "ticket/x", "main"]);
+        let found = verdict(&root, &target, Some(&before), &at).await;
+        assert_eq!(found, SessionVerdict::WorkLost);
+        // without the tip from before, an older job cannot tell
+        let found = verdict(&root, &target, None, &at).await;
+        assert_eq!(found, SessionVerdict::Resolved);
+    }
+
+    #[tokio::test]
+    async fn a_session_that_commits_conflict_markers_is_not_resolved_but_whitespace_is_fine() {
+        let (_dir, root) = repository();
+        conflicting(&root);
+        let at = slashed(&root);
+        let target = git_sync(&root, &["rev-parse", "refs/heads/main"]);
+        let before = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
+        merge_main_into_ticket(&root);
+        fs::write(root.join("a.txt"), "trailing  \n\tindent\n").unwrap();
+        git_sync(&root, &["add", "-A"]);
+        git_sync(&root, &["commit", "-q", "--no-edit"]);
+        let found = verdict(&root, &target, Some(&before), &at).await;
+        assert_eq!(found, SessionVerdict::Resolved);
+        let markers = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> main\n";
+        commit(&root, "a.txt", markers, "left the markers");
+        commit(&root, "b.txt", markers, "left them here too");
+        let found = verdict(&root, &target, Some(&before), &at).await;
+        assert_eq!(
+            found,
+            SessionVerdict::Markers(vec![String::from("a.txt"), String::from("b.txt")])
+        );
+    }
+
+    #[tokio::test]
+    async fn the_markers_found_are_named_for_a_bounded_number_of_files() {
+        let (_dir, root) = repository();
+        let at = slashed(&root);
+        let target = git_sync(&root, &["rev-parse", "refs/heads/main"]);
+        let before = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
+        git_sync(&root, &["checkout", "-q", "ticket/x"]);
+        git_sync(&root, &["merge", "-q", "--no-edit", "main"]);
+        let markers = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> main\n";
+        for number in 0..=MARKER_FILES_MAX {
+            fs::write(root.join(format!("m{number}.txt")), markers).unwrap();
+        }
+        git_sync(&root, &["add", "-A"]);
+        git_sync(&root, &["commit", "-q", "-m", "markers"]);
+        let found = verdict(&root, &target, Some(&before), &at).await;
+        let SessionVerdict::Markers(files) = found else {
+            panic!("{found:?}");
+        };
+        assert_eq!(files.len(), MARKER_FILES_MAX);
+    }
     #[tokio::test]
     async fn a_merge_that_someone_else_started_holds_the_merge_and_is_left_alone() {
         let (_dir, root) = repository();

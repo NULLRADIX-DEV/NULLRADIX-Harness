@@ -13,7 +13,7 @@ use super::{Branch, MergeAll};
 use crate::dispatch::accounts::Chosen;
 use crate::dispatch::accounts::{AccountPick, AccountRequest, PickMode};
 use crate::dispatch::log::LogLevel;
-use crate::dispatch::merge_git::TargetTip;
+use crate::dispatch::merge_git::{SessionCheck, SessionVerdict, TargetTip};
 use crate::dispatch::merge_jobs::merge_session_open;
 use crate::dispatch::pass::{PassContext, idle_message};
 use crate::dispatch::runs::StartDispatchRun;
@@ -194,6 +194,12 @@ impl MergeAll {
             .ok_or_else(|| {
                 AppError::invalid("merge-target-missing", "the target branch has no commit")
             })?;
+        let branch_tip = self
+            .parts
+            .git
+            .branch_tip(root, &branch.name)
+            .await?
+            .ok_or_else(|| AppError::invalid("merge-branch-missing", "the branch has no commit"))?;
         let sessions = job.record().conflict_sessions + 1;
         let autopilot = config.autopilot_applies(&first.labels);
         let max = merge_session_limit(config);
@@ -234,7 +240,9 @@ impl MergeAll {
             })
             .await?;
         let version = job.record().version;
-        let started = job.clone().session_started(sessions, &tip.tip, files);
+        let started = job
+            .clone()
+            .session_started(sessions, &tip.tip, &branch_tip, files);
         if let Err(error) = self.save(started, version).await {
             // the job does not know the run: it must not run on its own
             if let Err(stop) = self.parts.runs.cancel(run.id()).await {
@@ -422,34 +430,61 @@ impl MergeAll {
             .await?;
         let record = job.record();
         let target = record.target_branch.clone();
-        let stored = record.target_head.clone();
+        let stored = record.session_target().map(str::to_owned);
+        let before = record.session_branch_tip().map(str::to_owned);
         let version = record.version;
         let cwd = run
             .dispatch()
             .map_or_else(String::new, |dispatch| dispatch.cwd.clone());
-        let (resolved, now) = match &root {
+        let (verdict, now) = match &root {
             Some(root) => {
                 let now: Option<TargetTip> =
                     self.parts.git.target_tip(root, target.as_deref()).await?;
                 let head = stored
                     .clone()
                     .or_else(|| now.as_ref().map(|found| found.tip.clone()));
-                let resolved = match head {
+                let verdict = match head {
                     Some(head) => {
-                        self.parts
-                            .git
-                            .session_resolved(root, &head, &branch.name, &cwd)
-                            .await?
+                        let check = SessionCheck {
+                            root,
+                            target_head: &head,
+                            branch_tip: before.as_deref(),
+                            branch: &branch.name,
+                            folder: &cwd,
+                        };
+                        self.parts.git.session_resolved(&check).await?
                     }
-                    None => false,
+                    None => SessionVerdict::TargetMissing,
                 };
-                (resolved, now)
+                (verdict, now)
             }
-            None => (false, None),
+            None => (SessionVerdict::TargetMissing, None),
         };
-        if !resolved {
-            let detail = ending(run);
-            let problem = format!("the merge session could not resolve the conflict ({detail}).");
+        if let SessionVerdict::BadCommit(id) = &verdict {
+            return Err(AppError::invalid(
+                "merge-commit-invalid",
+                format!("\"{id}\" is not a commit id"),
+            ));
+        }
+        if verdict != SessionVerdict::Resolved {
+            let ended = ending(run);
+            let (what, detail) = match &verdict {
+                SessionVerdict::WorkLost => {
+                    let what = String::from("dropped the work of the branch");
+                    let detail = format!("{what}, {ended}");
+                    (what, detail)
+                }
+                SessionVerdict::Markers(files) => {
+                    let what = format!("left conflict markers in {}", hold_files(files));
+                    let detail = format!("{what}, {ended}");
+                    (what, detail)
+                }
+                _ => (
+                    String::from("could not resolve the conflict"),
+                    ended.clone(),
+                ),
+            };
+            let problem = format!("the merge session {what} ({ended}).");
             return self
                 .session_failed(job, branch, context, &problem, &detail)
                 .await;

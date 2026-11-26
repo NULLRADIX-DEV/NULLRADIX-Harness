@@ -26,7 +26,8 @@ use nullradix_app::dispatch::detached::{
 };
 use nullradix_app::dispatch::local_time::{LocalTime, minute_with_offset};
 use nullradix_app::dispatch::merge_git::{
-    BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier, TargetTip,
+    BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest, MergedEarlier,
+    SessionCheck, SessionVerdict, TargetTip,
 };
 use nullradix_app::dispatch::pause::{NoPauseHook, PauseHook, PauseKind};
 use nullradix_app::dispatch::runs::{DispatchRuns, RunFilesPort};
@@ -507,7 +508,9 @@ struct ScriptedGit {
     /// Whether a merge session left the branch resolved.
     resolved: std::sync::atomic::AtomicBool,
     /// The commit and the folder each resolved check was asked about.
-    checked: Mutex<Vec<(String, String)>>,
+    checked: Mutex<Vec<(String, String, Option<String>)>>,
+    /// A verdict that replaces the resolved flag.
+    verdict: Mutex<Option<SessionVerdict>>,
 }
 
 #[async_trait]
@@ -552,18 +555,20 @@ impl MergeGit for ScriptedGit {
         }))
     }
 
-    async fn session_resolved(
-        &self,
-        _root: &str,
-        ancestor: &str,
-        _branch: &str,
-        folder: &str,
-    ) -> Result<bool, AppError> {
-        self.checked
-            .lock()
-            .unwrap()
-            .push((ancestor.to_owned(), folder.to_owned()));
-        Ok(self.resolved.load(Ordering::SeqCst))
+    async fn session_resolved(&self, check: &SessionCheck<'_>) -> Result<SessionVerdict, AppError> {
+        self.checked.lock().unwrap().push((
+            check.target_head.to_owned(),
+            check.folder.to_owned(),
+            check.branch_tip.map(str::to_owned),
+        ));
+        if let Some(verdict) = self.verdict.lock().unwrap().clone() {
+            return Ok(verdict);
+        }
+        Ok(if self.resolved.load(Ordering::SeqCst) {
+            SessionVerdict::Resolved
+        } else {
+            SessionVerdict::TargetMissing
+        })
     }
 
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
@@ -5980,7 +5985,8 @@ async fn a_conflict_starts_a_merge_session_in_the_worktree_and_the_job_waits_for
     assert_eq!(job.phase, nullradix_domain::MergePhase::ConflictSession);
     assert!(job.session_used && !job.conflict_seen);
     assert_eq!(job.conflict_sessions, 1);
-    assert_eq!(job.target_head.as_deref(), Some("head0001"));
+    assert_eq!(job.session_target(), Some("head0001"));
+    assert_eq!(job.session_branch_tip(), Some("tip0001"));
     assert_eq!(job.problem.as_deref(), Some("merge conflict in a.rs, b.rs"));
     // the ticket stays done with its branch; the conflict is told once, with the profile
     assert_eq!(record.status, TicketStatus::Done);
@@ -6014,7 +6020,12 @@ async fn a_resolved_session_lets_the_job_merge_again_in_the_same_pass() {
     assert_eq!(f.git.requests.lock().unwrap().len(), 2);
     // the target at the start of the session is the yardstick, in the folder it ran in
     let checked = f.git.checked.lock().unwrap().clone();
-    assert_eq!(checked, [(String::from("head0001"), worktree)]);
+    let wanted = (
+        String::from("head0001"),
+        worktree,
+        Some(String::from("tip0001")),
+    );
+    assert_eq!(checked, [wanted]);
     let job = f.job(&key).await;
     assert_eq!(job.phase, nullradix_domain::MergePhase::Merged);
     assert_eq!(f.record(&key).await.branch, None);
@@ -6270,7 +6281,7 @@ async fn a_target_that_moved_on_during_a_resolved_session_gives_a_new_conflict_a
     assert_eq!(f.sessions_of(&key).await, 2);
     let job = f.job(&key).await;
     assert_eq!(job.conflict_sessions, 1);
-    assert_eq!(job.target_head.as_deref(), Some("head0002"));
+    assert_eq!(job.session_target(), Some("head0002"));
     assert_eq!(f.record(&key).await.status, TicketStatus::Done);
 }
 
@@ -6331,6 +6342,59 @@ async fn a_session_whose_ticket_moved_on_is_not_evaluated() {
     assert_ne!(
         f.job(&key).await.phase,
         nullradix_domain::MergePhase::ConflictSession
+    );
+}
+
+impl Fixture {
+    /// A conflict whose session is running, ready to end.
+    async fn running_session(&self) -> String {
+        let key = self.finished_ticket().await;
+        self.conflict_in(&["a.rs"]);
+        self.dispatcher.pass.run().await;
+        key
+    }
+}
+
+#[tokio::test]
+async fn a_session_that_dropped_the_work_or_left_markers_is_a_failed_one() {
+    for (verdict, what) in [
+        (
+            nullradix_app::dispatch::merge_git::SessionVerdict::WorkLost,
+            "dropped the work of the branch",
+        ),
+        (
+            nullradix_app::dispatch::merge_git::SessionVerdict::Markers(vec![
+                String::from("a.rs"),
+                String::from("b.rs"),
+            ]),
+            "left conflict markers in a.rs, b.rs",
+        ),
+    ] {
+        let f = fixture().await;
+        let key = f.running_session().await;
+        let run = f.end_session(&key, 0).await;
+        *f.git.verdict.lock().unwrap() = Some(verdict);
+        f.dispatcher.pass.run().await;
+        let record = f.record(&key).await;
+        assert_eq!(record.status, TicketStatus::Blocked);
+        assert_eq!(
+            record.blocked_reason.unwrap(),
+            format!("Merge: the merge session {what} (exit code 0, run {run}).")
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_commit_that_is_no_id_ends_the_evaluation_with_a_code_of_the_app() {
+    let f = fixture().await;
+    let key = f.running_session().await;
+    f.end_session(&key, 0).await;
+    *f.git.verdict.lock().unwrap() =
+        Some(nullradix_app::dispatch::merge_git::SessionVerdict::BadCommit(String::from("zz")));
+    f.dispatcher.pass.run().await;
+    assert_eq!(
+        f.record(&key).await.blocked_reason.as_deref(),
+        Some("Merge: the merge session could not be evaluated: \"zz\" is not a commit id")
     );
 }
 
