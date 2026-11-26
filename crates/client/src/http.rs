@@ -56,8 +56,9 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(150);
 /// Tries of one GET when the connection is refused, reset or times out while connecting.
 const GET_ATTEMPTS: u32 = 4;
 const GET_PAUSE: Duration = Duration::from_millis(100);
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Whether the request never reached the daemon or was dropped before an answer.
+/// Whether the connection failed or dropped; only safe to repeat for reads.
 fn is_transient(error: &ureq::Error) -> bool {
     use std::io::ErrorKind;
     match error {
@@ -111,7 +112,8 @@ impl Client {
     }
 
     pub fn health(&self) -> Result<Health, ClientError> {
-        let mut response = self.get_retrying(&self.url("/health"), None)?;
+        // a daemon that accepts but never answers is reported soon, not after the long limit
+        let mut response = self.get_within(&self.url("/health"), None, Some(HEALTH_TIMEOUT))?;
         decode(&mut response, 200)
     }
 
@@ -1375,9 +1377,22 @@ impl Client {
 
     /// A GET changes nothing, so a refused or reset connection is tried again a few times.
     fn get_retrying(&self, url: &str, bearer: Option<&str>) -> Result<Response<Body>, ClientError> {
+        self.get_within(url, bearer, None)
+    }
+
+    /// A GET repeated on connection failures, with its own overall limit when given.
+    fn get_within(
+        &self,
+        url: &str,
+        bearer: Option<&str>,
+        limit: Option<Duration>,
+    ) -> Result<Response<Body>, ClientError> {
         let mut attempt = 1;
         loop {
             let mut request = self.agent.get(url);
+            if let Some(limit) = limit {
+                request = request.config().timeout_global(Some(limit)).build();
+            }
             if let Some(bearer) = bearer {
                 request = request.header("Authorization", bearer);
             }
