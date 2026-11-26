@@ -109,7 +109,7 @@ pub(crate) async fn listed(root: &Path, path: &str) -> Option<bool> {
 }
 
 /// Removes every symlink and junction below `root`, never their targets; returns the failures.
-fn remove_links(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn remove_links(root: &Path) -> Vec<PathBuf> {
     if is_link(root) {
         return vec![root.to_path_buf()];
     }

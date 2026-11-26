@@ -139,7 +139,7 @@ pub use questions::{
     AddQuestionComment, AnswerQuestion, CreateQuestion, DecideQuestion, DecisionDto, NewOption,
     OpenQuestionDto, OptionDto, QuestionCommentDto, QuestionCommentList, QuestionCounts,
     QuestionDetailDto, QuestionDto, QuestionList, QuestionStateDto, QuestionTicketDto, ResearchDto,
-    WaitingDto,
+    SubmitResearch, WaitingDto,
 };
 pub use repositories::{
     CheckoutDto, RepositoryDto, RepositoryList, RunnerDto, RunnerList, RunnerOsDto,
@@ -391,6 +391,8 @@ fn routes() -> OpenApiRouter<ApiState> {
             questions::create_question
         ))
         .routes(routes!(questions::get_question))
+        .routes(routes!(questions::submit_research))
+        .routes(routes!(dispatch_runs::start_research_run))
         .routes(routes!(questions::answer_question))
         .routes(routes!(questions::discard_question))
         .routes(routes!(questions::reopen_question))
@@ -925,6 +927,9 @@ pub(crate) mod tests {
                 pauses: store.clone(),
                 samples: store.clone(),
                 setup: Arc::new(nullradix_runner::LocalSetup),
+                detached: Arc::new(nullradix_runner::LocalDetached),
+                tracking: store.clone(),
+                questions: questions.clone(),
                 actors: store.clone(),
                 boards: store.clone(),
                 runners: runners.clone(),

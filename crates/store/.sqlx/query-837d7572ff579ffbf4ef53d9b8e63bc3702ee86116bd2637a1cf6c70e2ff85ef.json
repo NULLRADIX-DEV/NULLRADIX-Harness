@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM auto_run_tracking WHERE kind = ? AND subject_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "837d7572ff579ffbf4ef53d9b8e63bc3702ee86116bd2637a1cf6c70e2ff85ef"
+}

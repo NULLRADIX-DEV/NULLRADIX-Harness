@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.id AS \"id: Uuid\" FROM question_research r JOIN actors a ON a.id = r.actor_id\n               WHERE r.question_id = ? AND a.name = ? AND r.created_at >= ?\n               LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "question_research",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8ca1bd11986a74351e449209f1b639652190469e29f581825bd6244358635ea5"
+}

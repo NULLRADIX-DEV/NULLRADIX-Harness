@@ -10,24 +10,28 @@ use super::accounts::{
 };
 use super::candidates::Candidates;
 use super::control::{ControlParts, DispatcherService};
+use super::detached::DetachedWorktreePort;
 use super::evaluate::EvaluateRuns;
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, DispatcherLogRepository};
 use super::pass::{DispatchPass, PassPhase};
 use super::pauses::{DispatchPauses, PauseParts};
 use super::review_gate::ReviewGate;
+use super::research::{ResearchOrphans, ResearchParts, ResearchRuns, StartResearch};
 use super::runs::DispatchRuns;
 use super::setup::WorktreeSetupPort;
 use super::stale::ReleaseStale;
 use super::start::{StarterParts, TicketStarter};
 use super::start_ready::StartReady;
 use super::state::{DispatcherStateRepository, DispatcherStateService};
+use super::tracking::AutoRunRepository;
 use crate::accounts::AccountService;
 use crate::boards::{ActorRepository, BoardRepository};
 use crate::comments::CommentService;
 use crate::dispatcher_config::DispatcherConfigService;
 use crate::dispatcher_prompts::DispatcherPromptService;
 use crate::notifier::Notifier;
+use crate::questions::QuestionService;
 use crate::repositories::RunnerService;
 use crate::review::ReviewService;
 use crate::runs::RunService;
@@ -45,6 +49,9 @@ pub struct DispatcherDeps {
     pub pauses: Arc<dyn AccountPauseRepository>,
     pub samples: Arc<dyn UsageSampleRepository>,
     pub setup: Arc<dyn WorktreeSetupPort>,
+    pub detached: Arc<dyn DetachedWorktreePort>,
+    pub tracking: Arc<dyn AutoRunRepository>,
+    pub questions: Arc<QuestionService>,
     pub actors: Arc<dyn ActorRepository>,
     pub boards: Arc<dyn BoardRepository>,
     pub runners: Arc<RunnerService>,
@@ -72,6 +79,7 @@ pub struct Dispatcher {
     pub pauses: Arc<AccountPauses>,
     /// Settles finished runs; the pause hook of a later slice is set here.
     pub evaluate: Arc<EvaluateRuns>,
+    pub research: Arc<ResearchRuns>,
 }
 
 impl std::fmt::Debug for Dispatcher {
@@ -127,11 +135,11 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         tickets: deps.tickets.clone(),
         comments: deps.comments.clone(),
         worktrees: deps.worktrees,
-        runners: deps.runners,
+        runners: deps.runners.clone(),
         runs: deps.runs.clone(),
-        dispatch: deps.dispatch,
+        dispatch: deps.dispatch.clone(),
         accounts: accounts.clone(),
-        prompts: deps.prompts,
+        prompts: deps.prompts.clone(),
         setup: deps.setup,
         actors: deps.actors,
         log: log.clone(),
@@ -147,6 +155,26 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         deps.local_time.clone(),
         log.clone(),
     );
+    let research = ResearchRuns::new(ResearchParts {
+        questions: deps.questions,
+        tickets: deps.tickets.clone(),
+        comments: deps.comments.clone(),
+        boards: deps.boards.clone(),
+        runners: deps.runners.clone(),
+        runs: deps.runs.clone(),
+        dispatch: deps.dispatch.clone(),
+        prompts: deps.prompts.clone(),
+        detached: deps.detached,
+        tracking: deps.tracking,
+        accounts: accounts.clone(),
+        state: state.clone(),
+        config: deps.config.clone(),
+        pass: pass.clone(),
+        local: deps.local_time.clone(),
+        starter: starter.clone(),
+        log: log.clone(),
+        clock: deps.clock.clone(),
+    });
     let evaluate = Arc::new(
         EvaluateRuns::new(
             deps.tickets.clone(),
@@ -167,7 +195,8 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
                 starter.clone(),
             )
             .with_notifier(deps.notifier.clone()),
-        )),
+        ))
+        .with_research(research.clone()),
     );
     evaluate.set_pause_hook(Arc::new(DispatchPauses::new(PauseParts {
         tickets: deps.tickets.clone(),
@@ -185,6 +214,10 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
     })));
     pass.set_step(PassPhase::Evaluate, evaluate.clone());
     pass.set_step(
+        PassPhase::ResearchOrphans,
+        Arc::new(ResearchOrphans(research.clone())),
+    );
+    pass.set_step(
         PassPhase::ReleaseStale,
         Arc::new(ReleaseStale::new(
             deps.tickets,
@@ -201,7 +234,12 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
             deps.runs.clone(),
         )),
     );
+    pass.set_step(
+        PassPhase::StartResearch,
+        Arc::new(StartResearch(research.clone())),
+    );
     let service = Arc::new(DispatcherService::new(ControlParts {
+        research: research.clone(),
         config: deps.config,
         state,
         pass: pass.clone(),
@@ -221,5 +259,6 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         accounts,
         pauses,
         evaluate,
+        research,
     }
 }

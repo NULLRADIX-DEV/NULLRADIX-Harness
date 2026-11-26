@@ -762,4 +762,29 @@ impl QuestionRepository for Store {
         let mut read = self.reader.acquire().await.map_err(database)?;
         Ok(question_id(&mut read, key).await?.is_some())
     }
+
+    async fn researched_by(
+        &self,
+        key: &QuestionKey,
+        agent: &str,
+        since: Timestamp,
+    ) -> Result<bool, AppError> {
+        let mut read = self.reader.acquire().await.map_err(database)?;
+        let Some(question) = question_id(&mut read, key).await? else {
+            return Ok(false);
+        };
+        let since = since.as_millis();
+        let found = sqlx::query_scalar!(
+            r#"SELECT r.id AS "id: Uuid" FROM question_research r JOIN actors a ON a.id = r.actor_id
+               WHERE r.question_id = ? AND a.name = ? AND r.created_at >= ?
+               LIMIT 1"#,
+            question,
+            agent,
+            since,
+        )
+        .fetch_optional(&mut *read)
+        .await
+        .map_err(database)?;
+        Ok(found.is_some())
+    }
 }

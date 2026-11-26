@@ -5,8 +5,8 @@ use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
 use nullradix_app::comments::Author;
 use nullradix_app::questions::{
-    Answer, DependencyState, NewQuestion, OpenQuestion, QuestionComment, QuestionDetail,
-    QuestionFilter, QuestionView,
+    Answer, DependencyState, NewQuestion, NewResearch, OpenQuestion, QuestionComment,
+    QuestionDetail, QuestionFilter, QuestionView,
 };
 use nullradix_domain::{Choice, Id, OptionDraft, QuestionOption, QuestionState, Research};
 use serde::{Deserialize, Serialize};
@@ -369,6 +369,24 @@ pub struct DecideQuestion {
     pub session: Option<String>,
 }
 
+/// A round of context and options for a question; options count on after the earlier rounds.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SubmitResearch {
+    /// Markdown with what the code does today and the recommendation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+    /// Up to five options; at most one recommended.
+    #[serde(default)]
+    pub options: Vec<NewOption>,
+    /// Name to write under, such as `research-ARC-Q0007`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
 /// A new comment on a question; leading and trailing whitespace is dropped.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -543,6 +561,60 @@ pub(crate) async fn get_question(
     ApiPath(path): ApiPath<QuestionPath>,
 ) -> Result<Json<QuestionDetailDto>, ApiError> {
     Ok(Json(state.questions.get(&path.question_key).await?.into()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/questions/{questionKey}/research",
+    tag = "questions",
+    params(QuestionPath),
+    request_body = SubmitResearch,
+    responses(
+        (status = 201, body = QuestionDetailDto,
+            headers(("Location" = String, description = "URL of the question"))),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, body = Problem),
+        (status = 422, description = "Neither context nor options, or too many, too long or several recommended", body = Problem),
+    )
+)]
+pub(crate) async fn submit_research(
+    State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    ApiPath(path): ApiPath<QuestionPath>,
+    ApiJson(input): ApiJson<SubmitResearch>,
+) -> Result<(StatusCode, HeaderMap, Json<QuestionDetailDto>), ApiError> {
+    let research = NewResearch {
+        context: input.context,
+        options: input
+            .options
+            .into_iter()
+            .map(|option| OptionDraft {
+                title: option.title,
+                text: option.text,
+                pros: option.pros,
+                cons: option.cons,
+                recommended: option.recommended,
+            })
+            .collect(),
+    };
+    let author = author(
+        &principal,
+        input.author.as_deref(),
+        input.session.as_deref(),
+    );
+    let detail = QuestionDetailDto::from(
+        state
+            .questions
+            .add_research(&path.question_key, &research, author, &state.person)
+            .await?,
+    );
+    let mut headers = HeaderMap::new();
+    let location = format!("{API_PREFIX}/questions/{}", detail.question.key);
+    if let Ok(value) = HeaderValue::from_str(&location) {
+        headers.insert(header::LOCATION, value);
+    }
+    Ok((StatusCode::CREATED, headers, Json(detail)))
 }
 
 #[utoipa::path(
@@ -911,6 +983,146 @@ mod tests {
         assert_eq!(
             (status, problem["code"].as_str()),
             (422, Some("question-state-invalid"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_research_adds_a_round_whose_options_count_on() {
+        let (api, questions) = with_ticket().await;
+        let asked =
+            json!({ "title": "Which store?", "options": [{ "title": "File", "text": "A file" }] });
+        assert_eq!(call(&api, "POST", &questions, Some(asked)).await.0, 201);
+        let research = json!({
+            "context": " Today it is a file. ",
+            "options": [
+                { "title": "Db", "text": "SQLite", "pros": ["safe"], "recommended": true },
+                { "title": "Cloud", "text": "Hosted" },
+            ],
+            "author": "research-ARC-Q0001",
+            "session": "s-9",
+        });
+        let (status, detail) = call(
+            &api,
+            "POST",
+            "/api/v1/questions/arc-q1/research",
+            Some(research),
+        )
+        .await;
+        assert_eq!(status, 201);
+        assert_eq!(detail["research"].as_array().unwrap().len(), 2);
+        assert_eq!(detail["research"][1]["context"], "Today it is a file.");
+        assert_eq!(detail["research"][1]["options"][0]["key"], "O2");
+        assert_eq!(detail["research"][1]["options"][0]["recommended"], true);
+        assert_eq!(detail["research"][1]["options"][1]["key"], "O3");
+        assert_eq!(detail["question"]["researched"], true);
+        // a context alone is a research too
+        let (status, detail) = call(
+            &api,
+            "POST",
+            "/api/v1/questions/ARC-Q1/research",
+            Some(json!({ "context": "More." })),
+        )
+        .await;
+        assert_eq!(status, 201);
+        assert_eq!(
+            detail["research"][2]["options"].as_array().unwrap().len(),
+            0
+        );
+        // the refusals
+        let refuse = |body: Value| {
+            call(
+                &api,
+                "POST",
+                "/api/v1/questions/ARC-Q1/research",
+                Some(body),
+            )
+        };
+        let (status, problem) = refuse(json!({})).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (422, Some("research-invalid"))
+        );
+        let two = json!([
+            { "title": "A", "text": "x", "recommended": true },
+            { "title": "B", "text": "y", "recommended": true },
+        ]);
+        let (_, problem) = refuse(json!({ "options": two })).await;
+        assert_eq!(problem["code"], "research-recommended-multiple");
+        let six: Vec<Value> = (0..6)
+            .map(|n| json!({ "title": n.to_string(), "text": "t" }))
+            .collect();
+        assert_eq!(
+            refuse(json!({ "options": six })).await.1["code"],
+            "research-invalid"
+        );
+        let blank = json!([{ "title": "A", "text": " " }]);
+        assert_eq!(
+            refuse(json!({ "options": blank })).await.1["code"],
+            "research-invalid"
+        );
+        let long_text = json!([{ "title": "A", "text": "x".repeat(4001) }]);
+        assert_eq!(
+            refuse(json!({ "options": long_text })).await.1["code"],
+            "value-too-long"
+        );
+        let exact = json!([{ "title": "A", "text": "x".repeat(4000) }]);
+        assert_eq!(refuse(json!({ "options": exact })).await.0, 201);
+        let long_context = json!({ "context": "c".repeat(20_001) });
+        assert_eq!(refuse(long_context).await.1["code"], "value-too-long");
+        let (status, problem) = call(
+            &api,
+            "POST",
+            "/api/v1/questions/ARC-Q9/research",
+            Some(json!({ "context": "x" })),
+        )
+        .await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (404, Some("question-not-found"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_research_run_needs_a_known_question_with_a_board_that_has_a_repository() {
+        let (api, questions) = with_ticket().await;
+        let (status, problem) = call(
+            &api,
+            "POST",
+            "/api/v1/questions/ARC-Q9/research-runs",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (404, Some("question-not-found"))
+        );
+        let (status, problem) = call(
+            &api,
+            "POST",
+            "/api/v1/questions/arc-0001/research-runs",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (422, Some("question-id-invalid"))
+        );
+        assert_eq!(
+            call(&api, "POST", &questions, Some(json!({ "title": "Which?" })))
+                .await
+                .0,
+            201
+        );
+        let (status, problem) = call(
+            &api,
+            "POST",
+            "/api/v1/questions/ARC-Q1/research-runs",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (422, Some("board-repo-missing"))
         );
     }
 }

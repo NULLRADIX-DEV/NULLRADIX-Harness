@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO auto_run_tracking (kind, subject_id, count) VALUES (?, ?, 1)\n             ON CONFLICT (kind, subject_id) DO UPDATE SET count = count + 1\n             RETURNING count",
+  "describe": {
+    "columns": [
+      {
+        "name": "count",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "auto_run_tracking",
+            "name": "count"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "66fc5594ff7ccbd9e638ac2306dac180e2ff68b10fb39c953cb91d68430656fd"
+}

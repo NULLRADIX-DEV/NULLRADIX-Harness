@@ -1,3 +1,5 @@
+use crate::ActorKind;
+
 use super::values::{
     AccountStrategy, AutopilotSettings, ClaudeSettings, DEFAULT_ALLOWED_TOOLS, JoinWorktrees,
     MergeStrategy, PlanningSettings, Profile, PromptTemplates, ResearchSettings, Rule,
@@ -213,6 +215,16 @@ impl DispatcherConfig {
         format!("{}{ticket_key}", self.agent_prefix)
     }
 
+    /// Whether an agent of the dispatcher asked: not a person, and named as a work or plan agent.
+    #[must_use]
+    pub fn asked_by_dispatch_agent(&self, kind: ActorKind, name: &str) -> bool {
+        if kind == ActorKind::Human {
+            return false;
+        }
+        let work = !self.agent_prefix.is_empty() && name.starts_with(&self.agent_prefix);
+        work || name.starts_with(PLAN_AGENT_PREFIX)
+    }
+
     /// Whether autopilot applies to a ticket with these labels.
     #[must_use]
     pub fn autopilot_applies(&self, labels: &[String]) -> bool {
@@ -245,6 +257,27 @@ mod tests {
         assert!(!config.autopilot_applies(&labels(&["docs", " Interactive "])));
         config.autopilot.except_label = None;
         assert!(config.autopilot_applies(&labels(&["interactive"])));
+    }
+
+    #[test]
+    fn only_agents_of_the_dispatcher_count_as_its_askers() {
+        let mut config = DispatcherConfig::default();
+        for name in ["worker-ARC-1", "planner-ARC-1"] {
+            assert!(
+                config.asked_by_dispatch_agent(ActorKind::Session, name),
+                "{name}"
+            );
+        }
+        assert!(!config.asked_by_dispatch_agent(ActorKind::Human, "worker-ARC-1"));
+        for name in ["claude", "research-ARC-Q1", "workerARC-1"] {
+            assert!(
+                !config.asked_by_dispatch_agent(ActorKind::Session, name),
+                "{name}"
+            );
+        }
+        config.agent_prefix = String::new();
+        assert!(!config.asked_by_dispatch_agent(ActorKind::Session, "claude"));
+        assert!(config.asked_by_dispatch_agent(ActorKind::Session, "planner-ARC-1"));
     }
 
     #[test]

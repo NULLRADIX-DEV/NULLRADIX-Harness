@@ -648,6 +648,41 @@ pub(crate) async fn start_dispatch_run(
     Ok((StatusCode::CREATED, headers, Json(run)))
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Path, rename_all = "camelCase")]
+pub(crate) struct ResearchRunPath {
+    /// Question key such as `ARC-Q0007`; case and padding do not matter.
+    question_key: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/questions/{questionKey}/research-runs",
+    tag = "questions",
+    params(ResearchRunPath),
+    responses(
+        (status = 202, description = "The research runs; progress arrives as events", body = RunDto,
+            headers(("Location" = String, description = "URL of the run"))),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 409, description = "Researching already, or the dispatcher is paused or has no account free", body = Problem),
+        (status = 422, description = "The question is not open or has no board with a repository", body = Problem),
+        (status = 503, description = "The runner could not start it", body = Problem),
+    )
+)]
+pub(crate) async fn start_research_run(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<ResearchRunPath>,
+) -> Result<(StatusCode, HeaderMap, Json<RunDto>), ApiError> {
+    let run = RunDto::from(state.dispatcher.start_research(&path.question_key).await?);
+    let mut headers = HeaderMap::new();
+    if let Ok(location) = HeaderValue::from_str(&format!("{API_PREFIX}/runs/{}", run.id)) {
+        headers.insert(header::LOCATION, location);
+    }
+    Ok((StatusCode::ACCEPTED, headers, Json(run)))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::Body;

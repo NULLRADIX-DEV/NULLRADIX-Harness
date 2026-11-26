@@ -273,6 +273,21 @@ impl DispatcherPromptService {
             .map_err(AppError::internal)
     }
 
+    /// The instruction of a research run on a question.
+    pub async fn research_prompt(&self, key: &str) -> Result<String, AppError> {
+        let config = self.config.get().await?.config;
+        let detail = self.questions.get(key).await?;
+        let record = detail.view.row.question.record();
+        let key = record.key.to_string();
+        let run = PromptRun::Research(ResearchRun {
+            agent: format!("{}{key}", nullradix_domain::RESEARCH_AGENT_PREFIX),
+            title: record.title.as_str().to_owned(),
+            question: key,
+        });
+        render_prompt(&run, &config, config.prompts.get(PromptKind::Research))
+            .map_err(AppError::internal)
+    }
+
     async fn run_for(
         &self,
         kind: PromptKind,

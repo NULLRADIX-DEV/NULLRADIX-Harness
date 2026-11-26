@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT subject_id AS \"subject_id: Uuid\", count, last_started_at, auto_at\n               FROM auto_run_tracking WHERE kind = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "subject_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "auto_run_tracking",
+            "name": "subject_id"
+          }
+        }
+      },
+      {
+        "name": "count",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "auto_run_tracking",
+            "name": "count"
+          }
+        }
+      },
+      {
+        "name": "last_started_at",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "auto_run_tracking",
+            "name": "last_started_at"
+          }
+        }
+      },
+      {
+        "name": "auto_at",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "auto_run_tracking",
+            "name": "auto_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "dcf7e2fa91d2438d932b7c9a30490d44c671b22625c220f4c5360d34dfdf0104"
+}

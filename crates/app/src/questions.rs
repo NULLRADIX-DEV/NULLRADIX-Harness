@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use nullradix_domain::{
     Actor, ActorKind, AnswerInput, Comment, CommentBody, CommentOn, DecisionError, HistoryEntry,
     Id, OptionDraft, Project, Question, QuestionDraft, QuestionError, QuestionKey, QuestionOption,
-    QuestionRef, QuestionState, QuestionTitle, Research, ResearchError, RuleError, Ticket,
-    TicketKey, TicketStatus, Timestamp, Version, describe, normalize_labels, number_options,
-    occasion, reopen_note, session, ticket_note,
+    QuestionRef, QuestionState, QuestionTitle, Research, ResearchError, RuleError, Run,
+    SystemMarker, Ticket, TicketKey, TicketStatus, Timestamp, Version, describe, normalize_labels,
+    number_options, occasion, reopen_note, research_context, session, ticket_note,
 };
 
 use crate::authors::{self, Author};
@@ -185,6 +185,20 @@ pub trait QuestionRepository: Send + Sync {
     async fn list(&self, project: Id<Project>) -> Result<Option<Vec<QuestionRow>>, AppError>;
     async fn get(&self, key: &QuestionKey) -> Result<Option<QuestionRead>, AppError>;
     async fn exists(&self, key: &QuestionKey) -> Result<bool, AppError>;
+    /// Whether a round was written at or after `since` by an actor with this name.
+    async fn researched_by(
+        &self,
+        key: &QuestionKey,
+        agent: &str,
+        since: Timestamp,
+    ) -> Result<bool, AppError>;
+}
+
+/// A research round as typed: a context, options or both.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NewResearch {
+    pub context: Option<String>,
+    pub options: Vec<OptionDraft>,
 }
 
 /// Input of a new question; blank entries of the lists are skipped.
@@ -318,9 +332,15 @@ pub fn invalid(error: &QuestionError) -> AppError {
 
 fn research_invalid(error: ResearchError) -> AppError {
     let code = match error {
-        ResearchError::TooManyOptions | ResearchError::OptionIncomplete => "research-invalid",
+        ResearchError::TooManyOptions
+        | ResearchError::OptionIncomplete
+        | ResearchError::TooManyPoints
+        | ResearchError::Empty => "research-invalid",
         ResearchError::RecommendedMultiple => "research-recommended-multiple",
-        ResearchError::OptionTitleTooLong => "value-too-long",
+        ResearchError::OptionTitleTooLong
+        | ResearchError::OptionTextTooLong
+        | ResearchError::PointTooLong
+        | ResearchError::ContextTooLong => "value-too-long",
     };
     AppError::invalid(code, error.to_string())
 }
@@ -546,6 +566,88 @@ impl QuestionService {
             research: read.research,
             comments: read.comments,
         })
+    }
+
+    /// Appends a round of options and context; the numbers go on after the earlier rounds.
+    pub async fn add_research(
+        &self,
+        key: &str,
+        input: &NewResearch,
+        author: Author<'_>,
+        person: &Actor,
+    ) -> Result<QuestionDetail, AppError> {
+        let key = QuestionKey::parse(key).map_err(|error| invalid(&error))?;
+        let context = research_context(input.context.as_deref()).map_err(research_invalid)?;
+        if context.is_empty() && input.options.is_empty() {
+            return Err(research_invalid(ResearchError::Empty));
+        }
+        if !self.questions.exists(&key).await? {
+            return Err(not_found(&key));
+        }
+        let actor = self.author(author, person).await?;
+        let mut write = self.tickets.begin().await?;
+        let before = load(write.as_mut(), &key, None).await?;
+        let earlier = write.research(before.id()).await?;
+        let options = number_options(&input.options, &earlier).map_err(research_invalid)?;
+        let now = self.clock.now();
+        let research = Research {
+            id: self.ids.next(),
+            question: before.id(),
+            actor: actor.id(),
+            context,
+            options,
+            created_at: now,
+        };
+        write.insert_research(&research).await?;
+        let change = write
+            .update_question(&before.touched(now), before.record().version)
+            .await?;
+        write.commit().await?;
+        self.signal.notify(&change);
+        self.read(&key).await
+    }
+
+    /// A comment of the dispatcher that marks what a run did; its version bump is as a comment's.
+    pub async fn comment_system(
+        &self,
+        key: &str,
+        body: &str,
+        marker: SystemMarker,
+        run: Option<Id<Run>>,
+        dispatcher: &Actor,
+    ) -> Result<(), AppError> {
+        let key = QuestionKey::parse(key).map_err(|error| invalid(&error))?;
+        let body = CommentBody::parse(body).map_err(|error| comments::invalid(&error))?;
+        let mut write = self.tickets.begin().await?;
+        let before = load(write.as_mut(), &key, None).await?;
+        let now = self.clock.now();
+        let comment = Comment::system(
+            self.ids.next(),
+            CommentOn::Question(before.id()),
+            dispatcher.id(),
+            body,
+            Some(marker),
+            run,
+            now,
+        );
+        write
+            .update_question(&before.touched(now), before.record().version)
+            .await?;
+        let change = write.insert_comment(&comment).await?;
+        write.commit().await?;
+        self.signal.notify(&change);
+        Ok(())
+    }
+
+    /// Whether `agent` wrote a round at or after `since`.
+    pub async fn researched_by(
+        &self,
+        key: &str,
+        agent: &str,
+        since: Timestamp,
+    ) -> Result<bool, AppError> {
+        let key = QuestionKey::parse(key).map_err(|error| invalid(&error))?;
+        self.questions.researched_by(&key, agent, since).await
     }
 
     /// Appends a comment; the question gets a new version, as in legacy.

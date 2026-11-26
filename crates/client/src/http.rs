@@ -17,10 +17,10 @@ use nullradix_api::{
     QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket, RenameBoard,
     RenameProject, RepositoryList, RunDto, RunList, RunOutput, RunnerList, SaveThemeSettings,
     SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository,
-    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, ThemeDto,
-    ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto,
-    UpdateAccount, UpdateCustomization, UpdateDispatcher, UpdateDispatcherConfig, UpdateTicket,
-    WritePlan,
+    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, SubmitResearch,
+    ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList,
+    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
+    UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -1014,6 +1014,24 @@ impl Client {
         decode(&mut response, 200)
     }
 
+    /// Appends a round of context and options to the question.
+    pub fn submit_research(
+        &self,
+        key: &str,
+        input: &SubmitResearch,
+    ) -> Result<QuestionDetailDto, ClientError> {
+        self.post_json(&format!("/questions/{key}/research"), input, 201)
+    }
+
+    /// Starts a research run on an open question; the run goes on without the caller.
+    pub fn start_research_run(&self, key: &str) -> Result<RunDto, ClientError> {
+        self.post_json(
+            &format!("/questions/{key}/research-runs"),
+            &serde_json::json!({}),
+            202,
+        )
+    }
+
     pub fn add_question_comment(
         &self,
         key: &str,
@@ -1689,6 +1707,9 @@ mod tests {
                 pauses: store.clone(),
                 samples: store.clone(),
                 setup: Arc::new(nullradix_runner::LocalSetup),
+                detached: Arc::new(nullradix_runner::LocalDetached),
+                tracking: store.clone(),
+                questions: questions.clone(),
                 actors: store.clone(),
                 boards: store.clone(),
                 runners: runners.clone(),

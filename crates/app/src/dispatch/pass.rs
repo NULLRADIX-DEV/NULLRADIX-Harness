@@ -28,20 +28,23 @@ pub enum PassPhase {
     MergeCatchUp,
     /// Process the merge jobs of every branch (merging).
     MergeAll,
-    /// Start ready tickets up to the limit; planning and research follow here later.
+    /// Start ready tickets up to the limit; planning follows here later.
     StartReady,
+    /// Start research on open questions: autopilot ones first, then the automation.
+    StartResearch,
     /// Write down what evaluated or failed runs left for the dashboard (run recorder).
     RecorderFlush,
 }
 
 impl PassPhase {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Evaluate,
         Self::ResearchOrphans,
         Self::ReleaseStale,
         Self::MergeCatchUp,
         Self::MergeAll,
         Self::StartReady,
+        Self::StartResearch,
         Self::RecorderFlush,
     ];
 
@@ -54,6 +57,7 @@ impl PassPhase {
             Self::MergeCatchUp => "merge-catch-up",
             Self::MergeAll => "merge-all",
             Self::StartReady => "start-ready",
+            Self::StartResearch => "start-research",
             Self::RecorderFlush => "recorder-flush",
         }
     }
@@ -75,6 +79,9 @@ pub struct PassReport {
     #[serde(default)]
     pub waiting: Option<String>,
     pub started: Vec<String>,
+    /// Questions whose research started.
+    #[serde(default)]
+    pub research: Vec<String>,
     /// Ready tickets that wait for a free place.
     pub queued: Vec<String>,
     pub released: Vec<String>,
@@ -93,7 +100,10 @@ impl PassReport {
     /// A pass that did something or failed is kept in the database; an idle one is not.
     #[must_use]
     pub fn worth_keeping(&self) -> bool {
-        !(self.started.is_empty() && self.released.is_empty() && self.errors.is_empty())
+        !(self.started.is_empty()
+            && self.research.is_empty()
+            && self.released.is_empty()
+            && self.errors.is_empty())
     }
 
     #[must_use]

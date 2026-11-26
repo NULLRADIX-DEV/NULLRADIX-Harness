@@ -44,7 +44,7 @@ use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_domain::{Actor, ConfigDir, Reach, Timestamp};
 use nullradix_runner::{
     CurlCatalogFetcher, CurlTokenEndpoint, CurlUsageApi, LocalAccountFolders, LocalClaudeLogins,
-    LocalLoginRenewal, LocalLoginRunner, LocalRunner, LocalSetup, SupervisorCommand,
+    LocalDetached, LocalLoginRenewal, LocalLoginRunner, LocalRunner, LocalSetup, SupervisorCommand,
     TranscriptRoots,
 };
 use nullradix_store::Store;
@@ -322,6 +322,9 @@ fn start_dispatcher(
         pauses: Arc::new(store.clone()),
         samples: Arc::new(store.clone()),
         setup: Arc::new(LocalSetup),
+        detached: Arc::new(LocalDetached),
+        tracking: Arc::new(store.clone()),
+        questions: parts.board.questions.clone(),
         actors: Arc::new(store.clone()),
         boards: Arc::new(store.clone()),
         runners: parts.runners,

@@ -853,6 +853,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/questions/{questionKey}/research": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submit_research"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/questions/{questionKey}/research-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_research_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repositories": {
         parameters: {
             query?: never;
@@ -2743,6 +2775,8 @@ export interface components {
             /** @description Ready tickets that wait for a free place. */
             queued: string[];
             released: string[];
+            /** @description Questions whose research started. */
+            research?: string[];
             started: string[];
         };
         PauseDispatcher: {
@@ -3623,6 +3657,17 @@ export interface components {
         };
         /** @enum {string} */
         SubagentStateDto: "running" | "ended";
+        /** @description A round of context and options for a question; options count on after the earlier rounds. */
+        SubmitResearch: {
+            /** @description Name to write under, such as `research-ARC-Q0007`; the acting person when left out. */
+            author?: string | null;
+            /** @description Markdown with what the code does today and the recommendation. */
+            context?: string | null;
+            /** @description Up to five options; at most one recommended. */
+            options?: components["schemas"]["NewOption"][];
+            /** @description Agent session of the caller. */
+            session?: string | null;
+        };
         /** @enum {string} */
         SystemLevelDto: "info" | "warning" | "error";
         /**
@@ -7712,6 +7757,135 @@ export interface operations {
             };
             /** @description Open already, or no person */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    submit_research: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Question key such as `ARC-Q0007`; case and padding do not matter. */
+                questionKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitResearch"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the question */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionDetailDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Neither context nor options, or too many, too long or several recommended */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    start_research_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Question key such as `ARC-Q0007`; case and padding do not matter. */
+                questionKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The research runs; progress arrives as events */
+            202: {
+                headers: {
+                    /** @description URL of the run */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Researching already, or the dispatcher is paused or has no account free */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The question is not open or has no board with a repository */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The runner could not start it */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

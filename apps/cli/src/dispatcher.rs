@@ -161,6 +161,7 @@ fn describe_pass(report: &nullradix_api::PassReportDto) -> String {
     }
     for (title, keys) in [
         ("started", &report.started),
+        ("research started", &report.research),
         ("waiting for a place", &report.queued),
         ("given back", &report.released),
     ] {

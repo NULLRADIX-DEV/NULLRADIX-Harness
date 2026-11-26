@@ -19,6 +19,7 @@ mod open;
 mod plan;
 mod project;
 mod question;
+mod research;
 mod run;
 mod secrets;
 mod selection;
@@ -86,6 +87,9 @@ enum Command {
     /// Ask a person, answer and comment on questions
     #[command(subcommand)]
     Question(question::QuestionCommand),
+    /// Save the research of a question and start a research run
+    #[command(subcommand)]
+    Research(research::ResearchCommand),
     /// Check, add, edit, remove and move the work steps of a ticket
     #[command(subcommand)]
     Step(step::StepCommand),
@@ -198,6 +202,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Question(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             question::run(command, &client, &choice(profile, cli.home.as_deref())?)
+        }
+        Command::Research(command) => {
+            let client = connect::connect(profile, cli.home.as_deref())?;
+            research::run(command, &client)
         }
         Command::Step(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

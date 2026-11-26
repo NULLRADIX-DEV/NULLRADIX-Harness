@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT count, last_started_at, auto_at FROM auto_run_tracking\n             WHERE kind = ? AND subject_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "count",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "auto_run_tracking",
+            "name": "count"
+          }
+        }
+      },
+      {
+        "name": "last_started_at",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "auto_run_tracking",
+            "name": "last_started_at"
+          }
+        }
+      },
+      {
+        "name": "auto_at",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "auto_run_tracking",
+            "name": "auto_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "f7c1e5b1ec17c0b942ed85b4e62d5f80295a48c2eaccb896055748e4e63c1a7b"
+}

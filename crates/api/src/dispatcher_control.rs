@@ -42,6 +42,9 @@ pub struct PassReportDto {
     /// Why nothing new could start, in words.
     pub idle: Option<String>,
     pub started: Vec<String>,
+    /// Questions whose research started.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub research: Vec<String>,
     /// Ready tickets that wait for a free place.
     pub queued: Vec<String>,
     pub released: Vec<String>,
@@ -54,6 +57,7 @@ impl From<PassReport> for PassReportDto {
             at: report.at,
             idle: report.idle,
             started: report.started,
+            research: report.research,
             queued: report.queued,
             released: report.released,
             errors: report.errors,
