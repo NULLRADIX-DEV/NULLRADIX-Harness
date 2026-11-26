@@ -18,6 +18,7 @@ struct Folders {
     existing: Mutex<Vec<String>>,
     removed: Mutex<Vec<String>>,
     fail_remove: std::sync::atomic::AtomicBool,
+    fail_once: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -62,6 +63,12 @@ impl AccountFolders for Folders {
     }
 
     async fn remove(&self, dir: &ConfigDir) -> Result<(), AppError> {
+        if self
+            .fail_once
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(AppError::internal(std::io::Error::other("a new file")));
+        }
         if self.fail_remove.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(AppError::internal(std::io::Error::other(
                 "files are in use",
@@ -730,6 +737,20 @@ async fn a_folder_that_cannot_be_deleted_keeps_the_account() {
     f.folders
         .fail_remove
         .store(false, std::sync::atomic::Ordering::SeqCst);
+    f.accounts
+        .remove(max.id(), max.version(), true)
+        .await
+        .unwrap();
+    assert_eq!(*f.folders.removed.lock().unwrap(), ["/accounts/max"]);
+}
+
+#[tokio::test]
+async fn a_folder_that_gains_a_file_during_removal_goes_on_the_second_try() {
+    let f = fixture().await;
+    let max = f.add("Max").await;
+    f.folders
+        .fail_once
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     f.accounts
         .remove(max.id(), max.version(), true)
         .await

@@ -361,7 +361,10 @@ impl AccountService {
         }
         hook.removing(&current).await;
         // the folder goes first: if it cannot go, the account stays whole
-        if let Some(dir) = folder {
+        if let Some(dir) = folder
+            && self.folders.remove(dir).await.is_err()
+        {
+            // a login renewal may have written a file meanwhile: once more
             self.folders.remove(dir).await?;
         }
         let change = self

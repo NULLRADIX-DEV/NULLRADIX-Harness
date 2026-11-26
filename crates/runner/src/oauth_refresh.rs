@@ -25,6 +25,8 @@ const DEFAULT_SCOPES: &str =
     "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 const REQUEST_LIMIT: Duration = Duration::from_secs(10);
 
+type Writer = dyn Fn(&Path, &[u8]) -> std::io::Result<()> + Send + Sync;
+
 /// What the token endpoint answered; its body holds tokens and never shows in debug output.
 #[derive(Clone)]
 pub struct TokenReply {
@@ -103,6 +105,9 @@ pub struct LocalLoginRenewal {
     locks: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
     /// Per file, the SHA-256 of the refresh token the endpoint refused, so it is not asked again.
     refused: Mutex<HashMap<PathBuf, Vec<u8>>>,
+    /// Per file, a grant not yet written, with the SHA-256 of the refresh token it replaces.
+    pending: Mutex<HashMap<PathBuf, (Vec<u8>, Grant)>>,
+    write: Arc<Writer>,
 }
 
 impl std::fmt::Debug for LocalLoginRenewal {
@@ -125,6 +130,8 @@ impl LocalLoginRenewal {
             keychain: cfg!(target_os = "macos"),
             locks: Mutex::new(HashMap::new()),
             refused: Mutex::new(HashMap::new()),
+            pending: Mutex::new(HashMap::new()),
+            write: Arc::new(nullradix_os::write_private),
         }
     }
 
@@ -152,12 +159,20 @@ impl LocalLoginRenewal {
         if expires_at(oauth).is_some_and(|at| at > now) {
             return Renewal::Renewed;
         }
-        let Some(refresh_token) = text_of(oauth, "refreshToken") else {
+        let Some(refresh_token) = text_of(oauth, "refreshToken").map(str::to_owned) else {
             return Renewal::NeedsLogin;
         };
+        let refresh_token = refresh_token.as_str();
         let digest = digest_of(refresh_token);
         if self.refused.lock().get(file) == Some(&digest) {
             return Renewal::NeedsLogin;
+        }
+        let pending = {
+            let mut all = self.pending.lock();
+            all.remove(file).filter(|(old, _)| *old == digest)
+        };
+        if let Some((_, grant)) = pending {
+            return self.store(file, document, grant, refresh_token).await;
         }
         let reply = self
             .endpoint
@@ -183,18 +198,18 @@ impl LocalLoginRenewal {
             .body
             .as_ref()
             .filter(|_| reply.status == 200)
-            .and_then(|body| Grant::read(body, refresh_token))
+            .and_then(|body| Grant::read(body, refresh_token, now))
         else {
             tracing::debug!(status = reply.status, "the token endpoint refused to renew");
             return Renewal::Failed;
         };
         self.refused.lock().remove(file);
-        self.store(file, document, grant, now).await
+        self.store(file, document, grant, refresh_token).await
     }
 
     /// The old refresh token is used up, so the new one must reach the file: on its latest state.
-    async fn store(&self, file: &Path, read: Value, grant: Grant, now: i64) -> Renewal {
-        let expires = now.saturating_add(grant.expires_in.saturating_mul(1000));
+    async fn store(&self, file: &Path, read: Value, grant: Grant, sent: &str) -> Renewal {
+        let expires = grant.expires_at;
         let mut latest = match read_document(file).await {
             Document::Found(latest) => latest,
             _ => read,
@@ -205,6 +220,10 @@ impl LocalLoginRenewal {
         else {
             return Renewal::Failed;
         };
+        // another login replaced the refresh token we spent: it wins
+        if text_of(&Value::Object(fields.clone()), "refreshToken") != Some(sent) {
+            return Renewal::Renewed;
+        }
         // Claude Code renewed meanwhile and holds a later expiry: leave its login alone
         if fields
             .get("expiresAt")
@@ -216,20 +235,22 @@ impl LocalLoginRenewal {
         fields.insert("accessToken".into(), json!(grant.access_token));
         fields.insert("refreshToken".into(), json!(grant.refresh_token));
         fields.insert("expiresAt".into(), json!(expires));
-        if let Some(scopes) = grant.scopes {
+        if let Some(scopes) = &grant.scopes {
             fields.insert("scopes".into(), json!(scopes));
         }
         let Ok(text) = serde_json::to_string(&latest) else {
             return Renewal::Failed;
         };
         let target = file.to_path_buf();
-        let written = tokio::task::spawn_blocking(move || {
-            nullradix_os::write_private(&target, text.as_bytes())
-        })
-        .await;
+        let write = Arc::clone(&self.write);
+        let written = tokio::task::spawn_blocking(move || write(&target, text.as_bytes())).await;
         if matches!(written, Ok(Ok(()))) {
             Renewal::Renewed
         } else {
+            // the spent token is gone from the endpoint: keep the grant for the next try
+            self.pending
+                .lock()
+                .insert(file.to_path_buf(), (digest_of(sent), grant));
             tracing::warn!(file = %file.display(), "the renewed login could not be written");
             Renewal::Failed
         }
@@ -298,30 +319,32 @@ fn digest_of(token: &str) -> Vec<u8> {
 
 /// The endpoint says the refresh token is no good: it will not work on a retry either.
 fn refused(reply: &TokenReply) -> bool {
+    let error = reply
+        .body
+        .as_ref()
+        .and_then(|body| body.get("error"))
+        .and_then(Value::as_str);
     match reply.status {
-        401 | 403 => true,
-        400 => {
-            reply
-                .body
-                .as_ref()
-                .and_then(|body| body.get("error"))
-                .and_then(Value::as_str)
-                == Some("invalid_grant")
-        }
+        400 => error == Some("invalid_grant"),
+        401 | 403 => matches!(
+            error,
+            Some("invalid_grant" | "invalid_token" | "unauthorized_client")
+        ),
         _ => false,
     }
 }
 
+#[derive(Clone)]
 struct Grant {
     access_token: String,
     refresh_token: String,
-    expires_in: i64,
+    expires_at: i64,
     scopes: Option<Vec<String>>,
 }
 
 impl Grant {
     /// The renewed login of an answer; the refresh token stays when none comes back.
-    fn read(body: &Value, old_refresh: &str) -> Option<Self> {
+    fn read(body: &Value, old_refresh: &str, now: i64) -> Option<Self> {
         let access_token = text_of(body, "access_token")?.to_owned();
         let expires_in = body
             .get("expires_in")
@@ -332,7 +355,7 @@ impl Grant {
             refresh_token: text_of(body, "refresh_token")
                 .unwrap_or(old_refresh)
                 .to_owned(),
-            expires_in,
+            expires_at: now.saturating_add(expires_in.saturating_mul(1000)),
             scopes: body
                 .get("scope")
                 .and_then(Value::as_str)
@@ -345,7 +368,7 @@ impl Grant {
 mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::mpsc;
     use std::thread;
 
@@ -573,7 +596,7 @@ mod tests {
     async fn a_refused_refresh_token_needs_a_login_and_is_not_tried_again() {
         let endpoint = Endpoint::new(vec![
             answer(400, Some(json!({"error": "invalid_grant"}))),
-            answer(401, None),
+            answer(401, Some(json!({"error": "invalid_token"}))),
             granted(),
         ]);
         let rig = rig(endpoint.clone(), Some(EXPIRED));
@@ -649,6 +672,69 @@ mod tests {
         let json = rig.json();
         assert_eq!(json["mcpOAuth"], json!({"keep": "changed"}));
         assert_eq!(json["claudeAiOauth"]["accessToken"], "new-access");
+    }
+
+    #[tokio::test]
+    async fn another_login_that_replaced_the_refresh_token_is_left_alone() {
+        let endpoint = Endpoint::new(vec![granted()]);
+        let rig = rig(endpoint.clone(), Some(EXPIRED));
+        let file = rig.file();
+        let theirs = EXPIRED.replace("old-refresh", "their-refresh");
+        let written = theirs.clone();
+        *endpoint.meanwhile.lock() = Some(Box::new(move || {
+            std::fs::write(file, written).unwrap();
+        }));
+        assert_eq!(rig.renew().await, Renewal::Renewed);
+        assert_eq!(rig.text(), theirs);
+    }
+
+    #[tokio::test]
+    async fn a_grant_that_could_not_be_written_is_written_before_the_endpoint_is_asked_again() {
+        let endpoint = Endpoint::new(vec![granted()]);
+        let mut rig = rig(endpoint.clone(), Some(EXPIRED));
+        let failing = Arc::new(AtomicBool::new(true));
+        rig.renewal.write = Arc::new({
+            let failing = failing.clone();
+            move |path, bytes| {
+                if failing.swap(false, Ordering::SeqCst) {
+                    return Err(std::io::Error::other("disk full"));
+                }
+                nullradix_os::write_private(path, bytes)
+            }
+        });
+        assert_eq!(rig.renew().await, Renewal::Failed);
+        assert_eq!(rig.text(), EXPIRED);
+        assert_eq!(rig.renew().await, Renewal::Renewed);
+        assert_eq!(endpoint.asks(), 1);
+        let json = rig.json();
+        assert_eq!(json["claudeAiOauth"]["accessToken"], "new-access");
+        assert_eq!(json["claudeAiOauth"]["refreshToken"], "new-refresh");
+    }
+
+    #[tokio::test]
+    async fn a_kept_grant_is_dropped_when_a_new_login_replaced_the_refresh_token() {
+        let endpoint = Endpoint::new(vec![granted(), answer(500, None)]);
+        let mut rig = rig(endpoint.clone(), Some(EXPIRED));
+        rig.renewal.write = Arc::new(|_, _| Err(std::io::Error::other("disk full")));
+        assert_eq!(rig.renew().await, Renewal::Failed);
+        std::fs::write(rig.file(), EXPIRED.replace("old-refresh", "again")).unwrap();
+        assert_eq!(rig.renew().await, Renewal::Failed);
+        assert_eq!(endpoint.asks(), 2);
+        assert_eq!(endpoint.bodies.lock()[1]["refresh_token"], "again");
+    }
+
+    #[tokio::test]
+    async fn a_403_that_is_not_an_oauth_refusal_may_pass() {
+        let endpoint = Endpoint::new(vec![
+            answer(403, None),
+            answer(401, Some(json!({"error": "overloaded"}))),
+            granted(),
+        ]);
+        let rig = rig(endpoint.clone(), Some(EXPIRED));
+        assert_eq!(rig.renew().await, Renewal::Failed);
+        assert_eq!(rig.renew().await, Renewal::Failed);
+        assert_eq!(rig.renew().await, Renewal::Renewed);
+        assert_eq!(endpoint.asks(), 3);
     }
 
     #[tokio::test]
