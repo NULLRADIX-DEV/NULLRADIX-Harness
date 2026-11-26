@@ -5353,6 +5353,58 @@ async fn a_repeated_return_needs_the_same_feedback_since_the_last_start() {
 }
 
 #[tokio::test]
+async fn accepting_after_a_person_edited_the_blocked_reason_decides_its_own_review() {
+    use nullradix_domain::ReviewState;
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    f.agent_changes(
+        &key,
+        "blocked",
+        Some("Human Interaction: look at this first"),
+    )
+    .await;
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Pending));
+    let view = f
+        .dispatcher
+        .decisions
+        .accept(&key, &f.person, None, true)
+        .await
+        .unwrap();
+    assert_eq!(view.ticket.record().status, TicketStatus::Done);
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Approved));
+}
+
+#[tokio::test]
+async fn a_repeated_return_decides_the_review_whose_decision_was_lost() {
+    use nullradix_domain::ReviewState;
+    let f = fixture().await;
+    let key = f.held_for_review().await;
+    let record = f.record(&key).await;
+    let author = f.dispatcher.starter.actor().await.unwrap();
+    // the ticket went back to planned with the comment, but the decision was lost
+    f.comments
+        .add_system(
+            &record.key,
+            &nullradix_domain::returned_comment("anna", "Add a test"),
+            Some(SystemMarker::ReviewReturned),
+            None,
+            author,
+        )
+        .await
+        .unwrap();
+    f.agent_changes(&key, "planned", None).await;
+    assert_eq!(f.record(&key).await.status, TicketStatus::Planned);
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Pending));
+    f.dispatcher
+        .decisions
+        .return_to_agent(&key, "Add a test", &f.person, None)
+        .await
+        .unwrap();
+    assert_eq!(f.review_state(&key).await, Some(ReviewState::Returned));
+    assert_eq!(f.markers(&key, SystemMarker::ReviewReturned).await, 1);
+}
+
+#[tokio::test]
 async fn a_return_that_failed_after_its_comment_notes_the_feedback_once() {
     let f = fixture().await;
     let key = f.held_for_review().await;
