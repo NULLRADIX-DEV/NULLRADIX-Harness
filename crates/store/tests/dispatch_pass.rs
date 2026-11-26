@@ -357,6 +357,7 @@ impl AccountPauseRepository for InjectingPauses {
 struct ScriptedSetup {
     runs: Mutex<Vec<SetupRequest>>,
     failure: Mutex<Option<SetupFailure>>,
+    panics: Mutex<bool>,
     entered: Notify,
     release: Mutex<Option<Arc<Notify>>>,
 }
@@ -369,6 +370,7 @@ impl WorktreeSetupPort for ScriptedSetup {
         cancel: &CancellationToken,
     ) -> Result<SetupOutcome, AppError> {
         self.runs.lock().unwrap().push(request.clone());
+        assert!(!*self.panics.lock().unwrap(), "the setup crashed");
         self.entered.notify_one();
         let gate = self.release.lock().unwrap().clone();
         if let Some(gate) = gate {
@@ -2500,4 +2502,27 @@ async fn a_settled_run_writes_one_end_sample_even_when_the_pass_repeats() {
             .len(),
         1
     );
+}
+
+#[tokio::test]
+async fn a_setup_that_panics_still_frees_its_launch_entry() {
+    let f = fixture().await;
+    f.configure(|config| {
+        config.enabled = true;
+        config.worktree_setup = vec![WorktreeSetupStep {
+            cwd: String::from("web"),
+            run: String::from("npm ci"),
+        }];
+    })
+    .await;
+    *f.setup.panics.lock().unwrap() = true;
+    f.ready("Build", &["auto"]).await;
+    f.dispatcher.pass.run().await;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        f.dispatcher.starter.wait_idle(),
+    )
+    .await
+    .expect("the launch entry is gone");
+    assert_eq!(f.dispatcher.starter.launching(), 0);
 }

@@ -72,6 +72,10 @@ impl std::fmt::Debug for Dispatcher {
 }
 
 /// The pass with its steps of this slice and the service that controls it.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the wiring of every step of the pass reads best in one place"
+)]
 #[must_use]
 pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
     let log = Arc::new(DispatchLog::new(

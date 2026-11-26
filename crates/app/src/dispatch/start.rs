@@ -513,14 +513,17 @@ impl TicketStarter {
         }
         let this = Arc::clone(self);
         tokio::spawn(async move {
+            // also gives the hold and the entry back when the setup panics
+            let _guard = LaunchGuard {
+                starter: Arc::clone(&this),
+                text: text.clone(),
+            };
             if let Err(error) = this.set_up(&config, &launch).await {
                 let message = format!("cannot start {text}: {}", error.message());
                 this.log.error(&message, Some(&text)).await;
                 this.give_back(&launch.key, &config, launch.version).await;
                 this.remember_failure(&text).await;
             }
-            this.accounts.release(&text);
-            this.launching.lock().remove(&text);
         });
         true
     }
@@ -711,6 +714,8 @@ impl TicketStarter {
             return Ok(Begun::Changed);
         }
         self.accounts.record_start(run.id(), &account).await;
+        // the run exists now and counts as work under way by itself
+        self.accounts.release(&text);
         let profile = run.dispatch().map(|dispatch| &dispatch.profile);
         let mut body = format!(
             "[dispatch] start: handed to {}. Branch {}, profile {} (model {}, effort {}, max {} turns, {} min). Reason: {}.",
@@ -796,6 +801,19 @@ Account: {} ({}).",
                 )
                 .await;
         }
+    }
+}
+
+/// Gives the account hold and the launching entry of a ticket back when its task ends or panics.
+struct LaunchGuard {
+    starter: Arc<TicketStarter>,
+    text: String,
+}
+
+impl Drop for LaunchGuard {
+    fn drop(&mut self) {
+        self.starter.accounts.release(&self.text);
+        self.starter.launching.lock().remove(&self.text);
     }
 }
 
