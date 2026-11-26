@@ -39,13 +39,7 @@
         "body": {
           "label": "git init",
           "program": "git",
-          "args": [
-            "init",
-            "-q",
-            "-b",
-            "main",
-            "arches"
-          ],
+          "args": ["init", "-q", "-b", "main", "arches"],
           "cwd": "{{WORK}}",
           "timeoutSeconds": 30
         }
@@ -105,11 +99,7 @@
         "body": {
           "label": "git config",
           "program": "git",
-          "args": [
-            "config",
-            "core.longpaths",
-            "true"
-          ],
+          "args": ["config", "core.longpaths", "true"],
           "cwd": "{{WORK}}/arches",
           "timeoutSeconds": 30
         }
@@ -129,12 +119,7 @@
     {
       "name": "bind the board",
       "cli": {
-        "args": [
-          "board",
-          "repo",
-          "{{board}}",
-          "{{WORK}}/arches"
-        ]
+        "args": ["board", "repo", "{{board}}", "{{WORK}}/arches"]
       }
     },
     {
@@ -157,15 +142,7 @@
     {
       "name": "plan the ticket",
       "cli": {
-        "args": [
-          "plan",
-          "write",
-          "ARC-1",
-          "--plan",
-          "Build it",
-          "--handbook",
-          "cargo test"
-        ]
+        "args": ["plan", "write", "ARC-1", "--plan", "Build it", "--handbook", "cargo test"]
       }
     },
     {
@@ -182,31 +159,19 @@
     {
       "name": "allow three attempts",
       "cli": {
-        "args": [
-          "dispatcher",
-          "config",
-          "set",
-          "--file",
-          "{{WORK}}/attempts.json"
-        ]
+        "args": ["dispatcher", "config", "set", "--file", "{{WORK}}/attempts.json"]
       }
     },
     {
       "name": "switch on",
       "cli": {
-        "args": [
-          "dispatcher",
-          "enable"
-        ]
+        "args": ["dispatcher", "enable"]
       }
     },
     {
       "name": "a pass starts the first attempt",
       "cli": {
-        "args": [
-          "dispatcher",
-          "run"
-        ]
+        "args": ["dispatcher", "run"]
       }
     },
     {
@@ -220,10 +185,7 @@
     {
       "name": "the next pass counts the first abort and starts the second attempt one step higher",
       "cli": {
-        "args": [
-          "dispatcher",
-          "run"
-        ]
+        "args": ["dispatcher", "run"]
       }
     },
     {
@@ -237,10 +199,7 @@
     {
       "name": "the next pass counts the second abort and starts the third attempt",
       "cli": {
-        "args": [
-          "dispatcher",
-          "run"
-        ]
+        "args": ["dispatcher", "run"]
       }
     },
     {
@@ -254,10 +213,7 @@
     {
       "name": "the next pass counts the last abort and blocks the ticket",
       "cli": {
-        "args": [
-          "dispatcher",
-          "run"
-        ]
+        "args": ["dispatcher", "run"]
       }
     },
     {
@@ -283,11 +239,7 @@
       "http": {
         "method": "GET",
         "path": "/api/v1/stats/dispatch?boardId={{board}}&kind=work",
-        "keep": [
-          "kpis.runs",
-          "kpis.finalFailures",
-          "abortReasons"
-        ]
+        "keep": ["kpis.runs", "kpis.finalFailures", "abortReasons"]
       }
     },
     {
@@ -295,10 +247,7 @@
       "http": {
         "method": "GET",
         "path": "/api/v1/stats/dispatch?kind=merge",
-        "keep": [
-          "kpis.runs",
-          "abortReasons"
-        ]
+        "keep": ["kpis.runs", "abortReasons"]
       }
     },
     {
