@@ -19,7 +19,6 @@ jobs:
           subjectPattern: ^[a-z].{0,59}$
           subjectPatternError: The subject must start lowercase and stay under 60 characters.
           ignoreLabels: dependencies
-      # release-please writes the changelog into the body of its own PRs
       - if: >-
           github.event.pull_request.user.login != 'dependabot[bot]' &&
           github.event.pull_request.user.login != 'nullradix-harness[bot]'
