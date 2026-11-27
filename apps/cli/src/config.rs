@@ -33,6 +33,11 @@ impl Profile {
         self.app_name()
     }
 
+    /// The id Claude Code knows the installed plugin by.
+    pub(crate) fn plugin_id(self) -> String {
+        format!("{}@{}", self.plugin_name(), self.marketplace_name())
+    }
+
     pub(crate) const fn display_name(self) -> &'static str {
         match self {
             Self::Release => "NULLRADIX",

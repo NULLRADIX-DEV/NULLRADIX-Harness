@@ -141,7 +141,7 @@ pub(crate) fn install_into(
     staged: &Staged,
     dry_run: bool,
 ) -> TargetReport {
-    let id = format!("{}@{}", profile.plugin_name(), profile.marketplace_name());
+    let id = profile.plugin_id();
     let installed = installed_version(&target.dir, &id);
     let current = installed.as_deref() == Some(staged.version.as_str());
     if current && !staged.changed() {

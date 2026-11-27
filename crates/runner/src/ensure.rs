@@ -11,7 +11,10 @@ use crate::git::local_key;
 use crate::worktree::{LONG_PATHS, ensure_long_paths, exists, git, has_ref};
 
 /// Brings the folder back as a worktree; leftovers move aside, only an empty folder is deleted.
-pub(crate) async fn ensure(request: &EnsureWorktree) -> Result<EnsuredWorktree, AppError> {
+pub(crate) async fn ensure(
+    request: &EnsureWorktree,
+    plugin: Option<&str>,
+) -> Result<EnsuredWorktree, AppError> {
     let root = Path::new(&request.root);
     if !has_ref(root, &format!("refs/heads/{}", request.branch)).await? {
         return Ok(EnsuredWorktree::BranchMissing);
@@ -20,6 +23,7 @@ pub(crate) async fn ensure(request: &EnsureWorktree) -> Result<EnsuredWorktree, 
     let mut moved_aside = None;
     if exists(path.clone()).await? {
         if holds(root, &path, &request.branch).await? {
+            crate::plugin::enable(&path, plugin).await;
             return Ok(EnsuredWorktree::Present);
         }
         moved_aside = clear_rest(root, request).await?;
@@ -29,6 +33,7 @@ pub(crate) async fn ensure(request: &EnsureWorktree) -> Result<EnsuredWorktree, 
     let mut args: Vec<&str> = LONG_PATHS.to_vec();
     args.extend(["worktree", "add", "--", &request.path, &request.branch]);
     git(root, &args).await?;
+    crate::plugin::enable(&path, plugin).await;
     Ok(EnsuredWorktree::Restored { moved_aside })
 }
 
@@ -161,11 +166,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_resumed_and_a_restored_worktree_have_the_plugin() {
+        let dir = tempfile::tempdir().unwrap();
+        let (root, path) = setup(dir.path());
+        assert_eq!(
+            ensure(&request(&root, &path), Some(crate::plugin::tests::ID))
+                .await
+                .unwrap(),
+            EnsuredWorktree::Present
+        );
+        crate::plugin::tests::assert_enabled(&path);
+        git_sync(&root, &["worktree", "remove", "--force", &text(&path)]);
+        assert!(matches!(
+            ensure(&request(&root, &path), Some(crate::plugin::tests::ID))
+                .await
+                .unwrap(),
+            EnsuredWorktree::Restored { .. }
+        ));
+        crate::plugin::tests::assert_enabled(&path);
+    }
+
+    #[tokio::test]
     async fn a_listed_worktree_of_the_branch_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let (root, path) = setup(dir.path());
         fs::write(path.join("work.txt"), "unsaved").unwrap();
-        let ensured = ensure(&request(&root, &path)).await.unwrap();
+        let ensured = ensure(&request(&root, &path), None).await.unwrap();
         assert_eq!(ensured, EnsuredWorktree::Present);
         assert!(path.join("work.txt").is_file());
     }
@@ -176,11 +202,11 @@ mod tests {
         let (root, path) = setup(dir.path());
         let tip = git_sync(&root, &["rev-parse", "refs/heads/ticket/a"]);
         fs::remove_dir_all(&path).unwrap();
-        let ensured = ensure(&request(&root, &path)).await.unwrap();
+        let ensured = ensure(&request(&root, &path), None).await.unwrap();
         assert_eq!(ensured, EnsuredWorktree::Restored { moved_aside: None });
         assert_eq!(git_sync(&path, &["branch", "--show-current"]), "ticket/a");
         assert_eq!(git_sync(&path, &["rev-parse", "HEAD"]), tip);
-        let again = ensure(&request(&root, &path)).await.unwrap();
+        let again = ensure(&request(&root, &path), None).await.unwrap();
         assert_eq!(again, EnsuredWorktree::Present);
     }
 
@@ -189,7 +215,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (root, path) = setup(dir.path());
         git_sync(&root, &["worktree", "remove", "--force", &text(&path)]);
-        let ensured = ensure(&request(&root, &path)).await.unwrap();
+        let ensured = ensure(&request(&root, &path), None).await.unwrap();
         assert_eq!(ensured, EnsuredWorktree::Restored { moved_aside: None });
         assert!(path.join(".git").exists());
     }
@@ -200,7 +226,7 @@ mod tests {
         let (root, path) = setup(dir.path());
         git_sync(&root, &["worktree", "remove", "--force", &text(&path)]);
         fs::create_dir_all(&path).unwrap();
-        let ensured = ensure(&request(&root, &path)).await.unwrap();
+        let ensured = ensure(&request(&root, &path), None).await.unwrap();
         assert_eq!(ensured, EnsuredWorktree::Restored { moved_aside: None });
         assert!(path.join(".git").exists());
     }
@@ -213,7 +239,7 @@ mod tests {
             git_sync(&root, &["worktree", "remove", "--force", &text(&path)]);
             fs::create_dir_all(path.join("node_modules")).unwrap();
             fs::write(path.join("node_modules/locked.bin"), round).unwrap();
-            let ensured = ensure(&request(&root, &path)).await.unwrap();
+            let ensured = ensure(&request(&root, &path), None).await.unwrap();
             let aside = format!("{}.{round}", text(&path));
             assert_eq!(
                 ensured,
@@ -234,7 +260,7 @@ mod tests {
         // a repository of its own in the place
         fs::create_dir_all(&path).unwrap();
         git_sync(&path, &["init", "-q"]);
-        let message = mismatch(ensure(&request(&root, &path)).await);
+        let message = mismatch(ensure(&request(&root, &path), None).await);
         assert!(message.contains("belongs to something else"), "{message}");
         assert!(path.join(".git").is_dir());
         assert!(!Path::new(&format!("{}.rest", text(&path))).exists());
@@ -245,7 +271,7 @@ mod tests {
             &root,
             &["worktree", "add", "-q", "-b", "other", &text(&path)],
         );
-        mismatch(ensure(&request(&root, &path)).await);
+        mismatch(ensure(&request(&root, &path), None).await);
         assert_eq!(git_sync(&path, &["branch", "--show-current"]), "other");
     }
 
@@ -255,7 +281,7 @@ mod tests {
         let (root, path) = setup(dir.path());
         git_sync(&root, &["worktree", "remove", "--force", &text(&path)]);
         git_sync(&root, &["branch", "-D", "ticket/a"]);
-        let ensured = ensure(&request(&root, &path)).await.unwrap();
+        let ensured = ensure(&request(&root, &path), None).await.unwrap();
         assert_eq!(ensured, EnsuredWorktree::BranchMissing);
         assert!(!path.exists());
     }
@@ -267,7 +293,7 @@ mod tests {
         let elsewhere = dir.path().join("elsewhere");
         fs::rename(&path, &elsewhere).unwrap();
         git_sync(&root, &["worktree", "repair", &text(&elsewhere)]);
-        let error = ensure(&request(&root, &path)).await.unwrap_err();
+        let error = ensure(&request(&root, &path), None).await.unwrap_err();
         assert_eq!(error.code(), "git-failed");
     }
 

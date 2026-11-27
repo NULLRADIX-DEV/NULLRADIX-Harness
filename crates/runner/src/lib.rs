@@ -15,6 +15,7 @@ mod local;
 mod login_process;
 mod merge;
 mod oauth_refresh;
+mod plugin;
 mod protocol;
 mod review;
 mod setup;

@@ -1571,6 +1571,7 @@ mod tests {
                 program: std::path::PathBuf::from("nullradix-missing-supervisor"),
                 args: Vec::new(),
             },
+            None,
         ));
         let runners = nullradix_app::repositories::RunnerService::start(
             store.clone(),
@@ -1807,7 +1808,7 @@ mod tests {
                 pauses: store.clone(),
                 samples: store.clone(),
                 setup: Arc::new(nullradix_runner::LocalSetup),
-                detached: Arc::new(nullradix_runner::LocalDetached),
+                detached: Arc::new(nullradix_runner::LocalDetached::new(None)),
                 tracking: store.clone(),
                 questions: questions.clone(),
                 actors: store.clone(),
@@ -1821,7 +1822,7 @@ mod tests {
                 worktrees: worktrees.clone(),
                 worktree_repository: store.clone(),
                 merge_jobs: store.clone(),
-                merge_git: Arc::new(nullradix_runner::LocalMergeGit),
+                merge_git: Arc::new(nullradix_runner::LocalMergeGit::new(None)),
                 reviews: reviews.clone(),
                 clock: Arc::new(SystemClock),
                 ids: Arc::new(UuidV7Generator),

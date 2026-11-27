@@ -43,7 +43,7 @@ async fn blocking<T: Send + 'static>(
 }
 
 /// Asks git for the common dir, as in `git rev-parse --git-common-dir`.
-async fn common_dir_git(folder: &Path) -> Option<String> {
+pub(crate) async fn common_dir_git(folder: &Path) -> Option<String> {
     let mut command = tokio::process::Command::new("git");
     command
         .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
