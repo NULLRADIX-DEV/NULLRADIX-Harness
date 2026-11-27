@@ -39,6 +39,7 @@ use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
 use nullradix_app::snippets::SnippetService;
 use nullradix_app::theme_catalog::CatalogService;
+use nullradix_app::theme_fetch::ThemeAssets;
 use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
@@ -47,9 +48,9 @@ use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
 use nullradix_domain::{Actor, ConfigDir, Reach, Timestamp};
 use nullradix_runner::{
-    CurlCatalogFetcher, CurlTokenEndpoint, CurlUsageApi, LocalAccountFolders, LocalClaudeLogins,
-    LocalDetached, LocalLoginRenewal, LocalLoginRunner, LocalRunner, LocalSetup, SupervisorCommand,
-    TranscriptRoots,
+    CurlAssetFetcher, CurlCatalogFetcher, CurlTokenEndpoint, CurlUsageApi, LocalAccountFolders,
+    LocalClaudeLogins, LocalDetached, LocalLoginRenewal, LocalLoginRunner, LocalRunner, LocalSetup,
+    SupervisorCommand, TranscriptRoots,
 };
 use nullradix_store::Store;
 use tokio::net::TcpListener;
@@ -157,6 +158,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     )
     .await?;
     let (themes, catalog, customizations, snippets) = start_extensions(config, &store, &signal);
+    let theme_assets = start_theme_assets(config, &themes);
     let claude_theme = start_claude_theme(config, &store, &themes, &signal);
     if let Err(error) = claude_theme.reconcile().await {
         tracing::warn!(%error, "cannot sync the Claude theme");
@@ -219,6 +221,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         sessions,
         favorites,
         themes,
+        theme_assets,
         catalog,
         claude_theme,
         autostart,
@@ -538,6 +541,23 @@ fn start_sessions(
     (favorites, sessions)
 }
 
+/// Where the proxy keeps what it loaded for themes; only a copy, so it lives in the cache folder.
+fn theme_asset_cache(config: &Config) -> std::path::PathBuf {
+    config.paths.cache.join("theme-assets")
+}
+
+/// The asset proxy: public https only, whatever the setting for local catalogs says.
+fn start_theme_assets(config: &Config, themes: &Arc<ThemeService>) -> Arc<ThemeAssets> {
+    Arc::new(ThemeAssets::new(
+        themes.clone(),
+        Arc::new(CurlAssetFetcher::new()),
+        Arc::new(crate::theme_assets::ZipFiles),
+        Arc::new(crate::theme_assets::FolderAssets::new(theme_asset_cache(
+            config,
+        ))),
+    ))
+}
+
 /// Themes from the data folder and the customizations in the database.
 fn start_extensions(
     config: &Config,
@@ -551,7 +571,7 @@ fn start_extensions(
 ) {
     let themes = Arc::new(ThemeService::new(
         Arc::new(store.clone()),
-        Arc::new(FolderThemes::new(config.paths.themes())),
+        Arc::new(FolderThemes::new(config.paths.themes()).with_cache(theme_asset_cache(config))),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),

@@ -144,6 +144,15 @@ fn http_step(
     let mut request = Map::new();
     request.insert(String::from("method"), Value::from(http.method.clone()));
     request.insert(String::from("path"), Value::from(path));
+    match http.auth {
+        Auth::Token => {}
+        Auth::Session => {
+            request.insert(String::from("auth"), Value::from("session"));
+        }
+        Auth::None => {
+            request.insert(String::from("auth"), Value::from("none"));
+        }
+    }
     if let Some(body) = body {
         request.insert(String::from("body"), body);
     }

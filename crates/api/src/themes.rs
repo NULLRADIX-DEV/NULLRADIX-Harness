@@ -103,6 +103,10 @@ pub struct ThemeDto {
     pub version: i64,
 }
 
+/// Policy of a file served for a theme: sandboxed, nothing loads and no script runs.
+pub(crate) const ASSET_CSP: &str =
+    "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+
 fn file_url(id: &str, path: &str) -> String {
     format!("{API_PREFIX}/themes/{id}/files/{path}")
 }
@@ -564,10 +568,7 @@ pub(crate) async fn theme_file(
             // themes are replaced in place, so the browser asks again every time
             (header::CACHE_CONTROL, "no-cache"),
             // an svg or html file must not run script on the app origin
-            (
-                header::CONTENT_SECURITY_POLICY,
-                "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:",
-            ),
+            (header::CONTENT_SECURITY_POLICY, ASSET_CSP),
         ],
         asset.data,
     )

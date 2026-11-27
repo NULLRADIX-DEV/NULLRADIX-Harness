@@ -7,7 +7,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nullradix_app::theme_catalog::{CatalogFetcher, FetchError};
-use nullradix_domain::{CatalogUrl, EndpointHost, MAX_INDEX_BYTES, Reach, is_public_address};
+use nullradix_app::theme_fetch::{AssetFetcher, Hop};
+use nullradix_domain::{
+    CatalogUrl, EndpointHost, MAX_ASSET_BYTES, MAX_INDEX_BYTES, Reach, is_public_address,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Whole download of a package, across redirects and the lookup of host names.
@@ -16,6 +19,10 @@ const PACKAGE_LIMIT: Duration = Duration::from_secs(60);
 const INDEX_LIMIT: Duration = Duration::from_secs(20);
 const CONNECT_LIMIT_SECONDS: u64 = 10;
 const MAX_REDIRECTS: usize = 3;
+/// One request for a resource of a theme; the redirects of the proxy have a budget of their own.
+const ASSET_LIMIT: Duration = Duration::from_secs(30);
+/// One request for an archive a file is taken from.
+const ARCHIVE_LIMIT: Duration = Duration::from_secs(120);
 /// Room after the body for the status line the request writes behind it.
 const TRAILER_ROOM: u64 = 16 * 1024;
 const USER_AGENT: &str = "nullradix-catalog";
@@ -90,7 +97,13 @@ impl CurlCatalogFetcher {
     }
 
     /// The request as a curl config, so nothing about it appears on a command line.
-    fn config(&self, url: &CatalogUrl, pin: Option<&Pin>, max_bytes: u64) -> String {
+    fn config(
+        &self,
+        url: &CatalogUrl,
+        pin: Option<&Pin>,
+        max_bytes: u64,
+        limit: Duration,
+    ) -> String {
         let quoted = |text: &str| text.replace('\\', "\\\\").replace('"', "\\\"");
         let protocols = match self.reach {
             Reach::Public => "=https",
@@ -99,7 +112,7 @@ impl CurlCatalogFetcher {
         let mut config = format!(
             "url = \"{}\"\nproto = \"{protocols}\"\nnoproxy = \"*\"\nmax-redirs = 0\nmax-time = {}\nconnect-timeout = {CONNECT_LIMIT_SECONDS}\nmax-filesize = {max_bytes}\nuser-agent = \"{USER_AGENT}\"\nwrite-out = \"\\n%{{http_code}}\\n%{{redirect_url}}\"\n",
             quoted(url.as_str()),
-            limit_for(max_bytes).as_secs(),
+            limit.as_secs(),
         );
         if let Some((host, port, addresses)) = pin {
             let addresses: Vec<String> = addresses
@@ -119,9 +132,14 @@ impl CurlCatalogFetcher {
         config
     }
 
-    async fn request(&self, url: &CatalogUrl, max_bytes: u64) -> Result<Answer, FetchError> {
+    async fn request(
+        &self,
+        url: &CatalogUrl,
+        max_bytes: u64,
+        limit: Duration,
+    ) -> Result<Answer, FetchError> {
         let pin = self.pin(url).await?;
-        let config = self.config(url, pin.as_ref(), max_bytes);
+        let config = self.config(url, pin.as_ref(), max_bytes, limit);
         let mut command = tokio::process::Command::new("curl");
         // -q first: a curlrc of the person must not change the request
         command
@@ -176,7 +194,9 @@ impl CurlCatalogFetcher {
             // each hop is checked as the first one was
             let target =
                 CatalogUrl::parse(current.as_str(), self.reach).map_err(|_| FetchError::Refused)?;
-            let answer = self.request(&target, max_bytes).await?;
+            let answer = self
+                .request(&target, max_bytes, limit_for(max_bytes))
+                .await?;
             match answer.status {
                 200..=299 => return Ok(answer.body),
                 301 | 302 | 303 | 307 | 308 => {
@@ -229,6 +249,61 @@ impl CatalogFetcher for CurlCatalogFetcher {
         tokio::time::timeout(limit_for(max_bytes), self.follow(url, max_bytes))
             .await
             .unwrap_or(Err(FetchError::Timeout))
+    }
+}
+
+/// Fetches resources of themes: public https only, one request, redirects left to the caller.
+pub struct CurlAssetFetcher {
+    curl: CurlCatalogFetcher,
+}
+
+impl std::fmt::Debug for CurlAssetFetcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CurlAssetFetcher").finish_non_exhaustive()
+    }
+}
+
+impl CurlAssetFetcher {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            curl: CurlCatalogFetcher::new(Reach::Public),
+        }
+    }
+}
+
+impl Default for CurlAssetFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn asset_limit(max_bytes: u64) -> Duration {
+    if max_bytes <= MAX_ASSET_BYTES {
+        ASSET_LIMIT
+    } else {
+        ARCHIVE_LIMIT
+    }
+}
+
+#[async_trait]
+impl AssetFetcher for CurlAssetFetcher {
+    async fn get(&self, url: &CatalogUrl, max_bytes: u64) -> Result<Hop, FetchError> {
+        // the address is checked here again, whoever built it
+        let url =
+            CatalogUrl::parse(url.as_str(), self.curl.reach).map_err(|_| FetchError::Refused)?;
+        let limit = asset_limit(max_bytes);
+        let answer = tokio::time::timeout(limit, self.curl.request(&url, max_bytes, limit))
+            .await
+            .unwrap_or(Err(FetchError::Timeout))?;
+        match answer.status {
+            200..=299 => Ok(Hop::Body(answer.body)),
+            301 | 302 | 303 | 307 | 308 => answer
+                .redirect
+                .map(Hop::Redirect)
+                .ok_or(FetchError::Status(answer.status)),
+            status => Err(FetchError::Status(status)),
+        }
     }
 }
 
@@ -498,23 +573,175 @@ mod tests {
             81,
             vec!["::1".parse().unwrap(), "10.1.2.3".parse().unwrap()],
         );
-        let config = fetcher().config(&url, Some(&pin), 5);
+        let config = fetcher().config(&url, Some(&pin), 5, limit_for(5));
         assert!(config.contains("a%22b") || config.contains("a\\\"b"));
         assert!(config.contains("resolve = \"catalog.test:81:[::1],10.1.2.3\""));
         let odd = ("a\"b\\c".to_owned(), 81, vec!["10.1.2.3".parse().unwrap()]);
-        let escaped = fetcher().config(&url, Some(&odd), 5);
+        let escaped = fetcher().config(&url, Some(&odd), 5, limit_for(5));
         assert!(escaped.contains("resolve = \"a\\\"b\\\\c:81:10.1.2.3\""));
         assert!(config.contains("noproxy = \"*\""));
         assert!(config.contains("max-redirs = 0"));
         assert!(config.contains("max-filesize = 5"));
         let strict = CurlCatalogFetcher::new(Reach::Public);
-        assert!(strict.config(&url, None, 5).contains("proto = \"=https\""));
+        assert!(
+            strict
+                .config(&url, None, 5, limit_for(5))
+                .contains("proto = \"=https\"")
+        );
     }
 
     #[test]
     fn an_index_gets_less_time_than_a_package() {
         assert_eq!(limit_for(MAX_INDEX_BYTES), INDEX_LIMIT);
         assert_eq!(limit_for(MAX_INDEX_BYTES + 1), PACKAGE_LIMIT);
+    }
+
+    fn assets(curl: CurlCatalogFetcher) -> CurlAssetFetcher {
+        CurlAssetFetcher { curl }
+    }
+
+    #[tokio::test]
+    async fn an_asset_redirect_is_handed_back_and_not_followed() {
+        let (base, requests) = serve(vec![
+            reply("302 Found", "Location: /next/b.png\r\n", b""),
+            reply("200 OK", "", b"never asked"),
+        ]);
+        let hop = assets(fetcher())
+            .get(&local(&format!("{base}/a.png")), 100)
+            .await
+            .unwrap();
+        assert_eq!(hop, Hop::Redirect(format!("{base}/next/b.png")));
+        assert_eq!(requests.try_iter().count(), 1);
+
+        let (base, _) = serve(vec![reply("302 Found", "", b"")]);
+        let error = assets(fetcher())
+            .get(&local(&format!("{base}/a.png")), 100)
+            .await
+            .unwrap_err();
+        assert_eq!(error, FetchError::Status(302));
+    }
+
+    #[tokio::test]
+    async fn an_asset_body_is_returned_without_credentials_and_statuses_are_reported() {
+        let (base, request) = serve(vec![
+            reply("200 OK", "", b"PNG"),
+            reply("404 Not Found", "", b"gone"),
+            reply("500 Oops", "", b""),
+        ]);
+        let fetcher = assets(fetcher());
+        let hop = fetcher
+            .get(&local(&format!("{base}/a.png")), 100)
+            .await
+            .unwrap();
+        assert_eq!(hop, Hop::Body(b"PNG".to_vec()));
+        let request = request.recv().unwrap().to_lowercase();
+        for header in [
+            "authorization",
+            "cookie",
+            "proxy-authorization",
+            "referer",
+            "origin",
+        ] {
+            assert!(!request.contains(header), "{header}");
+        }
+        for status in [404, 500] {
+            let error = fetcher
+                .get(&local(&format!("{base}/b.png")), 100)
+                .await
+                .unwrap_err();
+            assert_eq!(error, FetchError::Status(status));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_asset_just_above_the_limit_is_too_large_known_or_not() {
+        let (base, _) = serve(vec![
+            reply("200 OK", "", &[b'a'; 100]),
+            reply("200 OK", "", &[b'a'; 101]),
+        ]);
+        let fetcher = assets(fetcher());
+        let at = fetcher
+            .get(&local(&format!("{base}/a")), 100)
+            .await
+            .unwrap();
+        assert_eq!(at, Hop::Body(vec![b'a'; 100]));
+        let above = fetcher.get(&local(&format!("{base}/b")), 100).await;
+        assert_eq!(above.unwrap_err(), FetchError::TooLarge);
+
+        let mut unknown = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+        unknown.extend_from_slice(&[b'a'; 101]);
+        let (base, _) = serve(vec![unknown]);
+        let above = assets(self::fetcher())
+            .get(&local(&format!("{base}/c")), 100)
+            .await;
+        assert_eq!(above.unwrap_err(), FetchError::TooLarge);
+    }
+
+    #[tokio::test]
+    async fn an_asset_is_fetched_from_the_address_that_was_checked() {
+        let (base, _) = serve(vec![reply("200 OK", "", b"pinned")]);
+        let port = base.rsplit(':').next().unwrap();
+        let url = local(&format!("http://assets.invalid:{port}/a.png"));
+        let hop = assets(resolving(Reach::Anywhere, &["127.0.0.1"]))
+            .get(&url, 100)
+            .await
+            .unwrap();
+        assert_eq!(hop, Hop::Body(b"pinned".to_vec()));
+    }
+
+    #[tokio::test]
+    async fn an_asset_host_that_resolves_to_a_private_address_is_refused_before_connecting() {
+        let url = CatalogUrl::parse("https://assets.example.com/a.png", Reach::Public).unwrap();
+        for answer in [
+            vec!["10.0.0.1"],
+            vec!["127.0.0.1"],
+            vec!["169.254.169.254"],
+            vec!["192.168.1.1"],
+            vec!["100.64.0.1"],
+            vec!["8.8.8.8", "192.168.1.1"],
+            vec!["::1"],
+            vec!["fd00::1"],
+            vec!["fe80::1"],
+            vec!["::ffff:10.0.0.1"],
+        ] {
+            let error = assets(resolving(Reach::Public, &answer))
+                .get(&url, 100)
+                .await
+                .unwrap_err();
+            assert_eq!(error, FetchError::Refused, "{answer:?}");
+        }
+        let empty = assets(resolving(Reach::Public, &[]));
+        assert_eq!(
+            empty.get(&url, 100).await.unwrap_err(),
+            FetchError::Unreachable
+        );
+    }
+
+    #[tokio::test]
+    async fn an_address_outside_the_public_reach_is_never_connected_to() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let fetcher = assets(CurlCatalogFetcher::new(Reach::Public));
+        for raw in [
+            format!("http://127.0.0.1:{port}/a.png"),
+            format!("https://127.0.0.1:{port}/a.png"),
+            String::from("https://localhost/a.png"),
+            String::from("https://[::1]/a.png"),
+            String::from("https://169.254.169.254/latest"),
+        ] {
+            let url = local(&raw);
+            let error = fetcher.get(&url, 100).await.unwrap_err();
+            assert_eq!(error, FetchError::Refused, "{raw}");
+        }
+        let accepted = listener.accept();
+        assert_eq!(accepted.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    }
+
+    #[test]
+    fn an_archive_gets_more_time_than_a_resource() {
+        assert_eq!(asset_limit(MAX_ASSET_BYTES), ASSET_LIMIT);
+        assert_eq!(asset_limit(MAX_ASSET_BYTES + 1), ARCHIVE_LIMIT);
     }
 
     #[test]

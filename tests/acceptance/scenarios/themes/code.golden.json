@@ -36,6 +36,7 @@
   {
     "name": "the person cannot turn on the code of a theme without code",
     "request": {
+      "auth": "session",
       "body": {
         "enabled": true,
         "version": 1
@@ -122,7 +123,7 @@
     "exitCode": 0,
     "name": "install the confirmed package",
     "stderr": "",
-    "stdout": "installed night-code 1.0.0\n"
+    "stdout": "installed night-code 1.0.0\nits code is off; turn it on in the app\n"
   },
   {
     "name": "the theme has code and the switch is off",
@@ -245,6 +246,7 @@
   {
     "name": "the person cannot turn it on for an unknown theme",
     "request": {
+      "auth": "session",
       "body": {
         "enabled": true,
         "version": 1
@@ -266,6 +268,7 @@
   {
     "name": "the person must name the version when turning it on",
     "request": {
+      "auth": "session",
       "body": {
         "enabled": true
       },
@@ -286,6 +289,7 @@
   {
     "name": "the person is refused a stale version",
     "request": {
+      "auth": "session",
       "body": {
         "enabled": true,
         "version": 7
@@ -324,6 +328,7 @@
   {
     "name": "the person turns the code on",
     "request": {
+      "auth": "session",
       "body": {
         "enabled": true,
         "version": 1
@@ -355,6 +360,7 @@
   {
     "name": "the person installs the same package again",
     "request": {
+      "auth": "session",
       "bodyFile": "<WORK>/v1.nullradix",
       "method": "POST",
       "path": "/api/v1/themes?confirmed=true"
@@ -409,7 +415,7 @@
     "exitCode": 0,
     "name": "a token installs the same package again",
     "stderr": "",
-    "stdout": "installed night-code 1.0.0\n"
+    "stdout": "installed night-code 1.0.0\nits code is off; turn it on in the app\n"
   },
   {
     "name": "the token's install turned the switch off",
@@ -449,6 +455,7 @@
   {
     "name": "the person turns the code on again",
     "request": {
+      "auth": "session",
       "body": {
         "enabled": true,
         "version": 3
@@ -487,6 +494,7 @@
   {
     "name": "the person installs the update that adds a domain",
     "request": {
+      "auth": "session",
       "bodyFile": "<WORK>/v2.nullradix",
       "method": "POST",
       "path": "/api/v1/themes?confirmed=true"
@@ -558,7 +566,7 @@
     "exitCode": 0,
     "name": "a reinstall starts with the switch off",
     "stderr": "",
-    "stdout": "installed night-code 1.1.0\n"
+    "stdout": "installed night-code 1.1.0\nits code is off; turn it on in the app\n"
   },
   {
     "name": "the new install is off",

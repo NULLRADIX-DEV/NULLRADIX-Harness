@@ -1381,6 +1381,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/themes/{id}/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetch_theme_asset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/themes/{id}/files/{*path}": {
         parameters: {
             query?: never;
@@ -10153,6 +10169,80 @@ export interface operations {
             };
             /** @description `theme-has-no-code`: no `main.js` to turn on; `theme-version-required`: turning on needs a version */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    fetch_theme_asset: {
+        parameters: {
+            query: {
+                /** @description https address of the resource; its host must be a domain the theme declares. */
+                url: string;
+                /** @description Expected sha256 checksum (hex) of the resource, or of the archive when `entry` is set. */
+                sha256?: string;
+                /** @description Path of a file inside the zip archive at `url`. */
+                entry?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Theme id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bytes of the resource, typed by the extension; scripts, styles and unknown types are `application/octet-stream` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `theme-fetch-forbidden`: the code switch of the theme is off, or the host or a redirect is not a declared domain; `theme-fetch-address-refused`: the host resolves to a private address; `theme-fetch-redirect-refused`: a redirect leaves public https */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `theme-not-found`: the theme is not installed; `theme-fetch-entry-not-found`: no such file in the archive */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `theme-fetch-url-invalid`, `theme-fetch-entry-invalid`, `theme-fetch-checksum-invalid`; `theme-fetch-checksum-mismatch`; `theme-fetch-too-large` above 10 MiB, or 64 MiB for an archive */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The host failed: `theme-fetch-unreachable`, `theme-fetch-timeout`, `theme-fetch-upstream-status`, `theme-fetch-redirects` (more than 5), `theme-fetch-not-archive` */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -3,6 +3,7 @@
 mod archive;
 mod autostart;
 mod browser;
+mod cache;
 #[cfg(target_os = "macos")]
 mod claude_keychain;
 mod claude_slot;
@@ -18,14 +19,15 @@ mod toast;
 mod windows;
 
 pub use archive::{
-    ArchiveError, Entry, Limits, list_files, pack_zip, read_tree, read_within, remove_dir,
-    replace_dir, unpack_zip,
+    ArchiveError, Entry, Limits, list_files, pack_zip, read_tree, read_within, read_zip_entry,
+    remove_dir, replace_dir, unpack_zip,
 };
 pub use autostart::{
     AutostartEntry, AutostartState, autostart_disable, autostart_enable, autostart_reenable,
     autostart_retarget, autostart_state,
 };
 pub use browser::open_url;
+pub use cache::{CacheBudget, FILE_COST, cache_clear, cache_read, cache_write};
 #[cfg(target_os = "macos")]
 pub use claude_keychain::claude_keychain_password;
 pub use claude_slot::{

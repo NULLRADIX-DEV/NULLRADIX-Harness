@@ -89,7 +89,7 @@ describe('useThemeAsset', () => {
   });
 
   it('reports the error code of the proxy with the HTTP status', async () => {
-    fetchMock.mockResolvedValue(jsonError(403, 'theme_fetch_forbidden', 'Domain not allowed'));
+    fetchMock.mockResolvedValue(jsonError(403, 'theme-fetch-forbidden', 'Domain not allowed'));
     const { result } = renderHook(() => useThemeAsset('https://other.example.com/x.png'), {
       wrapper: wrapper('demo-theme'),
     });
@@ -99,7 +99,7 @@ describe('useThemeAsset', () => {
     expect(result.current.url).toBeNull();
     expect(result.current.error).toEqual<ThemeAssetError>({
       status: 403,
-      code: 'theme_fetch_forbidden',
+      code: 'theme-fetch-forbidden',
       message: 'Domain not allowed',
     });
   });

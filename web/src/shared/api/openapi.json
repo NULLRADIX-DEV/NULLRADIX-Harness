@@ -7492,6 +7492,118 @@
         }
       }
     },
+    "/api/v1/themes/{id}/fetch": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "fetch_theme_asset",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "url",
+            "in": "query",
+            "description": "https address of the resource; its host must be a domain the theme declares.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sha256",
+            "in": "query",
+            "description": "Expected sha256 checksum (hex) of the resource, or of the archive when `entry` is set.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entry",
+            "in": "query",
+            "description": "Path of a file inside the zip archive at `url`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bytes of the resource, typed by the extension; scripts, styles and unknown types are `application/octet-stream`",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`theme-fetch-forbidden`: the code switch of the theme is off, or the host or a redirect is not a declared domain; `theme-fetch-address-refused`: the host resolves to a private address; `theme-fetch-redirect-refused`: a redirect leaves public https",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`theme-not-found`: the theme is not installed; `theme-fetch-entry-not-found`: no such file in the archive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`theme-fetch-url-invalid`, `theme-fetch-entry-invalid`, `theme-fetch-checksum-invalid`; `theme-fetch-checksum-mismatch`; `theme-fetch-too-large` above 10 MiB, or 64 MiB for an archive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The host failed: `theme-fetch-unreachable`, `theme-fetch-timeout`, `theme-fetch-upstream-status`, `theme-fetch-redirects` (more than 5), `theme-fetch-not-archive`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/themes/{id}/files/{*path}": {
       "get": {
         "tags": [

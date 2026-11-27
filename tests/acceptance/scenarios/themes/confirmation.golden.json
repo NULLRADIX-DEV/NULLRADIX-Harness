@@ -62,7 +62,7 @@
     "exitCode": 0,
     "name": "confirming installs the theme",
     "stderr": "",
-    "stdout": "installed night-code 1.0.0\n"
+    "stdout": "installed night-code 1.0.0\nits code is off; turn it on in the app\n"
   },
   {
     "name": "the confirmed theme is listed",
@@ -141,7 +141,7 @@
     "exitCode": 0,
     "name": "confirming installs the same-code update",
     "stderr": "",
-    "stdout": "installed night-code 1.1.0\n"
+    "stdout": "installed night-code 1.1.0\nits code is off; turn it on in the app\n"
   },
   {
     "file": "<WORK>/night-code/manifest.json",
@@ -220,6 +220,6 @@
     "exitCode": 0,
     "name": "confirming installs the update",
     "stderr": "",
-    "stdout": "installed night-code 1.2.0\n"
+    "stdout": "installed night-code 1.2.0\nits code is off; turn it on in the app\n"
   }
 ]

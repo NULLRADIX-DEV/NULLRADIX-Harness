@@ -671,8 +671,7 @@ mod tests {
     }
 
     fn world(reach: Reach) -> World {
-        let themes = fixture();
-        let themes = Arc::new(themes.service);
+        let themes = fixture().service;
         let fetcher = Arc::new(FakeFetcher::default());
         let sources = Arc::new(MemorySources::default());
         let service = CatalogService::new(

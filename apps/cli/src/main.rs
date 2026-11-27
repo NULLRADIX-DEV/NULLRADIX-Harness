@@ -32,6 +32,7 @@ mod session;
 mod status;
 mod step;
 mod theme;
+mod theme_assets;
 mod theme_catalog;
 mod themes;
 mod ticket;
