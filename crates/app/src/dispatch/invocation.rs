@@ -57,8 +57,16 @@ pub const RESEARCH_DENIED_TOOLS: [&str; 22] = [
 ];
 
 /// Denied in work and merge runs: what changes the machine, the app or a decision of the person.
-pub const WORK_DENIED_TOOLS: [&str; 15] = [
+pub const WORK_DENIED_TOOLS: [&str; 22] = [
     "Bash(nullradix run:*)",
+    "Bash(nullradix run-supervisor:*)",
+    "Bash(nullradix serve:*)",
+    "Bash(nullradix init:*)",
+    // global flags before the subcommand hide it from the rules above
+    "Bash(nullradix --profile:*)",
+    "Bash(nullradix --profile=*)",
+    "Bash(nullradix --home:*)",
+    "Bash(nullradix --home=*)",
     "Bash(nullradix theme:*)",
     "Bash(nullradix customize:*)",
     "Bash(nullradix install:*)",
@@ -403,6 +411,11 @@ mod tests {
             "Bash(nullradix question discard:*)",
             "Bash(nullradix question reopen:*)",
             "Bash(nullradix review:*)",
+            "Bash(nullradix run-supervisor:*)",
+            "Bash(nullradix serve:*)",
+            "Bash(nullradix init:*)",
+            "Bash(nullradix --profile:*)",
+            "Bash(nullradix --home:*)",
         ] {
             assert!(WORK_DENIED_TOOLS.contains(&rule), "{rule}");
         }
