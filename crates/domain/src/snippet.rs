@@ -178,12 +178,7 @@ pub fn active_stylesheet(snippets: &[Snippet]) -> Result<String, SnippetError> {
     let sheet = ordered
         .into_iter()
         .fold(String::new(), |mut sheet, record| {
-            let _ = writeln!(
-                sheet,
-                "/* snippet: {} */
-{}",
-                record.id, record.css
-            );
+            let _ = writeln!(sheet, "/* snippet: {} */\n{}", record.id, record.css);
             sheet
         });
     check_css(&sheet, false).map_err(SnippetError::ForbiddenCss)?;
@@ -357,13 +352,7 @@ mod tests {
             let sheet = active_stylesheet(&list).unwrap();
             assert_eq!(
                 sheet,
-                format!(
-                    "/* snippet: one */
-{first}
-/* snippet: two */
-{second}
-"
-                )
+                format!("/* snippet: one */\n{first}\n/* snippet: two */\n{second}\n")
             );
         }
     }
@@ -384,11 +373,8 @@ mod tests {
     #[test]
     fn tokenizer_tricks_cannot_hide_a_remote_url() {
         for css in [
-            "a{background:url(\"data:x
-);}
-b{background:url(https://evil.test/x.png)}",
-            "a{background:url(data:x
-p{content:\")\"}/*\"} y{background:url(https://evil.test/x.png)} */",
+            "a{background:url(\"data:x\n);}\nb{background:url(https://evil.test/x.png)}",
+            "a{background:url(data:x\np{content:\")\"}/*\"} y{background:url(https://evil.test/x.png)} */",
         ] {
             assert!(
                 matches!(SnippetCss::parse(css), Err(SnippetError::ForbiddenCss(_))),

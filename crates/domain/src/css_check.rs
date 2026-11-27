@@ -43,10 +43,11 @@ fn refuse(message: impl Into<String>) -> Failure {
 
 /// Whether a url value stays inside the package (or is a `data:` url).
 fn url_allowed(value: &str, allow_relative: bool) -> Result<(), String> {
-    // browsers drop tabs and line breaks inside urls and trim control characters and spaces
-    let clean: String = value
+    // like the URL parser: trim C0 controls and spaces at both ends, drop tab, LF and CR inside
+    let trimmed = value.trim_matches(|letter: char| letter <= ' ');
+    let clean: String = trimmed
         .chars()
-        .filter(|letter| !letter.is_ascii_control() && *letter != ' ')
+        .filter(|letter| !matches!(letter, '\t' | '\n' | '\r'))
         .collect();
     let lower = clean.to_ascii_lowercase();
     if lower.starts_with("data:") {
@@ -60,6 +61,14 @@ fn url_allowed(value: &str, allow_relative: bool) -> Result<(), String> {
         return Err(format!(
             "external or absolute url() is not allowed: {value}"
         ));
+    }
+    // the path ends at a query or a fragment; no segment may climb out of the package
+    let path = lower.split(['?', '#']).next().unwrap_or_default();
+    if path
+        .split('/')
+        .any(|segment| segment.replace("%2e", ".") == "..")
+    {
+        return Err(format!("a url may not climb out with ..: {value}"));
     }
     if lower.contains("/*") || lower.contains("*/") {
         return Err(String::from("comment markers inside url() are not allowed"));
@@ -224,6 +233,53 @@ mod tests {
         ] {
             assert!(refused(css, true), "{css}");
             assert!(refused(css, false), "{css}");
+        }
+    }
+
+    #[test]
+    fn a_url_is_read_like_a_browser_reads_it() {
+        // not data: urls for a browser: relative paths with a cookie
+        for css in [
+            "a { background: url(\"da ta:../../x\") }",
+            "a { background: url(\"d\u{1}ata:x\") }",
+            "a { background: url(\"data :x\") }",
+            "a { background: url(\"\u{1}da\u{2}ta:x\") }",
+        ] {
+            assert!(refused(css, false), "{css}");
+            assert!(refused(css, true), "{css}");
+        }
+        // what the URL parser trims or drops still reads as data:
+        for css in [
+            "a { background: url(\"  data:image/gif;base64,AAAA  \") }",
+            "a { background: url(\"\u{1} data:x\") }",
+            "a { background: url(\"da\tta:x\") }",
+            "a { background: url(\"DATA:x\") }",
+            "a { background: url(\"data:image/svg+xml;utf8,<svg width='1' height='1' xmlns='x'/>\") }",
+            "a { background: url(data:image/svg+xml;utf8,<svg%20width=1/>) }",
+        ] {
+            assert_eq!(check_css(css, false), Ok(()), "{css}");
+        }
+    }
+
+    #[test]
+    fn a_package_path_may_not_climb_out() {
+        for css in [
+            "a { background: url(../../../../api/v1/snippets) }",
+            "a { background: url(assets/../../x) }",
+            "a { background: url(%2e%2e/x) }",
+            "a { background: url(a/.%2E/x) }",
+            "a { background: url(assets/..?x) }",
+            "a { background: url(assets/..#x) }",
+            "a { background: url('..') }",
+        ] {
+            assert!(refused(css, true), "{css}");
+        }
+        for css in [
+            "a { background: url(assets/a..b.png) }",
+            "a { background: url(assets/a.png?x=..) }",
+            "a { background: url(assets/.hidden.png) }",
+        ] {
+            assert_eq!(check_css(css, true), Ok(()), "{css}");
         }
     }
 

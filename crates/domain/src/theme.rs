@@ -982,11 +982,8 @@ mod tests {
             "a{content:\"x\r\"/* \"}b{background:url(https://evil)}c{d:*/}",
             "a{content:\"x\u{c}\"/* \"}b{background:url(https://evil)}c{d:*/}",
             "@font-face { src: src(\"https://evil/f.woff2\") }",
-            "a{background:url(\"data:x
-);}
-b{background:url(https://evil.test/x.png)}",
-            "a{background:url(data:x
-p{content:\")\"}/*\"} y{background:url(https://evil.test/x.png)} */",
+            "a{background:url(\"data:x\n);}\nb{background:url(https://evil.test/x.png)}",
+            "a{background:url(data:x\np{content:\")\"}/*\"} y{background:url(https://evil.test/x.png)} */",
             "@media print {",
             "a { background: image(\"https://evil/x.png\") }",
         ] {
