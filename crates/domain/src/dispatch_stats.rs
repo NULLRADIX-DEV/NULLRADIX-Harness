@@ -864,6 +864,23 @@ mod tests {
     }
 
     #[test]
+    fn a_run_that_never_started_counts_as_neither_done_nor_aborted() {
+        let stats = calculate_stats(&facts(vec![
+            run("ARC-1", 1, Some(DispatchOutcome::StartFailed)),
+            run("ARC-2", 2, Some(DispatchOutcome::Done)),
+        ]));
+        assert_eq!(stats.kpis.runs, 2);
+        assert_eq!(stats.by_profile[0].done, 1);
+        assert_eq!(stats.by_profile[0].other, 1);
+        assert!(stats.abort_reasons.is_empty());
+        assert!(
+            stats
+                .outcomes
+                .iter()
+                .any(|row| { row.outcome == DispatchOutcome::StartFailed && row.count == 1 })
+        );
+    }
+    #[test]
     fn only_the_kind_asked_for_counts_but_pauses_and_lost_runs_count_for_all() {
         let mut merge = run("ARC-1", 1, Some(DispatchOutcome::MergeSession));
         merge.kind = RunKind::Merge;

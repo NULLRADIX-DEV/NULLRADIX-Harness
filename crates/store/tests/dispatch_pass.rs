@@ -2693,7 +2693,7 @@ async fn a_runner_that_cannot_start_counts_no_attempt_and_the_ticket_waits() {
     );
     assert_eq!(
         f.outcome(run.id()).await,
-        Some(DispatchOutcome::PauseClaudeMissing)
+        Some(DispatchOutcome::StartFailed)
     );
     assert!(f.abort_bodies(&key).await.is_empty());
     // not Claude missing: the dispatcher keeps running and says nothing of it
@@ -2932,7 +2932,7 @@ async fn a_person_who_took_the_ticket_is_not_counted_against_the_agent() {
 }
 
 #[tokio::test]
-async fn a_run_that_never_spawned_is_settled_as_a_pause_and_counts_nothing() {
+async fn a_run_that_never_spawned_is_settled_as_start_failed_and_counts_nothing() {
     let f = fixture().await;
     f.enable().await;
     f.dispatcher.evaluate.set_pause_hook(Arc::new(NoPauseHook));
@@ -2955,10 +2955,7 @@ async fn a_run_that_never_spawned_is_settled_as_a_pause_and_counts_nothing() {
     // its start counted no attempt; the pass only records the end
     let ended = f.end_run(&key, RunOutcome::Succeeded, Some(0), None).await;
     f.dispatcher.pass.run().await;
-    assert_eq!(
-        f.outcome(id).await,
-        Some(DispatchOutcome::PauseClaudeMissing)
-    );
+    assert_eq!(f.outcome(id).await, Some(DispatchOutcome::StartFailed));
     assert_eq!(f.outcome(ended).await, Some(DispatchOutcome::Abort));
     assert_eq!(
         f.abort_bodies(&key).await.len(),

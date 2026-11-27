@@ -88,6 +88,7 @@ pub enum DispatchOutcome {
     MergeSession,
     Research,
     Planned,
+    StartFailed,
 }
 
 impl DispatchOutcome {
