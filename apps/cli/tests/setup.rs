@@ -146,6 +146,8 @@ fn install_dry_run_without_a_daemon_names_the_default_folder_and_writes_nothing(
     let text = stdout(&output);
     assert!(text.contains("plugin files: would write"), "{text}");
     assert!(text.contains("default: would install"), "{text}");
+    let default = home.join("data").join(".claude");
+    assert!(text.contains(&default.display().to_string()), "{text}");
     assert!(text.contains("daemon not reachable"), "{text}");
     assert!(
         !home.exists(),
@@ -179,6 +181,7 @@ fn install_dry_run_lists_the_folder_of_every_account() {
         .collect();
     assert_eq!(dirs.len(), 2, "{dirs:?}");
     assert!(dirs.iter().any(|dir| dir.contains("claude-work")));
-    assert!(dirs.iter().any(|dir| dir.ends_with(".claude")));
+    let default = home.join("data").join(".claude").display().to_string();
+    assert!(dirs.contains(&default.as_str()), "{dirs:?} lacks {default}");
     assert!(!home.join("data").join("plugin").exists());
 }

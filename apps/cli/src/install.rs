@@ -302,12 +302,19 @@ fn now_seconds() -> u64 {
 }
 
 /// The folders to install into: every account's through the daemon, else the default one.
+/// The home the daemon uses for `~` and the default Claude folder: its data folder when isolated.
+fn claude_base<'a>(home: Option<&Path>, paths: &'a Paths) -> Option<&'a Path> {
+    home.map(|_| paths.data.as_path())
+}
+
 fn collect_targets(
     profile: Profile,
     home: Option<&Path>,
+    paths: &Paths,
 ) -> anyhow::Result<(Targets, Option<String>)> {
-    let default_dir = default_claude_dir(home);
-    let home_dir = home.map(Path::to_path_buf).or_else(nullradix_os::home_dir);
+    let base = claude_base(home, paths);
+    let default_dir = default_claude_dir(base);
+    let home_dir = base.map(Path::to_path_buf).or_else(nullradix_os::home_dir);
     match connect::connect(profile, home) {
         Ok(client) => {
             let accounts = client.list_accounts()?.items;
@@ -345,7 +352,7 @@ pub(crate) fn run(
 ) -> anyhow::Result<ExitCode> {
     let paths = Paths::resolve(profile.app_name(), home)?;
     let binary = std::env::current_exe().context("cannot find the running program")?;
-    let (targets, note) = collect_targets(profile, home)?;
+    let (targets, note) = collect_targets(profile, home, &paths)?;
     let claude = SystemClaude::find();
     if !args.dry_run && !claude.run(None, &["--version"]).ok {
         let root = plugin::marketplace_dir(&paths.data);
@@ -567,6 +574,25 @@ mod tests {
         assert_eq!(names, ["Default", "Work", "Tilde"]);
         assert_eq!(all.found[2].dir, home.join("claude/tilde"));
         assert_eq!(all.rejected.len(), 0);
+    }
+
+    #[test]
+    fn an_isolated_home_means_the_data_folder_for_tilde_and_the_default_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = Paths::below(temp.path());
+
+        let base = claude_base(Some(temp.path()), &paths).unwrap();
+
+        assert_eq!(base, temp.path().join("data"));
+        assert_eq!(
+            default_claude_dir(Some(base)),
+            Some(temp.path().join("data").join(".claude"))
+        );
+        assert_eq!(
+            nullradix_runner::expand_home(Some(base), "~/work"),
+            temp.path().join("data").join("work")
+        );
+        assert_eq!(claude_base(None, &paths), None);
     }
 
     #[test]

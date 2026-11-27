@@ -127,7 +127,9 @@ fn hooks(profile: Profile, home: Option<&Path>, shipped: &str) -> anyhow::Result
             };
             let mut flags = vec![json!("--profile"), json!(profile.flag())];
             if let Some(home) = home {
-                flags.extend([json!("--home"), json!(home.display().to_string())]);
+                let absolute = std::path::absolute(home)
+                    .with_context(|| format!("cannot resolve {}", home.display()))?;
+                flags.extend([json!("--home"), json!(absolute.display().to_string())]);
             }
             args.splice(0..0, flags);
         }
@@ -410,8 +412,9 @@ mod tests {
 
     #[test]
     fn hooks_carry_the_home_the_install_ran_with() {
-        let home = Path::new("/data/with space");
-        let files = render(Profile::Dev, "0.1.5", Some(home)).unwrap();
+        let base = tempfile::tempdir().unwrap();
+        let home = base.path().join("with space");
+        let files = render(Profile::Dev, "0.1.5", Some(&home)).unwrap();
         let hooks: Value =
             serde_json::from_str(&files.iter().find(|(name, _)| name == HOOKS).unwrap().1).unwrap();
         let args = &hooks["hooks"]["Stop"][0]["hooks"][0]["args"];
@@ -433,6 +436,19 @@ mod tests {
             .map(|arg| std::ffi::OsString::from(arg.as_str().unwrap()))
             .collect();
         assert!(crate::hook::HookCall::parse(&parsed).is_some());
+    }
+
+    #[test]
+    fn a_relative_home_is_written_as_an_absolute_one() {
+        let files = render(Profile::Dev, "0.1.5", Some(Path::new("relative/home"))).unwrap();
+        let hooks: Value =
+            serde_json::from_str(&files.iter().find(|(name, _)| name == HOOKS).unwrap().1).unwrap();
+        let args = hooks["hooks"]["Stop"][0]["hooks"][0]["args"]
+            .as_array()
+            .unwrap();
+        let written = Path::new(args[3].as_str().unwrap());
+        assert!(written.is_absolute(), "{written:?}");
+        assert!(written.ends_with("relative/home"));
     }
 
     #[test]
