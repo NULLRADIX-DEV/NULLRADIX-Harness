@@ -13,8 +13,7 @@ const TITLE_VAR: &str = "NULLRADIX_TOAST_TITLE";
 #[cfg(any(windows, test))]
 const BODY_VAR: &str = "NULLRADIX_TOAST_BODY";
 
-/// The script never holds the texts: it reads them from the environment and ends non-zero on failure.
-/// The id is the one of Windows PowerShell, which every Windows install has registered for toasts.
+/// Reads the texts from the environment, never from source; app id is Windows PowerShell.
 #[cfg(any(windows, test))]
 const WINDOWS_SCRIPT: &str = r#"$ErrorActionPreference = 'Stop'
 try {

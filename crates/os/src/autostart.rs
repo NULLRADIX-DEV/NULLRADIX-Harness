@@ -1,6 +1,4 @@
-//! Starting a program at login: the Run key on Windows, an XDG autostart file on Linux.
-//!
-//! The entry belongs to the system too: a desktop that switched it off stays authoritative.
+//! Start at login via the Run key or an XDG file; a desktop that disabled it stays authoritative.
 
 use std::ffi::OsString;
 use std::io;
