@@ -3,6 +3,7 @@ import { FileView } from './FileView';
 import { PatchView } from './PatchView';
 import type { ReviewFile } from './queries';
 import { ARROW, lines } from './symbols';
+import { Button } from '../../shared/ui/Button';
 
 const STATUS_LABELS: Readonly<Record<string, string>> = {
   A: 'new',
@@ -55,28 +56,26 @@ export function ReviewFileItem({
       {open && (
         <>
           <div className="actions review-switch" role="group" aria-label={`Show ${file.path}`}>
-            <button
+            <Button
               type="button"
-              className="btn"
               aria-pressed={shown === 'changes' || deleted}
               onClick={() => {
                 setShown('changes');
               }}
             >
               Changes
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn"
               aria-pressed={shown === 'file' && !deleted}
               disabled={deleted}
-              title={deleted ? 'The file is not on the branch any more' : undefined}
+              {...(deleted && { title: 'The file is not on the branch any more' })}
               onClick={() => {
                 setShown('file');
               }}
             >
               File
-            </button>
+            </Button>
           </div>
           {shown === 'changes' || deleted ? (
             <PatchView ticketKey={ticketKey} path={file.path} />

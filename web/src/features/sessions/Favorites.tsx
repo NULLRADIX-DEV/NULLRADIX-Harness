@@ -9,6 +9,8 @@ import {
   type Favorite,
 } from './favoriteQueries';
 import { SessionStateBadge } from './SessionStateBadge';
+import { Button } from '../../shared/ui/Button';
+import { Panel } from '../../shared/ui/Panel';
 
 const SHORT_ID = 8;
 
@@ -43,9 +45,9 @@ function CopyCommand({ command }: { command: string }) {
   return (
     <div className="fav-command">
       <code className="mono">{command}</code>
-      <button
+      <Button
         type="button"
-        className="btn small"
+        className="small"
         onClick={() => {
           void navigator.clipboard.writeText(command).then(() => {
             setCopied(true);
@@ -53,7 +55,7 @@ function CopyCommand({ command }: { command: string }) {
         }}
       >
         {copied ? 'Copied' : 'Copy'}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -71,7 +73,7 @@ function FavoriteItem({ favorite, now }: { favorite: Favorite; now: number }) {
   }
 
   return (
-    <article className="panel fav-card" aria-label={`Favorite ${short}`}>
+    <Panel as="article" className="panel fav-card" aria-label={`Favorite ${short}`}>
       <div className="fav-head">
         <SessionStateBadge state={favorite.displayState} />
         <Link to={`/sessions/${encodeURIComponent(favorite.sessionId)}`}>
@@ -95,9 +97,9 @@ function FavoriteItem({ favorite, now }: { favorite: Favorite; now: number }) {
             }}
           />
         </label>
-        <button type="submit" className="btn small" disabled={mark.isPending}>
+        <Button type="submit" className="small" disabled={mark.isPending}>
           Save note
-        </button>
+        </Button>
         {mark.isSuccess && <span role="status">Saved</span>}
       </form>
       <div className="fav-meta muted">
@@ -119,17 +121,17 @@ function FavoriteItem({ favorite, now }: { favorite: Favorite; now: number }) {
             .join(', ')}
         </p>
       )}
-      <button
+      <Button
         type="button"
-        className="btn small"
+        className="small"
         disabled={unmark.isPending}
         onClick={() => {
           unmark.mutate(favorite.sessionId);
         }}
       >
         Remove favorite
-      </button>
-    </article>
+      </Button>
+    </Panel>
   );
 }
 

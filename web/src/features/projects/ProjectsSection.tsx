@@ -9,6 +9,8 @@ import {
   useRenameProject,
   type Project,
 } from './queries';
+import { Button } from '../../shared/ui/Button';
+import { Panel } from '../../shared/ui/Panel';
 
 export const KEY_MAX_LENGTH = 6;
 export const NAME_MAX_LENGTH = 200;
@@ -70,13 +72,13 @@ function CreateProjectForm() {
             }}
           />
         </label>
-        <button
+        <Button
           type="submit"
-          className="btn primary"
+          variant="primary"
           disabled={create.isPending || key === '' || name.trim() === ''}
         >
           Create project
-        </button>
+        </Button>
       </div>
       <p id={hintId} className="field-hint muted">
         2 to 6 characters, a letter first, then letters or digits.
@@ -117,12 +119,12 @@ function RenameForm({ project, onDone }: { project: Project; onDone: () => void 
             }}
           />
         </label>
-        <button type="submit" className="btn primary" disabled={rename.isPending || unchanged}>
+        <Button type="submit" variant="primary" disabled={rename.isPending || unchanged}>
           Save
-        </button>
-        <button type="button" className="btn" onClick={onDone}>
+        </Button>
+        <Button type="button" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
       <FormError
         message={problemMessage(rename.error, MESSAGES, 'Could not rename the project.')}
@@ -152,16 +154,16 @@ function DeleteConfirm({ project, onDone }: { project: Project; onDone: () => vo
         Delete <strong>{project.name}</strong>? This cannot be undone.
       </p>
       <div className="form-row">
-        <button
+        <Button
           type="button"
-          className="btn danger"
+          variant="danger"
           disabled={remove.isPending}
           onClick={() => {
             remove.mutate({ id: project.id, version: project.version }, { onSuccess: onDone });
           }}
         >
           Delete
-        </button>
+        </Button>
         <button ref={cancelButton} type="button" className="btn" onClick={onDone}>
           Cancel
         </button>
@@ -245,10 +247,10 @@ function ProjectList() {
 export function ProjectsSection() {
   const headingId = useId();
   return (
-    <section className="panel page-section" aria-labelledby={headingId}>
+    <Panel as="section" className="panel page-section" aria-labelledby={headingId}>
       <h2 id={headingId}>Projects</h2>
       <CreateProjectForm />
       <ProjectList />
-    </section>
+    </Panel>
   );
 }

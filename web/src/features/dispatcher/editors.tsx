@@ -16,6 +16,7 @@ import {
 } from './configForm';
 import { AccountPicker, type AccountChoice } from './controls';
 import type { DispatcherConfig } from './queries';
+import { Button } from '../../shared/ui/Button';
 
 export type Edit = (update: (form: DispatcherForm) => DispatcherForm) => void;
 
@@ -95,9 +96,8 @@ function Move({
 }) {
   return (
     <>
-      <button
+      <Button
         type="button"
-        className="btn"
         disabled={at === 0}
         aria-label={`Move ${label} up`}
         onClick={() => {
@@ -105,10 +105,9 @@ function Move({
         }}
       >
         Up
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
-        className="btn"
         disabled={at === count - 1}
         aria-label={`Move ${label} down`}
         onClick={() => {
@@ -116,7 +115,7 @@ function Move({
         }}
       >
         Down
-      </button>
+      </Button>
     </>
   );
 }
@@ -214,16 +213,15 @@ export function ProfilesEditor({
                       edit((current) => moveProfile(current, at, to));
                     }}
                   />
-                  <button
+                  <Button
                     type="button"
-                    className="btn"
                     aria-label={`Remove ${label}`}
                     onClick={() => {
                       edit((current) => removeProfile(current, profile.key));
                     }}
                   >
                     Remove
-                  </button>
+                  </Button>
                 </span>
               </div>
               <RowErrors errors={errors} prefix={path} />
@@ -232,15 +230,14 @@ export function ProfilesEditor({
         })}
       </ul>
       <div>
-        <button
+        <Button
           type="button"
-          className="btn"
           onClick={() => {
             edit((current) => addProfile(current, defaults));
           }}
         >
           Add profile
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -281,9 +278,8 @@ export function LadderEditor({ form, errors, edit }: Omit<EditorProps, 'accounts
                       edit((current) => moveLadderStep(current, at, to));
                     }}
                   />
-                  <button
+                  <Button
                     type="button"
-                    className="btn"
                     aria-label={`Remove ladder ${label}`}
                     onClick={() => {
                       edit((current) => ({
@@ -293,7 +289,7 @@ export function LadderEditor({ form, errors, edit }: Omit<EditorProps, 'accounts
                     }}
                   >
                     Remove
-                  </button>
+                  </Button>
                 </span>
               </div>
               <RowErrors errors={errors} prefix={`ladder[${String(at)}]`} />
@@ -302,15 +298,14 @@ export function LadderEditor({ form, errors, edit }: Omit<EditorProps, 'accounts
         })}
       </ol>
       <div>
-        <button
+        <Button
           type="button"
-          className="btn"
           onClick={() => {
             edit(addLadderStep);
           }}
         >
           Add step
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -397,9 +392,8 @@ export function RulesEditor({ form, errors, accounts, edit }: EditorProps) {
                       edit((current) => moveRule(current, at, to));
                     }}
                   />
-                  <button
+                  <Button
                     type="button"
-                    className="btn"
                     aria-label={`Remove rule ${n}`}
                     onClick={() => {
                       edit((current) => ({
@@ -409,7 +403,7 @@ export function RulesEditor({ form, errors, accounts, edit }: EditorProps) {
                     }}
                   >
                     Remove
-                  </button>
+                  </Button>
                 </span>
               </div>
               <RowErrors errors={errors} prefix={`rules[${String(at)}]`} />
@@ -418,15 +412,14 @@ export function RulesEditor({ form, errors, accounts, edit }: EditorProps) {
         })}
       </ul>
       <div>
-        <button
+        <Button
           type="button"
-          className="btn"
           onClick={() => {
             edit(addRule);
           }}
         >
           Add rule
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -480,9 +473,8 @@ export function SetupStepsEditor({ form, errors, edit }: Omit<EditorProps, 'acco
                       edit((current) => moveSetupStep(current, at, to));
                     }}
                   />
-                  <button
+                  <Button
                     type="button"
-                    className="btn"
                     aria-label={`Remove setup step ${n}`}
                     onClick={() => {
                       edit((current) => ({
@@ -494,7 +486,7 @@ export function SetupStepsEditor({ form, errors, edit }: Omit<EditorProps, 'acco
                     }}
                   >
                     Remove
-                  </button>
+                  </Button>
                 </span>
               </div>
               <RowErrors errors={errors} prefix={`worktreeSetup[${String(at)}]`} />
@@ -503,15 +495,14 @@ export function SetupStepsEditor({ form, errors, edit }: Omit<EditorProps, 'acco
         })}
       </ol>
       <div>
-        <button
+        <Button
           type="button"
-          className="btn"
           onClick={() => {
             edit(addSetupStep);
           }}
         >
           Add setup step
-        </button>
+        </Button>
       </div>
     </div>
   );

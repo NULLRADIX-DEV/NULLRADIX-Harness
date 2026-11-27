@@ -17,6 +17,8 @@ import {
 import { sessionsQuery, type DisplayState, type Session } from './queries';
 import { FavoritesSection, FavoriteStar } from './Favorites';
 import { SessionStateBadge } from './SessionStateBadge';
+import { Panel } from '../../shared/ui/Panel';
+import { Button } from '../../shared/ui/Button';
 
 const SHORT_ID = 8;
 
@@ -71,7 +73,7 @@ function SessionRow({ session, now }: { session: Session; now: number }) {
 function Group({ group, now }: { group: SessionGroup; now: number }) {
   const name = group.ticket ? `${group.ticket.key} ${group.ticket.title}` : 'Not assigned';
   return (
-    <section className="panel session-group" aria-label={name}>
+    <Panel as="section" className="panel session-group" aria-label={name}>
       <div className="session-group-head">
         {group.ticket ? (
           <>
@@ -90,7 +92,7 @@ function Group({ group, now }: { group: SessionGroup; now: number }) {
           <SessionRow key={session.id} session={session} now={now} />
         ))}
       </ul>
-    </section>
+    </Panel>
   );
 }
 
@@ -109,16 +111,16 @@ function StateFilter({
   }
   return (
     <div className="session-filter" role="group" aria-label="Filter by state">
-      <button
+      <Button
         type="button"
-        className="btn small"
+        className="small"
         aria-pressed={all}
         onClick={() => {
           onChange(new Set());
         }}
       >
         All
-      </button>
+      </Button>
       {STATES.map((state) => (
         <button
           key={state}

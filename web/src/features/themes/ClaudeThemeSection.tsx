@@ -13,7 +13,7 @@ export function claudeThemeHint(status: ClaudeTheme): string {
   return `${name} could not be put into every Claude folder.`;
 }
 
-// Hooks of a theme are code that runs inside Claude, so only this switch applies them.
+// Only this switch applies theme hooks; plain elements, never slots.
 export function ClaudeThemeSection() {
   const status = useQuery(claudeThemeQuery());
   const set = useSetClaudeTheme();

@@ -160,6 +160,16 @@ textarea:focus {
   border-color: var(--primary-hover);
 }
 
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.btn.ghost:hover {
+  background: var(--surface-alt);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;

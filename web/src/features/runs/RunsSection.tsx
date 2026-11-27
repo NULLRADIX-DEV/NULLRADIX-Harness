@@ -5,6 +5,8 @@ import { useNow } from '../../shared/lib/useNow';
 import { FormError } from '../../shared/ui/FormError';
 import { STATUS_LABELS, formatStart, runDuration } from './format';
 import { isActive, runsQuery, useCancelRun, useRunOutput, type Run } from './queries';
+import { Button } from '../../shared/ui/Button';
+import { Panel } from '../../shared/ui/Panel';
 
 export const FINISHED_MESSAGE = 'This run has already finished.';
 export const GONE_MESSAGE = 'This run no longer exists.';
@@ -89,20 +91,20 @@ function RunOutput({ run, onClose }: { run: Run; onClose: () => void }) {
         <RunStatusBadge run={run} />
         <span className="run-output-actions">
           {active && (
-            <button
+            <Button
               type="button"
-              className="btn danger"
+              variant="danger"
               disabled={cancel.isPending}
               onClick={() => {
                 cancel.mutate(run.id);
               }}
             >
               Cancel run
-            </button>
+            </Button>
           )}
-          <button type="button" className="btn" onClick={onClose}>
+          <Button type="button" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </span>
       </div>
       {active && (
@@ -194,7 +196,7 @@ export function RunsSection() {
   }
 
   return (
-    <section className="panel page-section" aria-labelledby={headingId}>
+    <Panel as="section" className="panel page-section" aria-labelledby={headingId}>
       <h2 id={headingId}>Runs</h2>
       {status === 'pending' && <p className="muted">Loading runs...</p>}
       {status === 'error' && <p className="form-error">Could not load the runs.</p>}
@@ -217,6 +219,6 @@ export function RunsSection() {
           }}
         />
       )}
-    </section>
+    </Panel>
   );
 }

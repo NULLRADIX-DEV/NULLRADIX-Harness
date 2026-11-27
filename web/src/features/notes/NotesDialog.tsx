@@ -16,6 +16,8 @@ import {
   type NoteFilter,
 } from './queries';
 import './notes.css';
+import { Button } from '../../shared/ui/Button';
+import { Input } from '../../shared/ui/Input';
 
 const FILTERS: readonly { key: NoteFilter; label: string }[] = [
   { key: 'open', label: 'Open' },
@@ -217,9 +219,9 @@ export function NotesDialog({
       {leaving && (
         <div role="alertdialog" aria-label="Discard input" className="actions">
           <span>Discard the input?</span>
-          <button
+          <Button
             type="button"
-            className="btn danger"
+            variant="danger"
             onClick={() => {
               const action = leaving;
               setLeaving(null);
@@ -227,17 +229,16 @@ export function NotesDialog({
             }}
           >
             Discard
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn"
             autoFocus
             onClick={() => {
               setLeaving(null);
             }}
           >
             Keep editing
-          </button>
+          </Button>
         </div>
       )}
       <div className="chips" role="group" aria-label="Filter">
@@ -271,12 +272,13 @@ export function NotesDialog({
       </label>
       <label className="field">
         <span>Details</span>
-        <textarea
+        <Input
+          multiline
           rows={3}
           value={body}
           placeholder="Where, how to see it, suspected cause, proposal"
-          onChange={(event) => {
-            setBody(event.target.value);
+          onChange={(text) => {
+            setBody(text);
             setSimilar(null);
           }}
         />
@@ -300,16 +302,15 @@ export function NotesDialog({
               <li key={each.number}>
                 {each.title}{' '}
                 {each.state === 'open' && (
-                  <button
+                  <Button
                     type="button"
-                    className="btn"
                     disabled={busy}
                     onClick={() => {
                       countSeen(each.number);
                     }}
                   >
                     Same finding: count it
-                  </button>
+                  </Button>
                 )}
                 {each.state !== 'open' && each.ticketKey && (
                   <button
@@ -326,23 +327,22 @@ export function NotesDialog({
             ))}
           </ul>
           <div className="actions">
-            <button
+            <Button
               type="button"
-              className="btn"
               disabled={busy}
               onClick={() => {
                 send(true);
               }}
             >
               Add anyway
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         <div className="actions">
-          <button type="submit" className="btn primary" disabled={title.trim() === '' || busy}>
+          <Button type="submit" variant="primary" disabled={title.trim() === '' || busy}>
             Add note
-          </button>
+          </Button>
         </div>
       )}
       <FormError message={error ?? loadError} />
@@ -410,68 +410,61 @@ export function NotesDialog({
               <div className="actions">
                 <label className="field">
                   <span>Ticket title</span>
-                  <input
+                  <Input
                     value={promoting.title}
                     autoFocus
-                    onChange={(event) => {
-                      setPromoting({ ...promoting, title: event.target.value });
+                    onChange={(text) => {
+                      setPromoting({ ...promoting, title: text });
                     }}
                   />
                 </label>
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={busy}
-                  onClick={sendPromotion}
-                >
+                <Button type="button" variant="primary" disabled={busy} onClick={sendPromotion}>
                   Create ticket
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className="btn"
                   disabled={busy}
                   onClick={() => {
                     setPromoting(null);
                   }}
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             )}
             {note.state === 'open' && dropping?.number === note.number && (
               <div className="actions">
                 <label className="field">
                   <span>Reason</span>
-                  <input
+                  <Input
                     value={dropping.reason}
                     autoFocus
-                    onChange={(event) => {
-                      setDropping({ number: note.number, reason: event.target.value });
+                    onChange={(text) => {
+                      setDropping({ number: note.number, reason: text });
                     }}
                   />
                 </label>
-                <button type="button" className="btn danger" disabled={busy} onClick={sendDrop}>
+                <Button type="button" variant="danger" disabled={busy} onClick={sendDrop}>
                   Confirm drop
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className="btn"
                   disabled={busy}
                   onClick={() => {
                     setDropping(null);
                   }}
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             )}
             {note.state === 'open' &&
               promoting?.number !== note.number &&
               dropping?.number !== note.number && (
                 <div className="actions">
-                  <button
+                  <Button
                     type="button"
-                    className="btn primary"
+                    variant="primary"
                     onClick={() => {
                       setDropping(null);
                       const suggestion = noteTitle(note);
@@ -479,17 +472,16 @@ export function NotesDialog({
                     }}
                   >
                     Make a ticket
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className="btn"
                     onClick={() => {
                       setPromoting(null);
                       setDropping({ number: note.number, reason: '' });
                     }}
                   >
                     Drop
-                  </button>
+                  </Button>
                 </div>
               )}
           </li>

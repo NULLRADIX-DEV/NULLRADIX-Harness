@@ -1,6 +1,7 @@
 import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { TranscriptEntry } from './queries';
 import type { TranscriptState } from './transcript';
+import { Button } from '../../shared/ui/Button';
 
 type Entry<K extends TranscriptEntry['kind']> = Extract<TranscriptEntry, { kind: K }>;
 
@@ -283,9 +284,9 @@ export function TranscriptView({
     return (
       <div className="form-error" role="alert">
         Could not load the transcript.{' '}
-        <button type="button" className="btn small" onClick={onRetry}>
+        <Button type="button" className="small" onClick={onRetry}>
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -332,9 +333,9 @@ export function TranscriptView({
         )}
       </div>
       {unseen > 0 && (
-        <button
+        <Button
           type="button"
-          className="btn small tx-new"
+          className="small tx-new"
           onClick={() => {
             atBottom.current = true;
             setUnseen(0);
@@ -342,7 +343,7 @@ export function TranscriptView({
           }}
         >
           New entries
-        </button>
+        </Button>
       )}
     </div>
   );

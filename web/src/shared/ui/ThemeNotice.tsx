@@ -2,7 +2,7 @@ import { isSafeTheme, normalThemeUrl, safeThemeUrl } from '../lib/safeTheme';
 import { setThemeNotice, useThemeNotice } from '../lib/themeNotice';
 import './themeNotice.css';
 
-// Closable bar about the theme; a theme error offers safe mode, and safe mode offers the way back.
+// Closable bar offering safe mode and the way back; plain elements, never slots.
 export function ThemeNotice({
   assign = (url) => {
     window.location.assign(url);

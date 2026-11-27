@@ -64,8 +64,27 @@ describe('loadThemeModule', () => {
     const result = await loadThemeModule(d);
     expect(result).toEqual({ status: 'loaded', themeId: 'ocean' });
     expect(d.importModule).toHaveBeenCalledWith('/api/v1/themes/ocean/files/main.js?v=1');
-    expect(getTheme('ocean')).toBe(definition);
+    expect(getTheme('ocean')).toEqual(definition);
     expect(getThemeNotice()).toBeUndefined();
+  });
+
+  it('registers a copy of the definition that it read once', async () => {
+    const Button = () => null;
+    let reads = 0;
+    const module = {
+      id: 'ocean',
+      get slots() {
+        reads += 1;
+        return { Button };
+      },
+    };
+    const result = await loadThemeModule(
+      deps({ importModule: vi.fn(() => Promise.resolve({ default: module })) }),
+    );
+    expect(result.status).toBe('loaded');
+    expect(reads).toBe(1);
+    expect(getTheme('ocean')?.slots).toEqual({ Button });
+    expect(getTheme('ocean')).not.toBe(module);
   });
 
   it('follows the theme the daemon has chosen, not the stored hint', async () => {

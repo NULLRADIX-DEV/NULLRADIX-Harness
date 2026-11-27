@@ -1,5 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode, type SubmitEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { useSlotted } from '../../shared/ui/useSlotted';
 
 const FOCUSABLE = [
   'a[href]',
@@ -21,6 +22,8 @@ export interface ModalProps {
   onEscape: () => void;
   onSubmit: (event: SubmitEvent<HTMLFormElement>) => void;
   className?: string;
+  // The inside never goes through the slot Dialog of a theme.
+  plain?: boolean;
   children: ReactNode;
 }
 
@@ -32,9 +35,14 @@ export function Modal({
   onEscape,
   onSubmit,
   className = 'panel db-modal',
+  plain = false,
   children,
 }: ModalProps) {
   const ref = useRef<HTMLFormElement>(null);
+  // the theme styles only the visible shell; role, focus and Escape stay here
+  const slotted = useSlotted('Dialog', { labelledBy, role, className, children }, children);
+  const content = plain ? children : slotted.node;
+  const replaced = !plain && slotted.replaced;
 
   useEffect(() => {
     const node = ref.current;
@@ -78,10 +86,11 @@ export function Modal({
         aria-describedby={describedBy}
         tabIndex={-1}
         className={className}
+        data-slot={replaced ? 'Dialog' : undefined}
         onKeyDown={onKeyDown}
         onSubmit={onSubmit}
       >
-        {children}
+        {content}
       </form>
     </div>,
     document.body,

@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react';
+import { Button } from '../../shared/ui/Button';
 
 interface Common {
   label: string;
@@ -222,15 +223,14 @@ export function AccountPicker({
           </label>
         ))}
         {value.length > 0 && (
-          <button
+          <Button
             type="button"
-            className="btn"
             onClick={() => {
               onChange([]);
             }}
           >
             Clear ({emptyText})
-          </button>
+          </Button>
         )}
       </div>
       {error !== undefined && (

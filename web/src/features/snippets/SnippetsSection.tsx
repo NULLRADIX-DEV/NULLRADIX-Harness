@@ -11,6 +11,8 @@ import {
   type Snippet,
 } from './queries';
 import './snippets.css';
+import { Button } from '../../shared/ui/Button';
+import { Panel } from '../../shared/ui/Panel';
 
 const NAME_MAX = 100;
 
@@ -66,13 +68,9 @@ function CreateForm({ taken }: { taken: readonly string[] }) {
           }}
         />
       </label>
-      <button
-        type="submit"
-        className="btn primary"
-        disabled={create.isPending || name.trim() === ''}
-      >
+      <Button type="submit" variant="primary" disabled={create.isPending || name.trim() === ''}>
         Add snippet
-      </button>
+      </Button>
       <FormError message={problemMessage(create.error, MESSAGES, 'Could not add the snippet.')} />
     </form>
   );
@@ -119,9 +117,9 @@ function EditForm({ item, onDone }: { item: Snippet; onDone: () => void }) {
         }}
       />
       <div className="form-row">
-        <button
+        <Button
           type="submit"
-          className="btn primary"
+          variant="primary"
           disabled={
             update.isPending ||
             name.trim() === '' ||
@@ -129,10 +127,10 @@ function EditForm({ item, onDone }: { item: Snippet; onDone: () => void }) {
           }
         >
           Save
-        </button>
-        <button type="button" className="btn" onClick={onDone}>
+        </Button>
+        <Button type="button" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
       <FormError message={problemMessage(update.error, MESSAGES, 'Could not save the snippet.')} />
     </form>
@@ -158,34 +156,31 @@ function Row({ item }: { item: Snippet }) {
         </div>
         {mode === 'view' && (
           <span className="project-actions">
-            <button
+            <Button
               type="button"
-              className="btn"
               onClick={() => {
                 setMode('edit');
               }}
             >
               Edit {item.name}
-            </button>{' '}
-            <button
+            </Button>{' '}
+            <Button
               type="button"
-              className="btn"
               disabled={update.isPending}
               onClick={() => {
                 update.mutate({ id: item.id, version: item.version, enabled: !item.enabled });
               }}
             >
               {item.enabled ? `Turn off ${item.name}` : `Turn on ${item.name}`}
-            </button>{' '}
-            <button
+            </Button>{' '}
+            <Button
               type="button"
-              className="btn"
               onClick={() => {
                 setMode('delete');
               }}
             >
               Delete {item.name}
-            </button>
+            </Button>
           </span>
         )}
       </div>
@@ -195,19 +190,19 @@ function Row({ item }: { item: Snippet }) {
           <p>
             Delete <strong>{item.name}</strong>? Its style no longer applies.
           </p>
-          <button
+          <Button
             type="button"
-            className="btn danger"
+            variant="danger"
             disabled={remove.isPending}
             onClick={() => {
               remove.mutate({ id: item.id, version: item.version }, { onSuccess: back });
             }}
           >
             Delete
-          </button>{' '}
-          <button type="button" className="btn" onClick={back}>
+          </Button>{' '}
+          <Button type="button" onClick={back}>
             Keep
-          </button>
+          </Button>
         </div>
       )}
       <FormError
@@ -225,7 +220,7 @@ export function SnippetsSection() {
   const snippets = useQuery(snippetsQuery());
   const items = snippets.data ?? [];
   return (
-    <section className="panel page-section" aria-labelledby="snippets-heading">
+    <Panel as="section" className="panel page-section" aria-labelledby="snippets-heading">
       <h2 id="snippets-heading">CSS snippets</h2>
       <p className="muted">
         Your own styles on top of the theme. Snippets that are on apply in the order of this list;
@@ -239,6 +234,6 @@ export function SnippetsSection() {
         ))}
       </ul>
       <CreateForm taken={items.map((item) => item.id)} />
-    </section>
+    </Panel>
   );
 }

@@ -10,6 +10,8 @@ import {
 } from '../../shared/query/themes';
 import { FormError } from '../../shared/ui/FormError';
 import { useTheme } from '../../shared/ui/ThemeProvider';
+import { Panel } from '../../shared/ui/Panel';
+import { Button } from '../../shared/ui/Button';
 
 const MESSAGES = {
   'version-conflict': 'These settings changed in the meantime. They are up to date now.',
@@ -46,7 +48,7 @@ function ThemeSettingsForm({ theme }: { theme: Theme }) {
   };
 
   return (
-    <section className="panel page-section" aria-labelledby="theme-settings-heading">
+    <Panel as="section" className="panel page-section" aria-labelledby="theme-settings-heading">
       <h2 id="theme-settings-heading">Settings of {theme.name}</h2>
       {stored.isError && <FormError message="Could not load the settings." />}
       <div className="theme-settings">
@@ -93,9 +95,8 @@ function ThemeSettingsForm({ theme }: { theme: Theme }) {
       </div>
       <FormError message={general} />
       <div className="form-row">
-        <button
+        <Button
           type="button"
-          className="btn"
           disabled={busy || saved.version === 0}
           onClick={() => {
             save.reset();
@@ -103,9 +104,9 @@ function ThemeSettingsForm({ theme }: { theme: Theme }) {
           }}
         >
           Reset to defaults
-        </button>
+        </Button>
       </div>
-    </section>
+    </Panel>
   );
 }
 

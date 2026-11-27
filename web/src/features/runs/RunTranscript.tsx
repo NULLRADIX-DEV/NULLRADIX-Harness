@@ -3,6 +3,7 @@ import { problemMessage } from '../../shared/api/problemMessage';
 import { FormError } from '../../shared/ui/FormError';
 import { useRunTranscript } from './dispatchQueries';
 import { foldResults } from './transcriptLines';
+import { Button } from '../../shared/ui/Button';
 
 // The readable log of a run; Exact shows the whole call or message of every line.
 export function RunTranscript({ runId, active }: { runId: string; active: boolean }) {
@@ -14,16 +15,16 @@ export function RunTranscript({ runId, active }: { runId: string; active: boolea
     <section className="run-transcript" aria-label="Transcript">
       <div className="run-section-head">
         <h4>Transcript</h4>
-        <button
+        <Button
           type="button"
-          className="btn small"
+          className="small"
           aria-pressed={exact}
           onClick={() => {
             setExact((current) => !current);
           }}
         >
           Exact
-        </button>
+        </Button>
       </div>
       {items.length > 0 && (
         <ol className="run-steps">

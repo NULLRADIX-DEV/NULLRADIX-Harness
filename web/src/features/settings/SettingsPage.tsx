@@ -19,6 +19,7 @@ export function SettingsPage() {
       <ProjectsSection />
       <AccountsSection />
       <DispatcherSection />
+      {/* plain section, never a slot: the way back to a built-in theme must not depend on theme code */}
       <section className="panel page-section">
         <h2>Appearance</h2>
         <label className="field">

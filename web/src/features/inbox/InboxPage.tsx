@@ -20,6 +20,7 @@ import {
   type InboxKind,
 } from './queries';
 import './inbox.css';
+import { Button } from '../../shared/ui/Button';
 
 const ORDER_MESSAGES: ProblemMessages = {
   'version-conflict':
@@ -153,16 +154,15 @@ function InboxRow({
           Down
         </button>
         {label && (
-          <button
+          <Button
             type="button"
-            className="btn"
             disabled={action.isPending}
             onClick={() => {
               action.mutate(item);
             }}
           >
             {label}
-          </button>
+          </Button>
         )}
       </div>
     </li>
@@ -277,16 +277,15 @@ export function InboxPage() {
             {data ? `${KIND_LABELS[kind]} (${String(data.counts[kind])})` : KIND_LABELS[kind]}
           </button>
         ))}
-        <button
+        <Button
           type="button"
-          className="btn"
           disabled={reset.isPending || !data}
           onClick={() => {
             if (data) reset.mutate(data.orderVersion);
           }}
         >
           Reset order
-        </button>
+        </Button>
       </div>
       {filtering && shown.length > 1 && (
         <p className="muted inbox-hint">Reordering works only without filters.</p>

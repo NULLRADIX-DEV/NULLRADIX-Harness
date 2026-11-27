@@ -12,6 +12,7 @@ import { TicketSessions } from './TicketSessions';
 import { TicketWork } from './TicketWork';
 import { useDraft } from './useDraft';
 import { useTicketActions, type TicketActions } from './useTicketActions';
+import { Button } from '../../shared/ui/Button';
 
 function oneLine(text: string): string {
   return text.replace(/[ \t]*\r?\n[ \t]*/g, ' ');
@@ -96,15 +97,15 @@ function DeleteTicket({
   if (!confirming) {
     return (
       <div className="db-panel-foot">
-        <button
+        <Button
           type="button"
-          className="btn danger"
+          variant="danger"
           onClick={() => {
             setConfirming(true);
           }}
         >
           Delete ticket
-        </button>
+        </Button>
       </div>
     );
   }
@@ -121,9 +122,9 @@ function DeleteTicket({
         }}
       >
         <span>Delete {ticket.key} for good? This cannot be undone.</span>
-        <button
+        <Button
           type="button"
-          className="btn danger"
+          variant="danger"
           disabled={actions.busy}
           onClick={() => {
             void actions.remove().then((removed) => {
@@ -132,17 +133,16 @@ function DeleteTicket({
           }}
         >
           Delete for good
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn"
           autoFocus
           onClick={() => {
             setConfirming(false);
           }}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

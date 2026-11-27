@@ -1,34 +1,38 @@
+import { Card } from '../../shared/ui/Card';
+import { Progress } from '../../shared/ui/Progress';
 import { PRIORITY_LABELS } from '../tickets/labels';
 import type { Ticket } from '../tickets/queries';
 
 function StepsProgress({ done, total }: { done: number; total: number }) {
   const complete = done >= total;
   return (
-    <span className="card-steps">
-      <span
-        className="card-steps-bar"
-        role="progressbar"
-        aria-label="Steps done"
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={done}
-      >
+    <Progress done={done} total={total} label="Steps done" caption="steps done">
+      <span className="card-steps">
         <span
-          className={complete ? 'card-steps-fill complete' : 'card-steps-fill'}
-          style={{ width: `${String(Math.round((done / total) * 100))}%` }}
-        />
+          className="card-steps-bar"
+          role="progressbar"
+          aria-label="Steps done"
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={done}
+        >
+          <span
+            className={complete ? 'card-steps-fill complete' : 'card-steps-fill'}
+            style={{ width: `${String(Math.round((done / total) * 100))}%` }}
+          />
+        </span>
+        <span className="card-steps-text">
+          {done}/{total} steps
+        </span>
       </span>
-      <span className="card-steps-text">
-        {done}/{total} steps
-      </span>
-    </span>
+    </Progress>
   );
 }
 
 export function TicketCard({ ticket, onOpen }: { ticket: Ticket; onOpen: (key: string) => void }) {
   const blocked = ticket.status === 'blocked';
   return (
-    <article className={ticket.waiting ? 'card db-card is-waiting' : 'card db-card'}>
+    <Card as="article" className={ticket.waiting ? 'card db-card is-waiting' : 'card db-card'}>
       <button
         type="button"
         className="db-card-open"
@@ -79,6 +83,6 @@ export function TicketCard({ ticket, onOpen }: { ticket: Ticket; onOpen: (key: s
           <span className="card-waiting">waits on {ticket.dependsOpen.join(', ')}</span>
         )}
       </button>
-    </article>
+    </Card>
   );
 }

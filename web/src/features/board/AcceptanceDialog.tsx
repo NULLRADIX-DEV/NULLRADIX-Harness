@@ -1,6 +1,8 @@
 import { useId, useState } from 'react';
 import { ACCEPTANCE_QUESTION } from './messages';
 import { Modal } from './Modal';
+import { Input } from '../../shared/ui/Input';
+import { Button } from '../../shared/ui/Button';
 
 // Asks for the missing acceptance criteria before a move to done; cancel leaves the ticket.
 export function AcceptanceDialog({
@@ -29,21 +31,22 @@ export function AcceptanceDialog({
       <p className="db-dialog-hint">
         {ticketKey} has no acceptance criteria yet. It cannot move to done without them.
       </p>
-      <textarea
+      <Input
+        multiline
         aria-label="Acceptance"
         rows={4}
         value={text}
-        onChange={(event) => {
-          setText(event.target.value);
+        onChange={(text) => {
+          setText(text);
         }}
       />
       <div className="actions">
-        <button type="submit" className="btn primary" disabled={!ready}>
+        <Button type="submit" variant="primary" disabled={!ready}>
           Move to done
-        </button>
-        <button type="button" className="btn" onClick={onCancel}>
+        </Button>
+        <Button type="button" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </Modal>
   );

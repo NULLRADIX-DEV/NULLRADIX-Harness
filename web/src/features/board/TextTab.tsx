@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from 'react';
 import type { Ticket } from '../tickets/queries';
 import type { TicketActions } from './useTicketActions';
+import { Button } from '../../shared/ui/Button';
 
 export type TextField = 'description' | 'acceptance' | 'plan' | 'handbook';
 
@@ -65,23 +66,22 @@ export function TextTab({
           onKeyDown={onKeyDown}
         />
         <div className="actions">
-          <button
+          <Button
             type="button"
-            className="btn primary"
+            variant="primary"
             disabled={actions.busy || edit.draft === text}
             onClick={() => void save()}
           >
             Save (Ctrl+Enter)
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn"
             onClick={() => {
               setEdit(null);
             }}
           >
             Cancel
-          </button>
+          </Button>
         </div>
       </>
     );
@@ -89,15 +89,14 @@ export function TextTab({
   return (
     <>
       <div className="actions">
-        <button
+        <Button
           type="button"
-          className="btn"
           onClick={() => {
             setEdit({ draft: text, from: text });
           }}
         >
           Edit
-        </button>
+        </Button>
       </div>
       {text.trim() === '' ? (
         <p className="muted">{empty}</p>

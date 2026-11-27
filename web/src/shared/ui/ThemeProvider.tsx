@@ -23,7 +23,9 @@ import {
   type InstalledLook,
 } from '../lib/theme';
 import { isSafeTheme } from '../lib/safeTheme';
+import { activeThemeDefinition } from '../lib/themeSlots';
 import { themesQuery, useChooseTheme, type Theme } from '../query/themes';
+import { SlotThemeContext } from './useSlot';
 
 interface ThemeState {
   // A built-in theme or the id of an installed one.
@@ -113,7 +115,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(() => ({ mode, setMode, installed }), [mode, setMode, installed]);
-  return <ThemeContext value={value}>{children}</ThemeContext>;
+  // only the shown theme counts, and only while its code switch is on; a change applies at once
+  const slotTheme = activeThemeDefinition(mode, themes.data?.items);
+  return (
+    <ThemeContext value={value}>
+      <SlotThemeContext value={slotTheme}>{children}</SlotThemeContext>
+    </ThemeContext>
+  );
 }
 
 export function useTheme(): ThemeState {

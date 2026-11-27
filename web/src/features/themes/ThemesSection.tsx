@@ -100,6 +100,7 @@ function RemoveRow({ theme }: { theme: Theme }) {
   );
 }
 
+// Plain elements, never slots: the code switch must not depend on theme code.
 export function ThemesSection() {
   const themes = useQuery(themesQuery());
   const install = useInstallTheme();
