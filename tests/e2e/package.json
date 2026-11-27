@@ -4,7 +4,7 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "scripts": {
-    "build:daemon": "cargo build -p nullradix-cli -p nullradix-fake-claude",
+    "build:daemon": "cargo build --locked -p nullradix-cli -p nullradix-fake-claude",
     "build:web": "npm run build --prefix ../../web",
     "build": "npm run build:daemon && npm run build:web",
     "browsers": "playwright install chromium",

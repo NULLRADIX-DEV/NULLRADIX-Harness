@@ -31,6 +31,10 @@ test('a ticket is created, dispatched, reviewed and merged', async ({ page, daem
   await expect(card('Planned')).toBeVisible();
 
   await dispatcherMenu(page, 'Enable');
+  // the pass must not reach the server before the switch does
+  await expect(page.getByRole('button', { name: /^Dispatcher:/ })).not.toHaveText(
+    'Dispatcher: Off',
+  );
   await dispatcherMenu(page, 'Run pass now');
   await expect(card('In progress')).toBeVisible();
   await expect
@@ -39,7 +43,8 @@ test('a ticket is created, dispatched, reviewed and merged', async ({ page, daem
         await daemon.api('GET', '/api/v1/runs?ticketKey=ARC-0001&kind=work'),
         'items',
       );
-      return record(runs[0], 'a run')['status'];
+      // the ticket moves before its run exists
+      return runs.length === 0 ? undefined : record(runs[0], 'a run')['status'];
     })
     .toBe('succeeded');
 

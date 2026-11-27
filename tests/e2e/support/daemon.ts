@@ -30,7 +30,17 @@ const SCRUBBED = [
   'FAKE_CLAUDE_MODE',
   'FAKE_CLAUDE_REPLY',
   'FAKE_CLAUDE_REPLY_FILE',
+  'FAKE_CLAUDE_MERGE',
+  'NULLRADIX_THEME_CATALOG_LOCAL',
+  'NULLRADIX_SESSION',
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_COMMON_DIR',
 ];
+
+const REQUEST_MS = 10_000;
+const KILL_MS = 10_000;
 
 const ACTIVE = new Set(['starting', 'running']);
 
@@ -61,7 +71,8 @@ export class Daemon {
     try {
       await daemon.launch();
     } catch (error) {
-      await rm(home, { recursive: true, force: true });
+      await daemon.kill();
+      await rm(home, { recursive: true, force: true }).catch(() => undefined);
       throw error;
     }
     return daemon;
@@ -138,7 +149,9 @@ export class Daemon {
 
   private async healthy(address: string): Promise<boolean> {
     try {
-      return (await fetch(`http://${address}/api/v1/health`)).ok;
+      return (
+        await fetch(`http://${address}/api/v1/health`, { signal: AbortSignal.timeout(REQUEST_MS) })
+      ).ok;
     } catch {
       return false;
     }
@@ -152,16 +165,22 @@ export class Daemon {
     }
   }
 
-  // Stops the daemon abruptly and starts it again on the same home and port.
+  // Kills the process without a clean shutdown; waits for the exit, forcing it after a while.
+  private async kill(): Promise<void> {
+    this.child?.kill('SIGKILL');
+    await Promise.race([this.ended, sleep(KILL_MS)]);
+  }
+
+  // Crashes the daemon (SIGKILL) and starts it again on the same home and port.
   async restart(): Promise<void> {
-    this.child?.kill();
-    await this.ended;
+    await this.kill();
     await this.launch();
   }
 
   async api(method: string, path: string, body?: unknown): Promise<unknown> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       method,
+      signal: AbortSignal.timeout(REQUEST_MS),
       headers: {
         Authorization: `Bearer ${this.token}`,
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
@@ -194,8 +213,7 @@ export class Daemon {
   // Cancels what still runs, since run supervisors outlive the daemon, then removes the home.
   async stop(): Promise<void> {
     await this.windDown();
-    this.child?.kill();
-    await this.ended;
+    await this.kill();
     try {
       await rm(this.home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     } catch (error) {
@@ -216,6 +234,8 @@ export class Daemon {
   }
 
   private async windDown(): Promise<void> {
+    // no pass may start a new run while the old ones end
+    await this.api('PATCH', '/api/v1/dispatcher', { enabled: false }).catch(() => null);
     for (const id of await this.active()) {
       await this.api('POST', `/api/v1/runs/${id}/cancel`).catch(() => null);
     }
