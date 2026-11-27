@@ -868,7 +868,7 @@ mod tests {
     fn without_a_daemon_only_the_shipped_files_are_staged_and_the_note_says_so() {
         let home = tempfile::tempdir().unwrap();
         let (customs, note) = collect_customs(Profile::Release, Some(home.path()));
-        assert!(customs.is_empty());
+        assert_eq!(customs.len(), 0);
         let note = note.unwrap();
         assert!(note.contains("customizations not applied"), "{note}");
         assert!(note.contains("only the shipped plugin files"), "{note}");

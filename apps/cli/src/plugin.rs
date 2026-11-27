@@ -93,7 +93,8 @@ fn style_file(name: &str) -> String {
 }
 
 /// The names of the shipped skills or output styles, sorted.
-pub(crate) fn shipped_names(point: ExtensionPoint) -> Vec<String> {
+#[cfg(test)]
+fn shipped_names(point: ExtensionPoint) -> Vec<String> {
     let (prefix, suffix) = match point {
         ExtensionPoint::Skill => ("skills/", "/SKILL.md"),
         ExtensionPoint::OutputStyle => ("output-styles/", ".md"),
@@ -751,7 +752,7 @@ Own
             )
             .await
             .unwrap();
-        assert!(line.problems.is_empty());
+        assert_eq!(line.problems.len(), 0);
         let applied = customs(&service.list().await.unwrap());
         assert_eq!(applied.len(), 2);
 
