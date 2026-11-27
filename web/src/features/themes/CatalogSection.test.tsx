@@ -6,7 +6,7 @@ import type {
   CatalogSourceStatus,
   CatalogTheme,
 } from '../../shared/query/themeCatalog';
-import { fakeApi, json, problem } from '../../test/fakeApi';
+import { confirmation, fakeApi, json, problem } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
 
 const URL_A = 'https://themes.example.com/index.json';
@@ -236,5 +236,43 @@ describe('CatalogSection', () => {
     await waitFor(() => {
       expect(api.requests('GET /api/v1/theme-catalog/themes')).toHaveLength(2);
     });
+  });
+
+  it('asks before installing a theme with code and installs it once confirmed', async () => {
+    const route = 'POST /api/v1/theme-catalog/sources/aaaaaaaaaaaa/themes/night-blue/install';
+    const api = catalogServer({ sources: [source('aaaaaaaaaaaa', URL_A)], themes: [offered()] });
+    api.set(route, (request) => {
+      if (new URL(request.url).searchParams.get('confirmed') === 'true') return json(201, {});
+      return confirmation({ hasCode: true, codeAdded: true, domainsAdded: ['cdn.example.com'] });
+    });
+    renderApp('/settings');
+    await userEvent.click(await screen.findByRole('button', { name: 'Install Night Blue' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Install Night Blue?' });
+    expect(within(dialog).getByText(/This theme contains code/)).toBeInTheDocument();
+    expect(within(dialog).getByText('cdn.example.com')).toBeInTheDocument();
+    expect(screen.queryByText('the package needs a confirmation')).not.toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Install' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    const urls = api.requests(route).map((request) => new URL(request.url).search);
+    expect(urls).toEqual(['', '?confirmed=true']);
+  });
+
+  it('installs nothing when the confirmation is cancelled', async () => {
+    const route = 'POST /api/v1/theme-catalog/sources/aaaaaaaaaaaa/themes/night-blue/install';
+    const api = catalogServer({
+      sources: [source('aaaaaaaaaaaa', URL_A)],
+      themes: [offered({ state: 'update', installedVersion: '1.0.0' })],
+    });
+    api.set(route, () => confirmation({ update: true, codeAdded: true }));
+    renderApp('/settings');
+    await userEvent.click(await screen.findByRole('button', { name: 'Update Night Blue' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Update Night Blue?' });
+    expect(within(dialog).getByText(/This update adds code/)).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.requests(route)).toHaveLength(1);
   });
 });

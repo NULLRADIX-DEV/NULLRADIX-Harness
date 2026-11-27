@@ -73,3 +73,13 @@
   gap: 4px;
   font-size: 13px;
 }
+
+.theme-confirm-facts p {
+  margin: 0 0 8px;
+}
+
+.theme-confirm-facts ul {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}

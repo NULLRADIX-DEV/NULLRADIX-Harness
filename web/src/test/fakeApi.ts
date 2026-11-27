@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import type { Confirmation } from '../shared/api/errors';
 
 export type Handler = (request: Request) => Response | Promise<Response>;
 
@@ -45,4 +46,29 @@ export function fakeApi(handlers: Record<string, Handler> = {}) {
         .filter((request) => `${request.method} ${new URL(request.url).pathname}` === route);
     },
   };
+}
+
+// A 409 that asks for a confirmation before a theme with code or network domains is installed.
+export function confirmation(overrides: Partial<Confirmation>): Response {
+  const facts: Confirmation = {
+    hasCode: false,
+    domains: [],
+    claudeTheme: false,
+    update: false,
+    codeAdded: false,
+    domainsAdded: [],
+    ...overrides,
+  };
+  const body = {
+    type: 'about:blank',
+    title: 'Conflict',
+    status: 409,
+    code: 'theme-confirmation-required',
+    detail: 'the package needs a confirmation',
+    confirmation: facts,
+  };
+  return new Response(JSON.stringify(body), {
+    status: 409,
+    headers: { 'content-type': 'application/problem+json' },
+  });
 }
