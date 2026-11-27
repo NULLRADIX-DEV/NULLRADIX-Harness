@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use axum::extract::Request;
-use axum::http::{HeaderValue, header};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use tower::ServiceExt;
@@ -17,6 +17,10 @@ pub(crate) async fn serve(dir: &Path, request: Request) -> Response {
         Ok(response) => response.into_response(),
         Err(never) => match never {},
     };
+    // a 304 keeps the policy the browser already stored with its copy
+    if response.status() == StatusCode::NOT_MODIFIED {
+        return response;
+    }
     // hashed bundles never change; the shell, boot files and unknown paths are revalidated
     let shell = response
         .headers()
@@ -125,6 +129,26 @@ mod tests {
         assert_eq!(headers["cache-control"], "no-cache");
         let (_, headers, _) = get(&api.router, "/assets/missing.js").await;
         assert_eq!(headers["cache-control"], "no-cache");
+    }
+
+    #[tokio::test]
+    async fn a_revalidated_asset_keeps_its_cached_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("index.html"), "<html>shell</html>").unwrap();
+        fs::create_dir(dir.path().join("assets")).unwrap();
+        fs::write(dir.path().join("assets").join("app.js"), "console.log(1)").unwrap();
+        let api = test_api_with_web(Some(dir.path().to_path_buf())).await;
+        let (_, headers, _) = get(&api.router, "/assets/app.js").await;
+        let modified = headers["last-modified"].clone();
+
+        let request = local(Request::get("/assets/app.js"))
+            .header("if-modified-since", modified)
+            .body(Body::empty())
+            .unwrap();
+        let response = api.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert!(response.headers().get("cache-control").is_none());
     }
 
     #[tokio::test]
