@@ -20,6 +20,7 @@ use super::detached::{
 };
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, LogLevel};
+use super::outcome::never_spawned;
 use super::pass::{DispatchPass, PassContext, PassReport, PassStep, counts_for_wip};
 use super::pause::{PauseHook, PauseKind};
 use super::research::{BoardRoot, board_roots, same_folder};
@@ -507,8 +508,16 @@ impl PlanningRuns {
             .map(|abort| abort.category)
         {
             Some(AbortCategory::UsageLimit) => Some(PauseKind::UsageLimit),
-            Some(AbortCategory::StartFailed) => Some(PauseKind::ClaudeMissing),
+            Some(AbortCategory::StartFailed) if !never_spawned(run) => {
+                Some(PauseKind::ClaudeMissing)
+            }
             _ => None,
+        };
+        // a run that never spawned counts for nothing and pauses nothing
+        let unpaused = if never_spawned(run) {
+            DispatchOutcome::StartFailed
+        } else {
+            DispatchOutcome::Other
         };
         let outcome_of = |kind: PauseKind| match kind {
             PauseKind::UsageLimit => DispatchOutcome::PauseLimit,
@@ -516,7 +525,7 @@ impl PlanningRuns {
         };
         // a pass that stopped after the comment is picked up where it was
         if commented(&detail, run) {
-            return Ok(kind.map_or(DispatchOutcome::Other, outcome_of));
+            return Ok(kind.map_or(unpaused, outcome_of));
         }
         let actor = self.parts.starter.actor().await?;
         if let Some(kind) = kind
@@ -559,7 +568,7 @@ impl PlanningRuns {
                 Some(run.id()),
             )
             .await;
-        Ok(DispatchOutcome::Other)
+        Ok(unpaused)
     }
 
     /// Removes plan worktrees no run belongs to any more.

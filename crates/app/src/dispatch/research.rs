@@ -21,6 +21,7 @@ use super::detached::{
 };
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, LogLevel};
+use super::outcome::never_spawned;
 use super::pass::{DispatchPass, PassContext, PassReport, PassStep};
 use super::pause::{PauseHook, PauseKind};
 use super::runs::{DispatchRuns, StartDispatchRun};
@@ -521,8 +522,16 @@ impl ResearchRuns {
             .map(|abort| abort.category)
         {
             Some(AbortCategory::UsageLimit) => Some(PauseKind::UsageLimit),
-            Some(AbortCategory::StartFailed) => Some(PauseKind::ClaudeMissing),
+            Some(AbortCategory::StartFailed) if !never_spawned(run) => {
+                Some(PauseKind::ClaudeMissing)
+            }
             _ => None,
+        };
+        // a run that never spawned counts for nothing and pauses nothing
+        let unpaused = if never_spawned(run) {
+            DispatchOutcome::StartFailed
+        } else {
+            DispatchOutcome::Other
         };
         let outcome_of = |kind: PauseKind| match kind {
             PauseKind::UsageLimit => DispatchOutcome::PauseLimit,
@@ -530,7 +539,7 @@ impl ResearchRuns {
         };
         // a pass that stopped after the comment is picked up where it was
         if commented(&detail, run) {
-            return Ok(kind.map_or(DispatchOutcome::Other, outcome_of));
+            return Ok(kind.map_or(unpaused, outcome_of));
         }
         let actor = self.parts.starter.actor().await?;
         // a limit or missing Claude pauses as it does for tickets and counts for nothing
@@ -575,7 +584,7 @@ impl ResearchRuns {
                 Some(run.id()),
             )
             .await;
-        Ok(DispatchOutcome::Other)
+        Ok(unpaused)
     }
 
     /// The tickets of an autopilot question: open and asked by an agent of the dispatcher.
