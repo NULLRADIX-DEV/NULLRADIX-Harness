@@ -3,15 +3,15 @@
 use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 use std::time::Duration;
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 use crate::command;
 
 #[cfg(any(windows, test))]
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const REG_LIMIT: Duration = Duration::from_secs(10);
 
 /// What starts at login.
