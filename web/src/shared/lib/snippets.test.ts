@@ -16,11 +16,15 @@ function links(): HTMLLinkElement[] {
   return [...document.head.querySelectorAll('link')];
 }
 
+const o = String.fromCodePoint(0xf6);
+const ss = String.fromCodePoint(0xdf);
+const e = String.fromCodePoint(0xe9);
+
 describe('snippetId', () => {
   it('turns a name into a short id', () => {
     expect(snippetId('Red Links', [])).toBe('red-links');
-    expect(snippetId('  Größe: groß!  ', [])).toBe('groesse-gross');
-    expect(snippetId('café', [])).toBe('cafe');
+    expect(snippetId(`  Gr${o}${ss}e: gro${ss}!  `, [])).toBe('groesse-gross');
+    expect(snippetId(`caf${e}`, [])).toBe('cafe');
     expect(snippetId('x'.repeat(60), [])).toHaveLength(40);
   });
 

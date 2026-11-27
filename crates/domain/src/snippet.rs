@@ -1,6 +1,6 @@
 //! CSS snippets: small stylesheets a person adds on top of the active theme.
 
-use std::fmt;
+use std::fmt::{self, Write};
 
 use crate::theme::{strip_comments, url_values};
 use crate::{PackageError, TextError, Timestamp, Version, check_theme_css, required_text};
@@ -191,8 +191,10 @@ pub fn active_stylesheet(snippets: &[Snippet]) -> String {
     ordered.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.id.cmp(&b.id)));
     ordered
         .into_iter()
-        .map(|record| format!("/* snippet: {} */\n{}\n", record.id, record.css))
-        .collect()
+        .fold(String::new(), |mut sheet, record| {
+            let _ = writeln!(sheet, "/* snippet: {} */\n{}", record.id, record.css);
+            sheet
+        })
 }
 
 #[cfg(test)]

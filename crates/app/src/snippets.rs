@@ -388,6 +388,7 @@ mod tests {
         service.delete("one", Version::INITIAL).await.unwrap();
         let again = service.delete("one", Version::INITIAL).await.unwrap_err();
         assert_eq!(again.code(), "snippet-missing");
-        assert!(service.list().await.unwrap().is_empty());
+        let rest = service.list().await.unwrap();
+        assert!(matches!(rest.as_slice(), []));
     }
 }

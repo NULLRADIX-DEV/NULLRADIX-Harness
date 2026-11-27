@@ -259,6 +259,7 @@ mod tests {
         )
     }
 
+    #[allow(clippy::unnecessary_wraps, reason = "it is the body of a request")]
     fn create(id: &str, css: &str) -> Option<Value> {
         Some(json!({ "id": id, "name": format!("Name {id}"), "css": css }))
     }
