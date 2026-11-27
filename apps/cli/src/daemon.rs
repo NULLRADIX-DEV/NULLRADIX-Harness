@@ -37,6 +37,7 @@ use nullradix_app::repositories::RunnerService;
 use nullradix_app::review::{ReviewParts, ReviewService};
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
+use nullradix_app::snippets::SnippetService;
 use nullradix_app::theme_catalog::CatalogService;
 use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
@@ -155,7 +156,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         &signal,
     )
     .await?;
-    let (themes, catalog, customizations) = start_extensions(config, &store, &signal);
+    let (themes, catalog, customizations, snippets) = start_extensions(config, &store, &signal);
     let claude_theme = start_claude_theme(config, &store, &themes, &signal);
     if let Err(error) = claude_theme.reconcile().await {
         tracing::warn!(%error, "cannot sync the Claude theme");
@@ -222,6 +223,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         claude_theme,
         autostart,
         customizations,
+        snippets,
         changes: Arc::new(store.clone()),
         signal,
         shutdown: shutdown.clone(),
@@ -545,6 +547,7 @@ fn start_extensions(
     Arc<ThemeService>,
     Arc<CatalogService>,
     Arc<CustomizationService>,
+    Arc<SnippetService>,
 ) {
     let themes = Arc::new(ThemeService::new(
         Arc::new(store.clone()),
@@ -573,7 +576,13 @@ fn start_extensions(
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    (themes, catalog, customizations)
+    let snippets = Arc::new(SnippetService::new(
+        Arc::new(store.clone()),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        signal.clone(),
+    ));
+    (themes, catalog, customizations, snippets)
 }
 
 /// Toasts for notices; a home override, as tests use, shows none.

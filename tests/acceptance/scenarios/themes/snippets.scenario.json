@@ -1,0 +1,170 @@
+{
+  "title": "CSS snippets are checked, ordered, switched, served as one stylesheet and deleted with a version",
+  "steps": [
+    {
+      "name": "no snippets yet",
+      "http": { "method": "GET", "path": "/api/v1/snippets" }
+    },
+    {
+      "name": "the stylesheet is empty",
+      "http": { "method": "GET", "path": "/api/v1/snippets/active.css" }
+    },
+    {
+      "name": "add a snippet",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/snippets",
+        "body": { "id": "red-links", "name": "Red links", "css": "a { color: red; }" }
+      }
+    },
+    {
+      "name": "add a switched off snippet",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/snippets",
+        "body": {
+          "id": "wide",
+          "name": "Wide",
+          "css": "main { max-width: none; }",
+          "enabled": false
+        }
+      }
+    },
+    {
+      "name": "add a snippet with a data url",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/snippets",
+        "body": {
+          "id": "dot",
+          "name": "Dot",
+          "css": "body { background: url(data:image/gif;base64,R0lGODlhAQABAAAAACw=); }"
+        }
+      }
+    },
+    {
+      "name": "the id is taken",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/snippets",
+        "body": { "id": "red-links", "name": "Again", "css": "a {}" }
+      }
+    },
+    {
+      "name": "the id is checked",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/snippets",
+        "body": { "id": "Red Links", "name": "Bad", "css": "a {}" }
+      }
+    },
+    {
+      "name": "an import is refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/snippets",
+        "body": { "id": "import", "name": "Import", "css": "@import 'https://evil.test/a.css';" }
+      }
+    },
+    {
+      "name": "a remote url is refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/snippets",
+        "body": {
+          "id": "remote",
+          "name": "Remote",
+          "css": "a { background: url(https://evil.test/a.png); }"
+        }
+      }
+    },
+    {
+      "name": "a script url is refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/snippets",
+        "body": {
+          "id": "script",
+          "name": "Script",
+          "css": "a { background: url(javascript:alert(1)); }"
+        }
+      }
+    },
+    {
+      "name": "a file of the app is not reachable either",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/snippets",
+        "body": {
+          "id": "local",
+          "name": "Local",
+          "css": "a { background: url(/api/v1/snippets); }"
+        }
+      }
+    },
+    {
+      "name": "the list is in delivery order",
+      "http": { "method": "GET", "path": "/api/v1/snippets" }
+    },
+    {
+      "name": "only enabled snippets are served, in order",
+      "http": { "method": "GET", "path": "/api/v1/snippets/active.css" }
+    },
+    {
+      "name": "switch the second one on",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/snippets/wide",
+        "body": { "enabled": true, "version": 1 }
+      }
+    },
+    {
+      "name": "change the text of the first",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/snippets/red-links",
+        "body": { "css": "a { color: darkred; }", "version": 1 }
+      }
+    },
+    {
+      "name": "a stale version is refused",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/snippets/red-links",
+        "body": { "enabled": false, "version": 1 }
+      }
+    },
+    {
+      "name": "an import is refused on change too",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/snippets/red-links",
+        "body": { "css": "@import 'x.css';", "version": 2 }
+      }
+    },
+    {
+      "name": "the stylesheet follows the changes",
+      "http": { "method": "GET", "path": "/api/v1/snippets/active.css" }
+    },
+    {
+      "name": "a stale delete is refused",
+      "http": { "method": "DELETE", "path": "/api/v1/snippets/red-links?version=1" }
+    },
+    {
+      "name": "delete it",
+      "http": { "method": "DELETE", "path": "/api/v1/snippets/red-links?version=2" }
+    },
+    {
+      "name": "deleting again says it is gone",
+      "http": { "method": "DELETE", "path": "/api/v1/snippets/red-links?version=2" }
+    },
+    {
+      "name": "the stylesheet no longer has it",
+      "http": { "method": "GET", "path": "/api/v1/snippets/active.css" }
+    },
+    {
+      "name": "snippets need a login",
+      "http": { "method": "GET", "path": "/api/v1/snippets/active.css", "auth": "none" }
+    }
+  ]
+}

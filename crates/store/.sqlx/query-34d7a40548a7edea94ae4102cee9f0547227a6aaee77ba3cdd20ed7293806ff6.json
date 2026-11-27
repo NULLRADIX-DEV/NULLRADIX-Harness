@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT snippet_id, name, css, enabled, sort_order, created_at, updated_at, version\n         FROM css_snippets\n         WHERE (?1 IS NULL OR snippet_id = ?1)\n         ORDER BY sort_order, snippet_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "snippet_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "snippet_id"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "css",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "css"
+          }
+        }
+      },
+      {
+        "name": "enabled",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "name": "sort_order",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "sort_order"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 7,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "34d7a40548a7edea94ae4102cee9f0547227a6aaee77ba3cdd20ed7293806ff6"
+}

@@ -1205,6 +1205,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/snippets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_snippets"];
+        put?: never;
+        post: operations["create_snippet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/snippets/active.css": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["active_snippets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/snippets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_snippet"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_snippet"];
+        options?: never;
+        head?: never;
+        patch: operations["update_snippet"];
+        trace?: never;
+    };
     "/api/v1/stats/dispatch": {
         parameters: {
             query?: never;
@@ -2193,6 +2241,14 @@ export interface components {
             tickets?: string[];
             title: string;
         };
+        CreateSnippet: {
+            /** @description At most 64 KiB, without `@import` and without urls other than `data:`. */
+            css: string;
+            /** @description New snippets are on unless this says otherwise. */
+            enabled?: boolean | null;
+            id: string;
+            name: string;
+        };
         /** @description A new ticket; left out fields take the defaults: backlog, normal, needs planning. */
         CreateTicket: {
             acceptance?: string | null;
@@ -2455,7 +2511,7 @@ export interface components {
             source: components["schemas"]["SourceDto"];
         };
         /** @enum {string} */
-        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account" | "theme" | "setting" | "customization" | "dispatcher-config" | "dispatcher-state";
+        EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account" | "theme" | "setting" | "customization" | "snippet" | "dispatcher-config" | "dispatcher-state";
         /** @enum {string} */
         ExtensionPointDto: "skill" | "output-style";
         /** @description A marked session; its state is the live one while the session still exists. */
@@ -3670,6 +3726,28 @@ export interface components {
             index: number;
             reason: string;
         };
+        SnippetDto: {
+            /** Format: int64 */
+            createdAt: number;
+            css: string;
+            enabled: boolean;
+            /** @description Chosen by the person: 2 to 40 characters from a-z, 0-9 and -. */
+            id: string;
+            name: string;
+            /**
+             * Format: int64
+             * @description Position in the delivered stylesheet; later snippets win.
+             */
+            order: number;
+            /** Format: int64 */
+            updatedAt: number;
+            /** Format: int64 */
+            version: number;
+        };
+        SnippetList: {
+            /** @description In the order they are delivered. */
+            items: components["schemas"]["SnippetDto"][];
+        };
         /** @enum {string} */
         SourceDto: "custom" | "standard";
         /** @description A Claude run to start from the dispatcher configuration; the scheduler uses the same use case. */
@@ -4158,6 +4236,19 @@ export interface components {
         };
         UpdateDispatcherConfig: {
             config: components["schemas"]["DispatcherConfigDto"];
+            /**
+             * Format: int64
+             * @description Version the change is based on; a newer stored version fails with `version-conflict`.
+             */
+            version: number;
+        };
+        UpdateSnippet: {
+            /** @description Replaces the style text; left out keeps it. */
+            css?: string | null;
+            /** @description Switches the snippet on or off; left out keeps it. */
+            enabled?: boolean | null;
+            /** @description Replaces the name; left out keeps it. */
+            name?: string | null;
             /**
              * Format: int64
              * @description Version the change is based on; a newer stored version fails with `version-conflict`.
@@ -9203,6 +9294,274 @@ export interface operations {
             };
             /** @description Not built in and not installed */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_snippets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnippetList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_snippet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSnippet"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    /** @description URL of the snippet */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnippetDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The id is taken: `snippet-exists` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Bad id, name or style text */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    active_snippets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The enabled snippets as one stylesheet */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/css": string;
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_snippet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Id of the snippet. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnippetDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_snippet: {
+        parameters: {
+            query: {
+                /** @description Version the deletion is based on. */
+                version: number;
+            };
+            header?: never;
+            path: {
+                /** @description Id of the snippet. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_snippet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Id of the snippet. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSnippet"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnippetDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

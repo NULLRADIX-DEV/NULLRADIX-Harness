@@ -1882,6 +1882,12 @@ mod tests {
                 nullradix_app::autostart::NoAutostart,
             ))),
             customizations: customization_service(&store, &signal),
+            snippets: Arc::new(nullradix_app::snippets::SnippetService::new(
+                store.clone(),
+                Arc::new(SystemClock),
+                Arc::new(UuidV7Generator),
+                signal.clone(),
+            )),
             changes: store,
             signal,
             shutdown: tokio_util::sync::CancellationToken::new(),

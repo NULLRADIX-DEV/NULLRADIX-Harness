@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SessionRequired } from '../features/session/SessionRequired';
+import { SnippetsStylesheet } from '../features/snippets/SnippetsStylesheet';
 import { recheckSession, sessionQuery } from '../features/session/queries';
 import { ChangeStream } from '../shared/live/ChangeStream';
 import { AppLayout } from './layout/AppLayout';
@@ -16,7 +17,10 @@ export function AppShell() {
       // EventSource hides the status, so an expired session shows up as a stream error
       onError={() => void recheckSession(queryClient)}
     >
-      <AppLayout />
+      <>
+        <SnippetsStylesheet />
+        <AppLayout />
+      </>
     </ChangeStream>
   );
 }

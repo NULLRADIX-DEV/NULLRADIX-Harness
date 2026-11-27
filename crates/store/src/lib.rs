@@ -24,6 +24,7 @@ mod repositories;
 mod reviews;
 mod runs;
 mod sessions;
+mod snippets;
 mod theme_catalog;
 mod themes;
 mod tickets;

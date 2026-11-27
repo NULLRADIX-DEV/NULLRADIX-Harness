@@ -4,6 +4,7 @@ mod account;
 mod board;
 mod board_rules;
 mod comment;
+mod css_check;
 mod customization;
 mod dispatch_pass;
 mod dispatch_run;
@@ -22,6 +23,7 @@ mod repository;
 mod review;
 mod run;
 mod session;
+mod snippet;
 pub mod step;
 mod text;
 mod theme;
@@ -129,6 +131,10 @@ pub use session::{
     DisplayState, SESSION_RETENTION, SESSION_STALE, Session, SessionClient, SessionRecord,
     SessionState, SessionView, Subagent, SubagentState, path_within, session_label,
     session_prune_before, ticket_names, title_from_prompt,
+};
+pub use snippet::{
+    SNIPPET_CSS_MAX, SNIPPET_ID_MAX, SNIPPET_ID_MIN, SNIPPET_NAME_MAX, Snippet, SnippetCss,
+    SnippetError, SnippetId, SnippetName, SnippetRecord, active_stylesheet,
 };
 pub use step::{STEP_MAX, Step, StepEdit, StepError};
 pub use text::{TextError, optional_text, required_text, utf16_len, utf16_prefix};

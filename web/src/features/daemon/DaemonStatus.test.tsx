@@ -34,8 +34,8 @@ describe('DaemonStatus', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Daemon running, version 0.1.0');
     expect(statusButton()).toHaveAccessibleName('Daemon status: running');
     expect(statusButton()).toHaveClass('up');
-    const [request] = fetch.mock.calls[0] as unknown as [Request];
-    expect(new URL(request.url).pathname).toBe('/api/v1/health');
+    const paths = fetch.mock.calls.map(([request]) => new URL(request.url).pathname);
+    expect(paths).toContain('/api/v1/health');
   });
 
   it('flags a daemon with another API version as incompatible', async () => {

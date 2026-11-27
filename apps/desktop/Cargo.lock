@@ -2527,6 +2527,7 @@ dependencies = [
 name = "nullradix-domain"
 version = "0.1.0"
 dependencies = [
+ "cssparser 0.38.0",
  "semver",
  "sha2 0.11.1",
  "strum",
