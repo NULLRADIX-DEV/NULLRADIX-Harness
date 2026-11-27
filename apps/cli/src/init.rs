@@ -480,7 +480,9 @@ mod tests {
         fs::create_dir_all(board.parent().unwrap()).unwrap();
         fs::write(
             &board,
-            format!("---\n{EARLIER_MARKER_PREFIX}, not versioned.\n---\n@~/.nullradix/rules/board.md\n"),
+            format!(
+                "---\n{EARLIER_MARKER_PREFIX}, not versioned.\n---\n@~/.nullradix/rules/board.md\n"
+            ),
         )
         .unwrap();
 
