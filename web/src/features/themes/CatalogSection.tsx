@@ -13,9 +13,6 @@ import {
 import { FormError } from '../../shared/ui/FormError';
 import { ThemeConfirmDialog, confirmationOf } from './ThemeConfirmDialog';
 import './themes.css';
-import { Button } from '../../shared/ui/Button';
-import { Panel } from '../../shared/ui/Panel';
-import { Input } from '../../shared/ui/Input';
 
 const ADD_MESSAGES = {
   'catalog-source-exists': 'This address is already a source.',
@@ -67,8 +64,9 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
         {!theme.compatible && <div className="muted">Needs SDK {theme.sdkVersion}.</div>}
       </div>
       {theme.compatible && theme.state !== 'installed' && (
-        <Button
+        <button
           type="button"
+          className="btn"
           disabled={install.isPending}
           aria-label={`${label} ${theme.name}`}
           onClick={() => {
@@ -77,7 +75,7 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
           }}
         >
           {install.isPending ? 'Working...' : label}
-        </Button>
+        </button>
       )}
       {confirming && elsewhere && (
         <div
@@ -93,9 +91,9 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
             with this one?
           </p>
           <div className="form-row">
-            <Button
+            <button
               type="button"
-              variant="danger"
+              className="btn danger"
               disabled={install.isPending}
               onClick={() => {
                 install.mutate(
@@ -109,15 +107,16 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
               }}
             >
               Replace
-            </Button>
-            <Button
+            </button>
+            <button
               type="button"
+              className="btn"
               onClick={() => {
                 setConfirming(false);
               }}
             >
               Cancel
-            </Button>
+            </button>
           </div>
         </div>
       )}
@@ -192,7 +191,7 @@ export function CatalogSection() {
   }
 
   return (
-    <Panel as="section" className="panel page-section" aria-labelledby="catalog-heading">
+    <section className="panel page-section" aria-labelledby="catalog-heading">
       <h2 id="catalog-heading">Theme catalog</h2>
       {sources.isError && <FormError message="Could not load the catalog sources." />}
       {sources.data && items.length === 0 && (
@@ -204,8 +203,9 @@ export function CatalogSection() {
         {items.map((source) => (
           <li key={source.id} className="theme-row">
             <div className="theme-row-text">{source.url}</div>
-            <Button
+            <button
               type="button"
+              className="btn"
               disabled={remove.isPending}
               aria-label={`Remove source ${source.url}`}
               onClick={() => {
@@ -213,7 +213,7 @@ export function CatalogSection() {
               }}
             >
               Remove
-            </Button>
+            </button>
           </li>
         ))}
       </ul>
@@ -223,32 +223,33 @@ export function CatalogSection() {
       <form className="catalog-add" onSubmit={submit}>
         <label className="field">
           <span>Add a source</span>
-          <Input
+          <input
             type="url"
             value={url}
             placeholder="https://example.com/themes.json"
-            onChange={(text) => {
-              setUrl(text);
+            onChange={(event) => {
+              setUrl(event.target.value);
             }}
           />
         </label>
-        <Button type="submit" disabled={add.isPending || url.trim() === ''}>
+        <button type="submit" className="btn" disabled={add.isPending || url.trim() === ''}>
           Add source
-        </Button>
+        </button>
       </form>
       <FormError message={problemMessage(add.error, ADD_MESSAGES, 'Could not add the source.')} />
       {items.length > 0 && (
         <>
           <h3>Available themes</h3>
-          <Button
+          <button
             type="button"
+            className="btn"
             disabled={themes.isFetching}
             onClick={() => {
               void themes.refetch();
             }}
           >
             {themes.isFetching ? 'Loading...' : 'Refresh'}
-          </Button>
+          </button>
           {themes.isError && <FormError message="Could not load the catalog." />}
           {themes.data && (
             <>
@@ -263,6 +264,6 @@ export function CatalogSection() {
           )}
         </>
       )}
-    </Panel>
+    </section>
   );
 }

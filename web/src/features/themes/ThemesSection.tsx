@@ -11,8 +11,6 @@ import {
 import { FormError } from '../../shared/ui/FormError';
 import { ThemeConfirmDialog, confirmationOf } from './ThemeConfirmDialog';
 import './themes.css';
-import { Button } from '../../shared/ui/Button';
-import { Panel } from '../../shared/ui/Panel';
 
 export const PACKAGE_EXTENSION = '.nullradix';
 
@@ -66,40 +64,43 @@ function RemoveRow({ theme }: { theme: Theme }) {
       </div>
       {asking ? (
         <span role="group" aria-label={`Remove ${theme.name}`}>
-          <Button
+          <button
             type="button"
-            variant="danger"
+            className="btn danger"
             disabled={remove.isPending}
             onClick={() => {
               remove.mutate({ id: theme.id, version: theme.version });
             }}
           >
             Remove
-          </Button>{' '}
-          <Button
+          </button>{' '}
+          <button
             type="button"
+            className="btn"
             onClick={() => {
               setAsking(false);
             }}
           >
             Keep
-          </Button>
+          </button>
         </span>
       ) : (
-        <Button
+        <button
           type="button"
+          className="btn"
           onClick={() => {
             setAsking(true);
           }}
         >
           Remove {theme.name}
-        </Button>
+        </button>
       )}
       <FormError message={problemMessage(remove.error, MESSAGES, 'Could not remove the theme.')} />
     </li>
   );
 }
 
+// Plain elements, never slots: the code switch must not depend on theme code.
 export function ThemesSection() {
   const themes = useQuery(themesQuery());
   const install = useInstallTheme();
@@ -109,7 +110,7 @@ export function ThemesSection() {
   const asked = install.variables;
 
   return (
-    <Panel as="section" className="panel page-section" aria-labelledby="themes-heading">
+    <section className="panel page-section" aria-labelledby="themes-heading">
       <h2 id="themes-heading">Installed themes</h2>
       {themes.isError && <FormError message="Could not load the themes." />}
       {themes.data && items.length === 0 && (
@@ -161,6 +162,6 @@ export function ThemesSection() {
           />
         )}
       </div>
-    </Panel>
+    </section>
   );
 }

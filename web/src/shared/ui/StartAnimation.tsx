@@ -35,7 +35,7 @@ export function StartAnimation() {
   if (!start || done) return null;
   const { themeId, Custom } = start;
   return (
-    <div className="theme-start-anim" aria-hidden="true">
+    <div className="theme-start-anim" aria-hidden="true" inert>
       <SlotBoundary
         fallback={<Finish onFinish={finish} />}
         themeId={themeId}

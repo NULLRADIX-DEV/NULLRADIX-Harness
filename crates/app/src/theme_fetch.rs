@@ -370,7 +370,7 @@ impl ThemeAssets {
         let archive = self
             .load(grant, url, sum, MAX_ARCHIVE_BYTES, &archive_key)
             .await?;
-        // the bytes are in hand, so the next request for this archive may read it while this one cuts
+        // the bytes are in hand, so the next request for this archive may read while this one cuts
         drop(flight);
         let bytes = self
             .entries

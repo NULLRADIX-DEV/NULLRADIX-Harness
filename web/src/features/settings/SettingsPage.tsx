@@ -10,7 +10,6 @@ import { ThemeSettingsPanel } from '../themes/ThemeSettingsPanel';
 import { CatalogSection } from '../themes/CatalogSection';
 import { ClaudeThemeSection } from '../themes/ClaudeThemeSection';
 import { ThemesSection } from '../themes/ThemesSection';
-import { Panel } from '../../shared/ui/Panel';
 
 export function SettingsPage() {
   const { mode, setMode, installed } = useTheme();
@@ -20,7 +19,8 @@ export function SettingsPage() {
       <ProjectsSection />
       <AccountsSection />
       <DispatcherSection />
-      <Panel as="section" className="panel page-section">
+      {/* plain section, never a slot: the way back to a built-in theme must not depend on theme code */}
+      <section className="panel page-section">
         <h2>Appearance</h2>
         <label className="field">
           <span>Theme</span>
@@ -42,7 +42,7 @@ export function SettingsPage() {
             ))}
           </select>
         </label>
-      </Panel>
+      </section>
       <AutostartSection />
       <ThemesSection />
       <CatalogSection />

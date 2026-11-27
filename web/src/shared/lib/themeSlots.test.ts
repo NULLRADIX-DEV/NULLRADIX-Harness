@@ -17,7 +17,7 @@ describe('activeThemeDefinition', () => {
 
   it('gives the registration of the shown theme while its code switch is on', () => {
     registerTheme(ocean);
-    expect(activeThemeDefinition('ocean', [themeEntry('ocean')])).toBe(ocean);
+    expect(activeThemeDefinition('ocean', [themeEntry('ocean')])).toEqual(ocean);
   });
 
   it('ignores the registration of a theme that is not shown', () => {
@@ -35,6 +35,6 @@ describe('activeThemeDefinition', () => {
 
   it('trusts the registration while the theme list is not known yet', () => {
     registerTheme(ocean);
-    expect(activeThemeDefinition('ocean', undefined)).toBe(ocean);
+    expect(activeThemeDefinition('ocean', undefined)).toEqual(ocean);
   });
 });

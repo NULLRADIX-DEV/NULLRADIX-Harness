@@ -64,7 +64,7 @@ describe('loadThemeModule', () => {
     const result = await loadThemeModule(d);
     expect(result).toEqual({ status: 'loaded', themeId: 'ocean' });
     expect(d.importModule).toHaveBeenCalledWith('/api/v1/themes/ocean/files/main.js?v=1');
-    expect(getTheme('ocean')).toBe(definition);
+    expect(getTheme('ocean')).toEqual(definition);
     expect(getThemeNotice()).toBeUndefined();
   });
 

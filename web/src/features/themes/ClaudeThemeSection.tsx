@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { problemMessage } from '../../shared/api/problemMessage';
 import { claudeThemeQuery, useSetClaudeTheme, type ClaudeTheme } from '../../shared/query/themes';
 import { FormError } from '../../shared/ui/FormError';
-import { Panel } from '../../shared/ui/Panel';
 
 const MESSAGES = {};
 
@@ -14,14 +13,14 @@ export function claudeThemeHint(status: ClaudeTheme): string {
   return `${name} could not be put into every Claude folder.`;
 }
 
-// Hooks of a theme are code that runs inside Claude, so only this switch applies them.
+// Only this switch applies theme hooks; plain elements, never slots.
 export function ClaudeThemeSection() {
   const status = useQuery(claudeThemeQuery());
   const set = useSetClaudeTheme();
   const data = status.data;
   const warn = data?.state === 'foreign' || data?.state === 'error';
   return (
-    <Panel as="section" className="panel page-section" aria-labelledby="claude-theme-heading">
+    <section className="panel page-section" aria-labelledby="claude-theme-heading">
       <h2 id="claude-theme-heading">Claude theme</h2>
       <p className="muted">
         A theme can bring hooks and styles for Claude. They run as code inside Claude, in the
@@ -54,6 +53,6 @@ export function ClaudeThemeSection() {
         </ul>
       )}
       <FormError message={problemMessage(set.error, MESSAGES, 'Could not change the switch.')} />
-    </Panel>
+    </section>
   );
 }

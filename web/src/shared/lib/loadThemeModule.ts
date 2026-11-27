@@ -114,7 +114,7 @@ export async function loadThemeModule(deps: ThemeModuleDeps): Promise<ThemeLoadR
         `The theme "${theme.id}" delivers no valid theme definition - the default is shown.`,
       );
     }
-    registerTheme(definition);
+    registerTheme(definition, theme.id);
     return { status: 'loaded', themeId: theme.id };
   } catch (error) {
     // no theme was asked for and the list failed: the default needs no word

@@ -390,6 +390,8 @@ describe('StartAnimation', () => {
     renderThemed(<StartAnimation />, theme({ StartAnimation: Themed }));
     expect(screen.getByText('skip intro')).toBeInTheDocument();
     expect(document.getElementById(START_OVERLAY_ID)).toBeNull();
+    // the animation is not reachable by keyboard or assistive technology
+    expect(document.querySelector('.theme-start-anim')).toHaveAttribute('inert');
     await userEvent.click(screen.getByText('skip intro'));
     expect(screen.queryByText('skip intro')).not.toBeInTheDocument();
   });

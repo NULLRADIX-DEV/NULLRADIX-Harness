@@ -48,18 +48,27 @@ test('theme code runs only after its switch is on, and not in safe mode', async 
   await page.goto('/settings');
   await expect(root).toHaveAttribute('data-theme-mode', 'night-code');
   await expect(root).not.toHaveAttribute('data-theme-code', /.*/);
+  await expect(page.locator('section.panel').first()).toBeVisible();
+  await expect(page.locator('[data-themed-panel]')).toHaveCount(0);
 
   await page.getByRole('switch', { name: 'Run the code of Night Code' }).click();
   await expect(page.getByRole('switch', { name: 'Run the code of Night Code' })).toBeChecked();
 
   await page.reload();
   await expect(root).toHaveAttribute('data-theme-code', /^19\.\d+\.\d+ 1\.\d+\.\d+$/);
+  // the Panel component of the theme module styles the inside of the settings panels
+  await expect(
+    page.locator('section[data-slot="Panel"] [data-themed-panel]').first(),
+  ).toBeVisible();
 
   await page.goto('/settings?safe-theme');
   await expect(page.locator('.theme-notice')).toContainText('Safe mode');
   await expect(root).not.toHaveAttribute('data-theme-code', /.*/);
+  await expect(page.locator('section.panel').first()).toBeVisible();
+  await expect(page.locator('[data-themed-panel]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Start normally' }).click();
   await expect(root).toHaveAttribute('data-theme-code', /^19\./);
+  await expect(page.locator('[data-themed-panel]').first()).toBeVisible();
 });
 
 test('an update that adds a network domain turns the switch off again', async ({

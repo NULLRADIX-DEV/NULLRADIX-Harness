@@ -2,7 +2,6 @@ import { useId } from 'react';
 import { ApiProblemError, type Confirmation } from '../../shared/api/errors';
 import '../board/board.css';
 import { Modal } from '../board/Modal';
-import { Button } from '../../shared/ui/Button';
 
 export const CONFIRMATION_CODE = 'theme-confirmation-required';
 
@@ -81,12 +80,12 @@ export function ThemeConfirmDialog({
         )}
       </div>
       <div className="actions">
-        <Button type="button" onClick={onCancel}>
+        <button type="button" className="btn" onClick={onCancel}>
           Cancel
-        </Button>
-        <Button type="submit" variant="primary" disabled={busy}>
+        </button>
+        <button type="submit" className="btn primary" disabled={busy}>
           {update ? 'Update' : 'Install'}
-        </Button>
+        </button>
       </div>
     </Modal>
   );
