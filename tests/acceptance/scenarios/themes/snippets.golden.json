@@ -181,7 +181,7 @@
     "response": {
       "json": {
         "code": "snippet-css-forbidden",
-        "detail": "the snippet is not allowed: external or absolute url() is not allowed: https://evil.test/a.png",
+        "detail": "the snippet is not allowed: only data: urls are allowed: https://evil.test/a.png",
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "urn:nullradix:problem:snippet-css-forbidden"
@@ -203,7 +203,7 @@
     "response": {
       "json": {
         "code": "snippet-css-forbidden",
-        "detail": "the snippet is not allowed: external or absolute url() is not allowed: javascript:alert(1",
+        "detail": "the snippet is not allowed: an unterminated string or url is not allowed",
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "urn:nullradix:problem:snippet-css-forbidden"
@@ -225,7 +225,7 @@
     "response": {
       "json": {
         "code": "snippet-css-forbidden",
-        "detail": "the snippet is not allowed: external or absolute url() is not allowed: /api/v1/snippets",
+        "detail": "the snippet is not allowed: only data: urls are allowed: /api/v1/snippets",
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "urn:nullradix:problem:snippet-css-forbidden"

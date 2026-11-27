@@ -72,8 +72,7 @@ impl SnippetName {
 pub struct SnippetCss(String);
 
 impl SnippetCss {
-    /// Refuses what a theme stylesheet refuses, and every `url()` that is not `data:`; the text
-    /// must be well formed, so it cannot reach into the snippet after it.
+    /// Refuses malformed text and what a theme refuses, and every `url()` that is not `data:`.
     pub fn parse(text: &str) -> Result<Self, SnippetError> {
         if text.len() > SNIPPET_CSS_MAX {
             return Err(SnippetError::CssTooLong);
@@ -168,9 +167,7 @@ impl Snippet {
     }
 }
 
-/// The enabled snippets as one stylesheet, each behind a comment with its id.
-///
-/// Every snippet is well formed on its own; the joined text is checked again as a last guard.
+/// The enabled snippets as one stylesheet, checked again as a whole as a last guard.
 pub fn active_stylesheet(snippets: &[Snippet]) -> Result<String, SnippetError> {
     let mut ordered: Vec<&SnippetRecord> = snippets
         .iter()
