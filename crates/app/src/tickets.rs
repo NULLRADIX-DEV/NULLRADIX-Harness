@@ -271,7 +271,10 @@ pub struct PlanInput {
 }
 
 /// Who writes and which legacy locks the write lifts.
-#[allow(clippy::struct_excessive_bools, reason = "independent facts about one write")]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent facts about one write"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WriteOptions {
     /// A person in the board, rather than an agent through the CLI.
