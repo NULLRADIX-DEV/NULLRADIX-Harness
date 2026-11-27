@@ -136,13 +136,17 @@ impl LoginRunner for LocalLoginRunner {
                 .map_err(AppError::internal)?;
         }
         let mut command = self.build(spec);
-        let mut tree = ProcessTree::spawn(&mut command).map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                claude_not_found(&self.program)
-            } else {
-                AppError::internal(error)
-            }
-        })?;
+        // the start waits for the reaper to report, so it runs off the async threads
+        let mut tree = tokio::task::spawn_blocking(move || ProcessTree::spawn(&mut command))
+            .await
+            .map_err(AppError::internal)?
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    claude_not_found(&self.program)
+                } else {
+                    AppError::internal(error)
+                }
+            })?;
         let (output, lines_in) = mpsc::channel::<String>(64);
         let (input, mut typed) = mpsc::channel::<String>(8);
         let (exit, exited) = oneshot::channel();
