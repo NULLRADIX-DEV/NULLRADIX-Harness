@@ -5929,6 +5929,10 @@ impl Fixture {
     /// The newest merge session ends with this exit code.
     async fn end_session(&self, key: &str, code: i32) -> Id<Run> {
         let run = self.session_of(key).await;
+        self.end_given_run(run, code).await
+    }
+
+    async fn end_given_run(&self, run: Run, code: i32) -> Id<Run> {
         let end = RunEnd {
             exit_code: Some(code),
             error: None,
@@ -6457,6 +6461,7 @@ async fn a_live_merge_run_holds_a_job_that_is_not_in_the_session_phase() {
 async fn a_merge_run_a_person_started_is_not_judged_as_the_session_of_the_job() {
     let f = fixture().await;
     let key = f.running_session().await;
+    let real = f.session_of(&key).await;
     f.git.resolved.store(true, Ordering::SeqCst);
     let manual = f
         .merge_run(
@@ -6475,6 +6480,16 @@ async fn a_merge_run_a_person_started_is_not_judged_as_the_session_of_the_job() 
         nullradix_domain::MergePhase::ConflictSession
     );
     assert_eq!(f.git.requests.lock().unwrap().len(), 1);
+    // the real session ends after the manual run: it is still the session of the job
+    f.end_given_run(real, 0).await;
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.git.checked.lock().unwrap().len(), 1);
+    assert_eq!(f.record(&key).await.status, TicketStatus::Done);
+    assert_ne!(
+        f.job(&key).await.phase,
+        nullradix_domain::MergePhase::ConflictSession
+    );
 }
 
 #[tokio::test]
@@ -6517,7 +6532,7 @@ async fn a_target_switched_during_the_session_blocks_instead_of_merging_into_the
     assert_eq!(record.status, TicketStatus::Blocked);
     assert_eq!(
         record.blocked_reason.as_deref(),
-        Some("Merge: target branch switched - retry the merge")
+        Some("Merge: target branch moved or switched - retry the merge")
     );
     assert_eq!(f.git.requests.lock().unwrap().len(), 1);
     let job = f.job(&key).await;
@@ -6537,7 +6552,7 @@ async fn a_target_switched_after_the_session_blocks_the_merge() {
     assert_eq!(f.git.requests.lock().unwrap().len(), 1);
     assert_eq!(
         f.record(&key).await.blocked_reason.as_deref(),
-        Some("Merge: target branch switched - retry the merge")
+        Some("Merge: target branch moved or switched - retry the merge")
     );
 }
 
@@ -6551,6 +6566,15 @@ async fn a_failed_note_does_not_block_the_tickets_of_a_session_that_started() {
     let report = f.dispatcher.pass.run().await;
     assert!(report.errors.is_empty(), "{report:?}");
     assert_eq!(f.sessions_of(&key).await, 1);
+    // the write failed once: the note is missing and the flag is used up
+    assert!(!f.hook.fail_next_begin.load(Ordering::SeqCst));
+    let comments = f.comments.list(&key).await.unwrap();
+    assert!(
+        comments
+            .iter()
+            .all(|line| line.comment.record().system_marker != Some(SystemMarker::MergeConflict)),
+        "{comments:?}"
+    );
     assert_eq!(f.record(&key).await.status, TicketStatus::Done);
     assert_eq!(
         f.job(&key).await.phase,

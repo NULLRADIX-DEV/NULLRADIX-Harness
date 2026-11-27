@@ -25,8 +25,11 @@ use crate::{AppError, ErrorKind};
 
 use nullradix_domain::{Id, MergeJob};
 
-/// Why a job whose session solved the conflict for another branch ends.
-pub(super) const TARGET_SWITCHED: &str = "target branch switched - retry the merge";
+/// Why a job ends whose target is not the one its session worked against.
+pub(super) const TARGET_SWITCHED: &str = "target branch moved or switched - retry the merge";
+
+/// Newest runs of a ticket looked at for the session of the dispatcher.
+const SESSION_RUNS_SCANNED: u32 = 16;
 
 /// What a session that did not resolve the conflict did wrong, and the same with how it ended.
 fn failure_text(verdict: &SessionVerdict, ended: &str) -> (String, String) {
@@ -89,7 +92,7 @@ impl MergeAll {
         merge_session_open(&self.parts.runs, subjects).await
     }
 
-    /// The newest merge run of the worktree's tickets, whichever ticket it ran for.
+    /// The newest merge run the dispatcher started for the worktree's tickets.
     async fn newest_session(&self, entry: &WorktreeEntry) -> Result<Option<Id<Run>>, AppError> {
         let mut newest: Option<(nullradix_domain::Timestamp, Id<Run>)> = None;
         for link in entry.tickets.iter().filter(|link| link.live()) {
@@ -98,8 +101,12 @@ impl MergeAll {
                 kind: Some(RunKind::Merge),
                 ..RunFilter::default()
             };
-            let found = self.parts.runs.find(&filter, 1).await?;
-            if let Some(run) = found.first()
+            // manual runs come in between: look at a bounded number of the newest
+            let found = self.parts.runs.find(&filter, SESSION_RUNS_SCANNED).await?;
+            let own = found.iter().find(|run| {
+                run.dispatch().map(|dispatch| dispatch.trigger) == Some(RunTrigger::Dispatcher)
+            });
+            if let Some(run) = own
                 && newest.is_none_or(|(at, _)| run.created_at() > at)
             {
                 newest = Some((run.created_at(), run.id()));
