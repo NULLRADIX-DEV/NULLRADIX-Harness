@@ -102,7 +102,7 @@ pub struct Effective {
 #[must_use]
 pub fn name_invalid(error: &OverlayError) -> AppError {
     let code = match error {
-        OverlayError::InvalidName => "customization-name-invalid",
+        OverlayError::InvalidName | OverlayError::ReservedName => "customization-name-invalid",
         OverlayError::EmptyContent => "customization-content-empty",
         OverlayError::ContentTooLong => "value-too-long",
     };
@@ -232,6 +232,12 @@ pub fn evaluate(overlay: Overlay, standard: Option<&str>) -> OverlayLine {
             "the shipped file this customization replaces is not known",
         )),
         BaseState::Current | BaseState::None => {}
+    }
+    if record.kind == OverlayKind::New && standard.is_some() {
+        warnings.push(Finding::new(
+            "standard-exists",
+            "a shipped file of this name exists and is replaced; run copy --rebase to base this on it",
+        ));
     }
     let state = overlay_state(record.enabled, &problems);
     OverlayLine {
@@ -406,15 +412,6 @@ impl CustomizationService {
             return Err(AppError::version_conflict(
                 "customization",
                 label(point, &name),
-            ));
-        }
-        if current.record().kind == OverlayKind::New {
-            return Err(AppError::invalid(
-                "customization-rebase-new",
-                format!(
-                    "{} is a new customization and has no shipped file to follow",
-                    label(point, &name)
-                ),
             ));
         }
         let base = snapshot(&standard);
@@ -935,7 +932,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rebasing_a_new_customization_is_refused() {
+    async fn a_new_customization_that_shadows_a_shipped_file_warns_and_rebases_into_a_replacement()
+    {
         let fixture = fixture();
         fixture
             .service
@@ -943,19 +941,22 @@ mod tests {
             .await
             .unwrap();
         fixture.ship("skill", "mine", "now shipped");
-        let error = fixture
-            .service
-            .rebase(ExtensionPoint::Skill, "mine", Version::INITIAL)
-            .await
-            .unwrap_err();
-        assert_eq!(error.code(), "customization-rebase-new");
         let line = fixture
             .service
             .get(ExtensionPoint::Skill, "mine")
             .await
             .unwrap();
-        assert_eq!(line.overlay.record().version, Version::INITIAL);
-        assert!(line.overlay.record().base.is_none());
+        assert_eq!(line.overlay.record().kind, OverlayKind::New);
+        assert!(line.warnings.iter().any(|w| w.code == "standard-exists"));
+        let rebased = fixture
+            .service
+            .rebase(ExtensionPoint::Skill, "mine", Version::INITIAL)
+            .await
+            .unwrap();
+        assert_eq!(rebased.overlay.record().kind, OverlayKind::Replace);
+        assert_eq!(rebased.base, BaseState::Current);
+        assert_eq!(rebased.overlay.record().content, SKILL);
+        assert!(rebased.warnings.is_empty());
     }
 
     #[tokio::test]

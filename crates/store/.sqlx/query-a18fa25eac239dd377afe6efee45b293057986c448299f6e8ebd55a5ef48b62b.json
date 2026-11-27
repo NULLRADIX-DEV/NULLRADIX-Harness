@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE customization_overlays\n               SET content = ?, kind = ?, base_content = ?, base_hash = ?, enabled = ?,\n                   updated_at = ?, version = ?\n               WHERE point = ? AND name = ? AND version = ?\n               RETURNING id AS \"id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "customization_overlays",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a18fa25eac239dd377afe6efee45b293057986c448299f6e8ebd55a5ef48b62b"
+}

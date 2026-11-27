@@ -225,6 +225,50 @@ impl StandardCatalog for Shipped {
 }
 
 #[tokio::test]
+async fn rebasing_a_new_customization_stores_it_as_a_replacement() {
+    let store = Arc::new(Store::in_memory().await.unwrap());
+    let service = CustomizationService::new(
+        store.clone(),
+        Arc::new(Shipped),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        ChangeSignal::new(),
+    );
+    let own = "---
+name: review
+description: mine
+---
+body";
+    let name = OverlayName::parse("review").unwrap();
+    let new = Overlay::create(
+        ExtensionPoint::Skill,
+        name.clone(),
+        OverlayKind::New,
+        own.to_owned(),
+        None,
+        Timestamp::from_millis(1),
+    );
+    let mut write = store.begin().await.unwrap();
+    write.insert(&new, Uuid::now_v7()).await.unwrap();
+    write.commit().await.unwrap();
+
+    let rebased = service
+        .rebase(ExtensionPoint::Skill, "review", Version::INITIAL)
+        .await
+        .unwrap();
+
+    assert_eq!(rebased.overlay.record().kind, OverlayKind::Replace);
+    let stored = store
+        .get(ExtensionPoint::Skill, &name)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.record().kind, OverlayKind::Replace);
+    assert!(stored.record().base.is_some());
+    assert_eq!(stored.record().content, own);
+}
+
+#[tokio::test]
 async fn the_service_copies_edits_rebases_and_drops_against_the_database() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = CustomizationService::new(

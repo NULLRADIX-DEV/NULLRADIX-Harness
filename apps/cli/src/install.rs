@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, bail};
 use clap::Args;
 use nullradix_api::AccountDto;
+use nullradix_client::Client;
 use nullradix_os::Paths;
 use serde::Serialize;
 use serde_json::Value;
@@ -345,32 +346,33 @@ fn collect_targets(
     }
 }
 
-/// The active customizations to put on the plugin, or why only the shipped files are used.
-fn collect_customs(profile: Profile, home: Option<&Path>) -> (Vec<Custom>, Option<String>) {
-    let listed = connect::connect(profile, home)
-        .map_err(|error| format!("{error:#}"))
-        .and_then(|client| {
-            client
-                .list_customizations()
-                .map_err(|error| error.to_string())
-        });
-    match listed {
-        Ok(list) => (list.items.iter().filter_map(Custom::of).collect(), None),
-        Err(error) => (
+/// The active customizations of the daemon; a daemon that answers badly stops the install.
+fn read_customs(client: &Client) -> anyhow::Result<Vec<Custom>> {
+    let list = client
+        .list_customizations()
+        .context("cannot read the customizations from the daemon")?;
+    Ok(list.items.iter().filter_map(Custom::of).collect())
+}
+
+/// The active customizations to put on the plugin; no daemon means the shipped files only.
+fn collect_customs(
+    profile: Profile,
+    home: Option<&Path>,
+) -> anyhow::Result<(Vec<Custom>, Option<String>)> {
+    match connect::connect(profile, home) {
+        Ok(client) => Ok((read_customs(&client)?, None)),
+        Err(error) => Ok((
             Vec::new(),
             Some(format!(
-                "customizations not applied ({error}); only the shipped plugin files were staged, run install again with the daemon running to include them"
+                "customizations not applied ({error:#}); only the shipped plugin files were staged, run install again with the daemon running to include them"
             )),
-        ),
+        )),
     }
 }
 
 fn join_notes(first: Option<String>, second: Option<String>) -> Option<String> {
     match (first, second) {
-        (Some(first), Some(second)) => Some(format!(
-            "{first}
-{second}"
-        )),
+        (Some(first), Some(second)) => Some(format!("{first}\n{second}")),
         (first, second) => first.or(second),
     }
 }
@@ -383,7 +385,7 @@ pub(crate) fn run(
     let paths = Paths::resolve(profile.app_name(), home)?;
     let binary = std::env::current_exe().context("cannot find the running program")?;
     let (targets, note) = collect_targets(profile, home, &paths)?;
-    let (customs, customs_note) = collect_customs(profile, home);
+    let (customs, customs_note) = collect_customs(profile, home)?;
     let note = join_notes(note, customs_note);
     let claude = SystemClaude::find();
     if !args.dry_run && !claude.run(None, &["--version"]).ok {
@@ -867,15 +869,42 @@ mod tests {
     #[test]
     fn without_a_daemon_only_the_shipped_files_are_staged_and_the_note_says_so() {
         let home = tempfile::tempdir().unwrap();
-        let (customs, note) = collect_customs(Profile::Release, Some(home.path()));
+        let (customs, note) = collect_customs(Profile::Release, Some(home.path())).unwrap();
         assert_eq!(customs.len(), 0);
         let note = note.unwrap();
         assert!(note.contains("customizations not applied"), "{note}");
         assert!(note.contains("only the shipped plugin files"), "{note}");
         let joined = join_notes(Some(String::from("a")), Some(note));
-        assert!(joined.unwrap().starts_with(
-            "a
-"
-        ));
+        assert!(joined.unwrap().starts_with("a\n"));
+    }
+
+    #[test]
+    fn a_daemon_that_answers_with_an_error_stops_the_install() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0_u8; 2048];
+            let _ = stream.read(&mut buffer);
+            stream
+                .write_all(
+                    b"HTTP/1.1 500 Internal Server Error
+Content-Length: 0
+Connection: close
+
+",
+                )
+                .unwrap();
+        });
+        let client = Client::new(
+            address,
+            std::time::Duration::from_secs(5),
+            std::time::Duration::from_secs(5),
+        )
+        .with_token(nullradix_app::auth::Secret::parse(&"d".repeat(64)).unwrap());
+        let error = read_customs(&client).unwrap_err();
+        server.join().unwrap();
+        assert!(format!("{error:#}").contains("cannot read the customizations"));
     }
 }

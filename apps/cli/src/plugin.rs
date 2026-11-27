@@ -141,9 +141,10 @@ impl Custom {
         if line.state != OverlayStateDto::Active {
             return None;
         }
+        let name = OverlayName::parse(&line.name).ok()?;
         let path = match line.point {
-            ExtensionPointDto::Skill => skill_file(&line.name),
-            ExtensionPointDto::OutputStyle => style_file(&line.name),
+            ExtensionPointDto::Skill => skill_file(name.as_str()),
+            ExtensionPointDto::OutputStyle => style_file(name.as_str()),
         };
         Some(Self {
             path,
@@ -269,10 +270,16 @@ fn fnv(hash: u64, bytes: &[u8]) -> u64 {
     })
 }
 
+fn len_bytes(len: usize) -> [u8; 8] {
+    u64::try_from(len).unwrap_or(u64::MAX).to_le_bytes()
+}
+
 fn content_hash(files: &[(String, String)], binary: &Path) -> anyhow::Result<u64> {
     let mut hash = 0xcbf2_9ce4_8422_2325;
     for (path, content) in files {
+        hash = fnv(hash, &len_bytes(path.len()));
         hash = fnv(hash, path.as_bytes());
+        hash = fnv(hash, &len_bytes(content.len()));
         hash = fnv(hash, content.as_bytes());
     }
     let bytes = fs::read(binary).with_context(|| format!("cannot read {}", binary.display()))?;
@@ -667,12 +674,8 @@ mod tests {
             .collect()
     }
 
-    const BOARD: &str = "---
-name: board
-description: My board
----
-Mine
-";
+    const BOARD: &str = "---\nname: board\ndescription: My board\n---\nMine\n";
+    const MINE: &str = "---\nname: mine\ndescription: Own\n---\nOwn\n";
 
     #[test]
     fn the_catalog_lists_the_shipped_skills_and_output_styles() {
@@ -724,18 +727,7 @@ Mine
             .await
             .unwrap();
         service
-            .create(
-                ExtensionPoint::Skill,
-                "mine",
-                Some(
-                    "---
-name: mine
-description: Own
----
-Own
-",
-                ),
-            )
+            .create(ExtensionPoint::Skill, "mine", Some(MINE))
             .await
             .unwrap();
         let disabled = service
@@ -794,5 +786,35 @@ Own
         let back = stage(&root, Profile::Release, &binary, None, &[], 4000, false).unwrap();
         assert_ne!(back.version, first.version);
         assert!(!plugin.join("skills/mine").exists());
+    }
+
+    fn dto(point: &str, name: &str, state: &str) -> CustomizationDto {
+        serde_json::from_value(json!({
+            "point": point, "name": name, "kind": "new", "state": state, "content": "x",
+            "enabled": true, "base": "none", "standard": false, "problems": [],
+            "warnings": [], "createdAt": 0, "updatedAt": 0, "version": 1,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_name_that_is_not_a_valid_name_is_never_staged() {
+        for name in ["nul", "../x", "a/b", "A"] {
+            assert_eq!(Custom::of(&dto("skill", name, "active")), None, "{name}");
+        }
+        assert!(Custom::of(&dto("skill", "fine", "active")).is_some());
+        assert_eq!(Custom::of(&dto("skill", "fine", "fallback")), None);
+    }
+
+    #[test]
+    fn moving_a_byte_between_path_and_content_changes_the_hash() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = binary(temp.path(), b"b");
+        let one = [("ab".to_owned(), "c".to_owned())];
+        let two = [("a".to_owned(), "bc".to_owned())];
+        assert_ne!(
+            content_hash(&one, &binary).unwrap(),
+            content_hash(&two, &binary).unwrap()
+        );
     }
 }

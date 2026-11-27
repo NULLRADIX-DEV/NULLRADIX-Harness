@@ -137,6 +137,7 @@ impl CustomizationWrite for Write {
     async fn update(&mut self, overlay: &Overlay, previous: Version) -> Result<Change, AppError> {
         let record = overlay.record();
         let (point, name) = (record.point.as_str(), record.name.as_str());
+        let kind = record.kind.as_str();
         let base_content = record.base.as_ref().map(|base| base.content.as_str());
         let base_hash = record.base.as_ref().map(|base| base.hash.as_str());
         let updated_at = record.updated_at.as_millis();
@@ -144,11 +145,12 @@ impl CustomizationWrite for Write {
         let previous = previous.value();
         let updated = sqlx::query_scalar!(
             r#"UPDATE customization_overlays
-               SET content = ?, base_content = ?, base_hash = ?, enabled = ?, updated_at = ?,
-                   version = ?
+               SET content = ?, kind = ?, base_content = ?, base_hash = ?, enabled = ?,
+                   updated_at = ?, version = ?
                WHERE point = ? AND name = ? AND version = ?
                RETURNING id AS "id: Uuid""#,
             record.content,
+            kind,
             base_content,
             base_hash,
             record.enabled,
