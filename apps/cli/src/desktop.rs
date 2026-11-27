@@ -1,19 +1,19 @@
 //! What the daemon does on the person's desktop: toasts for notices and the login entry.
 
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::autostart::Autostart;
 use nullradix_app::notifier::{Notice, NoticeKind, Notifier, toast_failed};
 use nullradix_os::{
-    AutostartEntry, autostart_disable, autostart_enable, autostart_reenable, autostart_retarget,
-    autostart_state, show_toast,
+    AutostartEntry, autostart_disable, autostart_enable, autostart_retarget, autostart_state,
+    show_toast,
 };
 use tokio::sync::Semaphore;
 use tokio::task;
@@ -34,6 +34,7 @@ pub(crate) struct ToastNotifier {
     show: Arc<Show>,
     slots: Arc<Semaphore>,
     missing_logged: Arc<AtomicBool>,
+    dropped: AtomicUsize,
 }
 
 impl ToastNotifier {
@@ -46,6 +47,7 @@ impl ToastNotifier {
             show,
             slots: Arc::new(Semaphore::new(IN_FLIGHT)),
             missing_logged: Arc::new(AtomicBool::new(false)),
+            dropped: AtomicUsize::new(0),
         }
     }
 }
@@ -59,8 +61,10 @@ fn loud(error: &io::Error, missing_logged: &AtomicBool) -> bool {
 impl Notifier for ToastNotifier {
     async fn notify(&self, notice: &Notice) -> Result<(), AppError> {
         let Ok(permit) = Arc::clone(&self.slots).try_acquire_owned() else {
-            tracing::debug!(
+            let total = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+            tracing::info!(
                 kind = notice.kind.as_str(),
+                dropped_total = total,
                 "too many toasts at once, dropped one"
             );
             return Ok(());
@@ -119,12 +123,15 @@ pub(crate) struct LoginEntry {
 
 impl LoginEntry {
     pub(crate) fn new(profile: Profile) -> Option<Self> {
+        let daemon = env::current_exe().ok()?;
         Some(Self {
             profile,
-            daemon: env::current_exe().ok()?,
-            appimage: env::var_os("APPIMAGE")
-                .filter(|path| !path.is_empty())
-                .map(PathBuf::from),
+            appimage: trusted_appimage(
+                &daemon,
+                env::var_os("APPIMAGE").as_deref(),
+                env::var_os("APPDIR").as_deref(),
+            ),
+            daemon,
         })
     }
 
@@ -135,11 +142,6 @@ impl LoginEntry {
             self.appimage.as_deref(),
             Path::is_file,
         )
-    }
-
-    /// A build output or a mounted image is no place to start from; an install is.
-    fn installed(&self) -> bool {
-        self.appimage.is_some() || !is_build_output(&self.daemon)
     }
 }
 
@@ -178,21 +180,28 @@ fn entry_for(
     }
 }
 
-/// Cargo output or a mounted `AppImage`: a path that does not survive.
-fn is_build_output(path: &Path) -> bool {
-    path.components().any(|part| {
-        let part = part.as_os_str().to_string_lossy();
-        part == "target" || part.starts_with(".mount_")
-    })
+/// `$APPIMAGE` reaches every child of an image, so it counts only for a daemon that runs inside it.
+fn trusted_appimage(
+    exe: &Path,
+    appimage: Option<&OsStr>,
+    appdir: Option<&OsStr>,
+) -> Option<PathBuf> {
+    let image = appimage.filter(|path| !path.is_empty())?;
+    let mounted = exe
+        .components()
+        .any(|part| part.as_os_str().to_string_lossy().starts_with(".mount_"));
+    let inside = appdir
+        .filter(|dir| !dir.is_empty())
+        .is_some_and(|dir| exe.starts_with(dir));
+    (mounted || inside).then(|| PathBuf::from(image))
 }
 
-/// Whether the entry should be pointed at the running program: it is gone or this is the install.
-fn retarget_wanted(
-    current: Option<&Path>,
-    exists: impl Fn(&Path) -> bool,
-    installed: bool,
-) -> bool {
-    installed || !current.is_some_and(exists)
+/// A refresh moves the entry only when its program is gone or the new one replaces it in place.
+fn refresh_wanted(current: Option<&Path>, new: &Path, exists: impl Fn(&Path) -> bool) -> bool {
+    match current {
+        Some(old) if exists(old) => old.parent() == new.parent(),
+        _ => true,
+    }
 }
 
 #[async_trait]
@@ -208,18 +217,12 @@ impl Autostart for LoginEntry {
 
     async fn set(&self, enabled: bool) -> Result<(), String> {
         let entry = self.entry();
-        let installed = self.installed();
+        // turning it on points the entry at the program that runs now
         blocking(move || {
-            if !enabled {
-                return autostart_disable(&entry.name);
-            }
-            let state = autostart_state(&entry.name)?;
-            // a build must not take the entry over from a program that still exists
-            if state.exists && !retarget_wanted(state.program.as_deref(), Path::is_file, installed)
-            {
-                autostart_reenable(&entry.name)
-            } else {
+            if enabled {
                 autostart_enable(&entry)
+            } else {
+                autostart_disable(&entry.name)
             }
         })
         .await
@@ -227,10 +230,11 @@ impl Autostart for LoginEntry {
 
     async fn refresh(&self) -> Result<(), String> {
         let entry = self.entry();
-        let installed = self.installed();
         blocking(move || {
             let state = autostart_state(&entry.name)?;
-            if state.exists && retarget_wanted(state.program.as_deref(), Path::is_file, installed) {
+            if state.exists
+                && refresh_wanted(state.program.as_deref(), &entry.program, Path::is_file)
+            {
                 autostart_retarget(&entry)?;
             }
             Ok(())
@@ -322,6 +326,7 @@ mod tests {
         }
         until(|| finished.load(Ordering::SeqCst) == IN_FLIGHT).await;
         assert_eq!(started.load(Ordering::SeqCst), IN_FLIGHT);
+        assert_eq!(notifier.dropped.load(Ordering::SeqCst), 3);
         // the slots are free again afterwards
         notifier.notify(&one).await.unwrap();
         until(|| started.load(Ordering::SeqCst) == IN_FLIGHT + 1).await;
@@ -377,29 +382,48 @@ mod tests {
     }
 
     #[test]
-    fn builds_and_mounts_are_no_install() {
-        assert!(is_build_output(Path::new(
-            "/src/harness/target/debug/nullradix"
-        )));
-        assert!(is_build_output(Path::new(
-            "/tmp/.mount_nullraXYZ/usr/bin/nullradix"
-        )));
-        assert!(!is_build_output(Path::new("/usr/bin/nullradix")));
-        assert!(!is_build_output(Path::new(
-            "/home/ada/.cargo/bin/nullradix"
-        )));
+    fn appimage_counts_only_for_a_daemon_inside_the_image() {
+        let image = OsStr::new("/home/ada/Apps/NULLRADIX.AppImage");
+        let mounted = Path::new("/tmp/.mount_nullraXYZ/usr/bin/nullradix");
+        let inside = Path::new("/opt/image/usr/bin/nullradix");
+        let elsewhere = Path::new("/usr/bin/nullradix");
+        let appdir = OsStr::new("/opt/image");
+        assert_eq!(
+            trusted_appimage(mounted, Some(image), None),
+            Some(PathBuf::from(image))
+        );
+        assert_eq!(
+            trusted_appimage(inside, Some(image), Some(appdir)),
+            Some(PathBuf::from(image))
+        );
+        // a child of some other image inherits the variables but runs from outside
+        assert_eq!(trusted_appimage(elsewhere, Some(image), Some(appdir)), None);
+        assert_eq!(trusted_appimage(elsewhere, Some(image), None), None);
+        assert_eq!(trusted_appimage(mounted, None, None), None);
+        assert_eq!(trusted_appimage(mounted, Some(OsStr::new("")), None), None);
     }
 
     #[test]
-    fn a_build_only_takes_the_entry_over_when_its_program_is_gone() {
-        let exists = |path: &Path| path == Path::new("/usr/bin/nullradix-desktop");
+    fn a_refresh_moves_the_entry_only_when_its_program_is_gone_or_upgraded_in_place() {
+        let exists = |path: &Path| path.starts_with("/usr/bin");
         let current = Some(Path::new("/usr/bin/nullradix-desktop"));
-        // installed binary: always point the entry at it
-        assert!(retarget_wanted(current, exists, true));
-        // a build keeps an entry whose program still exists
-        assert!(!retarget_wanted(current, exists, false));
-        // and replaces one that is gone or missing
-        assert!(retarget_wanted(Some(Path::new("/gone")), exists, false));
-        assert!(retarget_wanted(None, exists, false));
+        // same folder: an upgrade in place
+        assert!(refresh_wanted(
+            current,
+            Path::new("/usr/bin/nullradix"),
+            exists
+        ));
+        // another folder: a cargo install or an archive must not take a working entry over
+        let cargo = Path::new("/home/ada/.cargo/bin/nullradix");
+        assert!(!refresh_wanted(current, cargo, exists));
+        let build = Path::new("/src/target/debug/nullradix");
+        assert!(!refresh_wanted(current, build, exists));
+        // a program that is gone, or no program known, is replaced
+        assert!(refresh_wanted(
+            Some(Path::new("/gone/x")),
+            Path::new("/a/b"),
+            exists
+        ));
+        assert!(refresh_wanted(None, Path::new("/a/b"), exists));
     }
 }
