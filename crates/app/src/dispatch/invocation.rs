@@ -57,7 +57,7 @@ pub const RESEARCH_DENIED_TOOLS: [&str; 22] = [
 ];
 
 /// Denied in work and merge runs: what changes the machine, the app or a decision of the person.
-pub const WORK_DENIED_TOOLS: [&str; 26] = [
+pub const WORK_DENIED_TOOLS: [&str; 28] = [
     "Bash(nullradix run:*)",
     "Bash(nullradix run-supervisor:*)",
     "Bash(nullradix run-reaper:*)",
@@ -80,6 +80,8 @@ pub const WORK_DENIED_TOOLS: [&str; 26] = [
     "Bash(nullradix ticket accept:*)",
     "Bash(nullradix ticket return:*)",
     "Bash(nullradix ticket merge:*)",
+    "Bash(nullradix ticket delete:*)",
+    "Bash(nullradix board delete:*)",
     "Bash(nullradix question answer:*)",
     "Bash(nullradix question discard:*)",
     "Bash(nullradix question reopen:*)",
@@ -411,6 +413,8 @@ mod tests {
             "Bash(nullradix account:*)",
             "Bash(nullradix open:*)",
             "Bash(nullradix ticket accept:*)",
+            "Bash(nullradix ticket delete:*)",
+            "Bash(nullradix board delete:*)",
             "Bash(nullradix question answer:*)",
             "Bash(nullradix question discard:*)",
             "Bash(nullradix question reopen:*)",

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::auth::{AgentContext, refuse_agent};
+use crate::auth::{AgentContext, is_person, refuse_agent};
 use crate::comments::CommentDto;
 use crate::questions::OpenQuestionDto;
 use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
@@ -740,7 +740,7 @@ pub(crate) async fn create_ticket(
     ApiJson(input): ApiJson<CreateTicket>,
 ) -> Result<(StatusCode, HeaderMap, Json<TicketDto>), ApiError> {
     let options = WriteOptions {
-        by_person: matches!(principal, Principal::Session { .. }),
+        by_person: is_person(&principal, context),
         force: input.force,
         allow_duplicate: input.allow_duplicate,
         from_agent: context.is_agent(),
@@ -797,7 +797,7 @@ pub(crate) async fn get_ticket(
 
 pub(crate) fn writer(principal: &Principal, context: AgentContext, force: bool) -> WriteOptions {
     WriteOptions {
-        by_person: matches!(principal, Principal::Session { .. }),
+        by_person: is_person(principal, context),
         force,
         allow_duplicate: false,
         from_agent: context.is_agent(),
@@ -811,6 +811,7 @@ const SESSION_MAX: usize = 200;
 pub(crate) async fn author_of(
     state: &ApiState,
     principal: &Principal,
+    context: AgentContext,
     name: Option<&str>,
     session: Option<&str>,
     ticket_key: &str,
@@ -823,7 +824,7 @@ pub(crate) async fn author_of(
         ));
     }
     let author = Author {
-        by_person: matches!(principal, Principal::Session { .. }),
+        by_person: is_person(principal, context),
         name,
         session,
     };
@@ -879,7 +880,7 @@ fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
     responses(
         (status = 200, body = TicketDetailDto),
         (status = 401, body = Problem),
-        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person", body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person, take off the autopilot except label, or remove a dependency that is still open", body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, body = Problem),
@@ -899,21 +900,10 @@ pub(crate) async fn update_ticket(
     let clear_link = link.iter().any(|given| given.is_some());
     let expected = AppError::client_version(input.version)?;
     let options = writer(&principal, context, input.force);
-    // an agent may not take off the label that keeps a person in the loop
-    let keep_label = if context.is_agent() {
-        state
-            .dispatcher_config
-            .get()
-            .await?
-            .config
-            .autopilot
-            .except_label
-    } else {
-        None
-    };
     let actor = author_of(
         &state,
         &principal,
+        context,
         input.author.as_deref(),
         input.session.as_deref(),
         &path.ticket_key,
@@ -938,7 +928,6 @@ pub(crate) async fn update_ticket(
         board: input.board_id.map(Id::from_uuid),
         target_branch: input.target_branch,
         clear_link,
-        keep_label,
     };
     let detail = state
         .tickets
@@ -972,6 +961,7 @@ pub(crate) async fn move_ticket(
     let actor = author_of(
         &state,
         &principal,
+        context,
         input.author.as_deref(),
         input.session.as_deref(),
         &path.ticket_key,
@@ -999,6 +989,7 @@ pub(crate) async fn move_ticket(
     responses(
         (status = 204, description = "The ticket is gone, a tombstone keeps key and title"),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent", body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, body = Problem),
@@ -1006,12 +997,18 @@ pub(crate) async fn move_ticket(
 )]
 pub(crate) async fn delete_ticket(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiQuery(query): ApiQuery<DeleteTicketQuery>,
 ) -> Result<StatusCode, ApiError> {
     state
         .tickets
-        .delete(&path.ticket_key, &state.person, version(query.version)?)
+        .delete(
+            &path.ticket_key,
+            &state.person,
+            version(query.version)?,
+            context.is_agent(),
+        )
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1261,6 +1258,7 @@ pub(crate) async fn accept_ticket(
     responses(
         (status = 200, body = TicketDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person", body = Problem),
         (status = 404, body = Problem),
         (status = 422, body = Problem),
     )
@@ -1289,6 +1287,7 @@ pub(crate) async fn write_plan(
     let actor = author_of(
         &state,
         &principal,
+        context,
         input.author.as_deref(),
         input.session.as_deref(),
         &path.ticket_key,
@@ -1920,34 +1919,169 @@ mod tests {
         assert_eq!(status, 200, "{problem}");
     }
 
+    /// The dispatcher configuration with this label as the one autopilot leaves alone.
+    async fn keep_label(api: &TestApi, label: &str) {
+        use nullradix_app::dispatcher_config::DispatcherConfigService;
+        use nullradix_app::{ChangeSignal, SystemClock, UuidV7Generator};
+        let service = DispatcherConfigService::new(
+            api.store.clone(),
+            api.store.clone(),
+            std::sync::Arc::new(SystemClock),
+            std::sync::Arc::new(UuidV7Generator),
+            ChangeSignal::new(),
+        );
+        let current = service.get().await.unwrap();
+        let mut config = current.config.clone();
+        config.autopilot.except_label = Some(label.to_owned());
+        service.update(config, current.version).await.unwrap();
+    }
+
     #[tokio::test]
     async fn an_agent_cannot_take_off_the_label_that_keeps_a_person_in() {
         let api = test_api().await;
+        // a label of its own, so the default one is no part of what the test relies on
+        keep_label(&api, "keep-me").await;
         let board = board_path(&api).await;
-        let created =
-            json!({ "title": "Mine", "acceptance": "works", "labels": ["Interactive", "ui"] });
+        let created = json!({
+            "title": "Mine", "acceptance": "works",
+            "labels": ["Keep-Me", "interactive", "ui"]
+        });
         assert_eq!(token_call(&api, None, "POST", &board, created).await.0, 201);
         let uri = "/api/v1/tickets/ARC-1";
-        for (labels, expected) in [
-            (json!(["ui"]), 403),
-            (json!([]), 403),
-            (json!(["interactive", "docs"]), 200),
+        for (labels, expected, version) in [
+            (json!(["interactive", "ui"]), 403, 1),
+            (json!([]), 403, 1),
+            (json!(["keep-me", "docs"]), 200, 1),
+            // the default label is no longer the one that is kept
+            (json!(["keep-me"]), 200, 2),
         ] {
-            let version = 1;
             let body = json!({ "labels": labels, "version": version });
             let (status, problem) = token_call(&api, Some(in_run), "PATCH", uri, body).await;
             assert_eq!(status, expected, "{labels} {problem}");
             if expected == 403 {
                 assert_eq!(problem["code"], "decision-needs-person");
-                assert!(problem["detail"].as_str().unwrap().contains("interactive"));
+                assert!(problem["detail"].as_str().unwrap().contains("keep-me"));
             }
         }
         // a token without a run takes it off, and a ticket without it may change labels
-        let body = json!({ "labels": ["ui"], "version": 2 });
+        let body = json!({ "labels": ["ui"], "version": 3 });
         let (status, problem) = token_call(&api, None, "PATCH", uri, body).await;
         assert_eq!(status, 200, "{problem}");
-        let body = json!({ "labels": ["docs"], "version": 3 });
-        let (status, problem) = token_call(&api, Some(in_run), "PATCH", uri, body).await;
+        let body = json!({ "labels": ["docs"], "version": 4 });
+        let (status, problem) = token_call(&api, Some(in_session), "PATCH", uri, body).await;
         assert_eq!(status, 200, "{problem}");
+    }
+
+    #[tokio::test]
+    async fn an_agent_cannot_drop_an_open_dependency_to_lift_its_lock() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        for body in [
+            json!({ "title": "First", "acceptance": "works" }),
+            json!({ "title": "Second", "acceptance": "works", "dependsOn": ["ARC-1"] }),
+        ] {
+            assert_eq!(token_call(&api, None, "POST", &board, body).await.0, 201);
+        }
+        let uri = "/api/v1/tickets/ARC-2";
+        for mark in [in_run, in_session] {
+            for body in [
+                json!({ "dependsOnRemove": ["ARC-1"], "status": "in-progress", "version": 1 }),
+                json!({ "dependsOnRemove": ["ARC-1"], "version": 1 }),
+                json!({ "dependsOn": [], "version": 1 }),
+                json!({ "dependsOn": [], "status": "in-progress", "force": true, "version": 1 }),
+            ] {
+                let (status, problem) =
+                    token_call(&api, Some(mark), "PATCH", uri, body.clone()).await;
+                assert_eq!(status, 403, "{body} {problem}");
+                assert_eq!(problem["code"], "decision-needs-person");
+                assert!(problem["detail"].as_str().unwrap().contains("ARC-0001"));
+            }
+        }
+        let request = bearer(Request::get(uri), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (_, _, ticket) = send(&api.router, request).await;
+        assert_eq!(ticket["ticket"]["dependsOn"], json!(["ARC-0001"]));
+        assert_eq!(ticket["ticket"]["version"], 1);
+        // adding one, or the status lock itself, is not the refusal
+        let add = json!({ "dependsOnAdd": ["ARC-1"], "version": 1 });
+        assert_eq!(
+            token_call(&api, Some(in_run), "PATCH", uri, add).await.0,
+            200
+        );
+        // a person at a terminal may drop it, and an agent may drop one that is done
+        let drop = json!({ "dependsOnRemove": ["ARC-1"], "version": 2 });
+        assert_eq!(token_call(&api, None, "PATCH", uri, drop).await.0, 200);
+        let add = json!({ "dependsOnAdd": ["ARC-1"], "version": 3 });
+        assert_eq!(token_call(&api, None, "PATCH", uri, add).await.0, 200);
+        let done = json!({ "status": "done" });
+        let first = "/api/v1/tickets/ARC-1/move";
+        assert_eq!(token_call(&api, None, "POST", first, done).await.0, 200);
+        let drop = json!({ "dependsOnRemove": ["ARC-1"], "version": 4 });
+        let (status, problem) = token_call(&api, Some(in_run), "PATCH", uri, drop).await;
+        assert_eq!(status, 200, "{problem}");
+    }
+
+    #[tokio::test]
+    async fn an_agent_cannot_delete_tickets_or_boards() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        let created = json!({ "title": "Mine", "acceptance": "works" });
+        assert_eq!(token_call(&api, None, "POST", &board, created).await.0, 201);
+        let board_uri = format!(
+            "{}?version=1&deleteOpenTickets=true",
+            board.trim_end_matches("/tickets")
+        );
+        for mark in [in_run, in_session] {
+            for as_session in [false, true] {
+                let cookie = open_session(&api).await;
+                for uri in ["/api/v1/tickets/ARC-1", board_uri.as_str()] {
+                    let builder = Request::delete(uri);
+                    let builder = if as_session {
+                        as_person(builder, &cookie)
+                    } else {
+                        bearer(builder, &api.token)
+                    };
+                    let request = mark(builder).body(Body::empty()).unwrap();
+                    let (status, _, problem) = send(&api.router, request).await;
+                    assert_eq!(status, 403, "{uri} {problem}");
+                    assert_eq!(problem["code"], "decision-needs-person", "{uri}");
+                }
+            }
+        }
+        let request = bearer(Request::get("/api/v1/tickets/ARC-1"), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, 200);
+        // the person deletes the ticket and then the board, from a terminal or in the app
+        let request = bearer(Request::delete("/api/v1/tickets/ARC-1"), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, 204);
+        let request = bearer(Request::delete(board_uri.as_str()), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, 200);
+    }
+
+    #[tokio::test]
+    async fn an_agents_force_does_not_lift_the_locks_of_a_new_ticket_either() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        let first = json!({ "title": "First", "acceptance": "works" });
+        assert_eq!(token_call(&api, None, "POST", &board, first).await.0, 201);
+        let second = json!({
+            "title": "Second", "acceptance": "works", "status": "in-progress",
+            "dependsOn": ["ARC-1"], "force": true
+        });
+        for mark in [in_run, in_session] {
+            let (status, problem) =
+                token_call(&api, Some(mark), "POST", &board, second.clone()).await;
+            assert_eq!(status, 422, "{problem}");
+            assert_eq!(problem["code"], "dependency-open");
+        }
+        // the person at a terminal may force it
+        let (status, problem) = token_call(&api, None, "POST", &board, second).await;
+        assert_eq!(status, 201, "{problem}");
     }
 }

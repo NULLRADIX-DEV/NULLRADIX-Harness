@@ -233,6 +233,34 @@
   },
   {
     "cli": [
+      "ticket",
+      "delete",
+      "ARC-1"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot delete it",
+    "stderr": "error: the daemon refused the request: deleting a ticket stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "delete",
+      "ARC-1"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 1,
+    "name": "a session cannot delete it",
+    "stderr": "error: the daemon refused the request: deleting a ticket stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
       "plan",
       "write",
       "ARC-1",

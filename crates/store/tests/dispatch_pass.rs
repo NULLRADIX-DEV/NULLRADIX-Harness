@@ -2158,7 +2158,7 @@ async fn a_ticket_a_person_took_or_deleted_is_settled_as_taken_or_gone() {
         .unwrap();
     let version = f.record(&keys[1]).await.version;
     f.tickets
-        .delete(&keys[1], &f.person, Some(version))
+        .delete(&keys[1], &f.person, Some(version), false)
         .await
         .unwrap();
     let taken = f.finish_run(&keys[0]).await;
@@ -7551,6 +7551,41 @@ async fn the_planning_automation_takes_up_only_tickets_newer_than_its_switch() {
     f.advance(1);
     let again = f.unplanned("Again", None).await;
     assert_eq!(f.dispatcher.pass.run().await.planned, [again]);
+}
+
+#[tokio::test]
+async fn a_ticket_that_waits_for_a_person_is_planned_only_after_the_person_decided() {
+    let f = fixture().await;
+    f.advance(1);
+    f.auto_planning(5).await;
+    f.advance(1);
+    let key = f.unplanned("Plan me later", None).await;
+    let version = f.record(&key).await.version;
+    let patch = TicketPatch {
+        status: Some(String::from("blocked")),
+        blocked_reason: Some(Some(String::from("Human Interaction: review"))),
+        ..TicketPatch::default()
+    };
+    f.tickets
+        .update(&key, &patch, &f.person, version, FORCE)
+        .await
+        .unwrap();
+    // neither the queue nor a person's start plans it: the plan would end the wait
+    let report = f.dispatcher.pass.run().await;
+    assert!(report.planned.is_empty(), "{report:?}");
+    assert!(report.errors.is_empty(), "{report:?}");
+    assert_eq!(f.plan_error(&key).await, "plan-waiting-person");
+    assert!(f.plan_runs(&key).await.is_empty());
+    assert!(f.claim_of(&key).await.is_none());
+    // the person decides, and the ticket is still in the queue
+    f.advance(1);
+    f.tickets
+        .move_to(&key, Some("backlog"), None, &f.person, None, FORCE)
+        .await
+        .unwrap();
+    let report = f.dispatcher.pass.run().await;
+    assert_eq!(report.planned, [key.clone()], "{report:?}");
+    assert_eq!(f.plan_runs(&key).await.len(), 1);
 }
 
 #[tokio::test]

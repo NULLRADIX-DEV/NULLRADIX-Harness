@@ -191,6 +191,7 @@ pub struct ResumedTicket {
     responses(
         (status = 200, body = StartedTicket),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent and the ticket waits for a person", body = Problem),
         (status = 404, description = "Unknown ticket, host ticket or runner", body = Problem),
         (status = 409, description = "The ticket changed meanwhile", body = Problem),
         (status = 422, description = "Refused by a start rule, a lock or git", body = Problem),
@@ -228,6 +229,7 @@ pub(crate) async fn start_ticket(
     responses(
         (status = 200, body = FinishedTicket),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent and the ticket waits for a person", body = Problem),
         (status = 404, description = "Unknown ticket or runner", body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, description = "Refused by a lock or the board's repository", body = Problem),
@@ -244,6 +246,7 @@ pub(crate) async fn finish_ticket(
     let actor = crate::tickets::author_of(
         &state,
         &principal,
+        context,
         input.author.as_deref(),
         input.session.as_deref(),
         &path.ticket_key,
@@ -314,7 +317,7 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use serde_json::{Value, json};
 
-    use crate::tests::{TestApi, bearer, send, test_api};
+    use crate::tests::{TestApi, bearer, in_run, in_session, send, test_api};
 
     fn git(dir: &Path, args: &[&str]) {
         let status = Command::new("git")
@@ -411,6 +414,49 @@ mod tests {
         assert_eq!(finished["cleanup"][0]["path"], worktree);
         assert_eq!(finished["cleanup"][0]["removed"], true, "{finished}");
         assert!(!Path::new(worktree).exists());
+    }
+
+    #[tokio::test]
+    async fn a_run_neither_starts_nor_finishes_a_ticket_that_waits_for_a_person() {
+        let api = test_api().await;
+        let (dir, cwd, runner) = bound_repository(&api).await;
+        let hold = json!({
+            "status": "blocked", "blockedReason": "Human Interaction: look", "version": 1
+        });
+        let request = bearer(Request::patch("/api/v1/tickets/arc-1"), &api.token)
+            .header("content-type", "application/json")
+            .body(Body::from(hold.to_string()))
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, StatusCode::OK);
+        let plain = json!({ "runnerId": runner, "cwd": cwd });
+        let forced = json!({ "runnerId": runner, "cwd": cwd, "force": true });
+        let finish = json!({ "runnerId": runner, "cwd": cwd, "acceptance": "It works" });
+        for mark in [in_run, in_session] {
+            for (uri, body) in [
+                ("/api/v1/tickets/arc-1/start", &plain),
+                ("/api/v1/tickets/arc-1/start", &forced),
+                ("/api/v1/tickets/arc-1/done", &finish),
+            ] {
+                let request = mark(bearer(Request::post(uri), &api.token))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap();
+                let (status, _, problem) = send(&api.router, request).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{uri} {problem}");
+                assert_eq!(problem["code"], "decision-needs-person", "{uri}");
+            }
+        }
+        // git made neither a folder nor a branch before the refusal
+        assert!(!dir.path().join("arches-worktrees").exists());
+        let branches = Command::new("git")
+            .args(["branch", "--list", "ticket/*"])
+            .current_dir(&cwd)
+            .output()
+            .unwrap();
+        assert!(branches.stdout.is_empty(), "{branches:?}");
+        // the person at a terminal starts it
+        let (status, started) = post(&api, "/api/v1/tickets/arc-1/start", &plain).await;
+        assert_eq!(status, StatusCode::OK, "{started}");
     }
 
     #[tokio::test]

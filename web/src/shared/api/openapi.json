@@ -3561,6 +3561,16 @@
               }
             }
           },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8121,6 +8131,16 @@
               }
             }
           },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8197,7 +8217,7 @@
             }
           },
           "403": {
-            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person",
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person, take off the autopilot except label, or remove a dependency that is still open",
             "content": {
               "application/json": {
                 "schema": {
@@ -8580,6 +8600,16 @@
               }
             }
           },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent and the ticket waits for a person",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Unknown ticket or runner",
             "content": {
@@ -8887,6 +8917,16 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person",
             "content": {
               "application/json": {
                 "schema": {
@@ -9794,6 +9834,16 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent and the ticket waits for a person",
             "content": {
               "application/json": {
                 "schema": {

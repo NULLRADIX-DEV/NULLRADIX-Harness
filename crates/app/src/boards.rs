@@ -261,7 +261,11 @@ impl BoardService {
         expected: Version,
         delete_open: bool,
         actor: &Actor,
+        from_agent: bool,
     ) -> Result<Vec<TicketKey>, AppError> {
+        if from_agent {
+            return Err(crate::auth::decision_needs_person("deleting a board"));
+        }
         let mut write = self.tickets.begin().await?;
         let board = match write.board(id).await? {
             Some((board, _)) if board.project() == project => board,

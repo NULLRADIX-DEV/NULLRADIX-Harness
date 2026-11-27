@@ -561,7 +561,10 @@ async fn deleting_a_ticket_drops_it_from_its_questions() {
         })
         .await
         .unwrap();
-    f.tickets.delete(&ticket, &f.person, None).await.unwrap();
+    f.tickets
+        .delete(&ticket, &f.person, None, false)
+        .await
+        .unwrap();
     let detail = f.questions.get(&key).await.unwrap();
     let record = detail.view.row.question.record();
     assert_eq!(record.tickets.len(), 0);

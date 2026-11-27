@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    ASSIGNEE_MAX, Actor, ActorKind, Board, BoardMoveError, ClaimError, Column, DependencyIndex,
-    HistoryEntry, Id, PlanChange, Priority, Project, ProjectKey, RuleError, StatusFacts,
-    StatusLock, StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError, Ticket,
-    TicketDraft, TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle, Timestamp,
-    Tombstone, Version, changed_dependencies, changes, check_status_change, check_target_lock,
-    display_order, normalize_dependencies, normalize_labels, optional_text, planning_candidate,
-    step, validate_dependencies,
+    ASSIGNEE_MAX, Actor, ActorKind, AgentWriteRefusal, Board, BoardMoveError, ClaimError, Column,
+    DependencyIndex, HistoryEntry, Id, PlanChange, Priority, Project, ProjectKey, RuleError,
+    StatusFacts, StatusLock, StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError,
+    Ticket, TicketDraft, TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle,
+    Timestamp, Tombstone, Version, changed_dependencies, changes, check_agent_write,
+    check_status_change, check_target_lock, display_order, normalize_dependencies,
+    normalize_labels, optional_text, planning_candidate, step, validate_dependencies,
 };
 
 use crate::comments::{CommentLine, CommentWrite};
@@ -99,6 +99,8 @@ pub trait TicketWrite: WorktreeWrite + CommentWrite + QuestionWrite + Send {
         board: Id<Board>,
     ) -> Result<Vec<(TicketKey, TicketTitle)>, AppError>;
     async fn dependency_index(&mut self) -> Result<DependencyIndex, AppError>;
+    /// The label that keeps a person in the loop of autopilot, if one is configured.
+    async fn autopilot_keep_label(&mut self) -> Result<Option<String>, AppError>;
     /// The next number of the project; numbers are never handed out twice.
     async fn take_number(&mut self, project: Id<Project>) -> Result<u32, AppError>;
     /// The place after the last ticket in this column of the board.
@@ -243,16 +245,11 @@ pub struct TicketPatch {
     pub target_branch: Option<Option<String>>,
     /// Clears branch and worktree together; the worktree keeps the ticket in its list.
     pub clear_link: bool,
-    /// A label an agent may not take off; it keeps a person in the loop. No change by itself.
-    pub keep_label: Option<String>,
 }
 
 impl TicketPatch {
     fn is_empty(&self) -> bool {
-        Self {
-            keep_label: None,
-            ..self.clone()
-        } == Self::default()
+        *self == Self::default()
     }
 
     const fn changes_dependencies(&self) -> bool {
@@ -719,12 +716,7 @@ impl TicketService {
         let before = load(write.as_mut(), &key, Some(expected)).await?;
         let index = write.dependency_index().await?;
         let after = apply(write.as_mut(), &before, patch, status, priority, &index).await?;
-        guard_agent_write(
-            options.from_agent,
-            &before,
-            &after,
-            patch.keep_label.as_deref(),
-        )?;
+        guard_agent_write(write.as_mut(), options.from_agent, &before, &after).await?;
         check_change(write.as_mut(), &before, &after, &index, options).await?;
         let now = self.clock.now();
         if patch.clear_link {
@@ -761,7 +753,7 @@ impl TicketService {
             return Ok(self.get(&key.to_string()).await?.view);
         }
         let index = write.dependency_index().await?;
-        guard_agent_write(options.from_agent, &before, &after, None)?;
+        guard_agent_write(write.as_mut(), options.from_agent, &before, &after).await?;
         check_change(write.as_mut(), &before, &after, &index, options).await?;
         let now = self.clock.now();
         let revised = before.revised(after, now);
@@ -780,7 +772,11 @@ impl TicketService {
         key: &str,
         actor: &Actor,
         expected: Option<Version>,
+        from_agent: bool,
     ) -> Result<(), AppError> {
+        if from_agent {
+            return Err(crate::auth::decision_needs_person("deleting a ticket"));
+        }
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let ticket = load(write.as_mut(), &key, expected).await?;
@@ -1137,7 +1133,7 @@ impl TicketService {
         note: Option<&str>,
         from_agent: bool,
     ) -> Result<TicketView, AppError> {
-        guard_agent_write(from_agent, before, &after, None)?;
+        guard_agent_write(write.as_mut(), from_agent, before, &after).await?;
         let now = self.clock.now();
         let revised = before.revised(after, now);
         let history = self.history(before, &revised, actor, now, note);
@@ -1457,17 +1453,36 @@ async fn check_change(
 }
 
 /// The rule for every write an agent makes: it may not end or bypass a wait for the person.
-pub(crate) fn guard_agent_write(
+pub(crate) async fn guard_agent_write(
+    write: &mut dyn TicketWrite,
     from_agent: bool,
     before: &Ticket,
     after: &TicketRecord,
-    keep_label: Option<&str>,
 ) -> Result<(), AppError> {
     if !from_agent {
         return Ok(());
     }
-    nullradix_domain::check_agent_write(before.record(), after, keep_label)
-        .map_err(|refusal| crate::auth::decision_needs_person(&refusal.to_string()))
+    let refuse =
+        |refusal: AgentWriteRefusal| crate::auth::decision_needs_person(&refusal.to_string());
+    let label = write.autopilot_keep_label().await?;
+    check_agent_write(before.record(), after, label.as_deref()).map_err(refuse)?;
+    // a dependency that is still open locks the status; dropping it would lift the lock
+    let removed: Vec<TicketKey> = before
+        .record()
+        .depends_on
+        .iter()
+        .filter(|key| !after.depends_on.contains(key))
+        .cloned()
+        .collect();
+    if removed.is_empty() {
+        return Ok(());
+    }
+    let open = write.dependency_index().await?.open_dependencies(&removed);
+    if open.is_empty() {
+        return Ok(());
+    }
+    let keys: Vec<String> = open.iter().map(ToString::to_string).collect();
+    Err(refuse(AgentWriteRefusal::DropsDependency(keys.join(", "))))
 }
 
 /// Deletes tickets as legacy did: dependents lose the edge, each ticket leaves a tombstone.

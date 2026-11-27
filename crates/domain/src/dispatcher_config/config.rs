@@ -232,9 +232,9 @@ impl DispatcherConfig {
             return false;
         }
         match self.autopilot.except_label.as_deref().map(str::trim) {
-            Some(except) if !except.is_empty() => !labels
-                .iter()
-                .any(|label| label.trim().to_lowercase() == except.to_lowercase()),
+            Some(except) if !except.is_empty() => {
+                !labels.iter().any(|label| crate::same_label(label, except))
+            }
             _ => true,
         }
     }

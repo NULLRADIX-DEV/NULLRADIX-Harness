@@ -193,7 +193,14 @@ async fn board_writes_land_in_the_change_feed() {
     assert_eq!(fx.signalled(), None);
 
     fx.boards
-        .delete(arc.id(), board.id(), renamed.version(), false, &fx.person)
+        .delete(
+            arc.id(),
+            board.id(),
+            renamed.version(),
+            false,
+            &fx.person,
+            false,
+        )
         .await
         .unwrap();
     assert!(fx.signalled().is_some());
@@ -259,7 +266,14 @@ async fn boards_answer_only_under_their_own_project() {
             .await
             .unwrap_err(),
         fx.boards
-            .delete(other.id(), board.id(), board.version(), false, &fx.person)
+            .delete(
+                other.id(),
+                board.id(),
+                board.version(),
+                false,
+                &fx.person,
+                false,
+            )
             .await
             .unwrap_err(),
     ]
@@ -298,12 +312,20 @@ async fn projects_with_boards_cannot_be_deleted_until_the_boards_are_gone() {
             Version::INITIAL.next(),
             false,
             &fx.person,
+            false,
         )
         .await
         .unwrap_err();
     assert_eq!(stale.code(), "version-conflict");
     fx.boards
-        .delete(arc.id(), board.id(), board.version(), false, &fx.person)
+        .delete(
+            arc.id(),
+            board.id(),
+            board.version(),
+            false,
+            &fx.person,
+            false,
+        )
         .await
         .unwrap();
     assert_eq!(fx.boards.list(None).await.unwrap(), Vec::new());

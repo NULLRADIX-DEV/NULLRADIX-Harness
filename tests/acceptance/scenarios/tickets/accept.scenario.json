@@ -142,6 +142,24 @@
       }
     },
     {
+      "name": "a run cannot delete it",
+      "cli": {
+        "args": ["ticket", "delete", "ARC-1"],
+        "env": {
+          "NULLRADIX_RUN": "run-1"
+        }
+      }
+    },
+    {
+      "name": "a session cannot delete it",
+      "cli": {
+        "args": ["ticket", "delete", "ARC-1"],
+        "env": {
+          "NULLRADIX_SESSION": "session-1"
+        }
+      }
+    },
+    {
       "name": "a session cannot plan it into planned",
       "cli": {
         "args": ["plan", "write", "ARC-1", "--plan", "Do it"],

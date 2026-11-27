@@ -398,7 +398,10 @@ async fn deleted_tickets_stay_in_the_list_with_their_link_ended() {
         .unwrap();
     let head = fx.store.head().await.unwrap();
 
-    fx.tickets.delete("ARC-1", &fx.person, None).await.unwrap();
+    fx.tickets
+        .delete("ARC-1", &fx.person, None, false)
+        .await
+        .unwrap();
     let entry = fx.entry(&worktree).await;
     assert_eq!(
         links(&entry),

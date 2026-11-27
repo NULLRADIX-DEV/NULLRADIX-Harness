@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT autopilot_except_label FROM dispatcher_settings WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "autopilot_except_label",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dispatcher_settings",
+            "name": "autopilot_except_label"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "5a203eba93cb29733bdaa8a3c864a4c1152cb8161c3a97e56e435a92bf1866c2"
+}

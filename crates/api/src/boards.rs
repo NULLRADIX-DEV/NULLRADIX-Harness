@@ -1,3 +1,4 @@
+use axum::Extension;
 use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
@@ -8,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::auth::AgentContext;
 use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
 /// A board as the API shows it; timestamps are Unix milliseconds.
@@ -295,6 +297,7 @@ pub(crate) async fn rename_board(
     responses(
         (status = 200, description = "The board is gone with its tickets", body = BoardDeleted),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent", body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, description = "Open tickets without deleteOpenTickets", body = Problem),
@@ -302,6 +305,7 @@ pub(crate) async fn rename_board(
 )]
 pub(crate) async fn delete_board(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<BoardPath>,
     ApiQuery(query): ApiQuery<DeleteBoardQuery>,
 ) -> Result<Json<BoardDeleted>, ApiError> {
@@ -313,6 +317,7 @@ pub(crate) async fn delete_board(
             AppError::client_version(query.version)?,
             query.delete_open_tickets,
             &state.person,
+            context.is_agent(),
         )
         .await?;
     Ok(Json(BoardDeleted {

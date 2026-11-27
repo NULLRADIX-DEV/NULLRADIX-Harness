@@ -230,6 +230,12 @@ impl TicketRecord {
         self.branch = None;
         self.worktree = None;
     }
+
+    /// Blocked on a person, such as a review before the merge.
+    #[must_use]
+    pub fn awaits_a_person(&self) -> bool {
+        self.status == TicketStatus::Blocked && waits_for_a_person(self.blocked_reason.as_deref())
+    }
 }
 
 /// A started ticket keeps its target; the lock looks at the branch before the change.
@@ -392,10 +398,11 @@ pub fn planning_claim_alive(record: &TicketRecord, now: Timestamp) -> bool {
         .is_some_and(|(_, at)| now.saturating_since(*at) < PLANNING_CLAIM_TTL)
 }
 
-/// Needs planning, is neither in planning nor not needed, and nobody holds a live claim.
+/// Needs planning, is neither in planning nor not needed, waits for no person, and no live claim.
 #[must_use]
 pub fn planning_candidate(record: &TicketRecord, now: Timestamp) -> bool {
     record.needs_planning
+        && !record.awaits_a_person()
         && !matches!(
             record.status,
             TicketStatus::InPlanning | TicketStatus::NotNeeded
@@ -413,10 +420,10 @@ pub fn waits_for_a_person(reason: Option<&str>) -> bool {
     text.starts_with(HUMAN_INTERACTION) || Some(text) == HUMAN_INTERACTION.strip_suffix(':')
 }
 
-/// Blocked on a person, such as a review before the merge.
+/// Whether two labels are the same label: trimmed, and equal in Unicode lowercase.
 #[must_use]
-pub fn waits_on_a_person(record: &TicketRecord) -> bool {
-    record.status == TicketStatus::Blocked && waits_for_a_person(record.blocked_reason.as_deref())
+pub fn same_label(one: &str, other: &str) -> bool {
+    one.trim().to_lowercase() == other.trim().to_lowercase()
 }
 
 /// What a write made by an agent may not do: end a wait for the person or bypass one.
@@ -426,6 +433,8 @@ pub enum AgentWriteRefusal {
     EndsWait,
     #[error("removing the label {0}")]
     DropsLabel(String),
+    #[error("removing the dependency {0}, which is still open")]
+    DropsDependency(String),
 }
 
 /// The one rule for every write an agent makes; `keep_label` is the label that keeps a person in.
@@ -434,15 +443,11 @@ pub fn check_agent_write(
     after: &TicketRecord,
     keep_label: Option<&str>,
 ) -> Result<(), AgentWriteRefusal> {
-    if waits_on_a_person(before) && !waits_on_a_person(after) {
+    if before.awaits_a_person() && !after.awaits_a_person() {
         return Err(AgentWriteRefusal::EndsWait);
     }
-    let has = |record: &TicketRecord, label: &str| {
-        record
-            .labels
-            .iter()
-            .any(|own| own.eq_ignore_ascii_case(label))
-    };
+    let has =
+        |record: &TicketRecord, label: &str| record.labels.iter().any(|own| same_label(own, label));
     match keep_label {
         Some(label) if has(before, label) && !has(after, label) => {
             Err(AgentWriteRefusal::DropsLabel(label.to_owned()))
@@ -872,6 +877,33 @@ mod tests {
         assert!(waits_for_a_person(Some("Human Interaction")));
         assert!(!waits_for_a_person(Some("Merge: conflict")));
         assert!(!waits_for_a_person(None));
+    }
+
+    #[test]
+    fn a_ticket_awaits_a_person_only_while_blocked_on_one_and_is_then_no_planning_candidate() {
+        let mut record = sample().record().clone();
+        record.needs_planning = true;
+        let now = Timestamp::from_millis(5);
+        assert!(!record.awaits_a_person());
+        assert!(planning_candidate(&record, now));
+        record.status = TicketStatus::Blocked;
+        record.blocked_reason = Some(String::from("Human Interaction: review"));
+        assert!(record.awaits_a_person());
+        assert!(!planning_candidate(&record, now));
+        record.blocked_reason = Some(String::from("waiting for a key"));
+        assert!(!record.awaits_a_person());
+        assert!(planning_candidate(&record, now));
+        record.status = TicketStatus::Planned;
+        record.blocked_reason = Some(String::from("Human Interaction: review"));
+        assert!(!record.awaits_a_person());
+    }
+
+    #[test]
+    fn labels_match_by_their_trimmed_unicode_lowercase() {
+        assert!(same_label(" Interactive ", "interactive"));
+        assert!(same_label("\u{c4}B", "\u{e4}b"));
+        assert!(!same_label("ui", "docs"));
+        assert!(!same_label("", "ui"));
     }
 
     #[test]

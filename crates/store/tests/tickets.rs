@@ -1,7 +1,7 @@
 #![allow(
     clippy::unwrap_used,
     clippy::too_many_lines,
-    reason = "integration tests fail loudly"
+    reason = "integration tests fail loudly and read from top to bottom"
 )]
 
 mod common;
@@ -540,7 +540,14 @@ async fn boards_go_with_their_tickets_and_open_ones_only_when_asked() {
 
     let error = fx
         .boards
-        .delete(project.id(), board.id(), board.version(), false, &fx.person)
+        .delete(
+            project.id(),
+            board.id(),
+            board.version(),
+            false,
+            &fx.person,
+            false,
+        )
         .await
         .unwrap_err();
     assert_eq!(error.code(), "board-has-open-tickets");
@@ -549,7 +556,14 @@ async fn boards_go_with_their_tickets_and_open_ones_only_when_asked() {
 
     let deleted = fx
         .boards
-        .delete(project.id(), board.id(), board.version(), true, &fx.person)
+        .delete(
+            project.id(),
+            board.id(),
+            board.version(),
+            true,
+            &fx.person,
+            false,
+        )
         .await
         .unwrap();
     let deleted: Vec<String> = deleted.iter().map(ToString::to_string).collect();
@@ -590,7 +604,14 @@ async fn boards_go_with_their_tickets_and_open_ones_only_when_asked() {
     fx.create(&empty, finished, PERSON).await.unwrap();
     let gone = fx
         .boards
-        .delete(project.id(), empty.id(), empty.version(), false, &fx.person)
+        .delete(
+            project.id(),
+            empty.id(),
+            empty.version(),
+            false,
+            &fx.person,
+            false,
+        )
         .await
         .unwrap();
     assert_eq!(gone.len(), 1);
@@ -798,11 +819,14 @@ async fn deleted_tickets_free_their_dependents_and_leave_the_numbers_unused() {
 
     let stale = fx
         .tickets
-        .delete("ARC-1", &fx.person, Some(Version::INITIAL.next()))
+        .delete("ARC-1", &fx.person, Some(Version::INITIAL.next()), false)
         .await
         .unwrap_err();
     assert_eq!(stale.code(), "version-conflict");
-    fx.tickets.delete("arc-1", &fx.person, None).await.unwrap();
+    fx.tickets
+        .delete("arc-1", &fx.person, None, false)
+        .await
+        .unwrap();
     assert_eq!(
         fx.tickets.get("ARC-1").await.unwrap_err().code(),
         "ticket-not-found"
@@ -840,7 +864,7 @@ async fn deleted_tickets_free_their_dependents_and_leave_the_numbers_unused() {
     );
     assert_eq!(
         fx.tickets
-            .delete("ARC-1", &fx.person, None)
+            .delete("ARC-1", &fx.person, None, false)
             .await
             .unwrap_err()
             .code(),
@@ -999,7 +1023,10 @@ async fn dependency_lists_replace_add_and_remove_in_the_legacy_order() {
     let detail = fx.update("ARC-4", added, 2, AGENT).await.unwrap();
     assert_eq!(keys(&detail), ["ARC-0001", "ARC-0003", "ARC-0002"]);
 
-    fx.tickets.delete("ARC-1", &fx.person, None).await.unwrap();
+    fx.tickets
+        .delete("ARC-1", &fx.person, None, false)
+        .await
+        .unwrap();
     let top = fx.tickets.get("ARC-4").await.unwrap();
     let last = top.history.last().unwrap();
     assert_eq!(
@@ -1985,6 +2012,9 @@ impl TicketWrite for Counting {
     async fn dependency_index(&mut self) -> Result<DependencyIndex, AppError> {
         self.reads.lock().unwrap().push("dependency_index");
         self.inner.dependency_index().await
+    }
+    async fn autopilot_keep_label(&mut self) -> Result<Option<String>, AppError> {
+        self.inner.autopilot_keep_label().await
     }
     async fn take_number(&mut self, project: Id<Project>) -> Result<u32, AppError> {
         self.inner.take_number(project).await

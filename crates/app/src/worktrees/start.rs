@@ -26,6 +26,13 @@ use crate::{AppError, ChangeSignal, Clock, IdGenerator};
 const LONG_PATHS_NOTICE: &str =
     "core.longpaths switched on in the repository, so long paths work in worktrees";
 
+/// Who starts: whether the locks are lifted, and whether the request comes from an agent.
+#[derive(Debug, Clone, Copy)]
+struct Rights {
+    force: bool,
+    from_agent: bool,
+}
+
 /// Where the ticket goes: its own new worktree or one that already exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartMode {
@@ -189,6 +196,12 @@ impl WorktreeService {
         let ticket = view.ticket;
         let place = self.place(&ticket, runner, cwd).await?;
         refuse_started(&ticket)?;
+        // before git creates anything, as the write inside would refuse it too
+        if from_agent && ticket.record().awaits_a_person() {
+            return Err(crate::auth::decision_needs_person(
+                &nullradix_domain::AgentWriteRefusal::EndsWait.to_string(),
+            ));
+        }
         let questions = view
             .open_questions
             .iter()
@@ -204,15 +217,10 @@ impl WorktreeService {
                 None => Link::New { warning: None },
             },
         };
+        let rights = Rights { force, from_agent };
         let started = match link {
-            Link::Join(entry) => {
-                self.join(&ticket, entry, (force, from_agent), actor)
-                    .await?
-            }
-            Link::New { warning } => {
-                self.create(&ticket, &place, warning, (force, from_agent), actor)
-                    .await?
-            }
+            Link::Join(entry) => self.join(&ticket, entry, rights, actor).await?,
+            Link::New { warning } => self.create(&ticket, &place, warning, rights, actor).await?,
         };
         Ok(Started { cleanup, ..started })
     }
@@ -320,16 +328,23 @@ impl WorktreeService {
         &self,
         ticket: &Ticket,
         entry: WorktreeEntry,
-        (force, from_agent): (bool, bool),
+        rights: Rights,
         actor: &Actor,
     ) -> Result<Started, AppError> {
         let mut write = self.tickets.repository().begin().await?;
-        let before = fresh(write.as_mut(), ticket.key(), force).await?;
+        let before = fresh(write.as_mut(), ticket.key(), rights.force).await?;
         write
             .join_worktree(entry.worktree.id(), before.id(), self.clock.now())
             .await?;
-        self.link(write, &before, &entry.worktree, actor, "joined", from_agent)
-            .await?;
+        self.link(
+            write,
+            &before,
+            &entry.worktree,
+            actor,
+            "joined",
+            rights.from_agent,
+        )
+        .await?;
         self.started(ticket.key(), &entry.worktree, true, Vec::new(), None)
             .await
     }
@@ -340,7 +355,7 @@ impl WorktreeService {
         ticket: &Ticket,
         place: &Place,
         warning: Option<String>,
-        (force, from_agent): (bool, bool),
+        rights: Rights,
         actor: &Actor,
     ) -> Result<Started, AppError> {
         let record = ticket.record();
@@ -377,14 +392,21 @@ impl WorktreeService {
         };
         let worktree = Worktree::new(self.ids.next(), draft, now).seen_present(now);
         let mut write = self.tickets.repository().begin().await?;
-        let before = fresh(write.as_mut(), ticket.key(), force).await?;
+        let before = fresh(write.as_mut(), ticket.key(), rights.force).await?;
         // git proved branch and folder gone, so a live row with this branch is stale
         write
             .retire_branch(place.repository, place.runner, worktree.branch(), now)
             .await?;
         write.insert_worktree(&worktree, before.id()).await?;
-        self.link(write, &before, &worktree, actor, "started", from_agent)
-            .await?;
+        self.link(
+            write,
+            &before,
+            &worktree,
+            actor,
+            "started",
+            rights.from_agent,
+        )
+        .await?;
         let mut warnings: Vec<String> = warning.into_iter().collect();
         if created.long_paths_enabled {
             warnings.push(LONG_PATHS_NOTICE.to_owned());
@@ -417,7 +439,7 @@ impl WorktreeService {
                 .next_sort_order(record.board, TicketStatus::InProgress)
                 .await?;
         }
-        crate::tickets::guard_agent_write(from_agent, before, &after, None)?;
+        crate::tickets::guard_agent_write(write.as_mut(), from_agent, before, &after).await?;
         let now = self.clock.now();
         let revised = before.revised(after, now);
         let history = self
