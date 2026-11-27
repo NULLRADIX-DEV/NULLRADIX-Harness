@@ -10,3 +10,5 @@ lcov.info
 !.env.example
 /.claude/
 /.remember/
+playwright-report/
+test-results/
