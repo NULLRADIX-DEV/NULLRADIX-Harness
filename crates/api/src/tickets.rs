@@ -893,7 +893,7 @@ pub(crate) async fn author_of(
     author_without_ticket(state, principal, context, name, session).await
 }
 
-/// The actor of a write that names no ticket yet, such as a new ticket or an import.
+/// The actor of a write without a ticket yet; made before the request is checked.
 pub(crate) async fn author_without_ticket(
     state: &ApiState,
     principal: &Principal,

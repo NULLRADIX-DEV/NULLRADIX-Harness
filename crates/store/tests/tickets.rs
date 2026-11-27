@@ -1585,7 +1585,7 @@ async fn an_agent_plans_only_into_planned_blocked_or_in_planning() {
             .await
             .unwrap();
     }
-    // the gate asks the headers of the request, not the kind of the author it resolved to
+    // the gate reads the request headers, not the author kind
     let input = PlanInput {
         plan: Some(String::from("Do it")),
         status: Some(String::from("done")),
@@ -2185,7 +2185,7 @@ async fn a_claim_reads_dependencies_and_questions_only_when_the_checks_before_th
     assert_eq!((result, seen), (Ok(()), vec!["dependency_index"]));
 }
 
-/// Leaves a reason on a ticket that is not blocked, as a row from before the rule would.
+/// Plants a reason on a ticket that is not blocked, like a legacy row.
 async fn plant_stale_reason(fx: &Fixture, key: &str, reason: &str) {
     let mut write = TicketRepository::begin(fx.store.as_ref()).await.unwrap();
     let before = write

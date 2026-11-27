@@ -571,7 +571,7 @@
     }
   },
   {
-    "name": "release not needed as an agent",
+    "name": "release not needed with a token",
     "request": {
       "body": {
         "status": "not-needed"

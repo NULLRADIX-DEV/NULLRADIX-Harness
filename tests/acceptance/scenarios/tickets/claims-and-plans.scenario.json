@@ -112,7 +112,7 @@
       }
     },
     {
-      "name": "release not needed as an agent",
+      "name": "release not needed with a token",
       "http": {
         "method": "POST",
         "path": "/api/v1/tickets/ARC-2/release",

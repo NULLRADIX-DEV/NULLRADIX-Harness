@@ -73,14 +73,16 @@ impl TicketRecord {
                 }
                 Ok(reason)
             }
-            None if status == TicketStatus::Blocked => Ok(self.blocked_reason.clone()),
+            None if status == TicketStatus::Blocked && self.status == TicketStatus::Blocked => {
+                Ok(self.blocked_reason.clone())
+            }
             Some(None) | None => Ok(None),
         }
     }
 
-    /// Drops a block reason that is left over outside blocked.
-    fn without_stale_reason(mut self) -> Self {
-        if self.status != TicketStatus::Blocked {
+    /// Keeps a block reason only from blocked to blocked.
+    fn reason_kept(mut self, before: TicketStatus) -> Self {
+        if self.status != TicketStatus::Blocked || before != TicketStatus::Blocked {
             self.blocked_reason = None;
         }
         self
@@ -113,7 +115,7 @@ impl Ticket {
         if let Some(acceptance) = acceptance {
             acceptance.clone_into(&mut after.acceptance);
         }
-        after.without_stale_reason()
+        after.reason_kept(self.record().status)
     }
 
     /// The claim checks that need no reads: taken already, and not needed for agents.
@@ -141,7 +143,7 @@ impl Ticket {
         let mut after = self.record().clone();
         after.assignee = Some(assignee);
         after.status = status;
-        after.without_stale_reason()
+        after.reason_kept(self.record().status)
     }
 
     /// Clears the assignee and applies a given status; the caller checks its locks.
@@ -150,7 +152,7 @@ impl Ticket {
         let mut after = self.record().clone();
         after.assignee = None;
         after.status = status.unwrap_or(after.status);
-        after.without_stale_reason()
+        after.reason_kept(self.record().status)
     }
 
     /// Finishes a ticket that is blocked on a person.
@@ -187,7 +189,7 @@ impl Ticket {
         after.needs_planning = false;
         after.planning_claim = None;
         after.planned = Some((change.by.to_owned(), change.at));
-        after.without_stale_reason()
+        after.reason_kept(self.record().status)
     }
 
     /// Starts a planning claim for `agent`; another agent's live claim refuses it.
@@ -342,6 +344,27 @@ mod tests {
                 Ok(None)
             );
         }
+    }
+
+    #[test]
+    fn a_stale_reason_does_not_come_back_on_the_way_into_blocked() {
+        let mut record = ticket(TicketStatus::Planned).record().clone();
+        record.blocked_reason = Some(String::from("Human Interaction: old"));
+        assert_eq!(
+            record.blocked_reason_after(TicketStatus::Blocked, None),
+            Ok(None)
+        );
+        let stale = Ticket::restore(record);
+        for after in [
+            stale.moved(TicketStatus::Blocked, None),
+            stale.claimed(String::from("max"), TicketStatus::Blocked),
+            stale.released(Some(TicketStatus::Blocked)),
+        ] {
+            assert_eq!(after.blocked_reason, None);
+            assert!(!after.awaits_a_person());
+        }
+        let kept = blocked("Merge: conflict").moved(TicketStatus::Blocked, None);
+        assert_eq!(kept.blocked_reason.as_deref(), Some("Merge: conflict"));
     }
 
     #[test]
