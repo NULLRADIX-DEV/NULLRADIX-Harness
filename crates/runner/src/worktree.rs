@@ -71,7 +71,10 @@ pub(crate) async fn exists(path: PathBuf) -> Result<bool, AppError> {
 }
 
 /// Creates the worktree after the legacy checks, in the legacy order.
-pub(crate) async fn create(request: &NewWorktree) -> Result<CreatedWorktree, AppError> {
+pub(crate) async fn create(
+    request: &NewWorktree,
+    plugin: Option<&str>,
+) -> Result<CreatedWorktree, AppError> {
     let cwd = Path::new(&request.cwd);
     if attempt(cwd, &["rev-parse", "--verify", "HEAD"])
         .await?
@@ -100,7 +103,7 @@ pub(crate) async fn create(request: &NewWorktree) -> Result<CreatedWorktree, App
         args.push(start);
     }
     git(cwd, &args).await?;
-    crate::plugin::enable(Path::new(&request.path)).await;
+    crate::plugin::enable(Path::new(&request.path), plugin).await;
     Ok(CreatedWorktree {
         target_created_from,
         long_paths_enabled,
@@ -196,7 +199,7 @@ mod tests {
         let root = dir.path().join("arches");
         repository(&root);
         let wanted = request(&root, "ticket/ARC-0001-a", None);
-        let created = create(&wanted).await.unwrap();
+        let created = create(&wanted, None).await.unwrap();
         assert_eq!(created.target_created_from, None);
         assert_eq!(created.long_paths_enabled, cfg!(windows));
         let folder = PathBuf::from(&wanted.path);
@@ -210,20 +213,21 @@ mod tests {
                 .unwrap(),
             vec![true, false]
         );
-        let again = create(&request(&root, "ticket/ARC-0001-b", None)).await;
+        let again = create(&request(&root, "ticket/ARC-0001-b", None), None).await;
         assert_eq!(again.unwrap_err().code(), "worktree-exists");
-        let taken = create(&request(&root, "ticket/ARC-0001-a", None)).await;
+        let taken = create(&request(&root, "ticket/ARC-0001-a", None), None).await;
         assert_eq!(taken.unwrap_err().code(), "branch-exists");
     }
 
     #[tokio::test]
     async fn a_created_worktree_has_the_plugin_and_stays_clean() {
-        crate::plugin::tests::configure();
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("arches");
         repository(&root);
         let wanted = request(&root, "ticket/ARC-0001-a", None);
-        create(&wanted).await.unwrap();
+        create(&wanted, Some(crate::plugin::tests::ID))
+            .await
+            .unwrap();
         crate::plugin::tests::assert_enabled(Path::new(&wanted.path));
     }
 
@@ -233,7 +237,7 @@ mod tests {
         let root = dir.path().join("arches");
         fs::create_dir_all(&root).unwrap();
         git_sync(&root, &["init", "-q"]);
-        let error = create(&request(&root, "ticket/ARC-0001-a", None))
+        let error = create(&request(&root, "ticket/ARC-0001-a", None), None)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "no-commit");
@@ -245,7 +249,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("arches");
         repository(&root);
-        let first = create(&request(&root, "ticket/ARC-0001-a", Some("release")))
+        let first = create(&request(&root, "ticket/ARC-0001-a", Some("release")), None)
             .await
             .unwrap();
         assert_eq!(first.target_created_from.as_deref(), Some("main"));
@@ -285,7 +289,7 @@ mod tests {
         git_sync(&origin, &["checkout", "-q", "main"]);
         git_sync(dir.path(), &["clone", "-q", &text(&origin), "arches"]);
         let root = dir.path().join("arches");
-        let created = create(&request(&root, "ticket/ARC-0001-a", Some("release")))
+        let created = create(&request(&root, "ticket/ARC-0001-a", Some("release")), None)
             .await
             .unwrap();
         assert_eq!(

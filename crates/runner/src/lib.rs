@@ -34,7 +34,6 @@ pub use merge::LocalMergeGit;
 pub use oauth_refresh::{
     CLIENT_ID, CurlTokenEndpoint, LocalLoginRenewal, TOKEN_URL, TokenEndpoint, TokenReply,
 };
-pub use plugin::set_worktree_plugin;
 pub use setup::LocalSetup;
 pub use supervisor::supervise;
 pub use transcript::TranscriptRoots;

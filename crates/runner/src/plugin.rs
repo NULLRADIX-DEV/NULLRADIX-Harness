@@ -2,43 +2,41 @@
 
 use std::path::Path;
 
-use parking_lot::RwLock;
-
 use crate::cleanup::blocking;
-use crate::worktree::attempt;
+use crate::git::common_dir_git;
 
-static PLUGIN: RwLock<Option<String>> = RwLock::new(None);
-
-/// Sets the plugin id worktrees get; `None` leaves them alone.
-pub fn set_worktree_plugin(id: Option<String>) {
-    *PLUGIN.write() = id;
-}
-
-/// Enables the configured plugin in the worktree; a failure is only a warning in the log.
-pub(crate) async fn enable(worktree: &Path) {
-    let Some(id) = PLUGIN.read().clone() else {
+/// Enables the plugin in the worktree when an id is set; a failure is only a warning in the log.
+pub(crate) async fn enable(worktree: &Path, id: Option<&str>) {
+    let Some(id) = id else {
         return;
     };
-    if let Err(error) = enable_with(worktree, &id).await {
+    if let Err(error) = enable_with(worktree, id).await {
         tracing::warn!(worktree = %worktree.display(), %error, "cannot enable the plugin in the worktree");
     }
 }
 
 async fn enable_with(worktree: &Path, id: &str) -> Result<(), String> {
-    let common = attempt(
-        worktree,
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )
-    .await
-    .map_err(|error| error.message().to_owned())?
-    .ok_or_else(|| String::from("git named no common folder"))?;
+    let common = common_dir_git(worktree).await;
     let (worktree, id) = (worktree.to_path_buf(), id.to_owned());
     blocking(move || {
-        let line = format!("/{}", nullradix_os::LOCAL_SETTINGS);
-        nullradix_os::add_git_excludes(Path::new(&common), &[line])
-            .and_then(|_| nullradix_os::enable_plugin(&worktree, &id))
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+        let mut problems = Vec::new();
+        match common {
+            Some(common) => {
+                let line = format!("/{}", nullradix_os::LOCAL_SETTINGS);
+                if let Err(error) = nullradix_os::add_git_excludes(Path::new(&common), &[line]) {
+                    problems.push(error.to_string());
+                }
+            }
+            None => problems.push(String::from("git named no common folder")),
+        }
+        if let Err(error) = nullradix_os::enable_plugin(&worktree, &id) {
+            problems.push(error.to_string());
+        }
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(problems.join("; "))
+        }
     })
     .await
     .map_err(|error| error.message().to_owned())?
@@ -63,11 +61,6 @@ pub(crate) mod tests {
             .unwrap();
         assert!(output.status.success(), "git {args:?}");
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
-    }
-
-    /// Every test sets the same id, so parallel tests agree on the global.
-    pub(crate) fn configure() {
-        set_worktree_plugin(Some(ID.to_owned()));
     }
 
     /// The switch is on, other keys stay and git sees nothing to commit.

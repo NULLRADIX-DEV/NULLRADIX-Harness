@@ -32,8 +32,18 @@ const BUSY: [(&str, &str); 5] = [
 ];
 
 /// Merges with the git of this machine.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct LocalMergeGit;
+#[derive(Debug, Clone)]
+pub struct LocalMergeGit {
+    plugin: Option<String>,
+}
+
+impl LocalMergeGit {
+    /// Merge worktrees get the plugin with this id switched on; `None` leaves them alone.
+    #[must_use]
+    pub const fn new(plugin: Option<String>) -> Self {
+        Self { plugin }
+    }
+}
 
 fn invalid(name: &str) -> AppError {
     AppError::invalid(
@@ -123,7 +133,11 @@ enum Placed {
     Refused(String),
 }
 
-async fn place_of(root: &Path, target: Option<&str>) -> Result<Placed, AppError> {
+async fn place_of(
+    root: &Path,
+    target: Option<&str>,
+    plugin: Option<&str>,
+) -> Result<Placed, AppError> {
     let Some(target) = target else {
         let current = git(root, &["branch", "--show-current"]).await?;
         if current.is_empty() {
@@ -160,7 +174,7 @@ async fn place_of(root: &Path, target: Option<&str>) -> Result<Placed, AppError>
             opened: false,
             label: main_label(),
         })),
-        _ => open_merge_worktree(root, target, &own).await,
+        _ => open_merge_worktree(root, target, &own, plugin).await,
     }
 }
 
@@ -169,7 +183,12 @@ fn slashed(path: &Path) -> String {
 }
 
 /// Reuses the merge worktree of the target, refuses a foreign folder, else adds it.
-async fn open_merge_worktree(root: &Path, target: &str, path: &str) -> Result<Placed, AppError> {
+async fn open_merge_worktree(
+    root: &Path,
+    target: &str,
+    path: &str,
+    plugin: Option<&str>,
+) -> Result<Placed, AppError> {
     let place = |opened| {
         Placed::Place(Place {
             path: path.to_owned(),
@@ -183,7 +202,7 @@ async fn open_merge_worktree(root: &Path, target: &str, path: &str) -> Result<Pl
             .await?
             .is_some_and(|at| same_folder(&at, path));
         if ours {
-            crate::plugin::enable(Path::new(path)).await;
+            crate::plugin::enable(Path::new(path), plugin).await;
             return Ok(place(true));
         }
         return Err(AppError::invalid(
@@ -198,7 +217,7 @@ async fn open_merge_worktree(root: &Path, target: &str, path: &str) -> Result<Pl
     let mut args: Vec<&str> = LONG_PATHS.to_vec();
     args.extend(["worktree", "add", path, target]);
     git(root, &args).await?;
-    crate::plugin::enable(Path::new(path)).await;
+    crate::plugin::enable(Path::new(path), plugin).await;
     Ok(place(true))
 }
 
@@ -778,9 +797,13 @@ async fn step_in(place: &Place, request: &MergeRequest, tip: &str) -> Result<Mer
 }
 
 /// Merges the captured tip of the branch, not the ref, which a commit may move meanwhile.
-async fn merge_at(request: &MergeRequest, tip: String) -> Result<MergeOutcome, AppError> {
+async fn merge_at(
+    request: &MergeRequest,
+    tip: String,
+    plugin: Option<&str>,
+) -> Result<MergeOutcome, AppError> {
     let root = Path::new(&request.root);
-    let place = match place_of(root, request.target.as_deref()).await? {
+    let place = match place_of(root, request.target.as_deref(), plugin).await? {
         Placed::Place(place) => place,
         Placed::Refused(reason) => return Ok(MergeOutcome::Refused { reason }),
     };
@@ -999,7 +1022,7 @@ impl MergeGit for LocalMergeGit {
                 reason: format!("branch {} does not exist", request.branch),
             });
         };
-        merge_at(request, tip).await
+        merge_at(request, tip, self.plugin.as_deref()).await
     }
 
     async fn delete_merged(&self, request: &DeleteBranch) -> Result<BranchDeletion, AppError> {
@@ -1112,7 +1135,7 @@ mod tests {
     }
 
     async fn merged(request: &MergeRequest) -> (String, String, String) {
-        match LocalMergeGit.merge(request).await.unwrap() {
+        match LocalMergeGit::new(None).merge(request).await.unwrap() {
             MergeOutcome::Merged {
                 into, commit, tip, ..
             } => (into, commit, tip),
@@ -1168,7 +1191,7 @@ mod tests {
         // signing that cannot work makes the commit fail after the squash staged everything
         git_sync(&root, &["config", "commit.gpgsign", "true"]);
         git_sync(&root, &["config", "gpg.program", "nullradix-no-such-gpg"]);
-        let outcome = LocalMergeGit
+        let outcome = LocalMergeGit::new(None)
             .merge(&request(&root, None, MergeStrategy::Squash))
             .await
             .unwrap();
@@ -1188,7 +1211,7 @@ mod tests {
         conflicting(&root);
         for strategy in [MergeStrategy::Merge, MergeStrategy::Squash] {
             let head = git_sync(&root, &["rev-parse", "HEAD"]);
-            let outcome = LocalMergeGit
+            let outcome = LocalMergeGit::new(None)
                 .merge(&request(&root, None, strategy))
                 .await
                 .unwrap();
@@ -1211,12 +1234,16 @@ mod tests {
         let main = git_sync(&root, &["rev-parse", "refs/heads/main"]);
         let ticket = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
         let at = slashed(&root);
-        let current = LocalMergeGit.target_tip(&at, None).await.unwrap().unwrap();
+        let current = LocalMergeGit::new(None)
+            .target_tip(&at, None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(
             (current.into.as_str(), current.tip.as_str()),
             ("main", main.as_str())
         );
-        let named = LocalMergeGit
+        let named = LocalMergeGit::new(None)
             .target_tip(&at, Some("ticket/x"))
             .await
             .unwrap()
@@ -1226,7 +1253,10 @@ mod tests {
             ("ticket/x", ticket.as_str())
         );
         assert_eq!(
-            LocalMergeGit.target_tip(&at, Some("nope")).await.unwrap(),
+            LocalMergeGit::new(None)
+                .target_tip(&at, Some("nope"))
+                .await
+                .unwrap(),
             None
         );
     }
@@ -1246,7 +1276,10 @@ mod tests {
             branch: "ticket/x",
             folder,
         };
-        LocalMergeGit.session_resolved(&check).await.unwrap()
+        LocalMergeGit::new(None)
+            .session_resolved(&check)
+            .await
+            .unwrap()
     }
 
     /// A conflicting merge of main into the ticket branch, left for a person to resolve.
@@ -1405,7 +1438,7 @@ theirs
         let contains = |branch: &'static str, commit: String| {
             let at = at.clone();
             async move {
-                LocalMergeGit
+                LocalMergeGit::new(None)
                     .branch_contains(&at, branch, &commit)
                     .await
                     .unwrap()
@@ -1426,7 +1459,7 @@ theirs
             .output()
             .unwrap();
         assert!(!started.status.success());
-        let outcome = LocalMergeGit
+        let outcome = LocalMergeGit::new(None)
             .merge(&request(&root, None, MergeStrategy::Merge))
             .await
             .unwrap();
@@ -1460,7 +1493,7 @@ exit 1
         let (_dir, root) = repository();
         hook_that_fails(&root);
         let head = git_sync(&root, &["rev-parse", "HEAD"]);
-        let outcome = LocalMergeGit
+        let outcome = LocalMergeGit::new(None)
             .merge(&request(&root, None, MergeStrategy::Merge))
             .await
             .unwrap();
@@ -1494,7 +1527,7 @@ exit 1
                 "late commit",
             );
             git_sync(&root, &["checkout", "-q", "main"]);
-            let outcome = merge_at(&request(&root, None, strategy), tip.clone())
+            let outcome = merge_at(&request(&root, None, strategy), tip.clone(), None)
                 .await
                 .unwrap();
             let MergeOutcome::Merged { tip: merged, .. } = outcome else {
@@ -1507,7 +1540,7 @@ exit 1
             assert!(!body.contains("late commit"), "{body}");
             assert!(body.contains("(ticket/x)"), "{body}");
             // the branch moved on, so the delete keeps it
-            let kept = LocalMergeGit
+            let kept = LocalMergeGit::new(None)
                 .delete_merged(&delete(&root, &tip))
                 .await
                 .unwrap();
@@ -1522,7 +1555,7 @@ exit 1
         git_sync(&root, &["merge", "--squash", "ticket/x"]);
         assert!(root.join(".git/SQUASH_MSG").exists());
         for strategy in [MergeStrategy::Merge, MergeStrategy::Squash] {
-            let outcome = LocalMergeGit
+            let outcome = LocalMergeGit::new(None)
                 .merge(&request(&root, None, strategy))
                 .await
                 .unwrap();
@@ -1557,7 +1590,7 @@ exit 1
         let (dir, root) = repository();
         git_sync(&root, &["branch", "release", "main"]);
         fs::create_dir_all(dir.path().join("arches-worktrees/_merge/release")).unwrap();
-        let error = LocalMergeGit
+        let error = LocalMergeGit::new(None)
             .merge(&request(&root, Some("release"), MergeStrategy::Merge))
             .await
             .unwrap_err();
@@ -1566,14 +1599,17 @@ exit 1
 
     #[tokio::test]
     async fn the_merge_worktree_gets_the_plugin_when_opened_and_when_reused() {
-        crate::plugin::tests::configure();
         let (dir, root) = repository();
         git_sync(&root, &["branch", "release", "main"]);
         let path = slashed(&dir.path().join("arches-worktrees/_merge/release"));
-        open_merge_worktree(&root, "release", &path).await.unwrap();
+        open_merge_worktree(&root, "release", &path, Some(crate::plugin::tests::ID))
+            .await
+            .unwrap();
         crate::plugin::tests::assert_enabled(Path::new(&path));
         fs::remove_file(Path::new(&path).join(".claude/settings.local.json")).unwrap();
-        open_merge_worktree(&root, "release", &path).await.unwrap();
+        open_merge_worktree(&root, "release", &path, Some(crate::plugin::tests::ID))
+            .await
+            .unwrap();
         crate::plugin::tests::assert_enabled(Path::new(&path));
     }
 
@@ -1581,7 +1617,7 @@ exit 1
     async fn a_detached_main_checkout_without_a_target_is_refused() {
         let (_dir, root) = repository();
         git_sync(&root, &["checkout", "-q", "--detach"]);
-        let outcome = LocalMergeGit
+        let outcome = LocalMergeGit::new(None)
             .merge(&request(&root, None, MergeStrategy::Merge))
             .await
             .unwrap();
@@ -1597,12 +1633,20 @@ exit 1
         let mut bad = request(&root, None, MergeStrategy::Merge);
         bad.branch = String::from("--upload-pack=x");
         assert_eq!(
-            LocalMergeGit.merge(&bad).await.unwrap_err().code(),
+            LocalMergeGit::new(None)
+                .merge(&bad)
+                .await
+                .unwrap_err()
+                .code(),
             "merge-branch-invalid"
         );
         let target = request(&root, Some("-d"), MergeStrategy::Merge);
         assert_eq!(
-            LocalMergeGit.merge(&target).await.unwrap_err().code(),
+            LocalMergeGit::new(None)
+                .merge(&target)
+                .await
+                .unwrap_err()
+                .code(),
             "merge-branch-invalid"
         );
     }
@@ -1623,7 +1667,7 @@ exit 1
         git_sync(&root, &["checkout", "-q", "ticket/x"]);
         commit(&root, "c.txt", "late\n", "late commit");
         git_sync(&root, &["checkout", "-q", "main"]);
-        let kept = LocalMergeGit
+        let kept = LocalMergeGit::new(None)
             .delete_merged(&delete(&root, &tip))
             .await
             .unwrap();
@@ -1631,7 +1675,7 @@ exit 1
         assert!(has_ref(&root, "refs/heads/ticket/x").await.unwrap());
         // at its new tip it is not merged either
         let late = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
-        let unmerged = LocalMergeGit
+        let unmerged = LocalMergeGit::new(None)
             .delete_merged(&delete(&root, &late))
             .await
             .unwrap();
@@ -1648,7 +1692,7 @@ exit 1
         let (_, _, tip) = merged(&request(&root, None, MergeStrategy::Merge)).await;
         let folder = root.parent().unwrap().join("arches-worktrees/x");
         git_sync(&root, &["worktree", "add", &slashed(&folder), "ticket/x"]);
-        let kept = LocalMergeGit
+        let kept = LocalMergeGit::new(None)
             .delete_merged(&delete(&root, &tip))
             .await
             .unwrap();
@@ -1657,7 +1701,7 @@ exit 1
             "{kept:?}"
         );
         git_sync(&root, &["worktree", "remove", &slashed(&folder)]);
-        let gone = LocalMergeGit
+        let gone = LocalMergeGit::new(None)
             .delete_merged(&delete(&root, &tip))
             .await
             .unwrap();
@@ -1670,12 +1714,12 @@ exit 1
         let (_dir, root) = repository();
         let (_, _, tip) = merged(&request(&root, None, MergeStrategy::Squash)).await;
         assert!(
-            LocalMergeGit
+            LocalMergeGit::new(None)
                 .integrated(&slashed(&root), "ticket/x", None)
                 .await
                 .unwrap()
         );
-        let gone = LocalMergeGit
+        let gone = LocalMergeGit::new(None)
             .delete_merged(&delete(&root, &tip))
             .await
             .unwrap();
@@ -1687,7 +1731,7 @@ exit 1
         let (_dir, root) = repository();
         let path = slashed(&root);
         assert_eq!(
-            LocalMergeGit
+            LocalMergeGit::new(None)
                 .merged_earlier(&path, "ticket/x", None)
                 .await
                 .unwrap(),
@@ -1696,7 +1740,7 @@ exit 1
         );
         let (_, commit, _) = merged(&request(&root, None, MergeStrategy::Merge)).await;
         git_sync(&root, &["branch", "-D", "ticket/x"]);
-        let found = LocalMergeGit
+        let found = LocalMergeGit::new(None)
             .merged_earlier(&path, "ticket/x", None)
             .await
             .unwrap()
@@ -1713,7 +1757,7 @@ exit 1
         );
         git_sync(&other, &["branch", "-D", "ticket/x"]);
         assert_eq!(
-            LocalMergeGit
+            LocalMergeGit::new(None)
                 .merged_earlier(&slashed(&other), "ticket/x", None)
                 .await
                 .unwrap(),
@@ -1726,7 +1770,7 @@ exit 1
         let (_dir, root) = repository();
         merged(&request(&root, None, MergeStrategy::Squash)).await;
         git_sync(&root, &["branch", "-D", "ticket/x"]);
-        let found = LocalMergeGit
+        let found = LocalMergeGit::new(None)
             .merged_earlier(&slashed(&root), "ticket/x", None)
             .await
             .unwrap();
@@ -1742,7 +1786,7 @@ exit 1
     }
 
     async fn attempt_merge(root: &Path, target: Option<&str>) -> MergeOutcome {
-        LocalMergeGit
+        LocalMergeGit::new(None)
             .merge(&request(root, target, MergeStrategy::Merge))
             .await
             .unwrap()
@@ -1762,7 +1806,7 @@ exit 1
             ticket_changes_a(&root);
             fs::write(root.join("a.txt"), "local\n").unwrap();
             let head = git_sync(&root, &["rev-parse", "HEAD"]);
-            let outcome = LocalMergeGit
+            let outcome = LocalMergeGit::new(None)
                 .merge(&request(&root, None, strategy))
                 .await
                 .unwrap();

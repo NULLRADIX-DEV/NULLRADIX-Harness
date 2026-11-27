@@ -678,6 +678,7 @@ pub(crate) mod tests {
                     program: PathBuf::from("nullradix-missing-supervisor"),
                     args: Vec::new(),
                 },
+                None,
             )
             .with_transcript_roots(vec![transcript_root()]),
         );
@@ -954,7 +955,7 @@ pub(crate) mod tests {
                 pauses: store.clone(),
                 samples: store.clone(),
                 setup: Arc::new(nullradix_runner::LocalSetup),
-                detached: Arc::new(nullradix_runner::LocalDetached),
+                detached: Arc::new(nullradix_runner::LocalDetached::new(None)),
                 tracking: store.clone(),
                 questions: questions.clone(),
                 actors: store.clone(),
@@ -968,7 +969,7 @@ pub(crate) mod tests {
                 worktrees: worktrees.clone(),
                 worktree_repository: store.clone(),
                 merge_jobs: store.clone(),
-                merge_git: Arc::new(nullradix_runner::LocalMergeGit),
+                merge_git: Arc::new(nullradix_runner::LocalMergeGit::new(None)),
                 reviews: reviews.clone(),
                 clock: Arc::new(SystemClock),
                 ids: Arc::new(UuidV7Generator),

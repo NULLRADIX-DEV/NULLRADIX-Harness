@@ -15,8 +15,18 @@ use crate::git::local_key;
 use crate::worktree::{LONG_PATHS, attempt, ensure_long_paths, exists, git};
 
 /// Runs git on this machine for detached worktrees.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct LocalDetached;
+#[derive(Debug, Clone)]
+pub struct LocalDetached {
+    plugin: Option<String>,
+}
+
+impl LocalDetached {
+    /// Worktrees get the plugin with this id switched on; `None` leaves them alone.
+    #[must_use]
+    pub const fn new(plugin: Option<String>) -> Self {
+        Self { plugin }
+    }
+}
 
 /// Whether `path` is exactly where the worktree of its subject lies beside `root`.
 async fn own_place(root: &str, purpose: DetachedPurpose, path: &str) -> Result<bool, AppError> {
@@ -96,7 +106,7 @@ impl DetachedWorktreePort for LocalDetached {
         let mut args: Vec<&str> = LONG_PATHS.to_vec();
         args.extend(["worktree", "add", "--detach", &path, &request.at]);
         git(root, &args).await?;
-        crate::plugin::enable(Path::new(&path)).await;
+        crate::plugin::enable(Path::new(&path), self.plugin.as_deref()).await;
         Ok(DetachedCreated::Created {
             path,
             long_paths_enabled,
@@ -185,11 +195,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_detached_worktree_has_the_plugin_and_stays_clean() {
-        crate::plugin::tests::configure();
         let dir = tempfile::tempdir().unwrap();
         let root = repository(dir.path());
         let at = git_sync(&root, &["rev-parse", "HEAD"]);
-        let created = LocalDetached
+        let created = LocalDetached::new(Some(crate::plugin::tests::ID.to_owned()))
             .create(&create(&root, "ARC-Q0009", &at))
             .await
             .unwrap();
@@ -202,7 +211,7 @@ mod tests {
         let root = repository(dir.path());
         let first = git_sync(&root, &["rev-parse", "HEAD"]);
         git_sync(&root, &["commit", "-q", "--allow-empty", "-m", "two"]);
-        let created = LocalDetached
+        let created = LocalDetached::new(None)
             .create(&create(&root, "ARC-Q0007", &first))
             .await
             .unwrap();
@@ -220,12 +229,12 @@ mod tests {
         assert_eq!(git_sync(&folder, &["branch", "--show-current"]), "");
         assert!(!git_sync(&root, &["branch", "--list"]).contains("research"));
         fs::write(folder.join("research.json"), "{}").unwrap();
-        let listed = LocalDetached
+        let listed = LocalDetached::new(None)
             .list(&text(&root), DetachedPurpose::Research)
             .await
             .unwrap();
         assert_eq!(keys(&listed), keys(std::slice::from_ref(&path)));
-        let removed = LocalDetached
+        let removed = LocalDetached::new(None)
             .remove(&DetachedRemove {
                 root: text(&root),
                 purpose: DetachedPurpose::Research,
@@ -244,14 +253,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = repository(dir.path());
         let first = created_path(
-            LocalDetached
+            LocalDetached::new(None)
                 .create(&create(&root, "ARC-Q0001", "HEAD"))
                 .await
                 .unwrap(),
         );
         fs::write(Path::new(&first).join("research.json"), "old").unwrap();
         let second = created_path(
-            LocalDetached
+            LocalDetached::new(None)
                 .create(&create(&root, "ARC-Q0001", "HEAD"))
                 .await
                 .unwrap(),
@@ -270,7 +279,7 @@ mod tests {
             .join("research-ARC-Q0002");
         fs::create_dir_all(&place).unwrap();
         fs::write(place.join("mine.txt"), "keep").unwrap();
-        let created = LocalDetached
+        let created = LocalDetached::new(None)
             .create(&create(&root, "ARC-Q0002", "HEAD"))
             .await
             .unwrap();
@@ -295,11 +304,17 @@ mod tests {
         let wrong_prefix = dir.path().join("arches-worktrees").join("plan-ARC-7");
         for folder in [&other, &elsewhere, &wrong_prefix] {
             fs::create_dir_all(folder).unwrap();
-            let kept = LocalDetached.remove(&remove(text(folder))).await.unwrap();
+            let kept = LocalDetached::new(None)
+                .remove(&remove(text(folder)))
+                .await
+                .unwrap();
             assert!(matches!(kept, DetachedRemoved::Kept(_)), "{folder:?}");
             assert!(folder.exists());
         }
-        let main = LocalDetached.remove(&remove(text(&root))).await.unwrap();
+        let main = LocalDetached::new(None)
+            .remove(&remove(text(&root)))
+            .await
+            .unwrap();
         assert!(matches!(main, DetachedRemoved::Kept(_)));
         assert!(root.join(".git").exists());
     }
@@ -309,13 +324,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = repository(dir.path());
         let path = created_path(
-            LocalDetached
+            LocalDetached::new(None)
                 .create(&create(&root, "ARC-Q0004", "HEAD"))
                 .await
                 .unwrap(),
         );
         fs::remove_dir_all(&path).unwrap();
-        let removed = LocalDetached
+        let removed = LocalDetached::new(None)
             .remove(&DetachedRemove {
                 root: text(&root),
                 purpose: DetachedPurpose::Research,
@@ -331,7 +346,7 @@ mod tests {
     async fn a_ref_that_looks_like_an_option_is_refused_before_git_runs() {
         let dir = tempfile::tempdir().unwrap();
         let root = repository(dir.path());
-        let error = LocalDetached
+        let error = LocalDetached::new(None)
             .create(&create(&root, "ARC-Q0005", "--orphan"))
             .await
             .unwrap_err();
@@ -343,7 +358,7 @@ mod tests {
     async fn a_ref_that_does_not_exist_fails_and_leaves_no_folder() {
         let dir = tempfile::tempdir().unwrap();
         let root = repository(dir.path());
-        let error = LocalDetached
+        let error = LocalDetached::new(None)
             .create(&create(&root, "ARC-Q0006", "nope"))
             .await
             .unwrap_err();
@@ -361,13 +376,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = repository(dir.path());
         let research = created_path(
-            LocalDetached
+            LocalDetached::new(None)
                 .create(&create(&root, "ARC-Q0008", "HEAD"))
                 .await
                 .unwrap(),
         );
         let plan = created_path(
-            LocalDetached
+            LocalDetached::new(None)
                 .create(&DetachedCreate {
                     purpose: DetachedPurpose::Plan,
                     ..create(&root, "ARC-0008", "HEAD")
@@ -375,11 +390,11 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let research_list = LocalDetached
+        let research_list = LocalDetached::new(None)
             .list(&text(&root), DetachedPurpose::Research)
             .await
             .unwrap();
-        let plan_list = LocalDetached
+        let plan_list = LocalDetached::new(None)
             .list(&text(&root), DetachedPurpose::Plan)
             .await
             .unwrap();
@@ -416,14 +431,14 @@ mod tests {
         let linked = base.join("linked");
         link_dir(&real, &linked);
         created_path(
-            LocalDetached
+            LocalDetached::new(None)
                 .create(&create(&real.join("arches"), "ARC-Q0009", "HEAD"))
                 .await
                 .unwrap(),
         );
         let root = linked.join("arches");
         let path = detached_path(&text(&root), DetachedPurpose::Research, "ARC-Q0009");
-        let listed = LocalDetached
+        let listed = LocalDetached::new(None)
             .list(&text(&root), DetachedPurpose::Research)
             .await
             .unwrap();

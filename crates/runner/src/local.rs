@@ -36,6 +36,7 @@ pub struct LocalRunner {
     runs: PathBuf,
     supervisor: SupervisorCommand,
     transcripts: Arc<Transcripts>,
+    plugin: Option<String>,
 }
 
 fn unavailable(error: &io::Error) -> AppError {
@@ -53,10 +54,11 @@ async fn blocking<T: Send + 'static>(
 
 impl LocalRunner {
     #[must_use]
-    pub fn new(runs: PathBuf, supervisor: SupervisorCommand) -> Self {
+    pub fn new(runs: PathBuf, supervisor: SupervisorCommand, plugin: Option<String>) -> Self {
         Self {
             runs,
             supervisor,
+            plugin,
             transcripts: Arc::new(Transcripts::new(nullradix_os::claude_config_dirs())),
         }
     }
@@ -168,7 +170,7 @@ impl RunnerPort for LocalRunner {
     }
 
     async fn create_worktree(&self, request: &NewWorktree) -> Result<CreatedWorktree, AppError> {
-        crate::worktree::create(request).await
+        crate::worktree::create(request, self.plugin.as_deref()).await
     }
 
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError> {
@@ -176,7 +178,7 @@ impl RunnerPort for LocalRunner {
     }
 
     async fn ensure_worktree(&self, request: &EnsureWorktree) -> Result<EnsuredWorktree, AppError> {
-        crate::ensure::ensure(request).await
+        crate::ensure::ensure(request, self.plugin.as_deref()).await
     }
 
     async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError> {
@@ -268,6 +270,7 @@ mod tests {
                 program: PathBuf::from("nullradix-missing-supervisor"),
                 args: Vec::new(),
             },
+            None,
         )
     }
 

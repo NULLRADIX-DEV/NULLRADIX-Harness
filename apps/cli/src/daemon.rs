@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::{self, File, TryLockError};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,7 +56,7 @@ use tokio::task;
 use tokio_util::sync::CancellationToken;
 
 use crate::claude_slots::{FolderSlots, default_claude_dir};
-use crate::config::Config;
+use crate::config::{Config, Profile};
 use crate::desktop::{LoginEntry, ToastNotifier};
 use crate::intake;
 use crate::logging;
@@ -145,7 +145,6 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let account_services = start_accounts(config, &store, &signal).await?;
     let roots =
         start_transcript_roots(config, &account_services.accounts, &signal, &shutdown).await?;
-    nullradix_runner::set_worktree_plugin(Some(config.profile.plugin_id()));
     let (runner, runners) = start_runners(config, &store, &signal, roots).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let (runs, dispatch_runs) = start_runs(
@@ -180,6 +179,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
             prompts: dispatcher_prompts.clone(),
             board: &board,
             notifier: start_notifier(config),
+            plugin: config.profile.plugin_id(),
         },
     );
     let state = ApiState {
@@ -312,6 +312,7 @@ struct DispatcherParts<'a> {
     prompts: Arc<DispatcherPromptService>,
     board: &'a BoardServices,
     notifier: Arc<dyn Notifier>,
+    plugin: String,
 }
 
 /// What runs for the dispatcher and must end before the store closes.
@@ -369,7 +370,7 @@ fn start_dispatcher(
         pauses: Arc::new(store.clone()),
         samples: Arc::new(store.clone()),
         setup: Arc::new(LocalSetup),
-        detached: Arc::new(LocalDetached),
+        detached: Arc::new(LocalDetached::new(Some(parts.plugin.clone()))),
         tracking: Arc::new(store.clone()),
         questions: parts.board.questions.clone(),
         actors: Arc::new(store.clone()),
@@ -383,7 +384,7 @@ fn start_dispatcher(
         worktrees: parts.board.worktrees.clone(),
         worktree_repository: Arc::new(store.clone()),
         merge_jobs: Arc::new(store.clone()),
-        merge_git: Arc::new(nullradix_runner::LocalMergeGit),
+        merge_git: Arc::new(nullradix_runner::LocalMergeGit::new(Some(parts.plugin))),
         reviews: parts.board.reviews.clone(),
         clock: Arc::new(SystemClock),
         ids: Arc::new(UuidV7Generator),
@@ -783,6 +784,11 @@ fn keep_roots_current(
     });
 }
 
+/// The runner of this profile; its worktrees get the plugin of the profile.
+fn local_runner(runs: PathBuf, supervisor: SupervisorCommand, profile: Profile) -> LocalRunner {
+    LocalRunner::new(runs, supervisor, Some(profile.plugin_id()))
+}
+
 /// The runner on this machine, recorded as the local runner; runs start under this binary.
 async fn start_runners(
     config: &Config,
@@ -795,7 +801,7 @@ async fn start_runners(
         args: vec![String::from("run-supervisor")],
     };
     let runner = Arc::new(
-        LocalRunner::new(config.paths.data.join("runs"), supervisor)
+        local_runner(config.paths.data.join("runs"), supervisor, config.profile)
             .with_live_transcript_roots(roots),
     );
     let runners = RunnerService::start(
@@ -948,7 +954,9 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Duration;
 
+    use nullradix_app::runs::RunnerPort;
     use nullradix_app::secrets::MemorySecretStore;
+    use nullradix_app::worktrees::NewWorktree;
 
     use super::*;
 
@@ -993,5 +1001,48 @@ mod tests {
         assert!(roots.get().contains(&folder));
         assert!(!before.contains(&folder));
         shutdown.cancel();
+    }
+
+    #[tokio::test]
+    async fn a_runner_of_the_dev_profile_enables_the_dev_plugin_in_its_worktrees() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("arches");
+        fs::create_dir_all(&root).unwrap();
+        for args in [
+            vec!["init", "-q", "-b", "main"],
+            vec!["commit", "-q", "--allow-empty", "-m", "init"],
+        ] {
+            let done = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .unwrap();
+            assert!(done.status.success());
+        }
+        let supervisor = SupervisorCommand {
+            program: PathBuf::from("nullradix-missing-supervisor"),
+            args: Vec::new(),
+        };
+        let runner = local_runner(temp.path().join("runs"), supervisor, Profile::Dev);
+        let path = temp.path().join("arches-worktrees").join("ARC-0001");
+        let text = |path: &Path| path.to_string_lossy().replace('\\', "/");
+
+        runner
+            .create_worktree(&NewWorktree {
+                cwd: text(&root),
+                root: text(&root),
+                branch: String::from("ticket/a"),
+                path: text(&path),
+                target: None,
+            })
+            .await
+            .unwrap();
+
+        let settings = fs::read_to_string(path.join(".claude/settings.local.json")).unwrap();
+        assert!(
+            settings.contains("nullradix-dev@nullradix-dev-local"),
+            "{settings}"
+        );
     }
 }
