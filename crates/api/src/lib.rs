@@ -31,6 +31,7 @@ mod review;
 mod runs;
 mod session_detail;
 mod sessions;
+mod snippets;
 mod theme_catalog;
 mod themes;
 mod tickets;
@@ -73,6 +74,7 @@ use nullradix_app::repositories::RunnerService;
 use nullradix_app::review::ReviewService;
 use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
+use nullradix_app::snippets::SnippetService;
 use nullradix_app::theme_catalog::CatalogService;
 use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
@@ -170,6 +172,7 @@ pub use sessions::{
     DisplayStateDto, SessionClientDto, SessionDto, SessionList, SessionStateDto, SessionTicketDto,
     SubagentDto, SubagentStateDto,
 };
+pub use snippets::{CreateSnippet, SnippetDto, SnippetList, UpdateSnippet};
 pub use theme_catalog::{
     AddCatalogSource, CatalogDto, CatalogProblemDto, CatalogSourceDto, CatalogSourceListDto,
     CatalogSourceStatusDto, CatalogStateDto, CatalogThemeDto, SkippedEntryDto,
@@ -265,6 +268,7 @@ pub struct ApiState {
     pub claude_theme: Arc<ClaudeThemeService>,
     pub autostart: Arc<AutostartService>,
     pub customizations: Arc<CustomizationService>,
+    pub snippets: Arc<SnippetService>,
     pub changes: Arc<dyn ChangeFeed>,
     pub signal: ChangeSignal,
     /// Cancelled when the daemon stops; long-lived responses end with it.
@@ -325,6 +329,9 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
         ))
         .routes(routes!(customizations::rebase_customization))
         .routes(routes!(customizations::effective_customization))
+        .routes(routes!(snippets::list_snippets, snippets::create_snippet))
+        .routes(routes!(snippets::update_snippet, snippets::delete_snippet))
+        .routes(routes!(snippets::active_snippets))
 }
 
 fn run_routes() -> OpenApiRouter<ApiState> {
@@ -915,6 +922,12 @@ pub(crate) mod tests {
             Arc::new(UuidV7Generator),
             signal.clone(),
         ));
+        let snippets = Arc::new(SnippetService::new(
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(UuidV7Generator),
+            signal.clone(),
+        ));
         let themes = Arc::new(ThemeService::new(
             store.clone(),
             Arc::new(crate::themes::fake::Files::default()),
@@ -1033,6 +1046,7 @@ pub(crate) mod tests {
             ))),
             catalog,
             customizations,
+            snippets,
             changes: changes.clone(),
             signal,
             shutdown: shutdown.clone(),

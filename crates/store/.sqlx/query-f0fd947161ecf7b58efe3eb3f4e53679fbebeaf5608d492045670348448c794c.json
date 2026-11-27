@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM css_snippets WHERE snippet_id = ? AND version = ?\n               RETURNING feed_id AS \"feed_id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "feed_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "feed_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f0fd947161ecf7b58efe3eb3f4e53679fbebeaf5608d492045670348448c794c"
+}

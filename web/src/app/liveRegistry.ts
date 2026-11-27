@@ -11,6 +11,7 @@ import { runsLive } from '../features/runs/queries';
 import { catalogLive } from '../shared/query/themeCatalog';
 import { themesLive } from '../shared/query/themes';
 import { customizationsLive } from '../features/customizations/queries';
+import { snippetsLive } from '../features/snippets/queries';
 import { favoritesLive } from '../features/sessions/favoriteQueries';
 import { sessionsLive } from '../features/sessions/queries';
 import { ticketsLive } from '../features/tickets/queries';
@@ -33,4 +34,5 @@ export const liveRegistry = defineChangeRegistry(
   themesLive,
   catalogLive,
   customizationsLive,
+  snippetsLive,
 );

@@ -652,7 +652,7 @@ pub fn check_claude_files<'a>(
 }
 
 /// Removes comments; a comment marker inside a quoted string is text.
-fn strip_comments(css: &str) -> String {
+pub(crate) fn strip_comments(css: &str) -> String {
     let mut plain = String::with_capacity(css.len());
     let mut chars = css.chars().peekable();
     let mut quote: Option<char> = None;
@@ -686,7 +686,7 @@ fn strip_comments(css: &str) -> String {
 }
 
 /// The text of every `url(...)` call, quotes removed.
-fn url_values(css: &str) -> Vec<String> {
+pub(crate) fn url_values(css: &str) -> Vec<String> {
     let lower = css.to_ascii_lowercase();
     let mut values = Vec::new();
     let mut from = 0;

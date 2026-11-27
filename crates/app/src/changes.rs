@@ -29,6 +29,7 @@ pub enum Entity {
     Theme,
     Setting,
     Customization,
+    Snippet,
     DispatcherConfig,
     DispatcherState,
 }

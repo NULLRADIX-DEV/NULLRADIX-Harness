@@ -5,6 +5,7 @@ import { AccountsSection } from '../accounts/AccountsSection';
 import { DispatcherSection } from '../dispatcher/DispatcherSection';
 import { ProjectsSection } from '../projects/ProjectsSection';
 import { CustomizationsSection } from '../customizations/CustomizationsSection';
+import { SnippetsSection } from '../snippets/SnippetsSection';
 import { ThemeSettingsPanel } from '../themes/ThemeSettingsPanel';
 import { CatalogSection } from '../themes/CatalogSection';
 import { ClaudeThemeSection } from '../themes/ClaudeThemeSection';
@@ -46,6 +47,7 @@ export function SettingsPage() {
       <CatalogSection />
       <ThemeSettingsPanel />
       <ClaudeThemeSection />
+      <SnippetsSection />
       <CustomizationsSection />
     </div>
   );

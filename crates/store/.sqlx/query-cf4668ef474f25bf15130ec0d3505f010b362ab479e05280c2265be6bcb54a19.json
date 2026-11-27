@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE css_snippets\n               SET name = ?, css = ?, enabled = ?, updated_at = ?, version = ?\n               WHERE snippet_id = ? AND version = ?\n               RETURNING feed_id AS \"feed_id: Uuid\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "feed_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "css_snippets",
+            "name": "feed_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cf4668ef474f25bf15130ec0d3505f010b362ab479e05280c2265be6bcb54a19"
+}

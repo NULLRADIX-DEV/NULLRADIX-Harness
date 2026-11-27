@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO css_snippets (snippet_id, feed_id, name, css, enabled, sort_order,\n                 created_at, updated_at, version)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "1697c8db00abd9753df9c9f8d687809a366e52bc63aaf54c5ac0d812d1e561fe"
+}

@@ -1,0 +1,464 @@
+[
+  {
+    "name": "no snippets yet",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "items": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the stylesheet is empty",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/snippets/active.css"
+    },
+    "response": {
+      "status": 200
+    }
+  },
+  {
+    "name": "add a snippet",
+    "request": {
+      "body": {
+        "css": "a { color: red; }",
+        "id": "red-links",
+        "name": "Red links"
+      },
+      "method": "POST",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "css": "a { color: red; }",
+        "enabled": true,
+        "id": "red-links",
+        "name": "Red links",
+        "order": 1,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/snippets/red-links",
+      "status": 201
+    }
+  },
+  {
+    "name": "add a switched off snippet",
+    "request": {
+      "body": {
+        "css": "main { max-width: none; }",
+        "enabled": false,
+        "id": "wide",
+        "name": "Wide"
+      },
+      "method": "POST",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "css": "main { max-width: none; }",
+        "enabled": false,
+        "id": "wide",
+        "name": "Wide",
+        "order": 2,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/snippets/wide",
+      "status": 201
+    }
+  },
+  {
+    "name": "add a snippet with a data url",
+    "request": {
+      "body": {
+        "css": "body { background: url(data:image/gif;base64,R0lGODlhAQABAAAAACw=); }",
+        "id": "dot",
+        "name": "Dot"
+      },
+      "method": "POST",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "css": "body { background: url(data:image/gif;base64,R0lGODlhAQABAAAAACw=); }",
+        "enabled": true,
+        "id": "dot",
+        "name": "Dot",
+        "order": 3,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/snippets/dot",
+      "status": 201
+    }
+  },
+  {
+    "name": "the id is taken",
+    "request": {
+      "body": {
+        "css": "a {}",
+        "id": "red-links",
+        "name": "Again"
+      },
+      "method": "POST",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "code": "snippet-exists",
+        "detail": "the snippet red-links already exists",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:snippet-exists"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "the id is checked",
+    "request": {
+      "body": {
+        "css": "a {}",
+        "id": "Red Links",
+        "name": "Bad"
+      },
+      "method": "POST",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "code": "snippet-id-invalid",
+        "detail": "a snippet id has 2 to 40 characters from a-z, 0-9 and -",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:snippet-id-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "an import is refused",
+    "request": {
+      "body": {
+        "css": "@import 'https://evil.test/a.css';",
+        "id": "import",
+        "name": "Import"
+      },
+      "method": "POST",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "code": "snippet-css-forbidden",
+        "detail": "the snippet is not allowed: @import is not allowed",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:snippet-css-forbidden"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a remote url is refused",
+    "request": {
+      "body": {
+        "css": "a { background: url(https://evil.test/a.png); }",
+        "id": "remote",
+        "name": "Remote"
+      },
+      "method": "POST",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "code": "snippet-css-forbidden",
+        "detail": "the snippet is not allowed: external or absolute url() is not allowed: https://evil.test/a.png",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:snippet-css-forbidden"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a script url is refused",
+    "request": {
+      "body": {
+        "css": "a { background: url(javascript:alert(1)); }",
+        "id": "script",
+        "name": "Script"
+      },
+      "method": "POST",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "code": "snippet-css-forbidden",
+        "detail": "the snippet is not allowed: external or absolute url() is not allowed: javascript:alert(1",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:snippet-css-forbidden"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a file of the app is not reachable either",
+    "request": {
+      "body": {
+        "css": "a { background: url(/api/v1/snippets); }",
+        "id": "local",
+        "name": "Local"
+      },
+      "method": "POST",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "code": "snippet-css-forbidden",
+        "detail": "the snippet is not allowed: external or absolute url() is not allowed: /api/v1/snippets",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:snippet-css-forbidden"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the list is in delivery order",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/snippets"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "css": "a { color: red; }",
+            "enabled": true,
+            "id": "red-links",
+            "name": "Red links",
+            "order": 1,
+            "updatedAt": "<TIME>",
+            "version": 1
+          },
+          {
+            "createdAt": "<TIME>",
+            "css": "main { max-width: none; }",
+            "enabled": false,
+            "id": "wide",
+            "name": "Wide",
+            "order": 2,
+            "updatedAt": "<TIME>",
+            "version": 1
+          },
+          {
+            "createdAt": "<TIME>",
+            "css": "body { background: url(data:image/gif;base64,R0lGODlhAQABAAAAACw=); }",
+            "enabled": true,
+            "id": "dot",
+            "name": "Dot",
+            "order": 3,
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "only enabled snippets are served, in order",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/snippets/active.css"
+    },
+    "response": {
+      "status": 200,
+      "text": "/* snippet: red-links */\na { color: red; }\n/* snippet: dot */\nbody { background: url(data:image/gif;base64,R0lGODlhAQABAAAAACw=); }\n"
+    }
+  },
+  {
+    "name": "switch the second one on",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/snippets/wide"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "css": "main { max-width: none; }",
+        "enabled": true,
+        "id": "wide",
+        "name": "Wide",
+        "order": 2,
+        "updatedAt": "<TIME>",
+        "version": 2
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "change the text of the first",
+    "request": {
+      "body": {
+        "css": "a { color: darkred; }",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/snippets/red-links"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "css": "a { color: darkred; }",
+        "enabled": true,
+        "id": "red-links",
+        "name": "Red links",
+        "order": 1,
+        "updatedAt": "<TIME>",
+        "version": 2
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a stale version is refused",
+    "request": {
+      "body": {
+        "enabled": false,
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/snippets/red-links"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "snippet red-links was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "an import is refused on change too",
+    "request": {
+      "body": {
+        "css": "@import 'x.css';",
+        "version": 2
+      },
+      "method": "PATCH",
+      "path": "/api/v1/snippets/red-links"
+    },
+    "response": {
+      "json": {
+        "code": "snippet-css-forbidden",
+        "detail": "the snippet is not allowed: @import is not allowed",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:snippet-css-forbidden"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the stylesheet follows the changes",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/snippets/active.css"
+    },
+    "response": {
+      "status": 200,
+      "text": "/* snippet: red-links */\na { color: darkred; }\n/* snippet: wide */\nmain { max-width: none; }\n/* snippet: dot */\nbody { background: url(data:image/gif;base64,R0lGODlhAQABAAAAACw=); }\n"
+    }
+  },
+  {
+    "name": "a stale delete is refused",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/snippets/red-links?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "snippet red-links was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "delete it",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/snippets/red-links?version=2"
+    },
+    "response": {
+      "status": 204
+    }
+  },
+  {
+    "name": "deleting again says it is gone",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/snippets/red-links?version=2"
+    },
+    "response": {
+      "json": {
+        "code": "snippet-missing",
+        "detail": "there is no snippet red-links",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:snippet-missing"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "the stylesheet no longer has it",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/snippets/active.css"
+    },
+    "response": {
+      "status": 200,
+      "text": "/* snippet: wide */\nmain { max-width: none; }\n/* snippet: dot */\nbody { background: url(data:image/gif;base64,R0lGODlhAQABAAAAACw=); }\n"
+    }
+  },
+  {
+    "name": "snippets need a login",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/snippets/active.css"
+    },
+    "response": {
+      "json": {
+        "code": "credentials-missing",
+        "detail": "this route needs a token or a session",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:credentials-missing"
+      },
+      "status": 401
+    }
+  }
+]

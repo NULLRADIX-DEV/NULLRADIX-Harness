@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COALESCE(MAX(sort_order), 0) + 1 AS \"next!: i64\" FROM css_snippets",
+  "describe": {
+    "columns": [
+      {
+        "name": "next!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9b4ae9ed19ed36a44f629869aa391360234822cd22fa67fdc9b86c059775cafa"
+}
