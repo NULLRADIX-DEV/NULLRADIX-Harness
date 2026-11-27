@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    ASSIGNEE_MAX, Actor, ActorKind, BLOCKED_REASON_MAX, Board, Column, DependencyIndex,
-    HUMAN_INTERACTION, HistoryEntry, Id, Priority, Project, ProjectKey, RuleError, StatusFacts,
+    ASSIGNEE_MAX, Actor, ActorKind, Board, BoardMoveError, ClaimError, Column, DependencyIndex,
+    HistoryEntry, Id, PlanChange, Priority, Project, ProjectKey, RuleError, StatusFacts,
     StatusLock, StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError, Ticket,
     TicketDraft, TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle, Timestamp,
-    Tombstone, Version, changes, check_status_change, check_target_lock, display_order,
-    normalize_dependencies, normalize_labels, optional_text, planning_candidate,
-    planning_claim_alive, step, strip_fence, validate_dependencies, waits_for_a_person,
+    Tombstone, Version, changed_dependencies, changes, check_status_change, check_target_lock,
+    display_order, normalize_dependencies, normalize_labels, optional_text, planning_candidate,
+    step, validate_dependencies,
 };
 
 use crate::comments::{CommentLine, CommentWrite};
@@ -396,11 +396,19 @@ fn status_missing() -> AppError {
     AppError::invalid("status-missing", "a move needs the status to move to")
 }
 
-fn other_project(board: Id<Board>) -> AppError {
-    AppError::invalid(
-        "board-other-project",
-        format!("board {board} belongs to another project; tickets move only within one"),
-    )
+fn board_move_error(error: &BoardMoveError) -> AppError {
+    let code = match error {
+        BoardMoveError::AlreadyThere { .. } => "ticket-already-on-board",
+        BoardMoveError::OtherProject(_) => "board-other-project",
+    };
+    AppError::invalid(code, error.to_string())
+}
+
+fn claim_error(error: ClaimError) -> AppError {
+    match error {
+        ClaimError::Assigned { .. } => AppError::conflict("conflict", error.to_string()),
+        ClaimError::Locked(lock) => locked(&lock),
+    }
 }
 
 #[must_use]
@@ -727,15 +735,8 @@ impl TicketService {
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let before = load(write.as_mut(), &key, expected).await?;
-        let mut after = before.record().clone();
-        after.status = status;
-        if let Some(acceptance) = acceptance {
-            after.acceptance = acceptance.to_owned();
-        }
-        if status != TicketStatus::Blocked {
-            after.blocked_reason = None;
-        }
-        if status != before.status() {
+        let mut after = before.moved(status, acceptance);
+        if before.record().changes_column(&after) {
             after.sort_order = write.next_sort_order(after.board, status).await?;
         }
         if changes(before.record(), &after).is_empty() {
@@ -813,32 +814,23 @@ impl TicketService {
         for key in &wanted {
             tickets.push(load(write.as_mut(), key, None).await?);
         }
+        let mut moved_records = Vec::with_capacity(tickets.len());
         for ticket in &tickets {
-            let record = ticket.record();
-            if record.board == target.id() {
-                return Err(AppError::invalid(
-                    "ticket-already-on-board",
-                    format!(
-                        "{} is on board {} already",
-                        record.key,
-                        target.name().as_str()
-                    ),
-                ));
-            }
-            if record.project != target.project() {
-                return Err(other_project(target.id()));
-            }
+            moved_records.push(
+                ticket
+                    .record()
+                    .on_board(&target)
+                    .map_err(|error| board_move_error(&error))?,
+            );
         }
         let now = self.clock.now();
         let mut last = None;
-        for before in &tickets {
+        for (before, mut after) in tickets.iter().zip(moved_records) {
             let record = before.record();
             let source = match write.board(record.board).await? {
                 Some((source, _)) => source.name().as_str().to_owned(),
                 None => record.board.to_string(),
             };
-            let mut after = record.clone();
-            after.board = target.id();
             after.sort_order = write.next_sort_order(target.id(), record.status).await?;
             let revised = before.revised(after, now);
             let note = format!("taken from board {source}");
@@ -874,35 +866,21 @@ impl TicketService {
         let mut write = self.repository.begin().await?;
         let name = agent_name(agent)?;
         let before = load(write.as_mut(), &key, expected).await?;
-        let record = before.record();
-        // even the same name: several sessions often share one, only this keeps a claim exclusive
-        if let Some(assignee) = &record.assignee
-            && !force
-        {
-            return Err(AppError::conflict(
-                "conflict",
-                format!("{key} is already assigned to {assignee}; take the next free ticket"),
-            ));
-        }
-        if status == TicketStatus::NotNeeded && !force {
-            return Err(locked(&StatusLock::NotNeededByPeople));
-        }
+        before.claim_precheck(status, force).map_err(claim_error)?;
         let index = write.dependency_index().await?;
+        let mut facts = StatusFacts::default();
         if !force {
-            let open = index.open_dependencies(&record.depends_on);
-            if !open.is_empty() {
-                return Err(locked(&StatusLock::DependencyOpen(open)));
-            }
-            let questions = open_question_keys(write.as_mut(), before.id()).await?;
-            if !questions.is_empty() {
-                return Err(locked(&StatusLock::QuestionOpen(questions)));
+            facts.open_dependencies = index.open_dependencies(&before.record().depends_on);
+            // the question read only matters when no dependency refuses first
+            if facts.open_dependencies.is_empty() {
+                facts.open_questions = open_question_keys(write.as_mut(), before.id()).await?;
             }
         }
-        let mut after = record.clone();
-        after.assignee = Some(name);
-        after.status = status;
-        if status != record.status {
-            after.sort_order = write.next_sort_order(record.board, status).await?;
+        let mut after = before
+            .claimed(name, status, force, &facts)
+            .map_err(claim_error)?;
+        if before.record().changes_column(&after) {
+            after.sort_order = write.next_sort_order(after.board, status).await?;
         }
         self.save(write, &before, after, actor, Some("claimed"))
             .await
@@ -920,12 +898,9 @@ impl TicketService {
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let before = load(write.as_mut(), &key, expected).await?;
-        let record = before.record();
-        let mut after = record.clone();
-        after.assignee = None;
-        after.status = status.unwrap_or(record.status);
-        if after.status != record.status {
-            after.sort_order = write.next_sort_order(record.board, after.status).await?;
+        let mut after = before.released(status);
+        if before.record().changes_column(&after) {
+            after.sort_order = write.next_sort_order(after.board, after.status).await?;
         }
         self.save(write, &before, after, actor, Some("released"))
             .await
@@ -946,22 +921,11 @@ impl TicketService {
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let before = load(write.as_mut(), &key, expected).await?;
-        let record = before.record();
-        if record.status != TicketStatus::Blocked
-            || !waits_for_a_person(record.blocked_reason.as_deref())
-        {
-            return Err(AppError::invalid(
-                "accept-not-possible",
-                format!(
-                    "{key} waits for no acceptance; only blocked with \"{HUMAN_INTERACTION} ...\""
-                ),
-            ));
-        }
-        let mut after = record.clone();
-        after.status = TicketStatus::Done;
-        after.blocked_reason = None;
+        let mut after = before
+            .accepted()
+            .map_err(|error| AppError::invalid("accept-not-possible", error.to_string()))?;
         after.sort_order = write
-            .next_sort_order(record.board, TicketStatus::Done)
+            .next_sort_order(after.board, TicketStatus::Done)
             .await?;
         let index = write.dependency_index().await?;
         check_change(write.as_mut(), &before, &after, &index, options).await?;
@@ -1018,30 +982,17 @@ impl TicketService {
         let mut write = self.repository.begin().await?;
         let before = load(write.as_mut(), &key, None).await?;
         let record = before.record();
-        let now = self.clock.now();
-        let mut after = record.clone();
-        if let Some(plan) = &input.plan {
-            after.plan.clone_from(plan);
-        }
-        if let Some(handbook) = &input.handbook {
-            after.handbook.clone_from(handbook);
-        }
-        if let Some(diagram) = &input.diagram {
-            after.diagram = strip_fence(diagram);
-        }
-        if let Some(acceptance) = input
-            .acceptance
-            .as_ref()
-            .filter(|text| !text.trim().is_empty())
-        {
-            after.acceptance.clone_from(acceptance);
-        }
-        after.status = status;
-        after.needs_planning = false;
-        after.planning_claim = None;
-        after.planned = Some((actor.name().as_str().to_owned(), now));
-        if status != record.status {
-            after.sort_order = write.next_sort_order(record.board, status).await?;
+        let mut after = before.planned(&PlanChange {
+            plan: input.plan.as_deref(),
+            handbook: input.handbook.as_deref(),
+            diagram: input.diagram.as_deref(),
+            acceptance: input.acceptance.as_deref(),
+            status,
+            by: actor.name().as_str(),
+            at: self.clock.now(),
+        });
+        if record.changes_column(&after) {
+            after.sort_order = write.next_sort_order(after.board, status).await?;
         }
         let note = if status == record.status {
             "plan updated"
@@ -1065,19 +1016,9 @@ impl TicketService {
         let mut write = self.repository.begin().await?;
         let name = agent_name(agent)?;
         let before = load(write.as_mut(), &key, None).await?;
-        let record = before.record();
-        let now = self.clock.now();
-        if let Some((owner, _)) = &record.planning_claim
-            && *owner != name
-            && planning_claim_alive(record, now)
-        {
-            return Err(AppError::conflict(
-                "plan-claimed",
-                format!("{owner} is planning {key} right now"),
-            ));
-        }
-        let mut after = record.clone();
-        after.planning_claim = Some((name, now));
+        let after = before
+            .planning_claimed(name, self.clock.now())
+            .map_err(|error| AppError::conflict("plan-claimed", error.to_string()))?;
         self.save(write, &before, after, actor, None).await
     }
 
@@ -1091,17 +1032,9 @@ impl TicketService {
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let before = load(write.as_mut(), &key, None).await?;
-        let record = before.record();
-        if record
-            .planning_claim
-            .as_ref()
-            .map(|(owner, _)| owner.as_str())
-            != Some(agent)
-        {
+        let Some(after) = before.planning_released(agent) else {
             return Ok(());
-        }
-        let mut after = record.clone();
-        after.planning_claim = None;
+        };
         self.save(write, &before, after, actor, None).await?;
         Ok(())
     }
@@ -1150,8 +1083,9 @@ impl TicketService {
             {
                 continue;
             }
-            let mut after = before.record().clone();
-            after.planning_claim = Some((name, now));
+            let Ok(after) = before.planning_claimed(name.clone(), now) else {
+                continue;
+            };
             return Ok(Some(self.save(write, &before, after, actor, None).await?));
         }
         Ok(None)
@@ -1382,19 +1316,12 @@ async fn apply(
     if let Some(needs_planning) = patch.needs_planning {
         after.needs_planning = needs_planning;
     }
-    if old.status == TicketStatus::Blocked
-        && after.status != TicketStatus::Blocked
-        && patch.blocked_reason.is_none()
-    {
-        after.blocked_reason = None;
-    }
-    if let Some(reason) = &patch.blocked_reason {
-        after.blocked_reason = optional(
-            reason.as_deref(),
-            BLOCKED_REASON_MAX,
-            TicketError::BlockedReason,
-        )?;
-    }
+    after.blocked_reason = old
+        .blocked_reason_after(
+            after.status,
+            patch.blocked_reason.as_ref().map(Option::as_deref),
+        )
+        .map_err(|error| invalid(&error))?;
     if let Some(acceptance) = &patch.acceptance {
         after.acceptance.clone_from(acceptance);
     }
@@ -1410,17 +1337,17 @@ async fn apply(
     }
     if patch.changes_dependencies() {
         let removed = dependency_keys(patch.depends_on_remove.as_deref().unwrap_or_default())?;
-        // a full list wins; only without one do the added keys join the current ones
-        let base = if let Some(list) = &patch.depends_on {
-            dependency_keys(list)?
+        let list = patch
+            .depends_on
+            .as_deref()
+            .map(dependency_keys)
+            .transpose()?;
+        let added = if list.is_some() {
+            Vec::new()
         } else {
-            let added = dependency_keys(patch.depends_on_add.as_deref().unwrap_or_default())?;
-            normalize_dependencies(old.depends_on.iter().cloned().chain(added).collect())
+            dependency_keys(patch.depends_on_add.as_deref().unwrap_or_default())?
         };
-        after.depends_on = base
-            .into_iter()
-            .filter(|key| !removed.contains(key))
-            .collect();
+        after.depends_on = changed_dependencies(&old.depends_on, list, added, &removed);
         if after.depends_on != old.depends_on {
             validate_dependencies(&old.key, &after.depends_on, index.edges())
                 .map_err(|error| broken_rule(&error))?;
@@ -1433,12 +1360,12 @@ async fn apply(
             .board(board)
             .await?
             .ok_or_else(|| boards::not_found(board))?;
-        if target.project() != old.project {
-            return Err(other_project(board));
-        }
-        after.board = board;
+        after.board = old
+            .on_board(&target)
+            .map_err(|error| board_move_error(&error))?
+            .board;
     }
-    if after.status != old.status || after.board != old.board {
+    if old.changes_column(&after) {
         after.sort_order = write.next_sort_order(after.board, after.status).await?;
     }
     Ok(after)
