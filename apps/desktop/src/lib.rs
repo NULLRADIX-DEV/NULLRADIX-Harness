@@ -153,6 +153,30 @@ fn sign_in(app: &AppHandle, shell: &Shell) {
     }
 }
 
+/// Hands the signed-in window a code in its fragment; no other page can obtain one.
+fn confirm_changes(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN) else {
+        return;
+    };
+    if window.url().is_ok_and(|url| is_local(&url)) {
+        return;
+    }
+    let resources = app.path().resource_dir().ok();
+    let code = Setup::from_env()
+        .map(|setup| setup.with_resources(resources.as_deref()))
+        .and_then(|setup| launch::step_up_code(&setup));
+    match code {
+        // the code is hex, so it needs no quoting
+        Ok(code) => {
+            if let Err(error) = window.eval(format!("window.location.hash = 'confirm={code}'")) {
+                eprintln!("cannot confirm: {error}");
+            }
+            let _ = window.show();
+        }
+        Err(error) => eprintln!("cannot confirm: {error}"),
+    }
+}
+
 /// Brings the window up and signs in again when it is not showing the daemon.
 fn show(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN) else {
@@ -170,6 +194,7 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
     let initial = tray::texts(&tray::Snapshot::default());
     let open = MenuItem::with_id(app, "open", "Open NULLRADIX", true, None::<&str>)?;
     let again = MenuItem::with_id(app, "reconnect", "Reconnect", true, None::<&str>)?;
+    let confirm = MenuItem::with_id(app, "confirm", "Confirm changes", true, None::<&str>)?;
     // the status lines only show; they cannot be clicked
     let dispatcher = MenuItem::with_id(
         app,
@@ -185,6 +210,7 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
         &[
             &open,
             &again,
+            &confirm,
             &PredefinedMenuItem::separator(app)?,
             &dispatcher,
             &inbox,
@@ -200,6 +226,10 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show(app),
             "reconnect" => reconnect(app),
+            "confirm" => {
+                let app = app.clone();
+                thread::spawn(move || confirm_changes(&app));
+            }
             "quit" => app.exit(0),
             _ => {}
         })
