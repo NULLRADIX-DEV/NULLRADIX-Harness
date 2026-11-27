@@ -61,6 +61,21 @@ pub fn normalize_dependencies(keys: Vec<TicketKey>) -> Vec<TicketKey> {
         .collect()
 }
 
+/// The dependencies after a change: a full list wins, otherwise `added` join `current`; `removed` go last.
+#[must_use]
+pub fn changed_dependencies(
+    current: &[TicketKey],
+    list: Option<Vec<TicketKey>>,
+    added: Vec<TicketKey>,
+    removed: &[TicketKey],
+) -> Vec<TicketKey> {
+    let base = list
+        .unwrap_or_else(|| normalize_dependencies(current.iter().cloned().chain(added).collect()));
+    base.into_iter()
+        .filter(|key| !removed.contains(key))
+        .collect()
+}
+
 /// Checks the new dependencies of `ticket` against all others; `edges` maps a ticket to its own.
 pub fn validate_dependencies<S: BuildHasher>(
     ticket: &TicketKey,
@@ -241,6 +256,28 @@ mod tests {
     fn dependencies_drop_duplicates_in_order() {
         let given = vec![key("ARC-2"), key("arc-1"), key("ARC-0002")];
         assert_eq!(normalize_dependencies(given), keys(&["ARC-2", "ARC-1"]));
+    }
+
+    #[test]
+    fn a_full_list_wins_over_added_keys_and_removals_go_last() {
+        let current = keys(&["ARC-1", "ARC-2"]);
+        let changed = |list: Option<&[&str]>, added: &[&str], removed: &[&str]| {
+            changed_dependencies(&current, list.map(keys), keys(added), &keys(removed))
+        };
+        assert_eq!(
+            changed(None, &["ARC-3", "ARC-1"], &[]),
+            keys(&["ARC-1", "ARC-2", "ARC-3"])
+        );
+        assert_eq!(changed(Some(&["ARC-9"]), &["ARC-3"], &[]), keys(&["ARC-9"]));
+        assert_eq!(
+            changed(None, &["ARC-3"], &["ARC-2", "ARC-3"]),
+            keys(&["ARC-1"])
+        );
+        assert_eq!(
+            changed(Some(&["ARC-9", "ARC-8"]), &[], &["ARC-9"]),
+            keys(&["ARC-8"])
+        );
+        assert_eq!(changed(Some(&[]), &["ARC-3"], &[]), keys(&[]));
     }
 
     #[test]

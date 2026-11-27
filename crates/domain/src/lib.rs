@@ -28,6 +28,7 @@ mod theme;
 mod theme_catalog;
 mod theme_settings;
 mod ticket;
+mod ticket_transitions;
 mod ticket_values;
 mod timestamp;
 mod version;
@@ -39,8 +40,8 @@ pub use account::{
 };
 pub use board::{Actor, ActorKind, ActorName, Board, BoardError, BoardName, BoardRecord};
 pub use board_rules::{
-    DependencyIndex, LABEL_MAX, RuleError, display_order, normalize_dependencies, normalize_labels,
-    validate_dependencies,
+    DependencyIndex, LABEL_MAX, RuleError, changed_dependencies, display_order,
+    normalize_dependencies, normalize_labels, validate_dependencies,
 };
 pub use comment::{Comment, CommentBody, CommentError, CommentOn, CommentRecord, SystemMarker};
 pub use customization::{
@@ -150,6 +151,9 @@ pub use ticket::{
     PLANNING_CLAIM_TTL, TITLE_MAX, TargetBranch, Ticket, TicketDraft, TicketRecord, TicketTitle,
     Tombstone, changes, check_target_lock, planning_candidate, planning_claim_alive, strip_fence,
     waits_for_a_person,
+};
+pub use ticket_transitions::{
+    AcceptError, BoardMoveError, ClaimError, PlanChange, PlanningClaimed,
 };
 pub use ticket_values::{
     Column, Priority, StatusFacts, StatusLock, StatusRequest, TicketError, TicketKey, TicketStatus,
