@@ -579,7 +579,7 @@ fn start_notifier(config: &Config) -> Arc<dyn Notifier> {
     if config.isolated {
         Arc::new(NoNotifier)
     } else {
-        Arc::new(ToastNotifier)
+        Arc::new(ToastNotifier::new())
     }
 }
 

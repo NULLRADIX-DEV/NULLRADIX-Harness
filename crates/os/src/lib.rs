@@ -20,7 +20,10 @@ pub use archive::{
     ArchiveError, Entry, Limits, pack_zip, read_tree, read_within, remove_dir, replace_dir,
     unpack_zip,
 };
-pub use autostart::{AutostartEntry, autostart_disable, autostart_enable, autostart_enabled};
+pub use autostart::{
+    AutostartEntry, AutostartState, autostart_disable, autostart_enable, autostart_reenable,
+    autostart_retarget, autostart_state,
+};
 pub use browser::open_url;
 #[cfg(target_os = "macos")]
 pub use claude_keychain::claude_keychain_password;

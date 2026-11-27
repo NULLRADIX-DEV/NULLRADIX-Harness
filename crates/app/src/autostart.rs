@@ -14,6 +14,8 @@ pub trait Autostart: Send + Sync {
     async fn is_enabled(&self) -> Result<bool, String>;
     /// Creates or refreshes the entry, or removes it.
     async fn set(&self, enabled: bool) -> Result<(), String>;
+    /// Points an existing entry at the running program when that is right; keeps its switch.
+    async fn refresh(&self) -> Result<(), String>;
 }
 
 /// For hosts without a login: nothing starts there.
@@ -32,6 +34,10 @@ impl Autostart for NoAutostart {
 
     async fn set(&self, _enabled: bool) -> Result<(), String> {
         Err(String::from("this host has no login to start at"))
+    }
+
+    async fn refresh(&self) -> Result<(), String> {
+        Ok(())
     }
 }
 
@@ -89,19 +95,12 @@ impl AutostartService {
         self.status().await
     }
 
-    /// Points an existing entry at the program that runs now, so a moved install keeps starting.
+    /// Keeps an existing entry pointing at a program that exists; a failure only goes to the log.
     pub async fn refresh(&self) {
-        if !self.port.available() {
-            return;
-        }
-        match self.port.is_enabled().await {
-            Ok(true) => {
-                if let Err(error) = self.port.set(true).await {
-                    tracing::warn!(%error, "cannot refresh the login entry");
-                }
-            }
-            Ok(false) => {}
-            Err(error) => tracing::warn!(%error, "cannot read the login entry"),
+        if self.port.available()
+            && let Err(error) = self.port.refresh().await
+        {
+            tracing::warn!(%error, "cannot refresh the login entry");
         }
     }
 }
@@ -124,6 +123,7 @@ mod tests {
     struct Fake {
         state: Mutex<Option<bool>>,
         writes: Mutex<Vec<bool>>,
+        refreshes: Mutex<usize>,
         fail: bool,
     }
 
@@ -143,6 +143,11 @@ mod tests {
             }
             *self.state.lock() = Some(enabled);
             self.writes.lock().push(enabled);
+            Ok(())
+        }
+
+        async fn refresh(&self) -> Result<(), String> {
+            *self.refreshes.lock() += 1;
             Ok(())
         }
     }
@@ -178,13 +183,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refresh_rewrites_only_an_existing_entry() {
+    async fn refresh_asks_the_port_and_never_flips_the_switch() {
         let fake = Arc::new(Fake::default());
         let service = AutostartService::new(fake.clone());
         service.refresh().await;
+        assert_eq!(*fake.refreshes.lock(), 1);
         assert!(fake.writes.lock().is_empty());
-        service.set(true).await.unwrap();
-        service.refresh().await;
-        assert_eq!(*fake.writes.lock(), [true, true]);
+        AutostartService::new(Arc::new(NoAutostart)).refresh().await;
     }
 }

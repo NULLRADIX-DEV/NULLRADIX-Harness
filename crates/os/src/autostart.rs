@@ -1,7 +1,11 @@
 //! Starting a program at login: the Run key on Windows, an XDG autostart file on Linux.
+//!
+//! The entry belongs to the system too: a desktop that switched it off stays authoritative.
 
 use std::ffi::OsString;
 use std::io;
+#[cfg(any(target_os = "linux", test))]
+use std::path::Path;
 use std::path::PathBuf;
 #[cfg(windows)]
 use std::time::Duration;
@@ -11,6 +15,10 @@ use crate::command;
 
 #[cfg(any(windows, test))]
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+/// Where Windows keeps the switch of the Startup apps settings page.
+#[cfg(any(windows, test))]
+const APPROVED_KEY: &str =
+    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 #[cfg(windows)]
 const REG_LIMIT: Duration = Duration::from_secs(10);
 
@@ -25,14 +33,41 @@ pub struct AutostartEntry {
     pub args: Vec<OsString>,
 }
 
-/// Whether an entry of this name starts at login.
-pub fn autostart_enabled(name: &str) -> io::Result<bool> {
-    platform::enabled(name)
+/// What the system holds for a name.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AutostartState {
+    pub exists: bool,
+    /// The person switched the entry off in the desktop's own settings.
+    pub disabled: bool,
+    /// The program the entry starts.
+    pub program: Option<PathBuf>,
 }
 
-/// Creates the entry, or replaces one of the same name.
+impl AutostartState {
+    /// Whether the entry starts at login.
+    #[must_use]
+    pub const fn enabled(&self) -> bool {
+        self.exists && !self.disabled
+    }
+}
+
+pub fn autostart_state(name: &str) -> io::Result<AutostartState> {
+    platform::state(name)
+}
+
+/// Creates the entry, or replaces one of the same name, and switches it on.
 pub fn autostart_enable(entry: &AutostartEntry) -> io::Result<()> {
     platform::enable(entry)
+}
+
+/// Switches an existing entry on again and keeps what it starts.
+pub fn autostart_reenable(name: &str) -> io::Result<()> {
+    platform::reenable(name)
+}
+
+/// Points an existing entry at another program and keeps its switch; no entry stays none.
+pub fn autostart_retarget(entry: &AutostartEntry) -> io::Result<()> {
+    platform::retarget(entry)
 }
 
 /// Removes the entry; none is fine.
@@ -80,15 +115,40 @@ fn reg_add_args(entry: &AutostartEntry) -> Vec<String> {
 }
 
 #[cfg(any(windows, test))]
-fn reg_query_args(name: &str) -> Vec<String> {
-    ["query", RUN_KEY, "/v", name].map(String::from).to_vec()
+fn reg_query_args(key: &str, name: &str) -> Vec<String> {
+    ["query", key, "/v", name].map(String::from).to_vec()
 }
 
 #[cfg(any(windows, test))]
-fn reg_delete_args(name: &str) -> Vec<String> {
-    ["delete", RUN_KEY, "/v", name, "/f"]
-        .map(String::from)
-        .to_vec()
+fn reg_delete_args(key: &str, name: &str) -> Vec<String> {
+    ["delete", key, "/v", name, "/f"].map(String::from).to_vec()
+}
+
+/// The program of the Run value in the output of `reg query`.
+#[cfg(any(windows, test))]
+fn run_program(output: &str) -> Option<PathBuf> {
+    let line = output
+        .lines()
+        .find(|line| line.contains("REG_SZ") || line.contains("REG_EXPAND_SZ"))?;
+    let (_, data) = line.split_once("SZ")?;
+    let data = data.trim();
+    let program = match data.strip_prefix('"') {
+        Some(rest) => rest.split('"').next()?,
+        None => data.split_whitespace().next()?,
+    };
+    (!program.is_empty()).then(|| PathBuf::from(program))
+}
+
+/// Whether the `StartupApproved` value says off: its first byte is odd (3), on is even (2).
+#[cfg(any(windows, test))]
+fn approved_off(output: &str) -> bool {
+    let Some(line) = output.lines().find(|line| line.contains("REG_BINARY")) else {
+        return false;
+    };
+    let hex = line.rsplit("REG_BINARY").next().unwrap_or("").trim();
+    hex.get(..2)
+        .and_then(|byte| u8::from_str_radix(byte, 16).ok())
+        .is_some_and(|byte| byte & 1 == 1)
 }
 
 #[cfg(windows)]
@@ -145,10 +205,41 @@ fn desktop_word(word: &str) -> String {
     quoted
 }
 
-/// The content of the autostart file.
+/// The first word of an `Exec` value, undone from `desktop_word`.
 #[cfg(any(target_os = "linux", test))]
-fn desktop_file(entry: &AutostartEntry) -> String {
-    let label: String = entry.label.chars().filter(|c| !c.is_control()).collect();
+fn desktop_program(exec: &str) -> Option<String> {
+    let exec = exec.trim();
+    let Some(rest) = exec.strip_prefix('"') else {
+        let word = exec.split_whitespace().next()?;
+        return Some(word.replace("%%", "%"));
+    };
+    let mut word = String::new();
+    let mut chars = rest.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => break,
+            '\\' => {
+                // the file format halves backslashes, then the quoting escape takes one more
+                let mut run = 1;
+                while chars.peek() == Some(&'\\') {
+                    chars.next();
+                    run += 1;
+                }
+                word.push_str(&"\\".repeat(run / 4));
+                if run % 4 >= 2
+                    && let Some(next) = chars.next()
+                {
+                    word.push(next);
+                }
+            }
+            _ => word.push(c),
+        }
+    }
+    Some(word.replace("%%", "%"))
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn exec_line(entry: &AutostartEntry) -> String {
     let mut exec = vec![desktop_word(&entry.program.to_string_lossy())];
     exec.extend(
         entry
@@ -156,28 +247,132 @@ fn desktop_file(entry: &AutostartEntry) -> String {
             .iter()
             .map(|arg| desktop_word(&arg.to_string_lossy())),
     );
+    format!("Exec={}", exec.join(" "))
+}
+
+/// The content of the autostart file.
+#[cfg(any(target_os = "linux", test))]
+fn desktop_file(entry: &AutostartEntry) -> String {
+    let label: String = entry.label.chars().filter(|c| !c.is_control()).collect();
     format!(
-        "[Desktop Entry]\nType=Application\nName={label}\nExec={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
-        exec.join(" ")
+        "[Desktop Entry]\nType=Application\nName={label}\n{}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        exec_line(entry)
     )
 }
 
+/// What an autostart file says; a desktop that hides or disables it wins.
 #[cfg(any(target_os = "linux", test))]
-fn desktop_path(config_dir: &std::path::Path, name: &str) -> PathBuf {
+fn desktop_state(content: &str) -> AutostartState {
+    let mut state = AutostartState {
+        exists: true,
+        ..AutostartState::default()
+    };
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(exec) = line.strip_prefix("Exec=") {
+            state.program = desktop_program(exec).map(PathBuf::from);
+        } else if line.eq_ignore_ascii_case("Hidden=true")
+            || line.eq_ignore_ascii_case("X-GNOME-Autostart-enabled=false")
+        {
+            state.disabled = true;
+        }
+    }
+    state
+}
+
+/// The file with another `Exec` line and every other line, flags included, as it was.
+#[cfg(any(target_os = "linux", test))]
+fn desktop_retargeted(content: &str, entry: &AutostartEntry) -> String {
+    let exec = exec_line(entry);
+    let mut replaced = false;
+    let mut lines: Vec<String> = content
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("Exec=") {
+                replaced = true;
+                exec.clone()
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect();
+    if !replaced {
+        lines.push(exec);
+    }
+    lines.join("\n") + "\n"
+}
+
+/// The file with the switches turned on and the rest as it was.
+#[cfg(any(target_os = "linux", test))]
+fn desktop_reenabled(content: &str) -> String {
+    let mut lines: Vec<String> = content
+        .lines()
+        .filter(|line| !line.trim().to_ascii_lowercase().starts_with("hidden="))
+        .map(|line| {
+            if line
+                .trim()
+                .to_ascii_lowercase()
+                .starts_with("x-gnome-autostart-enabled=")
+            {
+                String::from("X-GNOME-Autostart-enabled=true")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect();
+    if !lines
+        .iter()
+        .any(|line| line.starts_with("X-GNOME-Autostart-enabled="))
+    {
+        lines.push(String::from("X-GNOME-Autostart-enabled=true"));
+    }
+    lines.join("\n") + "\n"
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn desktop_path(config_dir: &Path, name: &str) -> PathBuf {
     config_dir.join("autostart").join(format!("{name}.desktop"))
 }
 
 #[cfg(any(target_os = "linux", test))]
-fn write_desktop(config_dir: &std::path::Path, entry: &AutostartEntry) -> io::Result<()> {
-    let path = desktop_path(config_dir, &entry.name);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+fn read_state(config_dir: &Path, name: &str) -> io::Result<AutostartState> {
+    match std::fs::read_to_string(desktop_path(config_dir, name)) {
+        Ok(content) => Ok(desktop_state(&content)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(AutostartState::default()),
+        Err(error) => Err(error),
     }
-    crate::write_atomic(&path, desktop_file(entry).as_bytes())
 }
 
 #[cfg(any(target_os = "linux", test))]
-fn remove_desktop(config_dir: &std::path::Path, name: &str) -> io::Result<()> {
+fn write_desktop(config_dir: &Path, name: &str, content: &str) -> io::Result<()> {
+    let path = desktop_path(config_dir, name);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    crate::write_atomic(&path, content.as_bytes())
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn enable_desktop(config_dir: &Path, entry: &AutostartEntry) -> io::Result<()> {
+    write_desktop(config_dir, &entry.name, &desktop_file(entry))
+}
+
+/// Applies `change` to the file when there is one.
+#[cfg(any(target_os = "linux", test))]
+fn change_desktop(
+    config_dir: &Path,
+    name: &str,
+    change: impl FnOnce(&str) -> String,
+) -> io::Result<()> {
+    match std::fs::read_to_string(desktop_path(config_dir, name)) {
+        Ok(content) => write_desktop(config_dir, name, &change(&content)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn remove_desktop(config_dir: &Path, name: &str) -> io::Result<()> {
     match std::fs::remove_file(desktop_path(config_dir, name)) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
@@ -188,13 +383,25 @@ fn remove_desktop(config_dir: &std::path::Path, name: &str) -> io::Result<()> {
 mod platform {
     use std::io;
 
-    use super::{AutostartEntry, reg, reg_add_args, reg_delete_args, reg_failed, reg_query_args};
+    use super::{
+        APPROVED_KEY, AutostartEntry, AutostartState, RUN_KEY, approved_off, reg, reg_add_args,
+        reg_delete_args, reg_failed, reg_query_args, run_program,
+    };
 
-    pub(super) fn enabled(name: &str) -> io::Result<bool> {
-        Ok(reg(&reg_query_args(name))?.success)
+    pub(super) fn state(name: &str) -> io::Result<AutostartState> {
+        let run = reg(&reg_query_args(RUN_KEY, name))?;
+        if !run.success {
+            return Ok(AutostartState::default());
+        }
+        let approved = reg(&reg_query_args(APPROVED_KEY, name))?;
+        Ok(AutostartState {
+            exists: true,
+            disabled: approved.success && approved_off(&approved.stdout),
+            program: run_program(&run.stdout),
+        })
     }
 
-    pub(super) fn enable(entry: &AutostartEntry) -> io::Result<()> {
+    fn add(entry: &AutostartEntry) -> io::Result<()> {
         let reply = reg(&reg_add_args(entry))?;
         if reply.success {
             Ok(())
@@ -203,16 +410,42 @@ mod platform {
         }
     }
 
-    pub(super) fn disable(name: &str) -> io::Result<()> {
-        if !enabled(name)? {
-            return Ok(());
+    /// Drops the off marker of the Startup apps page; none is fine.
+    fn clear_marker(name: &str) -> io::Result<()> {
+        if reg(&reg_query_args(APPROVED_KEY, name))?.success {
+            let reply = reg(&reg_delete_args(APPROVED_KEY, name))?;
+            if !reply.success {
+                return Err(reg_failed(&reply));
+            }
         }
-        let reply = reg(&reg_delete_args(name))?;
-        if reply.success {
-            Ok(())
+        Ok(())
+    }
+
+    pub(super) fn enable(entry: &AutostartEntry) -> io::Result<()> {
+        add(entry)?;
+        clear_marker(&entry.name)
+    }
+
+    pub(super) fn reenable(name: &str) -> io::Result<()> {
+        clear_marker(name)
+    }
+
+    pub(super) fn retarget(entry: &AutostartEntry) -> io::Result<()> {
+        if state(&entry.name)?.exists {
+            add(entry)
         } else {
-            Err(reg_failed(&reply))
+            Ok(())
         }
+    }
+
+    pub(super) fn disable(name: &str) -> io::Result<()> {
+        if reg(&reg_query_args(RUN_KEY, name))?.success {
+            let reply = reg(&reg_delete_args(RUN_KEY, name))?;
+            if !reply.success {
+                return Err(reg_failed(&reply));
+            }
+        }
+        clear_marker(name)
     }
 }
 
@@ -221,7 +454,10 @@ mod platform {
     use std::io;
     use std::path::PathBuf;
 
-    use super::{AutostartEntry, desktop_path, remove_desktop, write_desktop};
+    use super::{
+        AutostartEntry, AutostartState, change_desktop, desktop_reenabled, desktop_retargeted,
+        enable_desktop, read_state, remove_desktop,
+    };
 
     fn config_dir() -> io::Result<PathBuf> {
         directories::BaseDirs::new()
@@ -229,12 +465,22 @@ mod platform {
             .ok_or_else(|| io::Error::other("no home directory found"))
     }
 
-    pub(super) fn enabled(name: &str) -> io::Result<bool> {
-        Ok(desktop_path(&config_dir()?, name).is_file())
+    pub(super) fn state(name: &str) -> io::Result<AutostartState> {
+        read_state(&config_dir()?, name)
     }
 
     pub(super) fn enable(entry: &AutostartEntry) -> io::Result<()> {
-        write_desktop(&config_dir()?, entry)
+        enable_desktop(&config_dir()?, entry)
+    }
+
+    pub(super) fn reenable(name: &str) -> io::Result<()> {
+        change_desktop(&config_dir()?, name, desktop_reenabled)
+    }
+
+    pub(super) fn retarget(entry: &AutostartEntry) -> io::Result<()> {
+        change_desktop(&config_dir()?, &entry.name, |content| {
+            desktop_retargeted(content, entry)
+        })
     }
 
     pub(super) fn disable(name: &str) -> io::Result<()> {
@@ -246,7 +492,7 @@ mod platform {
 mod platform {
     use std::io;
 
-    use super::AutostartEntry;
+    use super::{AutostartEntry, AutostartState};
 
     fn unsupported() -> io::Error {
         io::Error::new(
@@ -255,11 +501,19 @@ mod platform {
         )
     }
 
-    pub(super) fn enabled(_name: &str) -> io::Result<bool> {
+    pub(super) fn state(_name: &str) -> io::Result<AutostartState> {
         Err(unsupported())
     }
 
     pub(super) fn enable(_entry: &AutostartEntry) -> io::Result<()> {
+        Err(unsupported())
+    }
+
+    pub(super) fn reenable(_name: &str) -> io::Result<()> {
+        Err(unsupported())
+    }
+
+    pub(super) fn retarget(_entry: &AutostartEntry) -> io::Result<()> {
         Err(unsupported())
     }
 
@@ -300,8 +554,39 @@ mod tests {
         assert_eq!(&add[..4], ["add", RUN_KEY, "/v", "nullradix"]);
         assert_eq!(add[7], "nullradix.exe serve");
         assert_eq!(add.last().map(String::as_str), Some("/f"));
-        assert_eq!(reg_query_args("x"), ["query", RUN_KEY, "/v", "x"]);
-        assert_eq!(reg_delete_args("x"), ["delete", RUN_KEY, "/v", "x", "/f"]);
+        assert_eq!(
+            reg_query_args(APPROVED_KEY, "x"),
+            ["query", APPROVED_KEY, "/v", "x"]
+        );
+        assert_eq!(
+            reg_delete_args(RUN_KEY, "x"),
+            ["delete", RUN_KEY, "/v", "x", "/f"]
+        );
+    }
+
+    #[test]
+    fn the_run_value_names_its_program() {
+        let quoted = "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n    nullradix    REG_SZ    \"C:\\Program Files\\N\\nullradix-desktop.exe\" --hidden\r\n";
+        assert_eq!(
+            run_program(quoted),
+            Some(PathBuf::from(r"C:\Program Files\N\nullradix-desktop.exe"))
+        );
+        let plain = "    nullradix    REG_SZ    C:\\bin\\nullradix.exe serve\n";
+        assert_eq!(
+            run_program(plain),
+            Some(PathBuf::from(r"C:\bin\nullradix.exe"))
+        );
+        assert_eq!(run_program("nothing here"), None);
+    }
+
+    #[test]
+    fn the_startup_apps_page_marks_an_entry_off_with_an_odd_first_byte() {
+        let value = |hex: &str| format!("    nullradix    REG_BINARY    {hex}\n");
+        assert!(approved_off(&value("030000000000000000000000")));
+        assert!(approved_off(&value("070000000000000000000000")));
+        assert!(!approved_off(&value("020000000000000000000000")));
+        assert!(!approved_off(&value("060000000000000000000000")));
+        assert!(!approved_off("no value"));
     }
 
     #[test]
@@ -311,6 +596,21 @@ mod tests {
         assert_eq!(desktop_word("100%"), "100%%");
         assert_eq!(desktop_word("a$b"), "\"a\\\\$b\"");
         assert_eq!(desktop_word(""), "\"\"");
+    }
+
+    #[test]
+    fn the_program_of_an_exec_line_survives_the_quoting() {
+        for program in [
+            "/usr/bin/nullradix",
+            "/opt/my app/x",
+            "/a$b/c",
+            "/100%/x",
+            "/q\"x/y",
+        ] {
+            let line = exec_line(&entry(program, &["--hidden"]));
+            let exec = line.strip_prefix("Exec=").unwrap();
+            assert_eq!(desktop_program(exec).as_deref(), Some(program), "{line}");
+        }
     }
 
     #[test]
@@ -326,26 +626,78 @@ mod tests {
     }
 
     #[test]
+    fn a_desktop_that_disabled_the_file_makes_it_off() {
+        let base = desktop_file(&entry("/usr/bin/nullradix", &["serve"]));
+        let on = desktop_state(&base);
+        assert!(on.enabled());
+        assert_eq!(on.program, Some(PathBuf::from("/usr/bin/nullradix")));
+        let gnome = base.replace("Autostart-enabled=true", "Autostart-enabled=false");
+        assert!(!desktop_state(&gnome).enabled());
+        let hidden = format!("{base}Hidden=true\n");
+        assert!(!desktop_state(&hidden).enabled());
+        assert!(!AutostartState::default().enabled());
+    }
+
+    #[test]
+    fn retargeting_keeps_the_flags_and_reenabling_clears_them() {
+        let off = format!(
+            "{}Hidden=true\n",
+            desktop_file(&entry("/old/nullradix", &["serve"]))
+                .replace("Autostart-enabled=true", "Autostart-enabled=false")
+        );
+        let moved = desktop_retargeted(&off, &entry("/new/nullradix", &["serve"]));
+        assert!(moved.contains("Exec=/new/nullradix serve\n"));
+        assert!(!moved.contains("/old/"));
+        let state = desktop_state(&moved);
+        assert!(state.disabled);
+        assert_eq!(state.program, Some(PathBuf::from("/new/nullradix")));
+
+        let back = desktop_reenabled(&moved);
+        let state = desktop_state(&back);
+        assert!(state.enabled());
+        // the program stays as it was
+        assert_eq!(state.program, Some(PathBuf::from("/new/nullradix")));
+        assert!(!back.contains("Hidden"));
+    }
+
+    #[test]
     fn the_autostart_file_lives_in_the_config_autostart_folder() {
         let dir = tempfile::tempdir().unwrap();
         let wanted = entry("/usr/bin/nullradix", &["serve"]);
         let path = desktop_path(dir.path(), "nullradix");
         assert_eq!(path, dir.path().join("autostart").join("nullradix.desktop"));
-        assert!(!path.exists());
-        write_desktop(dir.path(), &wanted).unwrap();
+        assert!(!read_state(dir.path(), "nullradix").unwrap().exists);
+        enable_desktop(dir.path(), &wanted).unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             desktop_file(&wanted)
         );
         // writing again replaces the file
-        write_desktop(dir.path(), &entry("/other/nullradix", &[])).unwrap();
+        enable_desktop(dir.path(), &entry("/other/nullradix", &[])).unwrap();
         assert!(
             std::fs::read_to_string(&path)
                 .unwrap()
                 .contains("Exec=/other/nullradix\n")
         );
+        // a desktop switches it off; a refresh of the program leaves that alone
+        let off = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("Autostart-enabled=true", "Autostart-enabled=false");
+        std::fs::write(&path, off).unwrap();
+        change_desktop(dir.path(), "nullradix", |content| {
+            desktop_retargeted(content, &entry("/moved/nullradix", &[]))
+        })
+        .unwrap();
+        let state = read_state(dir.path(), "nullradix").unwrap();
+        assert!(state.exists && state.disabled);
+        assert_eq!(state.program, Some(PathBuf::from("/moved/nullradix")));
+        change_desktop(dir.path(), "nullradix", desktop_reenabled).unwrap();
+        assert!(read_state(dir.path(), "nullradix").unwrap().enabled());
         remove_desktop(dir.path(), "nullradix").unwrap();
         assert!(!path.exists());
         remove_desktop(dir.path(), "nullradix").unwrap();
+        // nothing to change, nothing created
+        change_desktop(dir.path(), "nullradix", desktop_reenabled).unwrap();
+        assert!(!path.exists());
     }
 }

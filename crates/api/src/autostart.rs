@@ -89,6 +89,10 @@ pub(crate) mod fake {
             *self.0.lock() = enabled;
             Ok(())
         }
+
+        async fn refresh(&self) -> Result<(), String> {
+            Ok(())
+        }
     }
 }
 
