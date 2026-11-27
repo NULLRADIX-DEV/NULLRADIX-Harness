@@ -1,5 +1,5 @@
 {
-  "title": "The code switch of a theme is off until turned on for the version seen, and an update that adds something turns it off",
+  "title": "The code switch of a theme is off by default, only the person in the app can turn it on, and scripts are not served while it is off",
   "steps": [
     {
       "name": "manifest with a domain",
@@ -10,7 +10,10 @@
     },
     {
       "name": "stylesheet",
-      "file": { "path": "{{WORK}}/night-code/theme.css", "text": "a { color: red }\n" }
+      "file": {
+        "path": "{{WORK}}/night-code/theme.css",
+        "text": "a { color: red }\n"
+      }
     },
     {
       "name": "script",
@@ -21,55 +24,91 @@
     },
     {
       "name": "pack the folder",
-      "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v1.nullradix"] }
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v1.nullradix"]
+      }
     },
     {
       "name": "install the confirmed package",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"] }
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"]
+      }
     },
     {
       "name": "the theme has code and the switch is off",
-      "http": { "method": "GET", "path": "/api/v1/themes" }
-    },
-    {
-      "name": "the module is served as javascript",
-      "http": { "method": "GET", "path": "/api/v1/themes/night-code/files/main.js" }
-    },
-    {
-      "name": "a stale version cannot turn the switch on",
       "http": {
-        "method": "PUT",
-        "path": "/api/v1/themes/night-code/code",
-        "body": { "enabled": true, "version": 99 }
+        "method": "GET",
+        "path": "/api/v1/themes"
       }
     },
     {
-      "name": "turning the switch on for the version seen",
+      "name": "the module is not served while the switch is off",
       "http": {
-        "method": "PUT",
-        "path": "/api/v1/themes/night-code/code",
-        "body": { "enabled": true, "version": 1 }
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
       }
     },
     {
-      "name": "the list shows it on",
-      "http": { "method": "GET", "path": "/api/v1/themes" }
+      "name": "a token cannot turn the code on",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": {
+          "enabled": true,
+          "version": 1
+        }
+      }
     },
     {
-      "name": "an unknown theme has no switch",
+      "name": "a token cannot turn it on for an unknown theme either",
       "http": {
         "method": "PUT",
         "path": "/api/v1/themes/missing-theme/code",
-        "body": { "enabled": true, "version": 1 }
+        "body": {
+          "enabled": true,
+          "version": 1
+        }
       }
     },
     {
-      "name": "the same package again keeps the switch",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"] }
+      "name": "a token may turn it off, without a version",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": {
+          "enabled": false
+        }
+      }
     },
     {
-      "name": "still on after an update that adds nothing",
-      "http": { "method": "GET", "path": "/api/v1/themes" }
+      "name": "turning off an unknown theme finds none",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/missing-theme/code",
+        "body": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "name": "the module is still not served",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
+      }
+    },
+    {
+      "name": "the same package again",
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"]
+      }
+    },
+    {
+      "name": "the list after an update that adds nothing",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes"
+      }
     },
     {
       "name": "manifest of an update with another domain",
@@ -80,30 +119,21 @@
     },
     {
       "name": "pack the update",
-      "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v2.nullradix"] }
-    },
-    {
-      "name": "install the update that adds a domain",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v2.nullradix", "--yes"] }
-    },
-    {
-      "name": "the switch is off again",
-      "http": { "method": "GET", "path": "/api/v1/themes" }
-    },
-    {
-      "name": "turning it on again",
-      "http": {
-        "method": "PUT",
-        "path": "/api/v1/themes/night-code/code",
-        "body": { "enabled": true, "version": 3 }
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v2.nullradix"]
       }
     },
     {
-      "name": "turning it off",
+      "name": "install the update that adds a domain",
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v2.nullradix", "--yes"]
+      }
+    },
+    {
+      "name": "the switch is off after the update that adds a domain",
       "http": {
-        "method": "PUT",
-        "path": "/api/v1/themes/night-code/code",
-        "body": { "enabled": false, "version": 3 }
+        "method": "GET",
+        "path": "/api/v1/themes"
       }
     },
     {
@@ -115,43 +145,51 @@
     },
     {
       "name": "plain stylesheet",
-      "file": { "path": "{{WORK}}/plain/theme.css", "text": "a { color: blue }\n" }
-    },
-    {
-      "name": "pack the plain theme",
-      "cli": { "args": ["theme", "pack", "{{WORK}}/plain", "--out", "{{WORK}}/plain.nullradix"] }
-    },
-    {
-      "name": "install the plain theme",
-      "cli": { "args": ["theme", "install", "{{WORK}}/plain.nullradix"] }
-    },
-    {
-      "name": "the switch needs a main.js",
-      "http": {
-        "method": "PUT",
-        "path": "/api/v1/themes/plain-blue/code",
-        "body": { "enabled": true, "version": 1 }
+      "file": {
+        "path": "{{WORK}}/plain/theme.css",
+        "text": "a { color: blue }\n"
       }
     },
     {
-      "name": "turning it on once more before the uninstall",
+      "name": "pack the plain theme",
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/plain", "--out", "{{WORK}}/plain.nullradix"]
+      }
+    },
+    {
+      "name": "install the plain theme",
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/plain.nullradix"]
+      }
+    },
+    {
+      "name": "turning the code of a theme without code off is fine",
       "http": {
         "method": "PUT",
-        "path": "/api/v1/themes/night-code/code",
-        "body": { "enabled": true, "version": 3 }
+        "path": "/api/v1/themes/plain-blue/code",
+        "body": {
+          "enabled": false
+        }
       }
     },
     {
       "name": "uninstall the theme",
-      "cli": { "args": ["theme", "remove", "night-code"] }
+      "cli": {
+        "args": ["theme", "remove", "night-code"]
+      }
     },
     {
       "name": "a reinstall starts with the switch off",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v2.nullradix", "--yes"] }
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v2.nullradix", "--yes"]
+      }
     },
     {
       "name": "the new install is off",
-      "http": { "method": "GET", "path": "/api/v1/themes" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes"
+      }
     }
   ]
 }

@@ -7449,6 +7449,16 @@
               }
             }
           },
+          "403": {
+            "description": "`theme-code-needs-person`: a token tried to turn the code on; only a browser session may, a token may turn it off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "description": "The theme is not installed",
             "content": {
@@ -7460,7 +7470,7 @@
             }
           },
           "409": {
-            "description": "Stale version: the theme was updated since the person saw it",
+            "description": "Turning on with a stale version: the theme was updated since the person saw it",
             "content": {
               "application/json": {
                 "schema": {
@@ -7470,7 +7480,7 @@
             }
           },
           "422": {
-            "description": "`theme-has-no-code`: the theme has no `main.js` to turn on",
+            "description": "`theme-has-no-code`: no `main.js` to turn on; `theme-version-required`: turning on needs a version",
             "content": {
               "application/json": {
                 "schema": {
@@ -16194,8 +16204,7 @@
       "SetThemeCode": {
         "type": "object",
         "required": [
-          "enabled",
-          "version"
+          "enabled"
         ],
         "properties": {
           "enabled": {
@@ -16203,9 +16212,12 @@
             "description": "Let the web UI run `main.js` of the theme while it is chosen, or stop it."
           },
           "version": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
-            "description": "Version of the theme the person saw, so a later update cannot slip in."
+            "description": "Version of the theme the person saw, so a later update cannot slip in; needed to turn on."
           }
         },
         "additionalProperties": false

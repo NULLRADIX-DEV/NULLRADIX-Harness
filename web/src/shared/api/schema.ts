@@ -3760,9 +3760,9 @@ export interface components {
             enabled: boolean;
             /**
              * Format: int64
-             * @description Version of the theme the person saw, so a later update cannot slip in.
+             * @description Version of the theme the person saw, so a later update cannot slip in; needed to turn on.
              */
-            version: number;
+            version?: number | null;
         };
         /** @description A note the similarity check found. */
         SimilarNoteDto: {
@@ -10124,6 +10124,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `theme-code-needs-person`: a token tried to turn the code on; only a browser session may, a token may turn it off */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             /** @description The theme is not installed */
             404: {
                 headers: {
@@ -10133,7 +10142,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Stale version: the theme was updated since the person saw it */
+            /** @description Turning on with a stale version: the theme was updated since the person saw it */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10142,7 +10151,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `theme-has-no-code`: the theme has no `main.js` to turn on */
+            /** @description `theme-has-no-code`: no `main.js` to turn on; `theme-version-required`: turning on needs a version */
             422: {
                 headers: {
                     [name: string]: unknown;

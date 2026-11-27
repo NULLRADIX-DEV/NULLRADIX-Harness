@@ -78,39 +78,24 @@
     }
   },
   {
-    "name": "the module is served as javascript",
+    "name": "the module is not served while the switch is off",
     "request": {
       "method": "GET",
       "path": "/api/v1/themes/night-code/files/main.js"
     },
     "response": {
-      "status": 200,
-      "text": "export default { id: 'night-code', slots: {} };\n"
-    }
-  },
-  {
-    "name": "a stale version cannot turn the switch on",
-    "request": {
-      "body": {
-        "enabled": true,
-        "version": 99
-      },
-      "method": "PUT",
-      "path": "/api/v1/themes/night-code/code"
-    },
-    "response": {
       "json": {
-        "code": "version-conflict",
-        "detail": "theme night-code was changed by someone else, reload and try again",
-        "status": 409,
-        "title": "Conflict",
-        "type": "urn:nullradix:problem:version-conflict"
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
       },
-      "status": 409
+      "status": 404
     }
   },
   {
-    "name": "turning the switch on for the version seen",
+    "name": "a token cannot turn the code on",
     "request": {
       "body": {
         "enabled": true,
@@ -121,9 +106,50 @@
     },
     "response": {
       "json": {
+        "code": "theme-code-needs-person",
+        "detail": "only the person in the app can turn theme code on; tokens may only turn it off",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:theme-code-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a token cannot turn it on for an unknown theme either",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/missing-theme/code"
+    },
+    "response": {
+      "json": {
+        "code": "theme-code-needs-person",
+        "detail": "only the person in the app can turn theme code on; tokens may only turn it off",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:theme-code-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a token may turn it off, without a version",
+    "request": {
+      "body": {
+        "enabled": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
         "author": "Ada",
         "claudeTheme": false,
-        "codeEnabled": true,
+        "codeEnabled": false,
         "codeUrl": "/api/v1/themes/night-code/files/main.js?v=1",
         "colorScheme": "dark",
         "hasCode": true,
@@ -147,49 +173,10 @@
     }
   },
   {
-    "name": "the list shows it on",
-    "request": {
-      "method": "GET",
-      "path": "/api/v1/themes"
-    },
-    "response": {
-      "json": {
-        "active": "nullradix",
-        "items": [
-          {
-            "author": "Ada",
-            "claudeTheme": false,
-            "codeEnabled": true,
-            "codeUrl": "/api/v1/themes/night-code/files/main.js?v=1",
-            "colorScheme": "dark",
-            "hasCode": true,
-            "id": "night-code",
-            "installedAt": "<TIME>",
-            "name": "Night Code",
-            "network": [
-              "fonts.example.com"
-            ],
-            "packageVersion": "1.0.0",
-            "previewUrl": null,
-            "sdkVersion": "^1.3",
-            "settings": [],
-            "slots": [],
-            "startColor": null,
-            "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=1",
-            "updatedAt": "<TIME>",
-            "version": 1
-          }
-        ]
-      },
-      "status": 200
-    }
-  },
-  {
-    "name": "an unknown theme has no switch",
+    "name": "turning off an unknown theme finds none",
     "request": {
       "body": {
-        "enabled": true,
-        "version": 1
+        "enabled": false
       },
       "method": "PUT",
       "path": "/api/v1/themes/missing-theme/code"
@@ -206,6 +193,23 @@
     }
   },
   {
+    "name": "the module is still not served",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
     "cli": [
       "theme",
       "install",
@@ -213,12 +217,12 @@
       "--yes"
     ],
     "exitCode": 0,
-    "name": "the same package again keeps the switch",
+    "name": "the same package again",
     "stderr": "",
     "stdout": "installed night-code 1.0.0\n"
   },
   {
-    "name": "still on after an update that adds nothing",
+    "name": "the list after an update that adds nothing",
     "request": {
       "method": "GET",
       "path": "/api/v1/themes"
@@ -230,7 +234,7 @@
           {
             "author": "Ada",
             "claudeTheme": false,
-            "codeEnabled": true,
+            "codeEnabled": false,
             "codeUrl": "/api/v1/themes/night-code/files/main.js?v=2",
             "colorScheme": "dark",
             "hasCode": true,
@@ -286,7 +290,7 @@
     "stdout": "installed night-code 1.1.0\n"
   },
   {
-    "name": "the switch is off again",
+    "name": "the switch is off after the update that adds a domain",
     "request": {
       "method": "GET",
       "path": "/api/v1/themes"
@@ -320,82 +324,6 @@
             "version": 3
           }
         ]
-      },
-      "status": 200
-    }
-  },
-  {
-    "name": "turning it on again",
-    "request": {
-      "body": {
-        "enabled": true,
-        "version": 3
-      },
-      "method": "PUT",
-      "path": "/api/v1/themes/night-code/code"
-    },
-    "response": {
-      "json": {
-        "author": "Ada",
-        "claudeTheme": false,
-        "codeEnabled": true,
-        "codeUrl": "/api/v1/themes/night-code/files/main.js?v=3",
-        "colorScheme": "dark",
-        "hasCode": true,
-        "id": "night-code",
-        "installedAt": "<TIME>",
-        "name": "Night Code",
-        "network": [
-          "fonts.example.com",
-          "cdn.example.com"
-        ],
-        "packageVersion": "1.1.0",
-        "previewUrl": null,
-        "sdkVersion": "^1.3",
-        "settings": [],
-        "slots": [],
-        "startColor": null,
-        "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=3",
-        "updatedAt": "<TIME>",
-        "version": 3
-      },
-      "status": 200
-    }
-  },
-  {
-    "name": "turning it off",
-    "request": {
-      "body": {
-        "enabled": false,
-        "version": 3
-      },
-      "method": "PUT",
-      "path": "/api/v1/themes/night-code/code"
-    },
-    "response": {
-      "json": {
-        "author": "Ada",
-        "claudeTheme": false,
-        "codeEnabled": false,
-        "codeUrl": "/api/v1/themes/night-code/files/main.js?v=3",
-        "colorScheme": "dark",
-        "hasCode": true,
-        "id": "night-code",
-        "installedAt": "<TIME>",
-        "name": "Night Code",
-        "network": [
-          "fonts.example.com",
-          "cdn.example.com"
-        ],
-        "packageVersion": "1.1.0",
-        "previewUrl": null,
-        "sdkVersion": "^1.3",
-        "settings": [],
-        "slots": [],
-        "startColor": null,
-        "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=3",
-        "updatedAt": "<TIME>",
-        "version": 3
       },
       "status": 200
     }
@@ -435,60 +363,35 @@
     "stdout": "installed plain-blue 1.0.0\n"
   },
   {
-    "name": "the switch needs a main.js",
+    "name": "turning the code of a theme without code off is fine",
     "request": {
       "body": {
-        "enabled": true,
-        "version": 1
+        "enabled": false
       },
       "method": "PUT",
       "path": "/api/v1/themes/plain-blue/code"
     },
     "response": {
       "json": {
-        "code": "theme-has-no-code",
-        "detail": "plain-blue has no main.js to run",
-        "status": 422,
-        "title": "Unprocessable Entity",
-        "type": "urn:nullradix:problem:theme-has-no-code"
-      },
-      "status": 422
-    }
-  },
-  {
-    "name": "turning it on once more before the uninstall",
-    "request": {
-      "body": {
-        "enabled": true,
-        "version": 3
-      },
-      "method": "PUT",
-      "path": "/api/v1/themes/night-code/code"
-    },
-    "response": {
-      "json": {
         "author": "Ada",
         "claudeTheme": false,
-        "codeEnabled": true,
-        "codeUrl": "/api/v1/themes/night-code/files/main.js?v=3",
+        "codeEnabled": false,
+        "codeUrl": null,
         "colorScheme": "dark",
-        "hasCode": true,
-        "id": "night-code",
+        "hasCode": false,
+        "id": "plain-blue",
         "installedAt": "<TIME>",
-        "name": "Night Code",
-        "network": [
-          "fonts.example.com",
-          "cdn.example.com"
-        ],
-        "packageVersion": "1.1.0",
+        "name": "Plain Blue",
+        "network": [],
+        "packageVersion": "1.0.0",
         "previewUrl": null,
         "sdkVersion": "^1.3",
         "settings": [],
         "slots": [],
         "startColor": null,
-        "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=3",
+        "styleUrl": "/api/v1/themes/plain-blue/files/theme.css?v=1",
         "updatedAt": "<TIME>",
-        "version": 3
+        "version": 1
       },
       "status": 200
     }
