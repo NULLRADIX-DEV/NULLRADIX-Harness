@@ -3,12 +3,14 @@ use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use nullradix_os::ProcessTree;
 
 const TIMEOUT: Duration = Duration::from_secs(120);
+const GRACE: Duration = Duration::from_secs(2);
 const POLL: Duration = Duration::from_millis(20);
 const OUTPUT_LIMIT: usize = 1024 * 1024;
 /// Only these can be started directly; anything else a shell would have to interpret.
@@ -37,11 +39,17 @@ pub(crate) trait ClaudeCli {
 
 /// The program `claude` names in the absolute folders of `path`.
 pub(crate) fn resolve(path: Option<&OsStr>, extensions: &[String]) -> Option<PathBuf> {
+    resolve_in(None, path, extensions)
+}
+
+/// Like `resolve`; a relative entry would count against `base`, but none ever does.
+fn resolve_in(base: Option<&Path>, path: Option<&OsStr>, extensions: &[String]) -> Option<PathBuf> {
     let path = path?;
     for dir in env::split_paths(path).filter(|dir| dir.is_absolute()) {
         for extension in extensions {
             let candidate = dir.join(format!("claude{extension}"));
-            if candidate.is_file() {
+            let checked = base.map_or_else(|| candidate.clone(), |base| base.join(&candidate));
+            if checked.is_file() {
                 return Some(candidate);
             }
         }
@@ -77,7 +85,8 @@ impl SystemClaude {
 }
 
 /// Keeps the first part of what a pipe delivers and discards the rest, so the writer never blocks.
-fn drain(pipe: Option<impl Read + Send + 'static>) -> thread::JoinHandle<String> {
+fn drain(pipe: Option<impl Read + Send + 'static>) -> mpsc::Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
         let mut kept = Vec::new();
         if let Some(mut pipe) = pipe {
@@ -90,8 +99,14 @@ fn drain(pipe: Option<impl Read + Send + 'static>) -> thread::JoinHandle<String>
                 kept.extend_from_slice(&chunk[..read.min(room)]);
             }
         }
-        String::from_utf8_lossy(&kept).into_owned()
-    })
+        let _ = sender.send(String::from_utf8_lossy(&kept).into_owned());
+    });
+    receiver
+}
+
+/// What a reader kept; a descendant that outlived its tree and holds the pipe cannot hold us.
+fn collect(reader: &mpsc::Receiver<String>, grace: Duration) -> String {
+    reader.recv_timeout(grace).unwrap_or_default()
 }
 
 /// Runs `program` and, past `timeout`, kills it with everything it started.
@@ -129,11 +144,7 @@ fn run_program(
         let _ = tree.kill();
         let _ = tree.wait();
     }
-    let text = format!(
-        "{}{}",
-        out.join().unwrap_or_default(),
-        err.join().unwrap_or_default()
-    );
+    let text = format!("{}{}", collect(&out, GRACE), collect(&err, GRACE));
     match finished {
         Ok(status) => Answer {
             ok: status.success(),
@@ -189,13 +200,17 @@ mod tests {
 
     #[test]
     fn empty_and_relative_entries_never_find_a_program() {
-        let here = tempfile::tempdir_in(".").unwrap();
-        fs::write(here.path().join("claude.cmd"), "").unwrap();
-        let relative = here.path().file_name().unwrap().to_owned();
+        let cwd = tempfile::tempdir().unwrap();
+        fs::write(cwd.path().join("claude.cmd"), "").unwrap();
+        fs::create_dir_all(cwd.path().join("sub")).unwrap();
+        fs::write(cwd.path().join("sub").join("claude.cmd"), "").unwrap();
         let path =
-            env::join_paths([PathBuf::new(), PathBuf::from("."), PathBuf::from(relative)]).unwrap();
+            env::join_paths([PathBuf::new(), PathBuf::from("."), PathBuf::from("sub")]).unwrap();
+        let list = extensions(&[".cmd", ""]);
 
-        assert_eq!(resolve(Some(&path), &extensions(&[".cmd", ""])), None);
+        assert_eq!(resolve_in(Some(cwd.path()), Some(&path), &list), None);
+        let absolute = env::join_paths([cwd.path()]).unwrap();
+        assert!(resolve_in(Some(cwd.path()), Some(&absolute), &list).is_some());
     }
 
     #[test]
@@ -223,14 +238,17 @@ mod tests {
         assert!(answer.text.contains("not found"));
     }
 
-    fn slow_script(dir: &Path) -> PathBuf {
+    /// A script that notes it started and runs a grandchild that writes `late.txt` after 3 s.
+    fn script_with_grandchild(dir: &Path) -> PathBuf {
         if cfg!(windows) {
             let script = dir.join("claude.cmd");
-            fs::write(&script, "@echo off\r\nping -n 9 127.0.0.1\r\n").unwrap();
+            let body = "@echo off\r\necho started> \"%~dp0started.txt\"\r\nstart /b cmd /c \"ping -n 4 127.0.0.1 >nul & echo late> %~dp0late.txt\"\r\nping -n 14 127.0.0.1\r\n";
+            fs::write(&script, body).unwrap();
             script
         } else {
             let script = dir.join("claude");
-            fs::write(&script, "#!/bin/sh\nsleep 8\n").unwrap();
+            let body = "#!/bin/sh\nd=$(dirname \"$0\")\necho started > \"$d/started.txt\"\n(sleep 3; echo late > \"$d/late.txt\") &\nsleep 12\n";
+            fs::write(&script, body).unwrap();
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -240,30 +258,61 @@ mod tests {
         }
     }
 
+    fn run_once_started(script: &Path) -> Answer {
+        let answer = run_program(script, Duration::from_secs(1), None, &[]);
+        // a script another thread was still writing cannot start; try once more
+        if answer.text.contains("busy") {
+            return run_program(script, Duration::from_secs(1), None, &[]);
+        }
+        answer
+    }
+
     #[test]
     fn a_timeout_ends_the_script_and_the_program_it_started() {
         let temp = tempfile::tempdir().unwrap();
-        let script = slow_script(temp.path());
-        let started = Instant::now();
+        let script = script_with_grandchild(temp.path());
+        let marker = temp.path().join("started.txt");
+        let runner = thread::spawn(move || run_once_started(&script));
 
-        let answer = run_program(&script, Duration::from_millis(300), None, &[]);
-
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !marker.is_file() {
+            assert!(Instant::now() < deadline, "the script never started");
+            thread::sleep(POLL);
+        }
+        let answer = runner.join().unwrap();
         assert!(!answer.ok);
         assert!(answer.text.contains("did not finish"), "{}", answer.text);
-        // a surviving child keeps the output pipes open and would hold the answer for seconds
-        assert!(
-            started.elapsed() < Duration::from_secs(5),
-            "{:?}",
-            started.elapsed()
-        );
+
+        // the grandchild writes after 3 s; a survivor of the kill would have written by now
+        thread::sleep(Duration::from_secs(5));
+        assert!(!temp.path().join("late.txt").exists());
     }
 
     #[test]
     fn output_beyond_the_cap_is_discarded_without_blocking_the_writer() {
         let big = std::io::repeat(b'x').take((OUTPUT_LIMIT * 3) as u64);
 
-        let kept = drain(Some(big)).join().unwrap();
+        let kept = collect(&drain(Some(big)), Duration::from_secs(10));
 
         assert_eq!(kept.len(), OUTPUT_LIMIT);
+    }
+
+    struct Stuck;
+
+    impl Read for Stuck {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            thread::sleep(Duration::from_secs(30));
+            Ok(0)
+        }
+    }
+
+    #[test]
+    fn a_reader_held_open_by_a_stray_descendant_cannot_hold_the_answer() {
+        let started = Instant::now();
+
+        let kept = collect(&drain(Some(Stuck)), Duration::from_millis(100));
+
+        assert_eq!(kept, "");
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 }
