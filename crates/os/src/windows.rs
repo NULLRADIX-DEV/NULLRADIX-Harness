@@ -43,13 +43,14 @@ use windows_sys::Win32::System::JobObjects::{
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
     SetInformationJobObject, TerminateJobObject,
 };
+#[cfg(test)]
+use windows_sys::Win32::System::Registry::{
+    HKEY, KEY_READ, REG_EXPAND_SZ, REG_SZ, RegCloseKey, RegDeleteTreeW, RegOpenKeyExW,
+    RegSetKeyValueW,
+};
 use windows_sys::Win32::System::Registry::{
     HKEY_CURRENT_USER, REG_EXPAND_SZ as EXPAND_TYPE, RRF_NOEXPAND, RRF_RT_REG_EXPAND_SZ,
     RRF_RT_REG_SZ, RegGetValueW,
-};
-#[cfg(test)]
-use windows_sys::Win32::System::Registry::{
-    REG_EXPAND_SZ, REG_SZ, RegDeleteTreeW, RegSetKeyValueW,
 };
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED,
@@ -820,7 +821,28 @@ mod tests {
     fn the_tests_leave_no_key_behind() {
         let key = format!("Software\\NullradixTest-gone-{}", std::process::id());
         registry_write_string(&key, "entry", "x", false).unwrap();
+        assert!(key_exists(&key));
         registry_delete_tree(&key).unwrap();
-        assert_eq!(registry_read_string(&key, "entry").unwrap(), None);
+        assert!(!key_exists(&key));
+    }
+
+    fn key_exists(subkey: &str) -> bool {
+        let subkey = wide(subkey);
+        let mut key: HKEY = std::ptr::null_mut();
+        // SAFETY: subkey is NUL-terminated and key is a valid out pointer.
+        let status = unsafe {
+            RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                subkey.as_ptr(),
+                0,
+                KEY_READ,
+                &raw mut key,
+            )
+        };
+        if status == ERROR_SUCCESS {
+            // SAFETY: key was opened above.
+            unsafe { RegCloseKey(key) };
+        }
+        status == ERROR_SUCCESS
     }
 }
