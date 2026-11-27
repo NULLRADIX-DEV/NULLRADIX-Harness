@@ -54,11 +54,7 @@ fn confirmation_required(
     let verb = if update { "adds" } else { "contains" };
     AppError::conflict(
         "theme-confirmation-required",
-        format!(
-            "{} {verb} {}; confirm to install it",
-            manifest.id(),
-            parts.join(" and ")
-        ),
+        format!("{} {verb} {}", manifest.id(), parts.join(" and ")),
     )
     .with_confirmation(ConfirmationFacts {
         risk,

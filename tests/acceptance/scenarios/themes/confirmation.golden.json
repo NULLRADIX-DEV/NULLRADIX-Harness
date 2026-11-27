@@ -1,0 +1,207 @@
+[
+  {
+    "file": "<WORK>/night-code/manifest.json",
+    "lines": 0,
+    "name": "manifest with a domain"
+  },
+  {
+    "file": "<WORK>/night-code/theme.css",
+    "lines": 0,
+    "name": "stylesheet"
+  },
+  {
+    "file": "<WORK>/night-code/main.js",
+    "lines": 0,
+    "name": "script"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-code",
+      "--out",
+      "<WORK>/v1.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the folder",
+    "stderr": "",
+    "stdout": "packed night-code 1.0.0 (3 files) into <WORK>/v1.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v1.nullradix"
+    ],
+    "exitCode": 1,
+    "name": "installing without confirming names code and domains",
+    "stderr": "error: night-code contains code and network domains fonts.example.com; run it again with --yes to confirm\n",
+    "stdout": ""
+  },
+  {
+    "name": "nothing was installed",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": []
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v1.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "confirming installs the theme",
+    "stderr": "",
+    "stdout": "installed night-code 1.0.0\n"
+  },
+  {
+    "name": "the confirmed theme is listed",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "colorScheme": "dark",
+            "id": "night-code",
+            "installedAt": "<TIME>",
+            "name": "Night Code",
+            "network": [
+              "Fonts.Example.com"
+            ],
+            "packageVersion": "1.0.0",
+            "previewUrl": null,
+            "sdkVersion": "^1.3",
+            "settings": [],
+            "slots": [],
+            "startColor": null,
+            "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=1",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "file": "<WORK>/night-code/manifest.json",
+    "lines": 0,
+    "name": "manifest of an update with the same code and domain"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-code",
+      "--out",
+      "<WORK>/v2.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the update",
+    "stderr": "",
+    "stdout": "packed night-code 1.1.0 (3 files) into <WORK>/v2.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v2.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "an update that adds nothing risky needs no confirmation",
+    "stderr": "",
+    "stdout": "installed night-code 1.1.0\n"
+  },
+  {
+    "file": "<WORK>/night-code/manifest.json",
+    "lines": 0,
+    "name": "manifest of an update with another domain"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-code",
+      "--out",
+      "<WORK>/v3.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the update with a new domain",
+    "stderr": "",
+    "stdout": "packed night-code 1.2.0 (3 files) into <WORK>/v3.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v3.nullradix"
+    ],
+    "exitCode": 1,
+    "name": "an update that adds a domain asks for a confirmation",
+    "stderr": "error: night-code adds network domains cdn.example.com; run it again with --yes to confirm\n",
+    "stdout": ""
+  },
+  {
+    "name": "the version stays",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "colorScheme": "dark",
+            "id": "night-code",
+            "installedAt": "<TIME>",
+            "name": "Night Code",
+            "network": [
+              "Fonts.Example.com"
+            ],
+            "packageVersion": "1.1.0",
+            "previewUrl": null,
+            "sdkVersion": "^1.3",
+            "settings": [],
+            "slots": [],
+            "startColor": null,
+            "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=2",
+            "updatedAt": "<TIME>",
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v3.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "confirming installs the update",
+    "stderr": "",
+    "stdout": "installed night-code 1.2.0\n"
+  }
+]
