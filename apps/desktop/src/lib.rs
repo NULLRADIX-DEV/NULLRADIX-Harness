@@ -1,21 +1,21 @@
 //! The desktop shell: starts or finds the daemon, signs its window in and stays in the tray.
 
 mod launch;
+mod tray;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::{env, fs, thread};
 
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
-use tauri_plugin_autostart::ManagerExt;
 use url::Url;
 
 use crate::launch::{LaunchError, Setup};
 
 const MAIN: &str = "main";
-/// Passed by the autostart entry, so a login does not open the window.
+/// Passed by the login entry the daemon writes, so a login does not open the window.
 const HIDDEN: &str = "--hidden";
 /// Release builds only, so a development shell never takes over the installed one.
 const INSTALLED: bool = !cfg!(debug_assertions);
@@ -44,21 +44,9 @@ impl Shell {
 
 pub fn run() -> Result<(), tauri::Error> {
     let shell = Arc::new(Shell::default());
-    let setup = Setup::from_env().ok();
     let mut builder = tauri::Builder::default();
     if INSTALLED {
-        let mut args = vec![String::from(HIDDEN)];
-        if let Some(setup) = &setup {
-            args.extend(
-                setup
-                    .data_args()
-                    .iter()
-                    .map(|arg| arg.to_string_lossy().into_owned()),
-            );
-        }
-        builder = builder
-            .plugin(tauri_plugin_single_instance::init(|app, _, _| show(app)))
-            .plugin(tauri_plugin_autostart::Builder::new().args(args).build());
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| show(app)));
     }
     let window_shell = Arc::clone(&shell);
     builder
@@ -74,7 +62,10 @@ pub fn run() -> Result<(), tauri::Error> {
                 .on_navigation(move |url| allow(&guard, url))
                 .build()?;
             match tray(app) {
-                Ok(()) => window_shell.has_tray.store(true, Ordering::SeqCst),
+                Ok(rows) => {
+                    window_shell.has_tray.store(true, Ordering::SeqCst);
+                    tray::watch(app.handle(), rows);
+                }
                 Err(error) => eprintln!("no tray icon, closing the window quits: {error}"),
             }
             reconnect(app.handle());
@@ -137,7 +128,10 @@ fn reconnect(app: &AppHandle) {
 
 /// Points the window at the daemon's web UI, or at the local page with the reason it cannot.
 fn sign_in(app: &AppHandle, shell: &Shell) {
-    let target = Setup::from_env().and_then(|setup| launch::sign_in_url(&setup));
+    let resources = app.path().resource_dir().ok();
+    let target = Setup::from_env()
+        .map(|setup| setup.with_resources(resources.as_deref()))
+        .and_then(|setup| launch::sign_in_url(&setup));
     let Some(window) = app.get_webview_window(MAIN) else {
         return;
     };
@@ -172,29 +166,40 @@ fn show(app: &AppHandle) {
     }
 }
 
-fn tray(app: &App) -> tauri::Result<()> {
+fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
+    let initial = tray::texts(&tray::Snapshot::default());
     let open = MenuItem::with_id(app, "open", "Open NULLRADIX", true, None::<&str>)?;
     let again = MenuItem::with_id(app, "reconnect", "Reconnect", true, None::<&str>)?;
-    let enabled = INSTALLED && app.autolaunch().is_enabled().unwrap_or(false);
-    let autostart = CheckMenuItem::with_id(
+    // the status lines only show; they cannot be clicked
+    let dispatcher = MenuItem::with_id(
         app,
-        "autostart",
-        "Start at login",
-        INSTALLED,
-        enabled,
+        "status-dispatcher",
+        &initial.dispatcher,
+        false,
         None::<&str>,
     )?;
+    let inbox = MenuItem::with_id(app, "status-inbox", &initial.inbox, false, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open, &again, &autostart, &separator, &quit])?;
-    let mut builder = TrayIconBuilder::with_id(MAIN)
-        .tooltip("NULLRADIX")
+    let menu = Menu::with_items(
+        app,
+        &[
+            &open,
+            &again,
+            &PredefinedMenuItem::separator(app)?,
+            &dispatcher,
+            &inbox,
+            &PredefinedMenuItem::separator(app)?,
+            &quit,
+        ],
+    )?;
+    let mut builder = TrayIconBuilder::with_id(tray::TRAY_ID)
+        .tooltip(&initial.tooltip)
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        // on macOS a left click opens the menu, so the window needs no click of its own there
+        .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show(app),
             "reconnect" => reconnect(app),
-            "autostart" => toggle_autostart(app, &autostart),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -204,6 +209,7 @@ fn tray(app: &App) -> tauri::Result<()> {
                 button_state: MouseButtonState::Up,
                 ..
             } = event
+                && !cfg!(target_os = "macos")
             {
                 show(tray.app_handle());
             }
@@ -212,19 +218,7 @@ fn tray(app: &App) -> tauri::Result<()> {
         builder = builder.icon(icon.clone());
     }
     builder.build(app)?;
-    Ok(())
-}
-
-/// Flips autostart and shows what the system now says, which may differ on failure.
-fn toggle_autostart(app: &AppHandle, item: &CheckMenuItem<tauri::Wry>) {
-    let manager = app.autolaunch();
-    let enabled = manager.is_enabled().unwrap_or(false);
-    let _ = if enabled {
-        manager.disable()
-    } else {
-        manager.enable()
-    };
-    let _ = item.set_checked(manager.is_enabled().unwrap_or(enabled));
+    Ok(tray::Rows { dispatcher, inbox })
 }
 
 /// Leaves a failure where a windowed build, which has no console, can show it later.

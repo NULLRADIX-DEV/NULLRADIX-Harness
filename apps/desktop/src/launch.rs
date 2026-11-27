@@ -71,6 +71,8 @@ pub(crate) struct Setup {
     pub(crate) profile: &'static str,
     pub(crate) home: Option<PathBuf>,
     pub(crate) daemon: PathBuf,
+    /// The web UI this app bundles, passed to the daemon it starts.
+    pub(crate) web_dir: Option<PathBuf>,
 }
 
 impl Setup {
@@ -109,14 +111,22 @@ impl Setup {
             ),
             home,
             daemon,
+            web_dir: None,
         }
+    }
+
+    /// Looks for the bundled web UI below the resource folder, unless `NULLRADIX_WEB_DIR` is set.
+    #[must_use]
+    pub(crate) fn with_resources(mut self, resources: Option<&Path>) -> Self {
+        self.web_dir = bundled_web(resources, env::var_os("NULLRADIX_WEB_DIR").as_ref());
+        self
     }
 
     pub(crate) fn paths(&self) -> Result<Paths, PathsError> {
         Paths::resolve(app_name(self.profile), self.home.as_deref())
     }
 
-    /// Arguments that select the same data, for the daemon and for autostart.
+    /// Arguments that select the same data.
     #[must_use]
     pub(crate) fn data_args(&self) -> Vec<OsString> {
         let mut args = vec![OsString::from("--profile"), OsString::from(self.profile)];
@@ -126,6 +136,27 @@ impl Setup {
         }
         args
     }
+
+    /// Arguments of the daemon this app starts.
+    #[must_use]
+    pub(crate) fn serve_args(&self) -> Vec<OsString> {
+        let mut args = self.data_args();
+        args.push(OsString::from("serve"));
+        if let Some(dir) = &self.web_dir {
+            args.push(OsString::from("--web-dir"));
+            args.push(dir.clone().into_os_string());
+        }
+        args
+    }
+}
+
+/// `web/` below the resource folder, where bundles put it; an explicit setting of the user wins.
+fn bundled_web(resources: Option<&Path>, env_web: Option<&OsString>) -> Option<PathBuf> {
+    if env_web.is_some_and(|dir| !dir.is_empty()) {
+        return None;
+    }
+    let dir = resources?.join("web");
+    dir.join("index.html").is_file().then_some(dir)
 }
 
 /// The value after `name` in `args`, also written as `name=value`.
@@ -207,8 +238,7 @@ fn start(setup: &Setup, paths: &Paths) -> Result<Discovery, LaunchError> {
         path: paths.data.clone(),
         source,
     })?;
-    let mut args = setup.data_args();
-    args.push(OsString::from("serve"));
+    let args = setup.serve_args();
     let pid =
         spawn_detached(&setup.daemon, &args, &paths.data).map_err(|source| LaunchError::Spawn {
             path: setup.daemon.clone(),
@@ -271,12 +301,57 @@ mod tests {
     }
 
     #[test]
+    fn the_daemon_gets_the_bundled_web_ui() {
+        let resources = tempfile::tempdir().unwrap();
+        let web = resources.path().join("web");
+        fs::create_dir_all(&web).unwrap();
+        // a folder without index.html is not a web UI
+        assert_eq!(bundled_web(Some(resources.path()), None), None);
+        fs::write(web.join("index.html"), "<html></html>").unwrap();
+        assert_eq!(bundled_web(Some(resources.path()), None), Some(web.clone()));
+        assert_eq!(bundled_web(None, None), None);
+        // the user's own setting is left to the daemon
+        assert_eq!(
+            bundled_web(Some(resources.path()), Some(&OsString::from("/mine"))),
+            None
+        );
+        assert_eq!(
+            bundled_web(Some(resources.path()), Some(&OsString::new())),
+            Some(web.clone())
+        );
+
+        let setup = Setup {
+            profile: "release",
+            home: None,
+            daemon: PathBuf::from("/bin/nullradix"),
+            web_dir: Some(web.clone()),
+        };
+        let args: Vec<OsString> = setup.serve_args();
+        assert_eq!(
+            args,
+            [
+                OsString::from("--profile"),
+                OsString::from("release"),
+                OsString::from("serve"),
+                OsString::from("--web-dir"),
+                web.into_os_string(),
+            ]
+        );
+        let plain = Setup {
+            web_dir: None,
+            ..setup
+        };
+        assert_eq!(plain.serve_args().last(), Some(&OsString::from("serve")));
+    }
+
+    #[test]
     fn a_missing_daemon_binary_is_reported_with_its_path() {
         let home = tempfile::tempdir().unwrap();
         let setup = Setup {
             profile: "dev",
             home: Some(home.path().to_path_buf()),
             daemon: home.path().join("no-such-nullradix"),
+            web_dir: None,
         };
         let error = sign_in_url(&setup).err().map(|error| error.to_string());
         assert!(
