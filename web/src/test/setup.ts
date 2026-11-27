@@ -12,5 +12,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  window.localStorage.clear();
+  // a test in the node environment has no window
+  if (typeof window !== 'undefined') window.localStorage.clear();
 });

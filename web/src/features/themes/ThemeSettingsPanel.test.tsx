@@ -35,6 +35,8 @@ function theme(overrides: Partial<Theme> = {}): Theme {
       },
     ],
     claudeTheme: false,
+    hasCode: false,
+    codeEnabled: false,
     installedAt: 1,
     updatedAt: 1,
     version: 1,

@@ -8,6 +8,7 @@ import {
   removeThemeStylesheet,
 } from '../../shared/lib/theme';
 import type { Theme } from '../../shared/query/themes';
+import { FakeEventSource } from '../../test/eventSource';
 import { confirmation, fakeApi, json, problem } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
 
@@ -26,6 +27,8 @@ function theme(overrides: Partial<Theme> = {}): Theme {
     network: [],
     settings: [],
     claudeTheme: false,
+    hasCode: false,
+    codeEnabled: false,
     installedAt: 1,
     updatedAt: 1,
     version: 1,
@@ -55,6 +58,15 @@ function themesServer(initial: Theme[] = [], initialActive = 'nullradix') {
       items = [...items.filter((item) => item.id !== installed.id), installed];
       return json(201, installed);
     },
+    'PUT /api/v1/themes/night-blue/code': async (request) => {
+      const body = (await request.json()) as { enabled: boolean; version: number };
+      const current = items.find((item) => item.id === 'night-blue');
+      if (!current) return problem(404, 'theme-not-found', 'gone');
+      if (current.version !== body.version) return problem(409, 'version-conflict', 'stale');
+      const next = { ...current, codeEnabled: body.enabled };
+      items = items.map((item) => (item.id === next.id ? next : item));
+      return json(200, next);
+    },
     'DELETE /api/v1/themes/night-blue': (request) => {
       const version = Number(new URL(request.url).searchParams.get('version'));
       const current = items.find((item) => item.id === 'night-blue');
@@ -65,7 +77,11 @@ function themesServer(initial: Theme[] = [], initialActive = 'nullradix') {
       return new Response(null, { status: 204 });
     },
   });
-  return api;
+  return Object.assign(api, {
+    replace(next: Theme[]) {
+      items = next;
+    },
+  });
 }
 
 function themeLink(): HTMLLinkElement | null {
@@ -77,6 +93,44 @@ afterEach(() => {
   removeThemeStylesheet();
   delete document.documentElement.dataset['theme'];
   delete document.documentElement.dataset['themeMode'];
+});
+
+describe('safe mode', () => {
+  const stored = JSON.stringify({
+    id: 'night-blue',
+    scheme: 'dark',
+    styleUrl: '/api/v1/themes/night-blue/files/theme.css?v=1',
+    startColor: null,
+  });
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('shows an installed theme by the system without its CSS and keeps the stored look', async () => {
+    window.history.replaceState(null, '', '/settings?safe-theme');
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'night-blue');
+    window.localStorage.setItem(INSTALLED_STORAGE_KEY, stored);
+    themesServer([theme()], 'night-blue');
+    renderApp('/settings');
+    await screen.findByRole('option', { name: 'Night Blue' });
+    const root = document.documentElement;
+    expect(root.dataset['themeMode']).toBe('night-blue');
+    expect(root.dataset['theme']).toBe('light');
+    expect(themeLink()).toBeNull();
+    expect(window.localStorage.getItem(INSTALLED_STORAGE_KEY)).toBe(stored);
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('night-blue');
+  });
+
+  it('does not touch built-in themes', async () => {
+    window.history.replaceState(null, '', '/settings?safe-theme');
+    themesServer([theme()], 'dark');
+    renderApp('/settings');
+    await waitFor(() => {
+      expect(document.documentElement.dataset['themeMode']).toBe('dark');
+    });
+    expect(document.documentElement.dataset['theme']).toBe('dark');
+  });
 });
 
 describe('ThemesSection', () => {
@@ -207,6 +261,66 @@ describe('ThemesSection', () => {
       expect(select).toHaveValue('nullradix');
     });
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('nullradix');
+  });
+
+  it('offers a code switch only for themes that have code, with a warning', async () => {
+    themesServer([
+      theme({ hasCode: true, codeUrl: '/api/v1/themes/night-blue/files/main.js?v=1' }),
+      theme({ id: 'plain-blue', name: 'Plain Blue' }),
+    ]);
+    renderApp('/settings');
+    const code = await screen.findByRole('switch', { name: 'Run the code of Night Blue' });
+    expect(code).not.toBeChecked();
+    expect(screen.queryByRole('switch', { name: /Plain Blue/ })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Theme code runs in NULLRADIX with full rights/)).toHaveLength(1);
+  });
+
+  it('turns the code of a theme on for the version it shows and back off', async () => {
+    const api = themesServer([theme({ hasCode: true, version: 4 })]);
+    renderApp('/settings');
+    const code = await screen.findByRole('switch', { name: 'Run the code of Night Blue' });
+    await userEvent.click(code);
+    await waitFor(() => {
+      expect(code).toBeChecked();
+    });
+    const [on] = api.requests('PUT /api/v1/themes/night-blue/code');
+    expect(await on?.clone().json()).toEqual({ enabled: true, version: 4 });
+
+    await userEvent.click(code);
+    await waitFor(() => {
+      expect(code).not.toBeChecked();
+    });
+    const sent = await Promise.all(
+      api.requests('PUT /api/v1/themes/night-blue/code').map((request) => request.clone().json()),
+    );
+    expect(sent).toEqual([
+      { enabled: true, version: 4 },
+      { enabled: false, version: 4 },
+    ]);
+  });
+
+  it('reports a theme that changed in the meantime and keeps the switch as it was', async () => {
+    const api = themesServer([theme({ hasCode: true })]);
+    api.set('PUT /api/v1/themes/night-blue/code', () => problem(409, 'version-conflict', 'stale'));
+    renderApp('/settings');
+    const code = await screen.findByRole('switch', { name: 'Run the code of Night Blue' });
+    await userEvent.click(code);
+    expect(
+      await screen.findByText('This theme changed in the meantime. The list is up to date now.'),
+    ).toBeInTheDocument();
+    expect(code).not.toBeChecked();
+  });
+
+  it('refreshes the list when the switch changes somewhere else', async () => {
+    const api = themesServer([theme({ hasCode: true })]);
+    renderApp('/settings');
+    const code = await screen.findByRole('switch', { name: 'Run the code of Night Blue' });
+    expect(code).not.toBeChecked();
+    api.replace([theme({ hasCode: true, codeEnabled: true })]);
+    FakeEventSource.latest().emit('change', { seq: 1, entity: 'setting' });
+    await waitFor(() => {
+      expect(code).toBeChecked();
+    });
   });
 
   it('asks before installing a package with code and sends the confirmed request', async () => {

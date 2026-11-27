@@ -22,6 +22,7 @@ import {
   systemPrefersDark,
   type InstalledLook,
 } from '../lib/theme';
+import { isSafeTheme } from '../lib/safeTheme';
 import { themesQuery, useChooseTheme, type Theme } from '../query/themes';
 
 interface ThemeState {
@@ -74,6 +75,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       return () => {
         media.removeEventListener('change', follow);
       };
+    }
+    if (isSafeTheme()) {
+      // safe mode: an installed theme shows light or dark by the system, without its CSS
+      removeThemeStylesheet();
+      applyTheme(root, 'system', systemPrefersDark());
+      root.dataset['themeMode'] = mode;
+      return undefined;
     }
     // an installed theme shows from its stored look until the list arrives
     const look = theme ? lookOf(theme) : readInstalledLook(window.localStorage, mode);

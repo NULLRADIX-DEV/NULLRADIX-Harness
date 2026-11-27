@@ -15,7 +15,11 @@
     }
   }
   var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  var dark = mode === 'nullradix' || mode === 'dark' || (mode === 'system' && prefersDark);
+  // safe mode: an installed theme shows light or dark by the system, without its CSS
+  var safe = look !== null && /[?&]safe-theme(=|&|$)/.test(location.search);
+  if (safe) look = null;
+  var dark =
+    mode === 'nullradix' || mode === 'dark' || ((mode === 'system' || safe) && prefersDark);
   if (look) dark = look.scheme === 'dark';
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   document.documentElement.dataset.themeMode = mode;

@@ -5,6 +5,7 @@ import {
   themesQuery,
   useInstallTheme,
   useRemoveTheme,
+  useSetThemeCode,
   type Theme,
 } from '../../shared/query/themes';
 import { FormError } from '../../shared/ui/FormError';
@@ -19,7 +20,34 @@ const MESSAGES = {
   'theme-id-reserved': 'The package uses the name of a built-in theme.',
   'version-conflict': 'This theme changed in the meantime. The list is up to date now.',
   'theme-not-found': 'This theme is not installed any more.',
+  'theme-has-no-code': 'This theme has no code to run any more.',
 };
+
+// Theme code is the one thing here that runs inside the app, so it has its own switch.
+function CodeSwitch({ theme }: { theme: Theme }) {
+  const set = useSetThemeCode();
+  return (
+    <div className="theme-code">
+      <label className="theme-check">
+        <input
+          type="checkbox"
+          role="switch"
+          disabled={set.isPending}
+          checked={theme.codeEnabled}
+          onChange={(event) => {
+            set.mutate({ id: theme.id, enabled: event.target.checked, version: theme.version });
+          }}
+        />
+        <span>Run the code of {theme.name}</span>
+      </label>
+      <p className="claude-theme-warn">
+        Theme code runs in NULLRADIX with full rights. Turn it on only for themes you trust. It
+        takes effect after a reload and only while the theme is chosen.
+      </p>
+      <FormError message={problemMessage(set.error, MESSAGES, 'Could not change the switch.')} />
+    </div>
+  );
+}
 
 function RemoveRow({ theme }: { theme: Theme }) {
   const remove = useRemoveTheme();
@@ -32,6 +60,7 @@ function RemoveRow({ theme }: { theme: Theme }) {
         <div className="muted">
           {theme.author} - v{theme.packageVersion} - {theme.colorScheme}
         </div>
+        {theme.hasCode && <CodeSwitch theme={theme} />}
       </div>
       {asking ? (
         <span role="group" aria-label={`Remove ${theme.name}`}>
