@@ -13,17 +13,19 @@ export interface NavItem {
   badge?: number;
 }
 
-/** A board with its project, or a project without a board */
+/** A board with its project (the project key), or a project without a board */
 export interface BoardRef {
   project: string;
-  board: number | null;
+  /** Board id; the boards of the daemon have string ids */
+  board: string | null;
 }
 
 /** Projects and boards of the board database with the current choice */
 export interface BoardsState {
   current: BoardRef | null;
+  /** `id` is the project key */
   projects: { id: string; name: string }[];
-  boards: { id: number; project: string; name: string }[];
+  boards: { id: string; project: string; name: string }[];
   loading: boolean;
   /** Chooses a board or project, like the board switcher of the sidebar */
   choose: (ref: BoardRef) => void;
@@ -44,12 +46,9 @@ export interface UsageState {
   sevenDay: UsageWindow | null;
 }
 
-/** User settings a theme may read and change */
+/** User settings a theme may read and change; a theme can switch only to a built-in theme */
 export interface ThemeSettings {
   theme: string;
-  claudeUsage: boolean;
-  compactCards: boolean;
-  heroImages: boolean;
 }
 
 /** User settings; `values` is null while they load */

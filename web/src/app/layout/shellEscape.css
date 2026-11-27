@@ -1,0 +1,18 @@
+.shell-escape {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2147482999;
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 20%);
+}
+
+.shell-escape .btn {
+  font-size: 12px;
+  text-decoration: none;
+}

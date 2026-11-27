@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { projectsQuery } from '../projects/queries';
 import { boardsQuery } from '../boards/queries';
-import { pickBoard, readBoardChoice } from '../board/boardChoice';
+import { pickBoard } from '../board/boardChoice';
+import { useBoardChoice } from '../board/useBoardChoice';
 import '../board/board.css';
 import { QuestionDetail, STATE_LABELS } from './QuestionDetail';
 import { questionsQuery, type Question, type QuestionCounts, type StateFilter } from './queries';
@@ -71,12 +72,11 @@ function QuestionRow({
 export function QuestionsPage() {
   const projects = useQuery(projectsQuery());
   const boards = useQuery(boardsQuery());
+  const boardChoice = useBoardChoice();
   const [chosen, setChosen] = useState<string | null>(null);
   const [filter, setFilter] = useState<StateFilter>('open');
   const [searchParams, setSearchParams] = useSearchParams();
-  const fallback = boards.data
-    ? pickBoard(boards.data, readBoardChoice(window.localStorage))?.projectId
-    : undefined;
+  const fallback = boards.data ? pickBoard(boards.data, boardChoice)?.projectId : undefined;
   const projectId = chosen ?? fallback ?? projects.data?.[0]?.id;
   const list = useQuery({
     ...questionsQuery(projectId ?? '', filter),

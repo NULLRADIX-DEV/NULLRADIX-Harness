@@ -53,12 +53,18 @@ afterEach(() => {
 export function renderThemed(
   ui: ReactNode,
   definition: ThemeDefinition,
-  options: { codeEnabled?: boolean; routes?: Record<string, Handler> } = {},
+  options: {
+    codeEnabled?: boolean;
+    entry?: Partial<Theme>;
+    routes?: Record<string, Handler>;
+  } = {},
 ) {
   registerTheme(definition);
   registered.add(definition.id);
   const list: ThemeList = {
-    items: [themeEntry(definition.id, { codeEnabled: options.codeEnabled ?? true })],
+    items: [
+      themeEntry(definition.id, { codeEnabled: options.codeEnabled ?? true, ...options.entry }),
+    ],
     active: definition.id,
   };
   const state = { list };

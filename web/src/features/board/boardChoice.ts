@@ -10,11 +10,13 @@ export function readBoardChoice(storage: Pick<Storage, 'getItem'>): string | nul
   }
 }
 
-export function saveBoardChoice(storage: Pick<Storage, 'setItem'>, boardId: string): void {
+// False when the storage is blocked; the choice then lasts only for this visit.
+export function saveBoardChoice(storage: Pick<Storage, 'setItem'>, boardId: string): boolean {
   try {
     storage.setItem(BOARD_STORAGE_KEY, boardId);
+    return true;
   } catch {
-    // Blocked storage only forgets the choice on the next visit.
+    return false;
   }
 }
 
