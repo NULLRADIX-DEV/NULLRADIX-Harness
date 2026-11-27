@@ -85,7 +85,10 @@ mod tests {
             assert!(csp.contains(part), "{part} missing in {csp}");
         }
         assert!(!csp.contains("unsafe-eval"), "{csp}");
-        let script = csp.split("; ").find(|d| d.starts_with("script-src")).unwrap();
+        let script = csp
+            .split("; ")
+            .find(|d| d.starts_with("script-src"))
+            .unwrap();
         assert_eq!(script, "script-src 'self'");
 
         let (status, _, body) = get(&api.router, "/board/ARC-0001").await;
