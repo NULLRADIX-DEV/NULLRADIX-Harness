@@ -3,3 +3,5 @@ crates/store/.sqlx/
 web/src/shared/api/openapi.json
 web/src/shared/api/schema.ts
 tests/acceptance/scenarios/**/*.golden.json
+playwright-report/
+test-results/

@@ -5,6 +5,7 @@ FROM --platform=$BUILDPLATFORM node:24-trixie-slim@sha256:4d00acb4bcc42c454c4eb8
 WORKDIR /src
 COPY package.json package-lock.json ./
 COPY web/package.json web/
+COPY tests/e2e/package.json tests/e2e/
 RUN npm ci --ignore-scripts
 COPY web web
 COPY assets assets

@@ -1,0 +1,20 @@
+{
+  "name": "@nullradix/e2e",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
+  "type": "module",
+  "scripts": {
+    "build:daemon": "cargo build -p nullradix-cli -p nullradix-fake-claude",
+    "build:web": "npm run build --prefix ../../web",
+    "build": "npm run build:daemon && npm run build:web",
+    "browsers": "playwright install chromium",
+    "browsers:ci": "playwright install --with-deps chromium",
+    "test": "playwright test",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}

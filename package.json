@@ -11,15 +11,17 @@
     "node": "^24.11"
   },
   "workspaces": [
-    "web"
+    "web",
+    "tests/e2e"
   ],
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint --max-warnings 0 .",
-    "typecheck": "npm run typecheck -w web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test -w web",
-    "build": "npm run build -w web"
+    "build": "npm run build -w web",
+    "e2e": "npm run test -w tests/e2e"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
