@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import type { Daemon } from '../support/daemon';
 import { expect, test } from '../support/fixtures';
 import { seedProject } from '../support/seed';
+import { installAsPerson } from '../support/themes';
 
 const MANIFEST = {
   id: 'night-shell',
@@ -64,7 +65,7 @@ async function installAndEnable(daemon: Daemon, page: Page): Promise<void> {
   await writeFile(join(dir, 'main.js'), MAIN);
   const pack = join(daemon.work, 'night-shell.nullradix');
   await daemon.cli(['theme', 'pack', dir, '--out', pack]);
-  await daemon.cli(['theme', 'install', pack, '--yes']);
+  await installAsPerson(page, pack, 'Install Night Shell 1.0.0?');
   await daemon.api('PUT', '/api/v1/settings/theme', { theme: 'night-shell' });
   await page.goto('/settings');
   await page.getByRole('switch', { name: 'Run the code of Night Shell' }).click();
@@ -172,7 +173,7 @@ export default { id: 'night-shell', slots: { Shell } };
   );
   const pack = join(daemon.work, 'night-shell.nullradix');
   await daemon.cli(['theme', 'pack', dir, '--out', pack]);
-  await daemon.cli(['theme', 'install', pack, '--yes']);
+  await installAsPerson(page, pack, 'Install Night Shell 1.0.0?');
   await daemon.api('PUT', '/api/v1/settings/theme', { theme: 'night-shell' });
   await page.goto('/settings');
   await page.getByRole('switch', { name: 'Run the code of Night Shell' }).click();

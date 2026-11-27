@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import type { Daemon } from '../support/daemon';
 import { expect, test } from '../support/fixtures';
+import { installAsPerson } from '../support/themes';
 
 const MANIFEST = {
   id: 'night-code',
@@ -23,17 +24,6 @@ const Panel = ({ title, children }) =>
   React.createElement('div', { 'data-themed-panel': '' }, title, children);
 export default { id: 'night-code', slots: { Panel } };
 `;
-
-// Only the person can allow code, so the package goes in through the app and its confirm dialog.
-async function installAsPerson(page: Page, pack: string, title: string): Promise<void> {
-  await page.goto('/settings');
-  await page.getByLabel('Install a theme package').setInputFiles(pack);
-  const dialog = page.getByRole('alertdialog', { name: title });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('This package contains code');
-  await dialog.getByRole('button', { name: /^(Install|Update)$/ }).click();
-  await expect(dialog).toBeHidden();
-}
 
 async function installThemeWithCode(page: Page, daemon: Daemon): Promise<void> {
   const dir = join(daemon.work, 'night-code');

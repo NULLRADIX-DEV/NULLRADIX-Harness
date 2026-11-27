@@ -1033,8 +1033,11 @@ mod tests {
             .spawn()
             .unwrap();
         let hidden = wait_for_pid(&pid_file);
-        let comm = fs::read_to_string(format!("/proc/{hidden}/comm")).unwrap();
-        assert!(comm.trim_end_matches('\n').contains('\n'), "{comm:?}");
+        // the pid file is written before the forked shell runs the script
+        let comm = || fs::read_to_string(format!("/proc/{hidden}/comm")).unwrap_or_default();
+        wait_until("the script running under its name", || {
+            comm().trim_end_matches('\n').contains('\n')
+        });
         let leaf = || {
             table()
                 .unwrap()
