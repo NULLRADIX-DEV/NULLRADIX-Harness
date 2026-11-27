@@ -16,7 +16,7 @@
   }
   var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   // safe mode: an installed theme shows light or dark by the system, without its CSS
-  var safe = look !== null && /[?&]safe-theme(=|&|$)/.test(location.search);
+  var safe = look !== null && new URLSearchParams(location.search).has('safe-theme');
   if (safe) look = null;
   var dark =
     mode === 'nullradix' || mode === 'dark' || ((mode === 'system' || safe) && prefersDark);

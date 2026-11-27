@@ -348,6 +348,7 @@ describe('ThemesSection', () => {
     expect(within(dialog).getByText(/This package contains code/)).toBeInTheDocument();
     expect(within(dialog).getByText('fonts.example.com')).toBeInTheDocument();
     expect(within(dialog).getByText(/Claude Code theme/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/code switch of this theme starts off/)).toBeInTheDocument();
     expect(screen.queryByText('the package needs a confirmation')).not.toBeInTheDocument();
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Install' }));
@@ -357,6 +358,32 @@ describe('ThemesSection', () => {
     const calls = api.requests('POST /api/v1/themes');
     expect(calls.map((request) => new URL(request.url).search)).toEqual(['', '?confirmed=true']);
     expect(await calls[1]?.clone().text()).toBe('zip');
+  });
+
+  it.each([
+    [
+      'adds nothing',
+      { code: false, claudeTheme: false, domains: [] },
+      /switch of this theme stays/,
+    ],
+    [
+      'adds a domain',
+      { code: false, claudeTheme: false, domains: ['a.b.com'] },
+      /switch of this theme turns off/,
+    ],
+  ])('says what an update that %s does to the code switch', async (_name, added, line) => {
+    const api = themesServer();
+    api.set('POST /api/v1/themes', () =>
+      confirmation({ update: true, hasCode: true, domains: ['a.b.com'], added }),
+    );
+    renderApp('/settings');
+    await screen.findByText(/No theme package is installed/);
+    await userEvent.upload(
+      screen.getByLabelText('Install a theme package'),
+      new File(['zip'], 'night-blue.nullradix'),
+    );
+    const dialog = await screen.findByRole('alertdialog', { name: 'Update Night Blue 1.0.0?' });
+    expect(within(dialog).getByText(line)).toBeInTheDocument();
   });
 
   it('closes the confirmation with Escape and installs nothing', async () => {
