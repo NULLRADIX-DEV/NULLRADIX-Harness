@@ -2140,7 +2140,7 @@ mod tests {
         let current = service.get().await.unwrap();
         let mut config = current.config.clone();
         config.autopilot.except_label = Some(label.to_owned());
-        service.update(config, current.version).await.unwrap();
+        service.update(config, current.version, None).await.unwrap();
     }
 
     #[tokio::test]

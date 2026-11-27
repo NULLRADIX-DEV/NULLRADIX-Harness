@@ -1,0 +1,55 @@
+{
+  "title": "Changing what runs as a command needs a confirmed session; a token can only turn the check on",
+  "steps": [
+    {
+      "name": "the check is on by default",
+      "http": { "method": "GET", "path": "/api/v1/settings/step-up" }
+    },
+    {
+      "name": "a token cannot turn it off",
+      "http": { "method": "PUT", "path": "/api/v1/settings/step-up", "body": { "required": false } }
+    },
+    {
+      "name": "a session without a confirmation cannot either",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/step-up",
+        "body": { "required": false },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "a token may turn it on",
+      "http": { "method": "PUT", "path": "/api/v1/settings/step-up", "body": { "required": true } }
+    },
+    {
+      "name": "a session shows no confirmation",
+      "http": { "method": "GET", "path": "/api/v1/auth/me", "auth": "session" }
+    },
+    {
+      "name": "a token cannot confirm a session",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/auth/step-up",
+        "body": { "code": "nope" }
+      }
+    },
+    {
+      "name": "a code nobody made is refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/auth/step-up",
+        "body": { "code": "nope" },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "a session cannot make codes",
+      "http": { "method": "POST", "path": "/api/v1/auth/step-up-codes", "auth": "session" }
+    },
+    {
+      "name": "codes need a credential",
+      "http": { "method": "POST", "path": "/api/v1/auth/step-up-codes", "auth": "none" }
+    }
+  ]
+}

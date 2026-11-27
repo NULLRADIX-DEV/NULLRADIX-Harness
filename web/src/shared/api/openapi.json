@@ -837,7 +837,7 @@
         ],
         "responses": {
           "303": {
-            "description": "Sets the session cookie and opens the web UI"
+            "description": "Sets the session cookie and opens the web UI with the key of the tab in the fragment"
           },
           "401": {
             "content": {
@@ -951,6 +951,105 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/auth/step-up": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "redeem_step_up",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemStepUp"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The session may change command fields for a few minutes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Elevation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The code is unknown or expired (`step-up-code-invalid`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the person in the app can confirm",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/step-up-codes": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "create_step_up_code",
+        "responses": {
+          "201": {
+            "description": "Code that confirms a browser session for a few minutes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpCode"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sessions cannot create codes; neither can runs of agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/api/v1/boards": {
@@ -1666,6 +1765,16 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`command-change-needs-person`: a token or an agent changed a field that runs commands; `step-up-required`: the session has no fresh confirmation (see `nullradix confirm`); the fields are listed in `errors`",
             "content": {
               "application/json": {
                 "schema": {
@@ -6476,6 +6585,80 @@
             }
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/step-up": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "step_up_setting",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpSetting"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "set_step_up_setting",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepUpSetting"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpSetting"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Turning it off needs the person in the app with a fresh confirmation (`step-up-required`); a token may only turn it on (`command-change-needs-person`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12843,6 +13026,20 @@
           }
         }
       },
+      "Elevation": {
+        "type": "object",
+        "description": "How long the session may change command fields now.",
+        "required": [
+          "elevatedUntil"
+        ],
+        "properties": {
+          "elevatedUntil": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds."
+          }
+        }
+      },
       "EntityDto": {
         "type": "string",
         "enum": [
@@ -13733,6 +13930,14 @@
           "kind"
         ],
         "properties": {
+          "elevatedUntil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unix milliseconds until a session may change command fields; none when it may not."
+          },
           "kind": {
             "$ref": "#/components/schemas/PrincipalKind"
           }
@@ -15281,6 +15486,18 @@
             "$ref": "#/components/schemas/HookKindDto"
           }
         }
+      },
+      "RedeemStepUp": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "ReleaseTicket": {
         "type": "object",
@@ -17261,6 +17478,35 @@
           },
           "text": {
             "type": "string"
+          }
+        }
+      },
+      "StepUpCode": {
+        "type": "object",
+        "description": "One-time code that confirms a session when the person gives it to the page.",
+        "required": [
+          "code",
+          "path"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Address of the page with the code in its fragment, relative to the daemon."
+          }
+        }
+      },
+      "StepUpSetting": {
+        "type": "object",
+        "description": "Whether changing the fields that run commands needs a confirmation first.",
+        "required": [
+          "required"
+        ],
+        "properties": {
+          "required": {
+            "type": "boolean"
           }
         }
       },

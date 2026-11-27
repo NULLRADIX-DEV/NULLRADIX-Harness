@@ -172,7 +172,7 @@ async fn an_update_is_stored_versioned_announced_and_read_back() {
 
     let saved = f
         .config
-        .update(draft.clone(), Version::INITIAL)
+        .update(draft.clone(), Version::INITIAL, None)
         .await
         .unwrap();
     assert_eq!(saved.version, Version::from_stored(2));
@@ -195,20 +195,24 @@ async fn a_version_row_appears_only_when_the_effective_hash_changes() {
     draft.wip = 4;
     let view = f
         .config
-        .update(draft.clone(), Version::INITIAL)
+        .update(draft.clone(), Version::INITIAL, None)
         .await
         .unwrap();
     assert_eq!(f.config.versions().await.unwrap().len(), 1);
     assert_eq!(view.hash, DispatcherConfig::default().fingerprint().hash);
 
     draft.profiles[0].max_turns = 41;
-    let view = f.config.update(draft.clone(), view.version).await.unwrap();
+    let view = f
+        .config
+        .update(draft.clone(), view.version, None)
+        .await
+        .unwrap();
     let versions = f.config.versions().await.unwrap();
     assert_eq!(versions.len(), 2);
     assert!(versions.iter().any(|version| version.hash == view.hash));
 
     draft.profiles[0].max_turns = 40;
-    f.config.update(draft, view.version).await.unwrap();
+    f.config.update(draft, view.version, None).await.unwrap();
     assert_eq!(f.config.versions().await.unwrap().len(), 2);
 }
 
@@ -217,7 +221,7 @@ async fn a_draft_that_changes_nothing_keeps_the_version_and_stays_quiet() {
     let f = fixture().await;
     let view = f
         .config
-        .update(f.current().await, Version::INITIAL)
+        .update(f.current().await, Version::INITIAL, None)
         .await
         .unwrap();
     assert_eq!(view.version, Version::INITIAL);
@@ -230,11 +234,15 @@ async fn a_stale_version_is_refused_and_changes_nothing() {
     let mut draft = f.current().await;
     draft.wip = 2;
     f.config
-        .update(draft.clone(), Version::INITIAL)
+        .update(draft.clone(), Version::INITIAL, None)
         .await
         .unwrap();
     draft.wip = 5;
-    let error = f.config.update(draft, Version::INITIAL).await.unwrap_err();
+    let error = f
+        .config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap_err();
     assert_eq!(code(&error), (ErrorKind::Conflict, "version-conflict"));
     assert_eq!(f.current().await.wip, 2);
     assert_eq!(f.ops().await.len(), 1);
@@ -247,7 +255,11 @@ async fn an_invalid_draft_reports_every_field_and_stores_nothing() {
     draft.wip = -1;
     draft.default_profile = String::from("giant");
     draft.research.wip = 6;
-    let error = f.config.update(draft, Version::INITIAL).await.unwrap_err();
+    let error = f
+        .config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap_err();
     assert_eq!(
         code(&error),
         (ErrorKind::Invalid, "dispatcher-config-invalid")
@@ -263,7 +275,11 @@ async fn accounts_must_exist_and_keep_their_order() {
     let mut draft = f.current().await;
     draft.profiles[2].accounts = vec![String::from("max"), String::from("ghost")];
     draft.rules[0].accounts = vec![String::from("nobody")];
-    let error = f.config.update(draft, Version::INITIAL).await.unwrap_err();
+    let error = f
+        .config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap_err();
     assert_eq!(
         code(&error),
         (ErrorKind::Invalid, "dispatcher-config-invalid")
@@ -288,7 +304,7 @@ async fn accounts_must_exist_and_keep_their_order() {
     draft.rules[0].accounts = vec![String::from("max")];
     let saved = f
         .config
-        .update(draft.clone(), Version::INITIAL)
+        .update(draft.clone(), Version::INITIAL, None)
         .await
         .unwrap();
     assert_eq!(
@@ -343,7 +359,7 @@ async fn profiles_rules_and_the_ladder_are_replaced_as_a_whole() {
     draft.stale_minutes = 230;
     let saved = f
         .config
-        .update(draft.clone(), Version::INITIAL)
+        .update(draft.clone(), Version::INITIAL, None)
         .await
         .unwrap();
     assert_eq!(saved.config.without_ids(), draft.clone().without_ids());
@@ -388,7 +404,7 @@ async fn setup_steps_and_own_templates_round_trip_and_clear() {
     draft.prompt_extra = String::from("be kind");
     let saved = f
         .config
-        .update(draft.clone(), Version::INITIAL)
+        .update(draft.clone(), Version::INITIAL, None)
         .await
         .unwrap();
     let read = f.current().await;
@@ -399,7 +415,11 @@ async fn setup_steps_and_own_templates_round_trip_and_clear() {
     next.prompts.set(PromptKind::Work, None);
     next.prompts
         .set(PromptKind::Plan, Some(own(PromptKind::Plan, "plan it")));
-    let after = f.config.update(next.clone(), saved.version).await.unwrap();
+    let after = f
+        .config
+        .update(next.clone(), saved.version, None)
+        .await
+        .unwrap();
     assert_eq!(after.version, Version::from_stored(3));
     let read = f.current().await;
     assert_eq!(read, next);
@@ -413,7 +433,11 @@ async fn removing_an_account_drops_it_from_the_configuration_and_records_the_cha
     let mut draft = f.current().await;
     draft.profiles[2].accounts = vec![String::from("max")];
     draft.rules[0].accounts = vec![String::from("max")];
-    let saved = f.config.update(draft, Version::INITIAL).await.unwrap();
+    let saved = f
+        .config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap();
     f.remove_account("max").await;
 
     let view = f.config.get().await.unwrap();
@@ -464,7 +488,7 @@ async fn racing_updates_let_exactly_one_win() {
         async move {
             let mut draft = f.current().await;
             draft.wip = wip;
-            f.config.update(draft, Version::INITIAL).await
+            f.config.update(draft, Version::INITIAL, None).await
         }
     };
     let (first, second) = tokio::join!(tokio::spawn(draft(2)), tokio::spawn(draft(3)));
@@ -492,7 +516,10 @@ async fn renamed_and_reordered_rows_keep_their_ids() {
     draft.rules[0].profile = String::from("tiny");
     draft.profiles.reverse();
     draft.rules.reverse();
-    f.config.update(draft, Version::INITIAL).await.unwrap();
+    f.config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap();
 
     let after = f.current().await;
     let ids = |config: &DispatcherConfig| {
@@ -534,7 +561,10 @@ async fn profiles_swap_names_by_id_and_a_replacement_may_reuse_a_name() {
         String::from("small"),
     ];
     draft.rules.clear();
-    f.config.update(draft, Version::INITIAL).await.unwrap();
+    f.config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap();
     let after = f.current().await;
     assert_eq!(after.profiles[0].name, "large");
     assert_eq!(after.profiles[0].id, before.profiles[0].id);
@@ -548,7 +578,10 @@ async fn a_draft_without_ids_is_matched_by_name_and_position() {
     let mut draft = before.clone().without_ids();
     draft.profiles[1].max_turns = 81;
     draft.rules[1].when.labels = Some(vec![String::from("big")]);
-    f.config.update(draft, Version::INITIAL).await.unwrap();
+    f.config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap();
     let after = f.current().await;
     for (old, new) in before.profiles.iter().zip(&after.profiles) {
         assert_eq!(old.id, new.id);
@@ -609,7 +642,10 @@ async fn a_new_profile_may_take_the_name_a_renamed_one_left() {
     fresh.id = None;
     fresh.name = old_name.clone();
     draft.profiles.push(fresh);
-    f.config.update(draft, Version::INITIAL).await.unwrap();
+    f.config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap();
     let after = f.current().await;
     let renamed = after.profiles.iter().find(|p| p.name == "tiny").unwrap();
     assert_eq!(renamed.id, before.profiles[0].id);
@@ -627,7 +663,10 @@ async fn a_deleted_rule_and_a_new_one_do_not_share_an_id() {
     fresh.id = None;
     fresh.when.labels = Some(vec![String::from("new")]);
     draft.rules.push(fresh);
-    f.config.update(draft, Version::INITIAL).await.unwrap();
+    f.config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap();
     let after = f.current().await;
     let ids: Vec<_> = after.rules.iter().map(|rule| rule.id).collect();
     let old: Vec<_> = before.rules.iter().map(|rule| rule.id).collect();
@@ -649,7 +688,10 @@ async fn a_profile_named_like_a_renamed_rows_hex_id_is_kept() {
     fresh.id = None;
     fresh.name = hex.clone();
     draft.profiles.push(fresh);
-    f.config.update(draft, Version::INITIAL).await.unwrap();
+    f.config
+        .update(draft, Version::INITIAL, None)
+        .await
+        .unwrap();
     let after = f.current().await;
     assert!(after.profiles.iter().any(|p| p.name == hex));
     assert!(after.profiles.iter().any(|p| p.name == "tiny"));

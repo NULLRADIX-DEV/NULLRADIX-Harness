@@ -1048,7 +1048,10 @@ impl Fixture {
         let view = self.config.get().await.unwrap();
         let mut config = view.config;
         change(&mut config);
-        self.config.update(config, view.version).await.unwrap();
+        self.config
+            .update(config, view.version, None)
+            .await
+            .unwrap();
     }
 
     async fn enable(&self) {

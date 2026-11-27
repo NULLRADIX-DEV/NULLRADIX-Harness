@@ -541,6 +541,171 @@
     "stdout": ""
   },
   {
+    "file": "<WORK>/command.json",
+    "lines": 1,
+    "name": "write another Claude command"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/command.json"
+    ],
+    "exitCode": 1,
+    "name": "refuse a token changing what runs as a command",
+    "stderr": "error: the daemon refused the request: fields that run commands can only be changed by the person in the app: claude.command: only the person in the app can change this; worktreeSetup: only the person in the app can change this (command-change-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "name": "read the configuration the refusal left alone",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/dispatcher/config"
+    },
+    "response": {
+      "json": {
+        "config": {
+          "accountLimitPercent": 90,
+          "accountReserveFiveHour": 10,
+          "accountReserveWeek": 2,
+          "accountResetGraceMinutes": 30,
+          "accountStrategy": "most-free",
+          "agentPrefix": "worker-",
+          "allowFable": false,
+          "autopilot": {
+            "enabled": false,
+            "exceptLabel": "interactive",
+            "maxMergeSessions": 3
+          },
+          "claude": {
+            "allowedTools": [
+              "Read",
+              "Edit",
+              "Write",
+              "Glob",
+              "Grep",
+              "Bash(nullradix ticket show:*)",
+              "Bash(nullradix ticket list:*)",
+              "Bash(nullradix ticket comment:*)",
+              "Bash(nullradix ticket set:*)",
+              "Bash(nullradix ticket done:*)",
+              "Bash(nullradix step check:*)",
+              "Bash(nullradix step add:*)",
+              "Bash(nullradix step edit:*)",
+              "Bash(nullradix note add:*)",
+              "Bash(nullradix note list:*)",
+              "Bash(nullradix note seen:*)",
+              "Bash(nullradix note show:*)",
+              "Bash(nullradix question add:*)",
+              "Bash(nullradix question show:*)",
+              "Bash(nullradix question list:*)",
+              "Bash(nullradix question comment:*)",
+              "Bash(npm test:*)",
+              "Bash(npm run:*)",
+              "Bash(git status:*)",
+              "Bash(git diff:*)",
+              "Bash(git log:*)",
+              "Bash(git branch:*)",
+              "Bash(git add:*)",
+              "Bash(git commit:*)"
+            ],
+            "command": "claude",
+            "effort": null,
+            "extraArgs": [],
+            "gitBashPath": null,
+            "maxTurns": 80,
+            "model": "sonnet",
+            "permissionMode": "acceptEdits",
+            "timeoutMinutes": 60,
+            "useSubscription": true
+          },
+          "defaultProfile": "small",
+          "enabled": true,
+          "escalate": true,
+          "joinWorktrees": "none",
+          "ladder": [
+            "small",
+            "medium"
+          ],
+          "maxAttempts": 3,
+          "mergeStrategy": "merge",
+          "optInLabel": null,
+          "optOutLabel": "manual",
+          "pauseMinutesOnLimit": 60,
+          "planning": {
+            "acceptance": false,
+            "auto": false,
+            "profile": null,
+            "wip": 1
+          },
+          "profiles": [
+            {
+              "accounts": [],
+              "effort": "high",
+              "id": "<ID-1>",
+              "maxTurns": 40,
+              "model": "sonnet",
+              "name": "small",
+              "timeoutMinutes": 45
+            },
+            {
+              "accounts": [],
+              "effort": "high",
+              "id": "<ID-2>",
+              "maxTurns": 80,
+              "model": "opus",
+              "name": "medium",
+              "timeoutMinutes": 90
+            }
+          ],
+          "promptExtra": "",
+          "prompts": {
+            "merge": null,
+            "plan": null,
+            "research": null,
+            "work": null
+          },
+          "research": {
+            "auto": false,
+            "maxPerDay": 5,
+            "profile": null,
+            "wip": 2
+          },
+          "reviewBeforeMerge": true,
+          "rules": [
+            {
+              "accounts": [],
+              "id": "<ID-4>",
+              "profile": "medium",
+              "when": {
+                "filesMin": null,
+                "labels": [
+                  "architecture"
+                ],
+                "planMinChars": null,
+                "priorities": null
+              }
+            }
+          ],
+          "staleMinutes": 150,
+          "window": {
+            "from": "08:00",
+            "to": "18:00"
+          },
+          "wip": 2,
+          "worktreeSetup": [],
+          "worktreeSetupTimeoutMinutes": 15
+        },
+        "hash": "2fbaf59e38f60a42",
+        "updatedAt": "<TIME>",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
     "cli": [
       "dispatcher",
       "config",

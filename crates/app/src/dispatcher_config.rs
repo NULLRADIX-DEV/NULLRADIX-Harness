@@ -7,6 +7,7 @@ use nullradix_domain::{ConfigError, DispatcherConfig, Fingerprint, Timestamp, Ve
 use uuid::Uuid;
 
 use crate::accounts::AccountRepository;
+use crate::auth::CommandRefusal;
 use crate::{AppError, Change, ChangeSignal, Clock, FieldProblem, IdGenerator};
 
 /// Entity id of the one dispatcher configuration in the change feed.
@@ -166,11 +167,12 @@ impl DispatcherConfigService {
         Ok(())
     }
 
-    /// Replaces the configuration; a draft that changes nothing returns the current one.
+    /// Replaces the configuration; `commands` is why the caller may not change command fields.
     pub async fn update(
         &self,
         draft: DispatcherConfig,
         expected: Version,
+        commands: Option<CommandRefusal>,
     ) -> Result<ConfigView, AppError> {
         let config = draft.normalized().map_err(issues)?;
         self.check_accounts(&config).await?;
@@ -180,6 +182,12 @@ impl DispatcherConfigService {
         }
         if config.clone().without_ids() == current.config.clone().without_ids() {
             return Ok(current);
+        }
+        if let Some(refusal) = commands {
+            let changed = current.config.command_fields_changed(&config);
+            if !changed.is_empty() {
+                return Err(refusal.error(&changed));
+            }
         }
         let fingerprint = config.fingerprint();
         let at = self.clock.now();

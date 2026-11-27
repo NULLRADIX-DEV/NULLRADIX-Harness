@@ -18,9 +18,9 @@ use nullradix_api::{
     RebaseCustomization, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RetryMerge,
     ReturnReview, RunDto, RunList, RunOutput, RunnerList, SESSION_HEADER, SaveThemeSettings,
     SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository,
-    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, SubmitResearch,
-    ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList,
-    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
+    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, StepUpCode,
+    SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto,
+    TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
     UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
@@ -223,6 +223,17 @@ impl Client {
         let mut response = self
             .agent
             .post(&self.url("/auth/handoffs"))
+            .header("Authorization", &self.authorization()?)
+            .send_empty()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    /// One-time code that confirms a browser session to change commands.
+    pub fn create_step_up_code(&self) -> Result<StepUpCode, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/auth/step-up-codes"))
             .header("Authorization", &self.authorization()?)
             .send_empty()
             .map_err(|source| self.unreachable(source))?;
@@ -2122,6 +2133,28 @@ mod tests {
 
         let stranger = Secret::parse(&"c".repeat(64)).unwrap();
         let refused = client.with_token(stranger).create_handoff().unwrap_err();
+        assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
+    }
+
+    #[test]
+    fn creates_step_up_codes_with_the_local_token_only() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, PATIENT, PATIENT);
+        assert!(matches!(
+            client.create_step_up_code(),
+            Err(ClientError::MissingToken)
+        ));
+        let code = client
+            .clone()
+            .with_token(daemon.token.clone())
+            .create_step_up_code()
+            .unwrap();
+        assert_eq!(code.path, format!("/#confirm={}", code.code));
+        let stranger = Secret::parse(&"c".repeat(64)).unwrap();
+        let refused = client
+            .with_token(stranger)
+            .create_step_up_code()
+            .unwrap_err();
         assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
     }
 

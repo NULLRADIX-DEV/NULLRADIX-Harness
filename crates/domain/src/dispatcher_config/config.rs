@@ -187,6 +187,32 @@ impl DispatcherConfig {
         profiles.chain(rules).collect()
     }
 
+    /// The fields that end up on a command line or in a shell, as the API names them, that differ.
+    #[must_use]
+    pub fn command_fields_changed(&self, other: &Self) -> Vec<&'static str> {
+        let (own, theirs) = (&self.claude, &other.claude);
+        [
+            ("claude.command", own.command != theirs.command),
+            ("claude.extraArgs", own.extra_args != theirs.extra_args),
+            (
+                "claude.permissionMode",
+                own.permission_mode != theirs.permission_mode,
+            ),
+            (
+                "claude.allowedTools",
+                own.allowed_tools != theirs.allowed_tools,
+            ),
+            (
+                "claude.gitBashPath",
+                own.git_bash_path != theirs.git_bash_path,
+            ),
+            ("worktreeSetup", self.worktree_setup != other.worktree_setup),
+        ]
+        .into_iter()
+        .filter_map(|(field, changed)| changed.then_some(field))
+        .collect()
+    }
+
     /// The configuration without the row ids, to compare drafts with what is stored.
     #[must_use]
     pub fn without_ids(mut self) -> Self {

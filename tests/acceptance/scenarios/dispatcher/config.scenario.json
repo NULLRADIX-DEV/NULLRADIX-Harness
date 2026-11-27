@@ -138,6 +138,26 @@
       "name": "refuse a misspelled setting",
       "cli": { "args": ["dispatcher", "config", "set", "--file", "{{WORK}}/typo.json"] }
     },
+    {
+      "name": "write another Claude command",
+      "file": {
+        "path": "{{WORK}}/command.json",
+        "lines": [
+          {
+            "claude": { "command": "/opt/claude" },
+            "worktreeSetup": [{ "cwd": ".", "run": "npm ci" }]
+          }
+        ]
+      }
+    },
+    {
+      "name": "refuse a token changing what runs as a command",
+      "cli": { "args": ["dispatcher", "config", "set", "--file", "{{WORK}}/command.json"] }
+    },
+    {
+      "name": "read the configuration the refusal left alone",
+      "http": { "method": "GET", "path": "/api/v1/dispatcher/config" }
+    },
     { "name": "show after the refusals", "cli": { "args": ["dispatcher", "config", "show"] } },
     { "name": "ask for nothing", "cli": { "args": ["dispatcher", "config", "set"] } },
     {

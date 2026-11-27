@@ -228,10 +228,14 @@ enum Content<'a> {
 fn credentials(daemon: &Daemon, auth: Auth) -> anyhow::Result<Vec<(&'static str, String)>> {
     Ok(match auth {
         Auth::Token => vec![("Authorization", format!("Bearer {}", daemon.token))],
-        Auth::Session => vec![
-            ("Cookie", daemon.session_cookie()?.to_owned()),
-            ("Origin", format!("http://{}", daemon.address)),
-        ],
+        Auth::Session => {
+            let (cookie, key) = daemon.session_cookie()?;
+            vec![
+                ("Cookie", cookie.clone()),
+                ("X-Nullradix-Key", key.clone()),
+                ("Origin", format!("http://{}", daemon.address)),
+            ]
+        }
         Auth::None => Vec::new(),
     })
 }

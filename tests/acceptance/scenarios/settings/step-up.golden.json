@@ -1,0 +1,176 @@
+[
+  {
+    "name": "the check is on by default",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "required": true
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a token cannot turn it off",
+    "request": {
+      "body": {
+        "required": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "command-change-needs-person",
+        "detail": "fields that run commands can only be changed by the person in the app",
+        "errors": [
+          {
+            "field": "required",
+            "message": "only the person in the app can change this"
+          }
+        ],
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:command-change-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a session without a confirmation cannot either",
+    "request": {
+      "auth": "session",
+      "body": {
+        "required": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "step-up-required",
+        "detail": "changing fields that run commands needs a confirmation: run `nullradix confirm` in a terminal and open the link, or use Confirm in the tray menu of the desktop app, then save again",
+        "errors": [
+          {
+            "field": "required",
+            "message": "confirm with `nullradix confirm` before changing this"
+          }
+        ],
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:step-up-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a token may turn it on",
+    "request": {
+      "body": {
+        "required": true
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "required": true
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a session shows no confirmation",
+    "request": {
+      "auth": "session",
+      "method": "GET",
+      "path": "/api/v1/auth/me"
+    },
+    "response": {
+      "json": {
+        "elevatedUntil": null,
+        "kind": "session"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a token cannot confirm a session",
+    "request": {
+      "body": {
+        "code": "nope"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "session-required",
+        "detail": "only the person in the app can confirm",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:session-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a code nobody made is refused",
+    "request": {
+      "auth": "session",
+      "body": {
+        "code": "nope"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "step-up-code-invalid",
+        "detail": "the confirmation code is unknown or expired",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:step-up-code-invalid"
+      },
+      "status": 401
+    }
+  },
+  {
+    "name": "a session cannot make codes",
+    "request": {
+      "auth": "session",
+      "method": "POST",
+      "path": "/api/v1/auth/step-up-codes"
+    },
+    "response": {
+      "json": {
+        "code": "token-required",
+        "detail": "only token holders can confirm changes",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:token-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "codes need a credential",
+    "request": {
+      "auth": "none",
+      "method": "POST",
+      "path": "/api/v1/auth/step-up-codes"
+    },
+    "response": {
+      "json": {
+        "code": "credentials-missing",
+        "detail": "this route needs a token or a session",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:credentials-missing"
+      },
+      "status": 401
+    }
+  }
+]
