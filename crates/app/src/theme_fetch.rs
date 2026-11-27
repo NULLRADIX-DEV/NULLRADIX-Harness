@@ -116,32 +116,49 @@ impl AssetCache for NoAssetCache {
 /// Downloads that run at the same time, all themes together.
 pub const MAX_PARALLEL_DOWNLOADS: usize = 4;
 
+/// Archives read from the cache or downloaded at the same time, all themes together.
+pub const MAX_PARALLEL_ARCHIVES: usize = 4;
+
 type FlightKey = (ThemeId, String);
+
+/// The lock of one resource and how many flights use it, waiting or not.
+struct Slot {
+    lock: Arc<tokio::sync::Mutex<()>>,
+    users: usize,
+}
 
 /// One download per resource at a time: the others wait and then find it cached.
 #[derive(Default)]
 struct Flights {
-    slots: parking_lot::Mutex<HashMap<FlightKey, Arc<tokio::sync::Mutex<()>>>>,
+    slots: parking_lot::Mutex<HashMap<FlightKey, Slot>>,
 }
 
 struct Flight<'a> {
     flights: &'a Flights,
     key: FlightKey,
-    slot: Arc<tokio::sync::Mutex<()>>,
     guard: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
 
 impl Flights {
     async fn enter(&self, theme: &ThemeId, key: &str) -> Flight<'_> {
         let key = (theme.clone(), key.to_owned());
-        let slot = self.slots.lock().entry(key.clone()).or_default().clone();
-        let guard = slot.clone().lock_owned().await;
-        Flight {
+        let lock = {
+            let mut slots = self.slots.lock();
+            let slot = slots.entry(key.clone()).or_insert_with(|| Slot {
+                lock: Arc::default(),
+                users: 0,
+            });
+            slot.users += 1;
+            slot.lock.clone()
+        };
+        // the flight exists before the wait, so a cancelled wait still counts itself out
+        let mut flight = Flight {
             flights: self,
             key,
-            slot,
-            guard: Some(guard),
-        }
+            guard: None,
+        };
+        flight.guard = Some(lock.lock_owned().await);
+        flight
     }
 }
 
@@ -149,9 +166,11 @@ impl Drop for Flight<'_> {
     fn drop(&mut self) {
         self.guard.take();
         let mut slots = self.flights.slots.lock();
-        // the map and this flight hold the slot; anyone else is waiting for it
-        if Arc::strong_count(&self.slot) == 2 {
-            slots.remove(&self.key);
+        if let Some(slot) = slots.get_mut(&self.key) {
+            slot.users = slot.users.saturating_sub(1);
+            if slot.users == 0 {
+                slots.remove(&self.key);
+            }
         }
     }
 }
@@ -263,6 +282,7 @@ pub struct ThemeAssets {
     cache: Arc<dyn AssetCache>,
     flights: Flights,
     downloads: tokio::sync::Semaphore,
+    archives: tokio::sync::Semaphore,
 }
 
 impl std::fmt::Debug for ThemeAssets {
@@ -286,6 +306,7 @@ impl ThemeAssets {
             cache,
             flights: Flights::default(),
             downloads: tokio::sync::Semaphore::new(MAX_PARALLEL_DOWNLOADS),
+            archives: tokio::sync::Semaphore::new(MAX_PARALLEL_ARCHIVES),
         }
     }
 
@@ -334,9 +355,13 @@ impl ThemeAssets {
     ) -> Result<Vec<u8>, AppError> {
         // the checksum is of the archive, so a file is kept for the checksum it was taken under
         let key = cache_key(&[url.as_str(), entry, sum.unwrap_or_default()]);
-        if let Some(cached) = self.cache.get(&grant.id, &key).await
-            && cached.len() as u64 <= MAX_ASSET_BYTES
-        {
+        if let Some(cached) = self.cached_entry(&grant.id, &key).await {
+            return Ok(cached);
+        }
+        // a cached archive is read whole, so only a few are read or cut open at once
+        let _archive = self.archives.acquire().await.map_err(AppError::internal)?;
+        // whoever was ahead may have cut the file out meanwhile
+        if let Some(cached) = self.cached_entry(&grant.id, &key).await {
             return Ok(cached);
         }
         let archive = self.resource(grant, url, sum, MAX_ARCHIVE_BYTES).await?;
@@ -349,6 +374,11 @@ impl ThemeAssets {
             return Err(too_large(MAX_ASSET_BYTES));
         }
         self.keep(grant, &key, bytes).await
+    }
+
+    async fn cached_entry(&self, theme: &ThemeId, key: &str) -> Option<Vec<u8>> {
+        let cached = self.cache.get(theme, key).await?;
+        (cached.len() as u64 <= MAX_ASSET_BYTES).then_some(cached)
     }
 
     /// The cached resource, if it fits `max` and has the checksum.
@@ -572,6 +602,32 @@ mod tests {
                 return Err(EntryError::TooLarge);
             }
             Ok(found)
+        }
+    }
+
+    /// `Lines` that holds every call at a gate and records how many run at once.
+    #[derive(Default)]
+    struct Gated {
+        entered: Permits,
+        release: Permits,
+        inflight: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ZipEntries for Gated {
+        async fn entry(
+            &self,
+            archive: Vec<u8>,
+            path: &str,
+            max_bytes: u64,
+        ) -> Result<Vec<u8>, EntryError> {
+            let now = self.inflight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
+            self.entered.add_permits(1);
+            self.release.acquire().await.unwrap().forget();
+            self.inflight.fetch_sub(1, Ordering::SeqCst);
+            Lines.entry(archive, path, max_bytes).await
         }
     }
 
@@ -1337,6 +1393,125 @@ mod tests {
             setup.hosts.peak.load(Ordering::SeqCst),
             MAX_PARALLEL_DOWNLOADS
         );
+    }
+
+    #[tokio::test]
+    async fn a_wait_cancelled_after_the_lock_was_handed_over_leaves_no_entry() {
+        let flights = Flights::default();
+        let theme = ThemeId::parse("night-blue").unwrap();
+        let first = flights.enter(&theme, "icon").await;
+        let mut waiting = Box::pin(flights.enter(&theme, "icon"));
+        // the waiter polls once and queues, then the lock is handed to it unpolled
+        tokio::select! {
+            biased;
+            _ = &mut waiting => unreachable!("the first flight still holds the lock"),
+            () = std::future::ready(()) => {}
+        }
+        drop(first);
+        drop(waiting);
+        assert!(flights.slots.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_slot_stays_while_anyone_waits_and_goes_with_the_last() {
+        let flights = Flights::default();
+        let theme = ThemeId::parse("night-blue").unwrap();
+        let first = flights.enter(&theme, "icon").await;
+        let mut waiting = Box::pin(flights.enter(&theme, "icon"));
+        tokio::select! {
+            biased;
+            _ = &mut waiting => unreachable!("the first flight still holds the lock"),
+            () = std::future::ready(()) => {}
+        }
+        drop(first);
+        // the waiter keeps the slot until it is done too
+        assert_eq!(flights.slots.lock().len(), 1);
+        let second = waiting.await;
+        assert_eq!(flights.slots.lock().len(), 1);
+        drop(second);
+        assert!(flights.slots.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn after_a_failed_download_the_next_waiter_downloads_alone() {
+        let setup = setup(true).await;
+        setup.hosts.serve(
+            ICON,
+            vec![Err(FetchError::Unreachable), Ok(Hop::Body(b"PNG".to_vec()))],
+        );
+        *setup.hosts.gate.lock() = true;
+        let spawn_fetch = || {
+            let assets = setup.assets.clone();
+            tokio::spawn(async move { assets.fetch(request(ICON)).await })
+        };
+        let first = spawn_fetch();
+        setup.hosts.entered.acquire().await.unwrap().forget();
+        let second = spawn_fetch();
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        setup.hosts.release.add_permits(1);
+        assert_eq!(
+            first.await.unwrap().unwrap_err().code(),
+            "theme-fetch-unreachable"
+        );
+        // the second request downloads now; a third arrives while it runs
+        setup.hosts.entered.acquire().await.unwrap().forget();
+        let third = spawn_fetch();
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(setup.hosts.asked().len(), 2);
+        setup.hosts.release.add_permits(1);
+        assert_eq!(second.await.unwrap().unwrap().data, b"PNG");
+        assert_eq!(third.await.unwrap().unwrap().data, b"PNG");
+        assert_eq!(setup.hosts.asked().len(), 2);
+        assert_eq!(setup.hosts.peak.load(Ordering::SeqCst), 1);
+        assert!(setup.assets.flights.slots.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_more_than_four_cached_archives_are_cut_open_at_the_same_time() {
+        let setup = setup(true).await;
+        let jar = "https://cdn.example.com/client.jar";
+        let names: Vec<String> = (0..=MAX_PARALLEL_ARCHIVES)
+            .map(|n| format!("{n}.png"))
+            .collect();
+        let archive = format!("{}=DATA\n", names.join("=DATA\n"));
+        let url = AssetUrl::parse(jar, &["cdn.example.com".to_owned()]).unwrap();
+        setup.cache.kept.lock().insert(
+            ("night-blue".to_owned(), cache_key(&[url.as_str()])),
+            archive.into_bytes(),
+        );
+        let gated = Arc::new(Gated::default());
+        let assets = Arc::new(ThemeAssets::new(
+            setup.fixture.service.clone(),
+            setup.hosts.clone(),
+            gated.clone(),
+            setup.cache.clone(),
+        ));
+        let fetching: Vec<_> = names
+            .iter()
+            .map(|name| {
+                let (assets, name) = (assets.clone(), name.clone());
+                tokio::spawn(async move { assets.fetch(entry_of(jar, &name)).await })
+            })
+            .collect();
+        for _ in 0..MAX_PARALLEL_ARCHIVES {
+            gated.entered.acquire().await.unwrap().forget();
+        }
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        // the fifth waits for a free place
+        assert_eq!(gated.inflight.load(Ordering::SeqCst), MAX_PARALLEL_ARCHIVES);
+        gated.release.add_permits(MAX_PARALLEL_ARCHIVES + 1);
+        for task in fetching {
+            assert_eq!(task.await.unwrap().unwrap().data, b"DATA");
+        }
+        assert_eq!(gated.peak.load(Ordering::SeqCst), MAX_PARALLEL_ARCHIVES);
+        // the archive came from the cache every time
+        assert_eq!(setup.hosts.asked(), Vec::<String>::new());
     }
 
     #[tokio::test]

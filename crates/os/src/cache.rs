@@ -3,9 +3,13 @@
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 const SUFFIX: &str = "bin";
+const STAGING_SUFFIX: &str = "tmp";
+
+/// A staging file this old belongs to a writer that died.
+const STAGING_MAX_AGE: Duration = Duration::from_hours(1);
 
 fn invalid(what: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, format!("not a plain {what}"))
@@ -95,22 +99,40 @@ pub fn cache_clear(dir: &Path, owner: &str) -> io::Result<()> {
     }
 }
 
+/// Removes a staging file that no writer can still be filling.
+fn drop_stale_staging(path: &Path, metadata: &fs::Metadata) {
+    let stale = metadata.is_file()
+        && path
+            .extension()
+            .is_some_and(|suffix| suffix == STAGING_SUFFIX)
+        && metadata
+            .modified()
+            .ok()
+            .and_then(|written| SystemTime::now().duration_since(written).ok())
+            .is_some_and(|age| age > STAGING_MAX_AGE);
+    if stale {
+        // a writer that is alive after all finds its file gone and fails, which is its own error
+        let _ = fs::remove_file(path);
+    }
+}
+
 /// Removes the oldest files, but never `keep`, until the kept files fit `budget`.
 fn evict(folder: &Path, keep: &Path, budget: CacheBudget) -> io::Result<()> {
     let mut files: Vec<(SystemTime, PathBuf, u64)> = Vec::new();
     for child in fs::read_dir(folder)? {
         let child = child?;
+        let Ok(metadata) = child.metadata() else {
+            continue;
+        };
         // staging files of writers that are not done are not kept files yet
         if child
             .path()
             .extension()
             .is_none_or(|suffix| suffix != SUFFIX)
         {
+            drop_stale_staging(&child.path(), &metadata);
             continue;
         }
-        let Ok(metadata) = child.metadata() else {
-            continue;
-        };
         if metadata.is_file() {
             let written = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
             files.push((written, child.path(), cost(metadata.len())));
@@ -141,14 +163,10 @@ mod tests {
 
     const KEY: &str = "0123456789abcdef";
     const BIG: usize = 4096;
+    const _: () = assert!(BIG as u64 == FILE_COST);
 
     fn budget(bytes: u64, files: usize) -> CacheBudget {
         CacheBudget { bytes, files }
-    }
-
-    #[test]
-    fn the_test_size_is_the_cost_of_a_file() {
-        assert_eq!(BIG as u64, FILE_COST);
     }
 
     const ROOMY: CacheBudget = CacheBudget {
@@ -171,13 +189,14 @@ mod tests {
         names
     }
 
-    fn age(dir: &Path, owner: &str, key: &str, seconds: u64) {
-        let written = SystemTime::now() - std::time::Duration::from_secs(seconds);
-        let file = fs::File::options()
-            .write(true)
-            .open(dir.join(owner).join(format!("{key}.bin")))
-            .unwrap();
+    fn set_written(path: &Path, written: SystemTime) {
+        let file = fs::File::options().write(true).open(path).unwrap();
         file.set_modified(written).unwrap();
+    }
+
+    fn age(dir: &Path, owner: &str, key: &str, seconds: u64) {
+        let written = SystemTime::now() - Duration::from_secs(seconds);
+        set_written(&dir.join(owner).join(format!("{key}.bin")), written);
     }
 
     #[test]
@@ -260,6 +279,33 @@ mod tests {
             kept(dir.path(), "night"),
             ["a.1234-0.tmp", "a.bin", "b.bin"]
         );
+    }
+
+    #[test]
+    fn staging_files_older_than_an_hour_are_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("night");
+        fs::create_dir_all(&folder).unwrap();
+        let old = folder.join("a.1-0.tmp");
+        let recent = folder.join("b.2-0.tmp");
+        fs::write(&old, b"x").unwrap();
+        fs::write(&recent, b"x").unwrap();
+        let hour = Duration::from_hours(1);
+        set_written(&old, SystemTime::now() - hour - Duration::from_secs(60));
+        set_written(&recent, SystemTime::now() - hour + Duration::from_secs(60));
+        write(dir.path(), "night", "a", 1, ROOMY);
+        assert_eq!(kept(dir.path(), "night"), ["a.bin", "b.2-0.tmp"]);
+    }
+
+    #[test]
+    fn the_file_just_written_stays_even_when_another_looks_newer() {
+        let dir = tempfile::tempdir().unwrap();
+        let one = budget(FILE_COST, 100);
+        write(dir.path(), "night", "a", BIG, one);
+        let later = SystemTime::now() + Duration::from_hours(1);
+        set_written(&dir.path().join("night").join("a.bin"), later);
+        write(dir.path(), "night", "b", BIG, one);
+        assert_eq!(kept(dir.path(), "night"), ["b.bin"]);
     }
 
     #[test]

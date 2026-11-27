@@ -172,7 +172,7 @@ pub fn read_zip_entry(archive: &[u8], path: &str, max: u64) -> Result<Vec<u8>, A
     if file.size() > max {
         return Err(too_large());
     }
-    // the stated size can lie, so read one byte more than allowed
+    // the zip reader stops at the stated size; one byte more than allowed is the backup if it stops
     let mut data = Vec::new();
     (&mut file)
         .take(max + 1)
@@ -569,7 +569,7 @@ mod tests {
         ));
     }
 
-    /// Writes `size` over the stated uncompressed size of every entry header.
+    /// Writes `size` over the stated uncompressed size of the first central and local header.
     fn state_size(archive: &mut [u8], size: u32) {
         // the size sits 24 bytes into a central header and 22 into a local one
         for (signature, offset) in [
