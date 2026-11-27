@@ -102,7 +102,7 @@ pub struct Effective {
 #[must_use]
 pub fn name_invalid(error: &OverlayError) -> AppError {
     let code = match error {
-        OverlayError::InvalidName => "customization-name-invalid",
+        OverlayError::InvalidName | OverlayError::ReservedName => "customization-name-invalid",
         OverlayError::EmptyContent => "customization-content-empty",
         OverlayError::ContentTooLong => "value-too-long",
     };
@@ -233,6 +233,18 @@ pub fn evaluate(overlay: Overlay, standard: Option<&str>) -> OverlayLine {
         )),
         BaseState::Current | BaseState::None => {}
     }
+    if OverlayName::parse(record.name.as_str()) == Err(OverlayError::ReservedName) {
+        warnings.push(Finding::new(
+            "name-reserved",
+            "this name is reserved on Windows and is not installed; reset it",
+        ));
+    }
+    if record.kind == OverlayKind::New && standard.is_some() {
+        warnings.push(Finding::new(
+            "standard-exists",
+            "a shipped file of this name exists and is replaced; run copy --rebase to base this on it",
+        ));
+    }
     let state = overlay_state(record.enabled, &problems);
     OverlayLine {
         state,
@@ -292,7 +304,7 @@ impl CustomizationService {
     }
 
     pub async fn get(&self, point: ExtensionPoint, name: &str) -> Result<OverlayLine, AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let overlay = self
             .repository
             .get(point, &name)
@@ -352,7 +364,7 @@ impl CustomizationService {
         enabled: Option<bool>,
         expected: Version,
     ) -> Result<OverlayLine, AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let content = content
             .map(|text| overlay_content(text).map_err(|error| name_invalid(&error)))
             .transpose()?;
@@ -390,7 +402,7 @@ impl CustomizationService {
         name: &str,
         expected: Version,
     ) -> Result<OverlayLine, AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let standard = self
             .standards
             .get(point, &name)
@@ -406,15 +418,6 @@ impl CustomizationService {
             return Err(AppError::version_conflict(
                 "customization",
                 label(point, &name),
-            ));
-        }
-        if current.record().kind == OverlayKind::New {
-            return Err(AppError::invalid(
-                "customization-rebase-new",
-                format!(
-                    "{} is a new customization and has no shipped file to follow",
-                    label(point, &name)
-                ),
             ));
         }
         let base = snapshot(&standard);
@@ -436,7 +439,7 @@ impl CustomizationService {
         name: &str,
         expected: Version,
     ) -> Result<(), AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let change = write
             .delete(point, &name, expected, self.clock.now())
@@ -453,7 +456,7 @@ impl CustomizationService {
         point: ExtensionPoint,
         name: &str,
     ) -> Result<Effective, AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let standard = self.standards.get(point, &name).await?;
         let overlay = self.repository.get(point, &name).await?;
         let Some(overlay) = overlay else {
@@ -935,7 +938,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rebasing_a_new_customization_is_refused() {
+    async fn a_new_customization_that_shadows_a_shipped_file_warns_and_rebases_into_a_replacement()
+    {
         let fixture = fixture();
         fixture
             .service
@@ -943,19 +947,22 @@ mod tests {
             .await
             .unwrap();
         fixture.ship("skill", "mine", "now shipped");
-        let error = fixture
-            .service
-            .rebase(ExtensionPoint::Skill, "mine", Version::INITIAL)
-            .await
-            .unwrap_err();
-        assert_eq!(error.code(), "customization-rebase-new");
         let line = fixture
             .service
             .get(ExtensionPoint::Skill, "mine")
             .await
             .unwrap();
-        assert_eq!(line.overlay.record().version, Version::INITIAL);
-        assert!(line.overlay.record().base.is_none());
+        assert_eq!(line.overlay.record().kind, OverlayKind::New);
+        assert!(line.warnings.iter().any(|w| w.code == "standard-exists"));
+        let rebased = fixture
+            .service
+            .rebase(ExtensionPoint::Skill, "mine", Version::INITIAL)
+            .await
+            .unwrap();
+        assert_eq!(rebased.overlay.record().kind, OverlayKind::Replace);
+        assert_eq!(rebased.base, BaseState::Current);
+        assert_eq!(rebased.overlay.record().content, SKILL);
+        assert_eq!(rebased.warnings.len(), 0);
     }
 
     #[tokio::test]

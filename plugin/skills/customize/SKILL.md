@@ -1,26 +1,30 @@
 ---
 name: customize
-description: Manage NULLRADIX customizations - store, list, show, disable and reset replacement or extra skills and output styles. Use when the user wants to keep or review a custom skill or output style.
+description: Manage NULLRADIX customizations - copy a shipped skill or output style, edit, disable and reset it. Use when the user wants to change or review a skill or output style.
 ---
 
 # Customize NULLRADIX
 
-Customizations are skills and output styles (`<point>` is `skill` or `output-style`) that the user stored in the daemon. They are only stored and listed for now: NULLRADIX does not yet put them into the installed plugin, and there is no shipped text to copy from. Say so if asked whether a change is active.
+Customizations are skills and output styles (`<point>` is `skill` or `output-style`) that the user stored in the daemon. They start from the shipped text and replace it, or add a new name. `nullradix install` puts every active customization on top of the shipped plugin files and updates the accounts. A change is live only after `nullradix install`.
 
 ## Commands
 
 | Task                                | Command                                                |
 | ----------------------------------- | ------------------------------------------------------ |
 | See all with state, problems, hints | `nullradix customize overview`                         |
-| Print the stored text               | `nullradix customize show <point> <name>`              |
+| Print the text in charge            | `nullradix customize show <point> <name>`              |
+| Start from the shipped text         | `nullradix customize copy <point> <name>`              |
+| Take a newer shipped text as base   | `nullradix customize copy <point> <name> --rebase`     |
 | Create or replace from a file       | `nullradix customize set <point> <name> --file <file>` |
 | Apply again                         | `nullradix customize enable <point> <name>`            |
 | Keep without applying               | `nullradix customize disable <point> <name>`           |
 | Drop it                             | `nullradix customize reset <point> <name>`             |
+| Put the changes into the plugin     | `nullradix install`                                    |
 
 ## How
 
-- Write the whole text to a file with a head (`name: <name>`, `description`) and store it with `set`.
+- Start with `show` of the shipped name, edit the text in a file with its head (`name: <name>`, `description`), store it with `set`.
 - Names: lowercase letters, digits and single hyphens, at most 64 characters.
-- After every change run `overview` and report its problems and hints.
+- After every change run `overview` and report its problems and hints; a hint `base-outdated` means the shipped text changed, review it and run `copy --rebase`.
+- Run `nullradix install` to apply; if the daemon is not running it stages the shipped files only and says so.
 - Confirm before `reset` and say what is dropped; there is no backup.

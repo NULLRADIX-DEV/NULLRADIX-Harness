@@ -13,6 +13,8 @@ pub enum OverlayError {
         "a customization name uses lowercase letters, digits and single hyphens, at most {OVERLAY_NAME_MAX} characters"
     )]
     InvalidName,
+    #[error("that name is a reserved device name on Windows, choose another")]
+    ReservedName,
     #[error("the content is empty")]
     EmptyContent,
     #[error("the content has more than {OVERLAY_CONTENT_MAX} characters")]
@@ -53,8 +55,26 @@ impl OverlayKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct OverlayName(String);
 
+/// Names Windows keeps for devices; a file of that name cannot be written there.
+fn is_device_name(text: &str) -> bool {
+    matches!(text, "con" | "prn" | "aux" | "nul")
+        || (text.len() == 4
+            && (text.starts_with("com") || text.starts_with("lpt"))
+            && matches!(text.as_bytes()[3], b'1'..=b'9'))
+}
+
 impl OverlayName {
+    /// A name a person may choose: also not a Windows device name.
     pub fn parse(text: &str) -> Result<Self, OverlayError> {
+        let name = Self::parse_stored(text)?;
+        if is_device_name(text) {
+            return Err(OverlayError::ReservedName);
+        }
+        Ok(name)
+    }
+
+    /// A stored name: the shape only, so an older row can still be read and dropped.
+    pub fn parse_stored(text: &str) -> Result<Self, OverlayError> {
         let valid = !text.is_empty()
             && text.len() <= OVERLAY_NAME_MAX
             && text.split('-').all(|part| {
@@ -63,9 +83,10 @@ impl OverlayName {
                         .bytes()
                         .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
             });
-        valid
-            .then(|| Self(text.to_owned()))
-            .ok_or(OverlayError::InvalidName)
+        if !valid {
+            return Err(OverlayError::InvalidName);
+        }
+        Ok(Self(text.to_owned()))
     }
 
     #[must_use]
@@ -162,11 +183,12 @@ impl Overlay {
         })
     }
 
-    /// The same overlay against a newer shipped file: only the base moves.
+    /// The same overlay against the shipped file: a new one becomes a replacement.
     #[must_use]
     pub fn rebased(&self, base: Base, now: Timestamp) -> Self {
         Self(OverlayRecord {
             base: Some(base),
+            kind: OverlayKind::Replace,
             ..self.touched(now)
         })
     }
@@ -312,6 +334,25 @@ mod tests {
     }
 
     #[test]
+    fn windows_device_names_are_reserved() {
+        for bad in ["con", "nul", "aux", "prn", "com1", "com9", "lpt1", "lpt9"] {
+            assert_eq!(
+                OverlayName::parse(bad),
+                Err(OverlayError::ReservedName),
+                "{bad}"
+            );
+        }
+        for good in ["com0", "com10", "nul-x", "console", "lpt"] {
+            assert!(OverlayName::parse(good).is_ok(), "{good}");
+        }
+        assert!(OverlayName::parse_stored("nul").is_ok());
+        assert_eq!(
+            OverlayName::parse_stored("Nul"),
+            Err(OverlayError::InvalidName)
+        );
+    }
+
+    #[test]
     fn names_are_lowercase_words_with_single_hyphens() {
         for good in ["review", "my-review", "a1-b2", &"a".repeat(64)] {
             assert!(OverlayName::parse(good).is_ok(), "{good}");
@@ -454,6 +495,7 @@ mod tests {
         };
         let rebased = off.rebased(base.clone(), Timestamp::from_millis(10));
         assert_eq!(rebased.record().base, Some(base));
+        assert_eq!(rebased.record().kind, OverlayKind::Replace);
         assert_eq!(rebased.record().content, "b");
         assert_eq!(rebased.record().version, Version::from_stored(4));
     }
