@@ -243,7 +243,7 @@ describe('CatalogSection', () => {
     const api = catalogServer({ sources: [source('aaaaaaaaaaaa', URL_A)], themes: [offered()] });
     api.set(route, (request) => {
       if (new URL(request.url).searchParams.get('confirmed') === 'true') return json(201, {});
-      return confirmation({ hasCode: true, codeAdded: true, domainsAdded: ['cdn.example.com'] });
+      return confirmation({ hasCode: true, added: { code: true, domains: ['cdn.example.com'] } });
     });
     renderApp('/settings');
     await userEvent.click(await screen.findByRole('button', { name: 'Install Night Blue' }));
@@ -266,7 +266,7 @@ describe('CatalogSection', () => {
       sources: [source('aaaaaaaaaaaa', URL_A)],
       themes: [offered({ state: 'update', installedVersion: '1.0.0' })],
     });
-    api.set(route, () => confirmation({ update: true, codeAdded: true }));
+    api.set(route, () => confirmation({ update: true, added: { code: true, domains: [] } }));
     renderApp('/settings');
     await userEvent.click(await screen.findByRole('button', { name: 'Update Night Blue' }));
     const dialog = await screen.findByRole('dialog', { name: 'Update Night Blue?' });

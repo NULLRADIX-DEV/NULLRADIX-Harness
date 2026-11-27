@@ -144,7 +144,7 @@ pub use merge::{
 pub use notes::{
     CreateNote, DropNote, NoteDto, NoteList, NoteStateDto, PromoteNote, PromotedNote, SeenNote,
 };
-pub use problem::{ApiError, ConfirmationDto, FieldProblemDto, Problem, SimilarNoteDto};
+pub use problem::{AddedDto, ApiError, ConfirmationDto, FieldProblemDto, Problem, SimilarNoteDto};
 pub use projects::{CreateProject, ProjectDto, ProjectList, RenameProject};
 pub use questions::{
     AddQuestionComment, AnswerQuestion, CreateQuestion, DecideQuestion, DecisionDto, NewOption,

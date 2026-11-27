@@ -1447,7 +1447,7 @@ pub(crate) mod tests {
         assert!(facts.risk.has_code && !facts.update && facts.added.code);
         assert_eq!(facts.risk.network, ["a.example.com"]);
         assert!(fixture.files.stored.lock().is_empty());
-        assert!(fixture.service.list().await.unwrap().themes.is_empty());
+        assert_eq!(fixture.service.list().await.unwrap().themes.len(), 0);
         refused(&fixture, risky("1.0.0", r#""a.example.com""#, false)).await;
         refused(&fixture, risky("1.0.0", "", true)).await;
         let installed = fixture

@@ -686,7 +686,7 @@ mod tests {
         assert_eq!(problem["code"], "theme-confirmation-required");
         assert_eq!(problem["confirmation"]["hasCode"], true);
         let (_, list) = call(&api, "GET", "/api/v1/themes", None).await;
-        assert!(list["items"].as_array().unwrap().is_empty());
+        assert_eq!(list["items"].as_array().unwrap().len(), 0);
         let (status, theme) = call(&api, "POST", &format!("{path}?confirmed=true"), None).await;
         assert_eq!((status, theme["id"].as_str()), (201, Some("night-blue")));
     }

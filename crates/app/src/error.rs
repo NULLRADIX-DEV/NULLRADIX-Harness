@@ -58,7 +58,7 @@ pub struct AppError {
     existing: Option<String>,
     /// Notes that already describe the finding, for `note-similar`.
     similar: Vec<SimilarNote>,
-    /// Refused fields (`theme-manifest-invalid`) and facts to confirm (`theme-confirmation-required`).
+    /// Refused fields and facts to confirm, for `theme-manifest-invalid` and the confirmation.
     extra: Option<Box<Extra>>,
     source: Option<Box<dyn Error + Send + Sync>>,
 }
@@ -181,8 +181,7 @@ impl AppError {
         let fields = self
             .extra
             .take()
-            .map(|extra| extra.fields)
-            .unwrap_or_default();
+            .map_or_else(Vec::new, |extra| extra.fields);
         self.extra = Some(Box::new(Extra {
             fields,
             confirmation: Some(facts),

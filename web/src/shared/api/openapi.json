@@ -10266,6 +10266,25 @@
         },
         "additionalProperties": false
       },
+      "AddedDto": {
+        "type": "object",
+        "description": "Code and domains a package brings that the installed version lacked.",
+        "required": [
+          "code",
+          "domains"
+        ],
+        "properties": {
+          "code": {
+            "type": "boolean"
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "AnswerQuestion": {
         "type": "object",
         "description": "An answer: exactly one of `option` and `text`; only a person answers.",
@@ -11110,17 +11129,16 @@
           "domains",
           "claudeTheme",
           "update",
-          "codeAdded",
-          "domainsAdded"
+          "added"
         ],
         "properties": {
+          "added": {
+            "$ref": "#/components/schemas/AddedDto",
+            "description": "What the package adds to the installed version; everything risky for a new install."
+          },
           "claudeTheme": {
             "type": "boolean",
             "description": "The package has a Claude Code theme."
-          },
-          "codeAdded": {
-            "type": "boolean",
-            "description": "Code the installed version did not have."
           },
           "domains": {
             "type": "array",
@@ -11128,13 +11146,6 @@
               "type": "string"
             },
             "description": "Domains the package declares in `permissions.network`."
-          },
-          "domainsAdded": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Domains the installed version did not declare."
           },
           "hasCode": {
             "type": "boolean",

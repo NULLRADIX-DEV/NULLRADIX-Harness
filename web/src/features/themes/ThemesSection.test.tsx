@@ -217,9 +217,8 @@ describe('ThemesSection', () => {
       }
       return confirmation({
         hasCode: true,
-        codeAdded: true,
         claudeTheme: true,
-        domainsAdded: ['fonts.example.com'],
+        added: { code: true, domains: ['fonts.example.com'] },
       });
     });
     renderApp('/settings');
@@ -245,7 +244,9 @@ describe('ThemesSection', () => {
 
   it('closes the confirmation with Escape and installs nothing', async () => {
     const api = themesServer();
-    api.set('POST /api/v1/themes', () => confirmation({ update: true, domainsAdded: ['a.b.com'] }));
+    api.set('POST /api/v1/themes', () =>
+      confirmation({ update: true, added: { code: false, domains: ['a.b.com'] } }),
+    );
     renderApp('/settings');
     await screen.findByText(/No theme package is installed/);
     await userEvent.upload(

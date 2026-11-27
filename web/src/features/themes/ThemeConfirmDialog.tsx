@@ -41,13 +41,13 @@ export function ThemeConfirmDialog({
     >
       <strong id={titleId}>{update ? `Update ${name}?` : `Install ${name}?`}</strong>
       <div id={descriptionId} className="theme-confirm-facts">
-        {facts.codeAdded && (
+        {facts.added.code && (
           <p>
             {update ? 'This update adds code.' : 'This theme contains code.'} Code runs in NULLRADIX
             with full rights. Install it only from a source you trust.
           </p>
         )}
-        {facts.domainsAdded.length > 0 && (
+        {facts.added.domains.length > 0 && (
           <>
             <p>
               {update
@@ -55,7 +55,7 @@ export function ThemeConfirmDialog({
                 : 'This theme declares network domains:'}
             </p>
             <ul aria-label="Network domains">
-              {facts.domainsAdded.map((domain) => (
+              {facts.added.domains.map((domain) => (
                 <li key={domain}>{domain}</li>
               ))}
             </ul>

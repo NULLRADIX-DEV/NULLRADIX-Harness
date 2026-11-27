@@ -44,10 +44,15 @@ pub struct ConfirmationDto {
     pub claude_theme: bool,
     /// The package replaces an installed theme.
     pub update: bool,
-    /// Code the installed version did not have.
-    pub code_added: bool,
-    /// Domains the installed version did not declare.
-    pub domains_added: Vec<String>,
+    /// What the package adds to the installed version; everything risky for a new install.
+    pub added: AddedDto,
+}
+
+/// Code and domains a package brings that the installed version lacked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AddedDto {
+    pub code: bool,
+    pub domains: Vec<String>,
 }
 
 impl From<&ConfirmationFacts> for ConfirmationDto {
@@ -57,8 +62,10 @@ impl From<&ConfirmationFacts> for ConfirmationDto {
             domains: facts.risk.network.clone(),
             claude_theme: facts.risk.claude_theme,
             update: facts.update,
-            code_added: facts.added.code,
-            domains_added: facts.added.domains.clone(),
+            added: AddedDto {
+                code: facts.added.code,
+                domains: facts.added.domains.clone(),
+            },
         }
     }
 }

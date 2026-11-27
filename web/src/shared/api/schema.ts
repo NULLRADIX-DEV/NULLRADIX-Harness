@@ -1910,6 +1910,11 @@ export interface components {
              */
             version?: number | null;
         };
+        /** @description Code and domains a package brings that the installed version lacked. */
+        AddedDto: {
+            code: boolean;
+            domains: string[];
+        };
         /** @description An answer: exactly one of `option` and `text`; only a person answers. */
         AnswerQuestion: {
             /** @description Name of the person who decides; the acting person when left out. */
@@ -2179,14 +2184,12 @@ export interface components {
         };
         /** @description Code and domains of a theme package that a person confirms, and what an update adds. */
         ConfirmationDto: {
+            /** @description What the package adds to the installed version; everything risky for a new install. */
+            added: components["schemas"]["AddedDto"];
             /** @description The package has a Claude Code theme. */
             claudeTheme: boolean;
-            /** @description Code the installed version did not have. */
-            codeAdded: boolean;
             /** @description Domains the package declares in `permissions.network`. */
             domains: string[];
-            /** @description Domains the installed version did not declare. */
-            domainsAdded: string[];
             /** @description The package holds script files. */
             hasCode: boolean;
             /** @description The package replaces an installed theme. */

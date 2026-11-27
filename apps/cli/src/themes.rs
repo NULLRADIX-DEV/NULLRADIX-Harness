@@ -229,7 +229,7 @@ mod tests {
         let themes = service(dir.path().join("themes")).await;
         let files = FolderThemes::new(dir.path().join("themes"));
         let id = ThemeId::parse("night-blue").unwrap();
-        assert!(files.paths(&id).await.unwrap().is_empty());
+        assert_eq!(files.paths(&id).await.unwrap(), Vec::<String>::new());
         themes.install(package(&[]), false).await.unwrap();
         assert_eq!(
             files.paths(&id).await.unwrap(),

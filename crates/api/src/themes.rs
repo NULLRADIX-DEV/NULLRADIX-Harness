@@ -1012,11 +1012,11 @@ mod tests {
             problem["confirmation"],
             json!({
                 "hasCode": true, "domains": ["fonts.example.com"], "claudeTheme": false,
-                "update": false, "codeAdded": true, "domainsAdded": ["fonts.example.com"]
+                "update": false, "added": { "code": true, "domains": ["fonts.example.com"] }
             })
         );
         let (_, list) = call(&api, "GET", "/api/v1/themes", None).await;
-        assert!(list["items"].as_array().unwrap().is_empty());
+        assert_eq!(list["items"].as_array().unwrap().len(), 0);
         let confirmed = "/api/v1/themes?confirmed=true";
         let (status, _, theme) = upload_to(&api, confirmed, with_code(&domains)).await;
         assert_eq!((status, &theme["id"]), (201, &json!("night-blue")));
@@ -1028,9 +1028,9 @@ mod tests {
         let (status, _, problem) = upload(&api, with_code(&more)).await;
         assert_eq!(status, 409, "{problem}");
         assert_eq!(problem["confirmation"]["update"], true);
-        assert_eq!(problem["confirmation"]["codeAdded"], false);
+        assert_eq!(problem["confirmation"]["added"]["code"], false);
         assert_eq!(
-            problem["confirmation"]["domainsAdded"],
+            problem["confirmation"]["added"]["domains"],
             json!(["cdn.example.com"])
         );
     }

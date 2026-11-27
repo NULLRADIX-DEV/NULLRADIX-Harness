@@ -1150,7 +1150,7 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code(), "theme-confirmation-required");
         assert!(error.confirmation().unwrap().risk.has_code);
-        assert!(world.themes.list().await.unwrap().themes.is_empty());
+        assert_eq!(world.themes.list().await.unwrap().themes.len(), 0);
         let installed = world
             .service
             .install(&source, "night-blue", false, true)

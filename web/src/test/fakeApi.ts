@@ -55,8 +55,7 @@ export function confirmation(overrides: Partial<Confirmation>): Response {
     domains: [],
     claudeTheme: false,
     update: false,
-    codeAdded: false,
-    domainsAdded: [],
+    added: { code: false, domains: [] },
     ...overrides,
   };
   const body = {
