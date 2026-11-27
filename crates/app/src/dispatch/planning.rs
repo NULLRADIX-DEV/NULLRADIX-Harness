@@ -201,6 +201,12 @@ impl PlanningRuns {
                 record.status.as_str()
             )));
         }
+        if record.awaits_a_person() {
+            return Err(AppError::invalid(
+                "plan-waiting-person",
+                format!("{key} waits for a person - decide first, then plan"),
+            ));
+        }
         if !detail.view.open_questions.is_empty() {
             let keys: Vec<String> = detail
                 .view
