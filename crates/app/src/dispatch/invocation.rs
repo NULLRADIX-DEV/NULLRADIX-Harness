@@ -57,16 +57,20 @@ pub const RESEARCH_DENIED_TOOLS: [&str; 22] = [
 ];
 
 /// Denied in work and merge runs: what changes the machine, the app or a decision of the person.
-pub const WORK_DENIED_TOOLS: [&str; 22] = [
+pub const WORK_DENIED_TOOLS: [&str; 26] = [
     "Bash(nullradix run:*)",
     "Bash(nullradix run-supervisor:*)",
+    "Bash(nullradix run-reaper:*)",
+    "Bash(nullradix hook:*)",
     "Bash(nullradix serve:*)",
     "Bash(nullradix init:*)",
-    // global flags before the subcommand hide it from the rules above
+    // global flags hide the subcommand from the rules here, before it or after it
     "Bash(nullradix --profile:*)",
     "Bash(nullradix --profile=*)",
     "Bash(nullradix --home:*)",
     "Bash(nullradix --home=*)",
+    "Bash(nullradix * --profile*)",
+    "Bash(nullradix * --home*)",
     "Bash(nullradix theme:*)",
     "Bash(nullradix customize:*)",
     "Bash(nullradix install:*)",
@@ -412,6 +416,10 @@ mod tests {
             "Bash(nullradix question reopen:*)",
             "Bash(nullradix review:*)",
             "Bash(nullradix run-supervisor:*)",
+            "Bash(nullradix run-reaper:*)",
+            "Bash(nullradix hook:*)",
+            "Bash(nullradix * --profile*)",
+            "Bash(nullradix * --home*)",
             "Bash(nullradix serve:*)",
             "Bash(nullradix init:*)",
             "Bash(nullradix --profile:*)",
