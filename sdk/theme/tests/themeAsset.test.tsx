@@ -44,9 +44,16 @@ function pending(signalSink: AbortSignal[]) {
 const okResponse = () => Promise.resolve(new Response('bytes', { status: 200 }));
 
 describe('themeAssetUrl', () => {
+  it('never adds a token, even when the window carries one', () => {
+    Object.assign(window, { __NULLRADIX__: { base: 'http://127.0.0.1:4810', token: 'secret' } });
+    const url = themeAssetUrl('minecraft', 'https://a.example.com/x.png');
+    delete (window as { __NULLRADIX__?: unknown }).__NULLRADIX__;
+    expect(url).toBe('/api/v1/themes/minecraft/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png');
+  });
+
   it('builds the proxy URL with an encoded address', () => {
     expect(themeAssetUrl('minecraft', 'https://a.example.com/x.png')).toBe(
-      '/api/themes/minecraft/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png',
+      '/api/v1/themes/minecraft/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png',
     );
   });
 
@@ -56,48 +63,8 @@ describe('themeAssetUrl', () => {
       entry: 'assets/minecraft/textures/block/dirt.png',
     });
     expect(url).toBe(
-      '/api/themes/minecraft/fetch?url=https%3A%2F%2Fa.example.com%2Fc.jar&sha256=ab12&entry=assets%2Fminecraft%2Ftextures%2Fblock%2Fdirt.png',
+      '/api/v1/themes/minecraft/fetch?url=https%3A%2F%2Fa.example.com%2Fc.jar&sha256=ab12&entry=assets%2Fminecraft%2Ftextures%2Fblock%2Fdirt.png',
     );
-  });
-});
-
-describe('themeAssetUrl in the desktop app', () => {
-  // The app puts server address and start token into the window; its page has another origin
-  beforeEach(() => {
-    Object.assign(window, { __NULLRADIX__: { base: 'http://127.0.0.1:4810', token: 'secret' } });
-    vi.stubGlobal('fetch', vi.fn(okResponse));
-  });
-  afterEach(() => {
-    delete (window as { __NULLRADIX__?: unknown }).__NULLRADIX__;
-  });
-
-  it('points at the local server and identifies itself with the start token', () => {
-    const url = themeAssetUrl('minecraft', 'https://a.example.com/c.jar', {
-      sha256: 'ab12',
-      entry: 'a/b.png',
-    });
-    expect(url).toBe(
-      'http://127.0.0.1:4810/api/themes/minecraft/fetch?url=https%3A%2F%2Fa.example.com%2Fc.jar&sha256=ab12&entry=a%2Fb.png&token=secret',
-    );
-  });
-
-  it('keeps the relative address without a token', () => {
-    Object.assign(window, { __NULLRADIX__: { base: 'http://127.0.0.1:4810', token: '' } });
-    expect(themeAssetUrl('minecraft', 'https://a.example.com/x.png')).toBe(
-      '/api/themes/minecraft/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png',
-    );
-  });
-
-  it('useThemeAsset loads through the same address and returns it', async () => {
-    const { result } = renderHook(() => useThemeAsset('https://a.example.com/x.png'), {
-      wrapper: wrapper('demo-theme'),
-    });
-    const proxy =
-      'http://127.0.0.1:4810/api/themes/demo-theme/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png&token=secret';
-    await waitFor(() => {
-      expect(result.current).toEqual({ status: 'ready', url: proxy, error: null });
-    });
-    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(proxy);
   });
 });
 
@@ -113,7 +80,7 @@ describe('useThemeAsset', () => {
       wrapper: wrapper('demo-theme'),
     });
     expect(result.current).toEqual({ status: 'loading', url: null, error: null });
-    const proxy = '/api/themes/demo-theme/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png';
+    const proxy = '/api/v1/themes/demo-theme/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png';
     await waitFor(() => {
       expect(result.current).toEqual({ status: 'ready', url: proxy, error: null });
     });
@@ -167,7 +134,7 @@ describe('useThemeAsset', () => {
       wrapper: wrapper('demo-theme'),
     });
     const proxy =
-      '/api/themes/other/fetch?url=https%3A%2F%2Fa.example.com%2Fc.jar&sha256=ff&entry=a%2Fb.png';
+      '/api/v1/themes/other/fetch?url=https%3A%2F%2Fa.example.com%2Fc.jar&sha256=ff&entry=a%2Fb.png';
     await waitFor(() => {
       expect(result.current.url).toBe(proxy);
     });
@@ -194,7 +161,7 @@ describe('useThemeAsset', () => {
     rerender({ url: 'https://a.example.com/2.png' });
     expect(signals[0]?.aborted).toBe(true);
     expect(result.current.status).toBe('loading');
-    const proxy = '/api/themes/demo-theme/fetch?url=https%3A%2F%2Fa.example.com%2F2.png';
+    const proxy = '/api/v1/themes/demo-theme/fetch?url=https%3A%2F%2Fa.example.com%2F2.png';
     await waitFor(() => {
       expect(result.current).toEqual({ status: 'ready', url: proxy, error: null });
     });
@@ -234,7 +201,7 @@ describe('useThemeAsset', () => {
       expect(result.current.status).toBe('ready');
     });
     expect(result.current.url).toBe(
-      '/api/themes/solo/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png',
+      '/api/v1/themes/solo/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png',
     );
   });
 
@@ -261,7 +228,7 @@ describe('useThemeAsset', () => {
     expect(screen.getByText('loading')).toBeTruthy();
     const img = await screen.findByRole('img');
     expect(img.getAttribute('src')).toBe(
-      '/api/themes/demo-theme/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png',
+      '/api/v1/themes/demo-theme/fetch?url=https%3A%2F%2Fa.example.com%2Fx.png',
     );
   });
 });

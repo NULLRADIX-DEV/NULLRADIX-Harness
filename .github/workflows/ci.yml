@@ -188,6 +188,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run build -w sdk/theme
 
   # drives the real UI against a real daemon and the fake Claude, so it needs the built parts
   e2e:

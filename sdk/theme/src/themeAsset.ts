@@ -29,18 +29,6 @@ export interface ThemeAssetState {
 const IDLE: ThemeAssetState = { status: 'idle', url: null, error: null };
 const LOADING: ThemeAssetState = { status: 'loading', url: null, error: null };
 
-interface AppValues {
-  base?: string;
-  token?: string;
-}
-
-// Server address and start token the desktop app puts into the window (`window.__NULLRADIX__`)
-function appServer(): { base: string; token: string } | undefined {
-  if (typeof window === 'undefined') return undefined;
-  const values = (window as { __NULLRADIX__?: AppValues }).__NULLRADIX__;
-  return values?.base && values.token ? { base: values.base, token: values.token } : undefined;
-}
-
 /** Local proxy URL of a foreign resource, such as for `url(...)` in CSS; checks nothing */
 export function themeAssetUrl(
   themeId: string,
@@ -50,9 +38,7 @@ export function themeAssetUrl(
   const query = new URLSearchParams({ url });
   if (opts.sha256) query.set('sha256', opts.sha256);
   if (opts.entry) query.set('entry', opts.entry);
-  const app = appServer();
-  if (app) query.set('token', app.token);
-  return `${app?.base ?? ''}/api/themes/${encodeURIComponent(themeId)}/fetch?${query.toString()}`;
+  return `/api/v1/themes/${encodeURIComponent(themeId)}/fetch?${query.toString()}`;
 }
 
 // Reads the error from the proxy reply (`{ code, message }`), else `http_<status>`
