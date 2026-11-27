@@ -85,12 +85,7 @@ mod tests {
     #[test]
     fn reads_both_constants_with_their_line() {
         assert_eq!(
-            quoted_after(
-                "// c
-export const SDK_VERSION = '1.3.0';
-",
-                TS_PREFIX
-            ),
+            quoted_after("// c\nexport const SDK_VERSION = '1.3.0';\n", TS_PREFIX),
             Some((2, String::from("1.3.0")))
         );
         assert_eq!(
