@@ -29,7 +29,7 @@ const TICK: Duration = Duration::from_millis(100);
 const STATUS_VAR: &str = "NULLRADIX_REAPER_STATUS";
 /// The name the reaper shows in process lists.
 const REAPER_NAME: &str = "nullradix";
-/// Signals the reaper passes on to its command; any other would end it before it sweeps.
+/// Signals sent to the reaper alone that it passes on; others keep their default action.
 const FORWARDED: [Signal; 7] = [
     Signal::SIGTERM,
     Signal::SIGINT,
@@ -415,7 +415,7 @@ extern "C" fn note(signal: i32) {
     PENDING.fetch_or(1 << (signal & 63), Ordering::SeqCst);
 }
 
-/// Sends the signals that arrived to the command, each once however often it came.
+/// Sends the signals that arrived to the command, each once; those of one tick go in table order.
 fn pass_on(main: u32) {
     let arrived = PENDING.swap(0, Ordering::SeqCst);
     let Some(raw) = to_pid(main) else { return };
