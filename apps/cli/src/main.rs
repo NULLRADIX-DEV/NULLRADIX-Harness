@@ -153,6 +153,15 @@ fn main() -> ExitCode {
     if let Some(call) = hook::HookCall::parse(&args) {
         return hook::run_plain(call);
     }
+    // the run reaper is served before the parser: the daemon starts it, people do not
+    if let [first, marker, command @ ..] = args.as_slice()
+        && first == nullradix_os::REAPER_COMMAND
+        && marker == "--"
+    {
+        let code = nullradix_os::run_reaper(command);
+        return ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
+    nullradix_os::use_own_reaper();
     match run(Cli::parse()) {
         Ok(code) => code,
         Err(error) => {
@@ -249,7 +258,6 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             run::run(command, &client)
         }
         Command::RunSupervisor { dir } => {
-            nullradix_os::become_reaper().context("cannot own the run's process tree")?;
             nullradix_runner::supervise(&dir)
                 .with_context(|| format!("cannot record the result in {}", dir.display()))?;
             Ok(ExitCode::SUCCESS)

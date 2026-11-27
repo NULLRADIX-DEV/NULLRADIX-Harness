@@ -108,7 +108,7 @@ fn shell(run: &str, git_bash: Option<&str>) -> Result<Command, String> {
 #[cfg(not(windows))]
 #[allow(clippy::unnecessary_wraps, reason = "same shape as the Windows shell")]
 fn shell(run: &str, _git_bash: Option<&str>) -> Result<Command, String> {
-    let mut command = Command::new("/bin/sh");
+    let mut command = ProcessTree::command("/bin/sh");
     command.arg("-c").arg(run);
     Ok(command)
 }

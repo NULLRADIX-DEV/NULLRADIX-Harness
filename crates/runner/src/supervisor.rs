@@ -111,7 +111,7 @@ fn command(spec: &SpecFile) -> Result<Command, launch::LaunchError> {
             }
         });
     }
-    let mut command = Command::new(program(spec));
+    let mut command = ProcessTree::command(program(spec));
     command.args(&spec.args);
     Ok(command)
 }

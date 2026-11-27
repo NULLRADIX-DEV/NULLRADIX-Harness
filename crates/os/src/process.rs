@@ -1,6 +1,8 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::Path;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 #[cfg(unix)]
 use std::process::Stdio;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus};
@@ -54,16 +56,30 @@ pub fn spawn_detached(program: &Path, args: &[OsString], cwd: &Path) -> io::Resu
     }
 }
 
-/// Makes this process own the orphans below it, so its one tree ends with them; Linux only.
-#[cfg_attr(not(target_os = "linux"), allow(clippy::unnecessary_wraps))]
-pub fn become_reaper() -> io::Result<()> {
+/// The first argument that makes the program act as the run reaper; see `use_own_reaper`.
+pub const REAPER_COMMAND: &str = "run-reaper";
+
+/// Runs commands made by `ProcessTree::command` under this program as the run reaper; Linux only.
+pub fn use_own_reaper() {
+    #[cfg(target_os = "linux")]
+    crate::linux::use_reaper(
+        PathBuf::from("/proc/self/exe"),
+        vec![OsString::from(REAPER_COMMAND)],
+    );
+}
+
+/// Serves `run-reaper -- <command>`; a command that dies of a signal ends this process alike.
+#[must_use]
+pub fn run_reaper(args: &[OsString]) -> i32 {
     #[cfg(target_os = "linux")]
     {
-        crate::linux::become_reaper()
+        crate::linux::run_reaper(args)
     }
     #[cfg(not(target_os = "linux"))]
     {
-        Ok(())
+        let _ = args;
+        eprintln!("error: the run reaper exists on Linux only");
+        2
     }
 }
 
@@ -80,24 +96,47 @@ pub struct ProcessTree {
 }
 
 impl ProcessTree {
+    /// The command for `program` in a tree; on Linux under the run reaper once one is in use.
+    pub fn command(program: impl AsRef<OsStr>) -> Command {
+        #[cfg(target_os = "linux")]
+        if let Some(command) = crate::linux::reaped(program.as_ref()) {
+            return command;
+        }
+        Command::new(program)
+    }
+
     pub fn spawn(command: &mut Command) -> io::Result<Self> {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
             // macOS has no subreaper or parent-death signal, so only the group ends a tree there
             #[cfg(target_os = "linux")]
-            let mut guard = {
-                let guard = crate::linux::Guard::start()?;
-                crate::linux::adopt_orphans(command);
-                guard
-            };
-            #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
-            let mut child = command.process_group(0).spawn()?;
+            let mut guard = crate::linux::Guard::start()?;
             #[cfg(target_os = "linux")]
-            if let Err(error) = guard.watch(child.id()) {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error);
+            let report = crate::linux::prepare(command)?;
+            #[cfg(target_os = "linux")]
+            let reaped = report.is_some();
+            let spawned = command.process_group(0).spawn();
+            #[cfg(target_os = "linux")]
+            let spawned = spawned.map_err(|error| {
+                if reaped {
+                    crate::linux::reaper_failed(&error)
+                } else {
+                    error
+                }
+            });
+            #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+            let mut child = spawned?;
+            #[cfg(target_os = "linux")]
+            {
+                let started = guard
+                    .watch(child.id())
+                    .and_then(|()| report.map_or(Ok(()), crate::linux::Report::outcome));
+                if let Err(error) = started {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error);
+                }
             }
             Ok(Self {
                 child,
@@ -218,13 +257,7 @@ impl ProcessTree {
         use nix::errno::Errno;
         use nix::sys::signal::{Signal, killpg};
         #[cfg(target_os = "linux")]
-        if crate::linux::is_reaper() {
-            let spare: Vec<u32> = [Some(self.child.id()), self.guard.id()]
-                .into_iter()
-                .flatten()
-                .collect();
-            crate::linux::sweep(&spare);
-        }
+        crate::linux::kill_tree(self.child.id());
         match killpg(self.pid()?, Signal::SIGKILL) {
             Ok(()) | Err(Errno::ESRCH) => Ok(()),
             Err(error) => Err(io::Error::from(error)),
