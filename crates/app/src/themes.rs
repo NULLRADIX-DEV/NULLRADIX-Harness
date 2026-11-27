@@ -1721,7 +1721,7 @@ pub(crate) mod tests {
             .unwrap();
         // the stored manifest still knows the domains and the Claude part
         assert!(again.added.code);
-        assert!(again.added.domains.is_empty());
+        assert_eq!(again.added.domains, Vec::<String>::new());
         assert!(!again.added.claude_theme);
         let error = fixture
             .service

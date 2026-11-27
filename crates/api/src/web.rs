@@ -280,15 +280,21 @@ mod tests {
 
     #[test]
     fn only_inline_scripts_are_hashed() {
-        assert!(super::inline_script_hashes("<html></html>").is_empty());
+        assert_eq!(
+            super::inline_script_hashes("<html></html>"),
+            Vec::<String>::new()
+        );
         let external =
             "<script src=\"/a.js\"></script><script type=\"module\" src=\"/b.js\"></script>";
-        assert!(super::inline_script_hashes(external).is_empty());
+        assert_eq!(super::inline_script_hashes(external), Vec::<String>::new());
         let two = "<script>a()</script><script src=\"/a.js\"></script><script>b()</script>";
         assert_eq!(super::inline_script_hashes(two), [hash("a()"), hash("b()")]);
         // a script that never ends is no script
-        assert!(super::inline_script_hashes("<script>a()").is_empty());
-        assert!(super::inline_script_hashes("<script").is_empty());
+        assert_eq!(
+            super::inline_script_hashes("<script>a()"),
+            Vec::<String>::new()
+        );
+        assert_eq!(super::inline_script_hashes("<script"), Vec::<String>::new());
         assert_eq!(super::page_policy("<p>no scripts</p>"), None);
     }
 
