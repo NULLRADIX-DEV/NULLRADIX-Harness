@@ -97,7 +97,7 @@ use utoipa_axum::routes;
 pub use accounts::{AccountDto, AccountList, CreateAccount, SetRunToken, UpdateAccount};
 pub use auth::{
     Elevation, Handoff, KEY_HEADER, Me, PrincipalKind, RUN_HEADER, RedeemStepUp, SESSION_COOKIE,
-    SESSION_HEADER, StepUpCode, StepUpSetting,
+    SESSION_HEADER, SetStepUp, StepUpCode, StepUpSetting,
 };
 pub use autostart::{AutostartDto, SetAutostart};
 pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
@@ -211,7 +211,7 @@ pub const API_PREFIX: &str = "/api/v1";
     info(title = "NULLRADIX API"),
     components(schemas(Problem, ChangeDto, StreamPosition)),
     modifiers(&SecuritySchemes),
-    security(("bearer" = []), ("session" = []))
+    security(("bearer" = []), ("session" = [], "key" = []))
 )]
 struct ApiDoc;
 
@@ -227,6 +227,10 @@ impl Modify for SecuritySchemes {
         components.add_security_scheme(
             "session",
             SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new(SESSION_COOKIE))),
+        );
+        components.add_security_scheme(
+            "key",
+            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new(KEY_HEADER))),
         );
     }
 }
@@ -1271,6 +1275,32 @@ pub(crate) mod tests {
         assert!(json.contains("NULLRADIX API"));
         assert!(json.contains("\"Problem\""));
         assert!(json.contains("\"nullradix_session\""));
+    }
+
+    #[test]
+    fn openapi_document_asks_for_the_tab_key_with_the_session() {
+        let json: serde_json::Value = serde_json::from_str(&openapi_json().unwrap()).unwrap();
+        let key = &json["components"]["securitySchemes"]["key"];
+        assert_eq!(
+            (
+                key["type"].as_str(),
+                key["in"].as_str(),
+                key["name"].as_str()
+            ),
+            (Some("apiKey"), Some("header"), Some("x-nullradix-key"))
+        );
+        assert_eq!(
+            json["security"],
+            serde_json::json!([{ "bearer": [] }, { "session": [], "key": [] }])
+        );
+        let events = &json["paths"]["/api/v1/events"]["get"]["parameters"];
+        assert!(
+            events
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|param| param["name"] == "k")
+        );
     }
 
     #[test]

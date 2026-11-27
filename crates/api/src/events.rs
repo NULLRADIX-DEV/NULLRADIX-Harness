@@ -126,6 +126,12 @@ pub struct StreamPosition {
 pub(crate) struct EventsQuery {
     /// Replay changes after this sequence number; `Last-Event-ID` takes precedence.
     since: Option<i64>,
+    /// Key of the tab, because an event stream cannot send headers; this route only.
+    #[allow(
+        dead_code,
+        reason = "read by the authentication layer, listed for the document"
+    )]
+    k: Option<String>,
 }
 
 /// Where a stream starts and whether the client must drop its cached state first.

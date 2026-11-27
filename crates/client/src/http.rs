@@ -1620,10 +1620,20 @@ fn describe(problem: &Problem) -> String {
     if problem.errors.is_empty() {
         return problem.detail.clone();
     }
-    let fields: Vec<String> = problem
-        .errors
+    // fields that share a message are listed once with it
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for error in &problem.errors {
+        match groups
+            .iter_mut()
+            .find(|(message, _)| *message == error.message)
+        {
+            Some((_, fields)) => fields.push(&error.field),
+            None => groups.push((&error.message, vec![&error.field])),
+        }
+    }
+    let fields: Vec<String> = groups
         .iter()
-        .map(|error| format!("{}: {}", error.field, error.message))
+        .map(|(message, fields)| format!("{}: {message}", fields.join(", ")))
         .collect();
     format!("{}: {}", problem.detail, fields.join("; "))
 }
@@ -2134,6 +2144,27 @@ mod tests {
         let stranger = Secret::parse(&"c".repeat(64)).unwrap();
         let refused = client.with_token(stranger).create_handoff().unwrap_err();
         assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
+    }
+
+    #[test]
+    fn fields_that_share_a_message_are_listed_once_with_it() {
+        use nullradix_api::FieldProblemDto;
+        let field = |name: &str, message: &str| FieldProblemDto {
+            field: name.to_owned(),
+            message: message.to_owned(),
+        };
+        let problem = Problem {
+            problem_type: String::new(),
+            title: String::new(),
+            status: 403,
+            detail: String::from("no"),
+            code: String::from("x"),
+            existing: None,
+            similar: Vec::new(),
+            errors: vec![field("a", "m"), field("b", "n"), field("c", "m")],
+            confirmation: None,
+        };
+        assert_eq!(describe(&problem), "no: a, c: m; b: n");
     }
 
     #[test]

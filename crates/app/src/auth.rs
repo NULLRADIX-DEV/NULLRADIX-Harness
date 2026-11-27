@@ -189,13 +189,31 @@ pub enum CommandRefusal {
     NeedsStepUp,
 }
 
+/// How the person gets a confirmation, as the refusal tells it.
+const HOW_TO_CONFIRM: &str = "run `nullradix confirm` in a terminal and open the link";
+/// The same through the tray menu of the desktop shell.
+const HOW_TO_CONFIRM_TRAY: &str = "or choose Confirm changes in the tray menu";
+
+/// The code is unknown, expired or used up.
+#[must_use]
+pub fn step_up_code_invalid() -> AppError {
+    AppError::invalid(
+        "step-up-code-invalid",
+        "the confirmation code is unknown or expired",
+    )
+    .with_fields(vec![FieldProblem {
+        field: String::from("code"),
+        message: String::from("run nullradix confirm again for a new code"),
+    }])
+}
+
 impl CommandRefusal {
     /// The error, naming each field that was about to change.
     #[must_use]
     pub fn error(self, fields: &[&str]) -> AppError {
         let message = match self {
             Self::NeedsPerson => "only the person in the app can change this",
-            Self::NeedsStepUp => "confirm with `nullradix confirm` before changing this",
+            Self::NeedsStepUp => "needs a confirmation first",
         };
         let problems = fields
             .iter()
@@ -211,11 +229,26 @@ impl CommandRefusal {
             ),
             Self::NeedsStepUp => AppError::forbidden(
                 "step-up-required",
-                "changing fields that run commands needs a confirmation: run `nullradix confirm` in a terminal and open the link, or use Confirm in the tray menu of the desktop app, then save again",
+                format!(
+                    "changing fields that run commands needs a confirmation: {HOW_TO_CONFIRM}, {HOW_TO_CONFIRM_TRAY}, then save again"
+                ),
             ),
         }
         .with_fields(problems)
     }
+}
+
+/// Turning the confirmation off needs a code of its own, not only a confirmed session.
+#[must_use]
+pub fn step_up_code_required() -> AppError {
+    AppError::forbidden(
+        "step-up-code-required",
+        "turning the confirmation off needs a fresh code: run `nullradix confirm --no-open` and enter it",
+    )
+    .with_fields(vec![FieldProblem {
+        field: String::from("code"),
+        message: String::from("enter the code that nullradix confirm --no-open printed"),
+    }])
 }
 
 #[async_trait]
@@ -452,18 +485,22 @@ impl AuthService {
         self.issue_code(&self.step_up_codes, STEP_UP_CODE_LIFETIME)
     }
 
+    /// Uses up a code without confirming anyone; the person's proof for the one change that asks.
+    pub fn spend_step_up_code(&self, code: &Secret) -> Result<(), AppError> {
+        if self.spend_code(&self.step_up_codes, code) {
+            Ok(())
+        } else {
+            Err(step_up_code_invalid())
+        }
+    }
+
     /// Confirms the session for a while; returns when that ends.
     pub async fn redeem_step_up(
         &self,
         session: Id<Session>,
         code: &Secret,
     ) -> Result<Timestamp, AppError> {
-        if !self.spend_code(&self.step_up_codes, code) {
-            return Err(unauthorized(
-                "step-up-code-invalid",
-                "the confirmation code is unknown or expired",
-            ));
-        }
+        self.spend_step_up_code(code)?;
         let until = later(self.clock.now(), ELEVATION)?;
         if !self.repository.elevate_session(session, until).await? {
             return Err(unauthorized("session-invalid", "the session is not valid"));

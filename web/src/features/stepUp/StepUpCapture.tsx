@@ -1,12 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiProblemError } from '../../shared/api/errors';
+import { hasTabChannel, listenTab, postTab } from '../../shared/api/tabChannel';
 import { readTabKey } from '../../shared/api/tabKey';
-import {
-  CONFIRM_CHANNEL,
-  isConfirmMessage,
-  takeConfirmCode,
-  type ConfirmMessage,
-} from './confirmLink';
+import { takeConfirmCode } from './confirmLink';
 import { useRedeemStepUp } from './queries';
 import './stepUp.css';
 
@@ -25,13 +21,10 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
   const { mutate } = useRedeemStepUp();
   const [notice, setNotice] = useState<string | null>(null);
   const waiting = useRef<{ code: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  // a code works once, and StrictMode runs the effect twice
+  const handled = useRef(new Set<string>());
 
   useEffect(() => {
-    const talk =
-      typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CONFIRM_CHANNEL);
-    const say = (message: ConfirmMessage) => {
-      talk?.postMessage(message);
-    };
     // another tab may have taken a code that was handed on, so only the own tab reports a failure
     const confirm = (code: string, own: boolean, onDone?: (ok: boolean) => void) => {
       mutate(code, {
@@ -46,11 +39,13 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
       });
     };
     const handle = (code: string) => {
+      if (handled.current.has(code)) return;
+      handled.current.add(code);
       if (readTabKey() !== null) {
         confirm(code, true);
         return;
       }
-      if (talk === null) {
+      if (!hasTabChannel()) {
         setNotice('Open NULLRADIX from the desktop app and enter the confirmation code there.');
         return;
       }
@@ -62,18 +57,17 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
         );
       }, HAND_ON_WAIT_MS);
       waiting.current = { code, timer };
-      say({ type: 'code', code });
+      postTab({ type: 'code', code });
     };
     const fromAddress = () => {
       const code = takeConfirmCode();
       if (code !== null) handle(code);
     };
-    const heard = (event: MessageEvent<unknown>) => {
-      const message = event.data;
-      if (!isConfirmMessage(message)) return;
-      if (message.type === 'code' && readTabKey() !== null) {
+    const stop = listenTab((message) => {
+      if (message.type === 'code' && readTabKey() !== null && !handled.current.has(message.code)) {
+        handled.current.add(message.code);
         confirm(message.code, false, (ok) => {
-          say({ type: 'done', code: message.code, ok });
+          postTab({ type: 'done', code: message.code, ok });
         });
       }
       // a refusal is not the end: the code may be taken by another tab, or time runs out
@@ -82,15 +76,13 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
         waiting.current = null;
         setNotice('Confirmed in your open NULLRADIX tab. You can close this one.');
       }
-    };
-    talk?.addEventListener('message', heard);
+    });
     window.addEventListener('hashchange', fromAddress);
     if (first === null) fromAddress();
     else handle(first);
     return () => {
       window.removeEventListener('hashchange', fromAddress);
-      talk?.removeEventListener('message', heard);
-      talk?.close();
+      stop();
       if (waiting.current) clearTimeout(waiting.current.timer);
     };
   }, [mutate, first]);

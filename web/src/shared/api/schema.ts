@@ -3883,6 +3883,12 @@ export interface components {
              */
             version: number;
         };
+        /** @description Sets the switch; turning it off carries a fresh code that is used up. */
+        SetStepUp: {
+            /** @description Code of `nullradix confirm --no-open`; only turning the check off needs it. */
+            code?: string | null;
+            required: boolean;
+        };
         SetThemeCode: {
             /** @description Let the web UI run `main.js` of the theme while it is chosen, or stop it. */
             enabled: boolean;
@@ -4614,6 +4620,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description A folder outside the accounts folder runs commands: `command-change-needs-person` for tokens and agents, `step-up-required` for a session without a confirmation */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             /** @description The folder belongs to another account */
             409: {
                 headers: {
@@ -5337,7 +5352,6 @@ export interface operations {
                     "application/json": components["schemas"]["Elevation"];
                 };
             };
-            /** @description The code is unknown or expired (`step-up-code-invalid`) */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5348,6 +5362,15 @@ export interface operations {
             };
             /** @description Only the person in the app can confirm */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The code is unknown, expired or used up (`step-up-code-invalid`) */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6381,6 +6404,8 @@ export interface operations {
             query?: {
                 /** @description Replay changes after this sequence number; `Last-Event-ID` takes precedence. */
                 since?: number;
+                /** @description Key of the tab, because an event stream cannot send headers; this route only. */
+                k?: string;
             };
             header?: never;
             path?: never;
@@ -9643,7 +9668,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StepUpSetting"];
+                "application/json": components["schemas"]["SetStepUp"];
             };
         };
         responses: {
@@ -9663,8 +9688,17 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Turning it off needs the person in the app with a fresh confirmation (`step-up-required`); a token may only turn it on (`command-change-needs-person`) */
+            /** @description Turning it off needs the person in the app and a fresh code (`step-up-code-required`); a token or an agent may only turn it on (`command-change-needs-person`) */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The code is unknown, expired or used up (`step-up-code-invalid`) */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

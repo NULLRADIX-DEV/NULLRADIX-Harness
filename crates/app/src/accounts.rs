@@ -11,6 +11,7 @@ use nullradix_domain::{
 };
 use parking_lot::Mutex;
 
+use crate::auth::CommandRefusal;
 use crate::secrets::{SecretStore, SecretValue};
 use crate::usage::LoginRenewal;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
@@ -272,7 +273,13 @@ impl AccountService {
     }
 
     /// Adds an account; without a folder it gets its own below the accounts folder.
-    pub async fn create(&self, name: &str, config_dir: Option<&str>) -> Result<Account, AppError> {
+    /// A folder elsewhere ends up as `CLAUDE_CONFIG_DIR`, so `commands` can refuse it.
+    pub async fn create(
+        &self,
+        name: &str,
+        config_dir: Option<&str>,
+        commands: Option<CommandRefusal>,
+    ) -> Result<Account, AppError> {
         let name = AccountName::parse(name).map_err(|error| invalid(&error))?;
         let given = config_dir
             .map(str::trim)
@@ -282,6 +289,11 @@ impl AccountService {
             .map_err(|error| invalid(&error))?;
         let existing = self.repository.list().await?;
         if let Some(dir) = &given {
+            if let Some(refusal) = commands
+                && !self.folders.owns(dir)
+            {
+                return Err(refusal.error(&["configDir"]));
+            }
             self.folders.check(dir).await?;
             let key = self.folders.key(dir);
             let other = existing.iter().find(|account| {

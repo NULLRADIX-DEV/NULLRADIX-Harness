@@ -26,8 +26,8 @@ export function stepUpSettingQuery() {
 export function useSetStepUp() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (required: boolean) =>
-      unwrap(await api.PUT('/api/v1/settings/step-up', { body: { required } })),
+    mutationFn: async (input: { required: boolean; code?: string }) =>
+      unwrap(await api.PUT('/api/v1/settings/step-up', { body: input })),
     onSettled: () => queryClient.invalidateQueries({ queryKey: stepUpKeys.all }),
   });
 }

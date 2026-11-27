@@ -5,7 +5,10 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use nullradix_app::AppError;
-use nullradix_app::auth::{CommandWriter, Principal, Secret, decision_needs_person};
+use nullradix_app::auth::{
+    CommandRefusal, CommandWriter, Principal, Secret, decision_needs_person, step_up_code_invalid,
+    step_up_code_required,
+};
 use nullradix_domain::Timestamp;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -22,27 +25,30 @@ enum Credentials {
     Missing,
     Malformed,
     Bearer(Secret),
-    Session { cookie: Secret, key: Option<Secret> },
+    Session { cookie: Secret, key: TabKey },
+}
+
+/// What a request brought as the key of its tab.
+enum TabKey {
+    Missing,
+    Malformed,
+    Key(Secret),
 }
 
 /// The key of the tab: the header, or `?k=` on the event stream, which cannot set headers.
-fn tab_key(request: &Request, route: &str) -> Option<Secret> {
-    let header = request
-        .headers()
-        .get(KEY_HEADER)
-        .and_then(|value| value.to_str().ok());
-    if header.is_some() {
-        return header.and_then(Secret::parse);
-    }
-    if route != "/events" || request.method() != Method::GET {
-        return None;
-    }
-    request
-        .uri()
-        .query()?
-        .split('&')
-        .find_map(|pair| pair.strip_prefix("k="))
+fn tab_key(request: &Request, route: &str) -> TabKey {
+    let query = (route == "/events" && request.method() == Method::GET)
+        .then(|| request.uri().query())
+        .flatten()
+        .and_then(|query| query.split('&').find_map(|pair| pair.strip_prefix("k=")));
+    let given = match (request.headers().get(KEY_HEADER), query) {
+        (Some(value), _) => value.to_str().ok(),
+        (None, Some(text)) => Some(text),
+        (None, None) => return TabKey::Missing,
+    };
+    given
         .and_then(Secret::parse)
+        .map_or(TabKey::Malformed, TabKey::Key)
 }
 
 /// Files a page loads without being able to send the key: only a cookie, read only.
@@ -66,7 +72,7 @@ fn is_theme_asset(method: &Method, route: &str) -> bool {
         }
 }
 
-fn credentials(headers: &HeaderMap, key: Option<Secret>) -> Credentials {
+fn credentials(headers: &HeaderMap, key: TabKey) -> Credentials {
     if let Some(value) = headers.get(header::AUTHORIZATION) {
         return value
             .to_str()
@@ -177,6 +183,34 @@ pub(crate) fn refuse_agent(
     }
 }
 
+async fn session_principal(
+    state: &ApiState,
+    method: &Method,
+    headers: &HeaderMap,
+    route: &str,
+    cookie: &Secret,
+    key: &TabKey,
+) -> Result<Principal, AppError> {
+    if is_theme_asset(method, route) {
+        return state.auth.authenticate_asset_session(cookie).await;
+    }
+    let safe = matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS);
+    if !safe && !same_origin(headers) {
+        return Err(AppError::forbidden(
+            "cross-site-request",
+            "writes with a session need a same-origin request",
+        ));
+    }
+    match key {
+        TabKey::Malformed => Err(AppError::unauthorized(
+            "session-key-invalid",
+            "the key of this tab is malformed: open NULLRADIX again",
+        )),
+        TabKey::Missing => state.auth.authenticate_session(cookie, None).await,
+        TabKey::Key(secret) => state.auth.authenticate_session(cookie, Some(secret)).await,
+    }
+}
+
 pub(crate) async fn authenticate(
     State(state): State<ApiState>,
     mut request: Request,
@@ -192,20 +226,15 @@ pub(crate) async fn authenticate(
     let principal = match credentials(request.headers(), key) {
         Credentials::Bearer(secret) => state.auth.authenticate_token(&secret).await,
         Credentials::Session { cookie, key } => {
-            let safe = matches!(
-                *request.method(),
-                Method::GET | Method::HEAD | Method::OPTIONS
-            );
-            if is_theme_asset(request.method(), route) {
-                state.auth.authenticate_asset_session(&cookie).await
-            } else if safe || same_origin(request.headers()) {
-                state.auth.authenticate_session(&cookie, key.as_ref()).await
-            } else {
-                Err(AppError::forbidden(
-                    "cross-site-request",
-                    "writes with a session need a same-origin request",
-                ))
-            }
+            session_principal(
+                &state,
+                request.method(),
+                request.headers(),
+                route,
+                &cookie,
+                &key,
+            )
+            .await
         }
         Credentials::Malformed => Err(AppError::unauthorized(
             "credentials-invalid",
@@ -305,7 +334,7 @@ pub(crate) async fn redeem_handoff(
     post,
     path = "/auth/logout",
     tag = "auth",
-    security(("session" = [])),
+    security(("session" = [], "key" = [])),
     responses((status = 204, description = "The session is closed"), (status = 401, body = Problem))
 )]
 pub(crate) async fn logout(
@@ -413,12 +442,13 @@ pub struct Elevation {
     post,
     path = "/auth/step-up",
     tag = "auth",
-    security(("session" = [])),
+    security(("session" = [], "key" = [])),
     request_body = RedeemStepUp,
     responses(
         (status = 200, description = "The session may change command fields for a few minutes", body = Elevation),
-        (status = 401, description = "The code is unknown or expired (`step-up-code-invalid`)", body = Problem),
+        (status = 401, body = Problem),
         (status = 403, description = "Only the person in the app can confirm", body = Problem),
+        (status = 422, description = "The code is unknown, expired or used up (`step-up-code-invalid`)", body = Problem),
     )
 )]
 pub(crate) async fn redeem_step_up(
@@ -437,12 +467,7 @@ pub(crate) async fn redeem_step_up(
     refuse_agent(context, || {
         decision_needs_person("confirming a change of commands")
     })?;
-    let code = Secret::parse(&input.code).ok_or_else(|| {
-        AppError::unauthorized(
-            "step-up-code-invalid",
-            "the confirmation code is unknown or expired",
-        )
-    })?;
+    let code = Secret::parse(&input.code).ok_or_else(step_up_code_invalid)?;
     let until = state.auth.redeem_step_up(id, &code).await?;
     Ok(Json(Elevation {
         elevated_until: until.as_millis(),
@@ -470,30 +495,41 @@ pub(crate) async fn step_up_setting(
     }))
 }
 
+/// Sets the switch; turning it off carries a fresh code that is used up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetStepUp {
+    pub required: bool,
+    /// Code of `nullradix confirm --no-open`; only turning the check off needs it.
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
 #[utoipa::path(
     put,
     path = "/settings/step-up",
     tag = "auth",
-    request_body = StepUpSetting,
+    request_body = SetStepUp,
     responses(
         (status = 200, body = StepUpSetting),
         (status = 401, body = Problem),
-        (status = 403, description = "Turning it off needs the person in the app with a fresh confirmation (`step-up-required`); a token may only turn it on (`command-change-needs-person`)", body = Problem),
+        (status = 403, description = "Turning it off needs the person in the app and a fresh code (`step-up-code-required`); a token or an agent may only turn it on (`command-change-needs-person`)", body = Problem),
+        (status = 422, description = "The code is unknown, expired or used up (`step-up-code-invalid`)", body = Problem),
     )
 )]
 pub(crate) async fn set_step_up_setting(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
     Extension(context): Extension<AgentContext>,
-    ApiJson(input): ApiJson<StepUpSetting>,
+    ApiJson(input): ApiJson<SetStepUp>,
 ) -> Result<Json<StepUpSetting>, ApiError> {
-    if !input.required
-        && let Some(refusal) = state
-            .auth
-            .command_refusal(command_writer(&principal, context))
-            .await?
-    {
-        return Err(refusal.error(&["required"]).into());
+    if !input.required && state.auth.step_up_required().await? {
+        if matches!(command_writer(&principal, context), CommandWriter::Other) {
+            return Err(CommandRefusal::NeedsPerson.error(&["required"]).into());
+        }
+        let code = input.code.as_deref().ok_or_else(step_up_code_required)?;
+        let code = Secret::parse(code).ok_or_else(step_up_code_invalid)?;
+        state.auth.spend_step_up_code(&code)?;
     }
     if let Some(change) = state.auth.set_step_up_required(input.required).await? {
         state.signal.notify(&change);
@@ -709,10 +745,10 @@ mod tests {
         assert_eq!(json["code"], "session-key-missing");
         let (status, json) = me_with(&api, &without_key(&cookie), Some(&key_of(&cookie))).await;
         assert_eq!((status, &json["kind"]), (StatusCode::OK, &json!("session")));
-        // a malformed key is no key
+        // a malformed key is a wrong one
         let (status, json) = me_with(&api, &without_key(&cookie), Some("nope")).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert_eq!(json["code"], "session-key-missing");
+        assert_eq!(json["code"], "session-key-invalid");
     }
 
     #[tokio::test]
@@ -913,11 +949,13 @@ mod tests {
         assert_eq!(me["elevatedUntil"], until);
         let (_, me) = me_with(&api, &other, None).await;
         assert_eq!(me["elevatedUntil"], Value::Null);
+        // a code that does not work is a wrong input, so the page does not recheck its session
         let (status, json) = redeem(&mine, &code).await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(json["code"], "step-up-code-invalid");
+        assert_eq!(json["errors"][0]["field"], "code");
         let (status, json) = redeem(&mine, "nope").await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(json["code"], "step-up-code-invalid");
     }
 
@@ -1093,11 +1131,16 @@ mod tests {
     async fn put_switch(
         api: &TestApi,
         required: bool,
+        code: Option<&str>,
         builder: impl FnOnce(axum::http::request::Builder) -> axum::http::request::Builder,
     ) -> (StatusCode, Value) {
+        let mut body = json!({ "required": required });
+        if let Some(code) = code {
+            body["code"] = json!(code);
+        }
         let request = builder(Request::put("/api/v1/settings/step-up"))
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(json!({ "required": required }).to_string()))
+            .body(Body::from(body.to_string()))
             .unwrap();
         let (status, _, json) = send(&api.router, request).await;
         (status, json)
@@ -1113,31 +1156,86 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn turning_the_confirmation_off_needs_a_confirmation_and_a_token_may_only_turn_it_on() {
+    async fn turning_the_confirmation_off_needs_the_person_and_a_fresh_code_of_its_own() {
         let api = test_api().await;
         let cookie = open_session(&api).await;
         assert!(switch(&api).await);
-        // a token and an agent in the session cannot turn it off, whatever the confirmation
-        let (status, json) = put_switch(&api, false, |request| bearer(request, &api.token)).await;
+        // a token and an agent in the session cannot turn it off, code or not
+        let code = step_up_code(&api).await;
+        let (status, json) = put_switch(&api, false, Some(&code), |request| {
+            bearer(request, &api.token)
+        })
+        .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(json["code"], "command-change-needs-person");
         assert_eq!(json["errors"][0]["field"], "required");
-        // the person without a confirmation cannot either
-        let (status, json) = put_switch(&api, false, |request| as_person(request, &cookie)).await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(json["code"], "step-up-required");
+        let (status, json) = put_switch(&api, false, Some(&code), |request| {
+            in_run(as_person(request, &cookie))
+        })
+        .await;
+        assert_eq!(
+            (status, &json["code"]),
+            (StatusCode::FORBIDDEN, &json!("command-change-needs-person"))
+        );
         assert!(switch(&api).await);
+        // the person needs the code: none, a wrong one
+        let (status, json) =
+            put_switch(&api, false, None, |request| as_person(request, &cookie)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(json["code"], "step-up-code-required");
+        assert_eq!(json["errors"][0]["field"], "code");
+        let (status, json) = put_switch(&api, false, Some("nope"), |request| {
+            as_person(request, &cookie)
+        })
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(json["code"], "step-up-code-invalid");
+        // a confirmed session is not enough, the code is
         confirm(&api, &cookie).await;
-        let (status, _) =
-            put_switch(&api, false, |request| in_run(as_person(request, &cookie))).await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, json) =
+            put_switch(&api, false, None, |request| as_person(request, &cookie)).await;
+        assert_eq!(
+            (status, &json["code"]),
+            (StatusCode::FORBIDDEN, &json!("step-up-code-required"))
+        );
         assert!(switch(&api).await);
-        let (status, json) = put_switch(&api, false, |request| as_person(request, &cookie)).await;
+        // the code of the refused attempts was not used up, and it works once
+        let (status, json) = put_switch(&api, false, Some(&code), |request| {
+            as_person(request, &cookie)
+        })
+        .await;
         assert_eq!(status, StatusCode::OK, "{json}");
         assert!(!switch(&api).await);
+        let (status, _) = put_switch(&api, true, None, |request| bearer(request, &api.token)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, json) = put_switch(&api, false, Some(&code), |request| {
+            as_person(request, &cookie)
+        })
+        .await;
+        assert_eq!(
+            (status, &json["code"]),
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                &json!("step-up-code-invalid")
+            )
+        );
+        assert!(switch(&api).await);
+    }
 
-        // off: the person changes command fields at once, a token still may not
-        let fresh = open_session(&api).await;
+    #[tokio::test]
+    async fn with_the_check_off_the_person_changes_commands_and_a_token_still_may_not() {
+        let api = test_api().await;
+        let cookie = open_session(&api).await;
+        let code = step_up_code(&api).await;
+        let (status, _) = put_switch(&api, false, Some(&code), |request| {
+            as_person(request, &cookie)
+        })
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        // already off: asking again needs nothing more
+        let (status, _) =
+            put_switch(&api, false, None, |request| as_person(request, &cookie)).await;
+        assert_eq!(status, StatusCode::OK);
         let view = config_view(&api).await;
         let body = with_field(&view, "claude.command");
         let (status, json) = save(&api, &body, |request| bearer(request, &api.token)).await;
@@ -1145,19 +1243,10 @@ mod tests {
             (status, &json["code"]),
             (StatusCode::FORBIDDEN, &json!("command-change-needs-person"))
         );
-        let (status, json) = save(&api, &body, |request| as_person(request, &fresh)).await;
+        let (status, json) = save(&api, &body, |request| as_person(request, &cookie)).await;
         assert_eq!(status, StatusCode::OK, "{json}");
-
         // anyone can turn it back on, a token and an unconfirmed session included
-        let (status, _) = put_switch(&api, true, |request| bearer(request, &api.token)).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(switch(&api).await);
-        let (status, _) = put_switch(&api, false, |request| bearer(request, &api.token)).await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        let third = open_session(&api).await;
-        confirm(&api, &third).await;
-        put_switch(&api, false, |request| as_person(request, &third)).await;
-        let (status, _) = put_switch(&api, true, |request| as_person(request, &fresh)).await;
+        let (status, _) = put_switch(&api, true, None, |request| as_person(request, &cookie)).await;
         assert_eq!(status, StatusCode::OK);
         assert!(switch(&api).await);
     }
