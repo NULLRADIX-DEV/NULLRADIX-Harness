@@ -31,6 +31,8 @@ const ALLOWED_EXTENSIONS: &[&str] = &[
 ];
 /// Allowed in addition below `claude/`.
 const CLAUDE_EXTENSIONS: &[&str] = &["ts", "tsx"];
+/// Version of the theme SDK in `sdk/theme`; `cargo xtask check` keeps both in step.
+pub const SDK_VERSION: &str = "1.3.0";
 /// SDK versions from before the Claude Code theme; a theme with one must not match them.
 const SDK_BEFORE_CLAUDE_THEME: [(u64, u64, u64); 3] = [(1, 0, 0), (1, 1, 0), (1, 2, 0)];
 
@@ -794,6 +796,14 @@ mod tests {
         let earlier = vec![FieldError::new("name", "name must be text")];
         let errors = ThemeManifest::build(draft, earlier).unwrap_err();
         assert_eq!(errors, [FieldError::new("name", "name must be text")]);
+    }
+
+    #[test]
+    fn the_sdk_version_is_semver_and_matches_its_own_range() {
+        let version = semver::Version::parse(SDK_VERSION);
+        assert!(version.is_ok_and(|version| {
+            semver::VersionReq::parse("^1.3").is_ok_and(|range| range.matches(&version))
+        }));
     }
 
     #[test]

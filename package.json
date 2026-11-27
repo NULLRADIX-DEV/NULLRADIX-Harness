@@ -12,6 +12,7 @@
   },
   "workspaces": [
     "web",
+    "sdk/theme",
     "tests/e2e"
   ],
   "scripts": {
@@ -19,7 +20,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint --max-warnings 0 .",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test -w web",
+    "test": "npm run test -w web && npm run test -w sdk/theme",
     "build": "npm run build -w web",
     "e2e": "npm run test -w tests/e2e"
   },
