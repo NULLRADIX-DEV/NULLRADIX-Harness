@@ -43,8 +43,7 @@ fn write(path: &Path, text: &str) -> Result<(), SettingsError> {
     write_atomic(path, text.as_bytes()).map_err(io_error(path))
 }
 
-/// Turns the plugin on in the local settings of `root`; every other setting stays as it is.
-/// Returns whether the file was written. Settings that are not valid JSON are never changed.
+/// Turns the plugin on in the local settings; true when written, broken JSON is never changed.
 pub fn enable_plugin(root: &Path, id: &str) -> Result<bool, SettingsError> {
     let file = root.join(LOCAL_SETTINGS);
     let mut settings = match read_text(&file)? {
@@ -69,8 +68,7 @@ pub fn enable_plugin(root: &Path, id: &str) -> Result<bool, SettingsError> {
     Ok(true)
 }
 
-/// Adds the lines that are missing to `info/exclude` of the common git folder.
-/// Returns whether the file was written.
+/// Adds the missing lines to `info/exclude` of the common git folder; true when written.
 pub fn add_git_excludes(common_dir: &Path, lines: &[String]) -> Result<bool, SettingsError> {
     let file = common_dir.join("info").join("exclude");
     let mut text = read_text(&file)?.unwrap_or_default();

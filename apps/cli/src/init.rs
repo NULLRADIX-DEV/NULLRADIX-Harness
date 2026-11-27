@@ -8,7 +8,6 @@ use clap::Args;
 use nullradix_api::{BoardDto, RunnerDto};
 use nullradix_client::Client;
 use serde::Serialize;
-use serde_json::Value;
 use uuid::Uuid;
 
 use crate::board::{bind_repository, local_runner};
@@ -364,6 +363,7 @@ pub(crate) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     const ID: &str = "nullradix@nullradix-local";
 
