@@ -46,6 +46,10 @@ pub struct ConfirmationFacts {
     pub added: nullradix_domain::RiskAdded,
     /// A theme with this id is installed and the package replaces it.
     pub update: bool,
+    /// Version of the package.
+    pub version: String,
+    /// Checksum of the package, set for catalog downloads.
+    pub sha256: Option<String>,
 }
 
 /// Failure of a use case with a stable machine-readable code.

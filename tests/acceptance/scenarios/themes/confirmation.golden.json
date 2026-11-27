@@ -123,8 +123,20 @@
       "install",
       "<WORK>/v2.nullradix"
     ],
+    "exitCode": 1,
+    "name": "an update that adds nothing new still asks because the package has code",
+    "stderr": "error: night-code contains code and network domains fonts.example.com; run it again with --yes to confirm\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v2.nullradix",
+      "--yes"
+    ],
     "exitCode": 0,
-    "name": "an update that adds nothing risky needs no confirmation",
+    "name": "confirming installs the same-code update",
     "stderr": "",
     "stdout": "installed night-code 1.1.0\n"
   },
@@ -153,8 +165,8 @@
       "<WORK>/v3.nullradix"
     ],
     "exitCode": 1,
-    "name": "an update that adds a domain asks for a confirmation",
-    "stderr": "error: night-code adds network domains cdn.example.com; run it again with --yes to confirm\n",
+    "name": "an update that adds a domain asks too",
+    "stderr": "error: night-code contains code and network domains fonts.example.com, cdn.example.com; run it again with --yes to confirm\n",
     "stdout": ""
   },
   {

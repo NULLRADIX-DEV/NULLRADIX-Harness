@@ -220,9 +220,9 @@ pub(crate) struct InstallQuery {
     /// Replace a theme of the same id that was installed from another source or by upload.
     #[serde(default)]
     replace: bool,
-    /// Confirmed: the package may bring code or network domains.
-    #[serde(default)]
-    confirmed: bool,
+    /// Checksum of the package the person confirmed, from the `confirmation` of the refusal.
+    #[serde(default, rename = "confirmedSha256")]
+    confirmed_sha256: Option<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -327,7 +327,7 @@ pub(crate) async fn browse_catalog(
         (status = 200, description = "Replaced the installed theme with the same id", body = ThemeDto),
         (status = 401, body = Problem),
         (status = 404, description = "`catalog-source-not-found` or `catalog-theme-not-found`", body = Problem),
-        (status = 409, description = "`catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmed=true` after the person confirmed the code and domains in the problem)", body = Problem),
+        (status = 409, description = "`catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmedSha256` from the problem)", body = Problem),
         (status = 422, description = "`catalog-checksum-mismatch`, `theme-package-mismatch`, `catalog-too-large`, `catalog-address-refused`, or the package is invalid as an uploaded one", body = Problem),
         (status = 503, description = "The source cannot be reached: `catalog-timeout`, `catalog-unreachable`, `catalog-http-error`", body = Problem),
     )
@@ -339,7 +339,12 @@ pub(crate) async fn install_catalog_theme(
 ) -> Result<(StatusCode, HeaderMap, Json<ThemeDto>), ApiError> {
     let theme = state
         .catalog
-        .install(&path.id, &path.theme, query.replace, query.confirmed)
+        .install(
+            &path.id,
+            &path.theme,
+            query.replace,
+            query.confirmed_sha256.as_deref(),
+        )
         .await?
         .theme;
     crate::claude_theme::resync(&state).await;
@@ -687,7 +692,18 @@ mod tests {
         assert_eq!(problem["confirmation"]["hasCode"], true);
         let (_, list) = call(&api, "GET", "/api/v1/themes", None).await;
         assert_eq!(list["items"].as_array().unwrap().len(), 0);
-        let (status, theme) = call(&api, "POST", &format!("{path}?confirmed=true"), None).await;
+        let sha = problem["confirmation"]["sha256"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let wrong = format!("{path}?confirmedSha256={}", "0".repeat(64));
+        let (status, problem) = call(&api, "POST", &wrong, None).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (409, Some("theme-confirmation-required"))
+        );
+        let right = format!("{path}?confirmedSha256={sha}");
+        let (status, theme) = call(&api, "POST", &right, None).await;
         assert_eq!((status, theme["id"].as_str()), (201, Some("night-blue")));
     }
 }

@@ -59,7 +59,8 @@
     "cli": [
       "theme",
       "install",
-      "<WORK>/night-blue.nullradix"
+      "<WORK>/night-blue.nullradix",
+      "--yes"
     ],
     "exitCode": 0,
     "name": "install the package",

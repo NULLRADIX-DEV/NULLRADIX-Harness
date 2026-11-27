@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nullradix_domain::{
     BUILTIN_THEMES, DEFAULT_THEME, InstalledTheme, RiskAdded, SettingValue, SourceId, ThemeId,
-    ThemeManifest, ThemeSettingValues, Timestamp, Version, asset_segments, content_type,
+    ThemeManifest, ThemeRisk, ThemeSettingValues, Timestamp, Version, asset_segments, content_type,
     inspect_package,
 };
 use std::collections::BTreeMap;
@@ -29,37 +29,37 @@ pub struct Asset {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Installed {
     pub theme: InstalledTheme,
-    /// Code and domains the replaced version lacked; the code switch turns off on any.
+    /// Code, domains and Claude part the replaced version lacked; the code switch turns off on any.
     pub added: RiskAdded,
 }
 
 /// The package needs a confirmation: the facts go with the refusal.
 fn confirmation_required(
     manifest: &ThemeManifest,
-    files: &[PackageFile],
+    risk: ThemeRisk,
     added: RiskAdded,
     update: bool,
 ) -> AppError {
-    let risk = inspect_package(
-        manifest.record(),
-        files.iter().map(|file| file.path.as_str()),
-    );
     let mut parts = Vec::new();
-    if added.code {
+    if risk.has_code {
         parts.push(String::from("code"));
     }
-    if !added.domains.is_empty() {
-        parts.push(format!("network domains {}", added.domains.join(", ")));
+    if risk.claude_theme {
+        parts.push(String::from("a Claude part"));
     }
-    let verb = if update { "adds" } else { "contains" };
+    if !risk.network.is_empty() {
+        parts.push(format!("network domains {}", risk.network.join(", ")));
+    }
     AppError::conflict(
         "theme-confirmation-required",
-        format!("{} {verb} {}", manifest.id(), parts.join(" and ")),
+        format!("{} contains {}", manifest.id(), parts.join(" and ")),
     )
     .with_confirmation(ConfirmationFacts {
         risk,
         added,
         update,
+        version: manifest.record().version.clone(),
+        sha256: None,
     })
 }
 
@@ -337,11 +337,11 @@ impl ThemeService {
             ));
         }
         let known = self.repository.get(manifest.id()).await?;
-        let added = self.added_by(&manifest, &files, known.as_ref()).await?;
-        if !confirmed && !added.is_empty() {
+        let (risk, added) = self.inspect(&manifest, &files, known.as_ref()).await?;
+        if !confirmed && risk.is_risky() {
             return Err(confirmation_required(
                 &manifest,
-                &files,
+                risk,
                 added,
                 known.is_some(),
             ));
@@ -366,26 +366,28 @@ impl ThemeService {
         Ok(Installed { theme, added })
     }
 
-    /// What the package brings that the installed version, if any, did not have.
-    async fn added_by(
+    /// The risk of the package and what it brings that the installed version did not have.
+    async fn inspect(
         &self,
         manifest: &ThemeManifest,
         files: &[PackageFile],
         known: Option<&InstalledTheme>,
-    ) -> Result<RiskAdded, AppError> {
+    ) -> Result<(ThemeRisk, RiskAdded), AppError> {
         let risk = inspect_package(
             manifest.record(),
             files.iter().map(|file| file.path.as_str()),
         );
         let Some(known) = known else {
-            return Ok(risk.added_to(None));
+            let added = risk.added_to(None);
+            return Ok((risk, added));
         };
         let paths = self.files.paths(known.id()).await?;
         let old = inspect_package(
             known.record().manifest.record(),
             paths.iter().map(String::as_str),
         );
-        Ok(risk.added_to(Some(&old)))
+        let added = risk.added_to(Some(&old));
+        Ok((risk, added))
     }
 
     /// The catalog source of every theme installed from one.
@@ -1461,16 +1463,44 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn an_update_that_adds_nothing_risky_needs_no_confirmation() {
+    async fn every_install_of_a_risky_package_needs_a_confirmation_but_a_plain_one_does_not() {
         let fixture = fixture();
         let first = risky("1.0.0", r#""a.example.com""#, true);
-        fixture.service.install(first, true).await.unwrap();
-        let again = risky("1.1.0", r#""A.example.com""#, true);
-        let updated = fixture.service.install(again, false).await.unwrap();
-        assert!(updated.added.is_empty());
-        assert_eq!(updated.theme.record().manifest.record().version, "1.1.0");
+        fixture.service.install(first.clone(), true).await.unwrap();
+        for bytes in [
+            first,
+            risky("1.1.0", r#""A.example.com""#, true),
+            risky("0.9.0", r#""a.example.com""#, true),
+        ] {
+            let error = refused(&fixture, bytes.clone()).await;
+            let facts = error.confirmation().unwrap();
+            assert!(facts.update && facts.risk.has_code && facts.added.is_empty());
+            let done = fixture.service.install(bytes, true).await.unwrap();
+            assert!(done.added.is_empty());
+        }
         let plain = fixture.service.install(night_blue(), false).await.unwrap();
         assert!(plain.added.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_claude_part_and_its_scripts_need_a_confirmation() {
+        let fixture = fixture();
+        let claude = MANIFEST.replace(r#""slots": []"#, r#""slots": [], "claudeTheme": true"#);
+        let build = |extra: &[PackageFile]| {
+            let mut files = vec![
+                file("manifest.json", &claude),
+                file("theme.css", "a { color: red }"),
+                file("claude/hooks/hooks.json", "{}"),
+            ];
+            files.extend(extra.iter().cloned());
+            archive(&files)
+        };
+        let error = refused(&fixture, build(&[])).await;
+        let facts = error.confirmation().unwrap();
+        assert!(facts.risk.claude_theme && !facts.risk.has_code && facts.added.claude_theme);
+        let script = [file("claude/hooks/run.ts", "run()")];
+        let error = refused(&fixture, build(&script)).await;
+        assert!(error.confirmation().unwrap().risk.has_code);
     }
 
     #[tokio::test]

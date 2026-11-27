@@ -1,11 +1,11 @@
 //! What a theme package can do beyond styling, and what an update adds to it.
 
-use crate::theme::{ManifestRecord, extension};
+use crate::theme::{ManifestRecord, extension, is_claude_path};
 
 /// Facts about a package that a person confirms before it is installed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ThemeRisk {
-    /// The package holds script files (`js` or `mjs`).
+    /// The package holds script files (`js`, `mjs`, or `ts` and `tsx` below `claude/`).
     pub has_code: bool,
     /// Domains the theme declares in `permissions.network`, lowercase and without repeats.
     pub network: Vec<String>,
@@ -18,20 +18,22 @@ pub struct ThemeRisk {
 pub struct RiskAdded {
     pub code: bool,
     pub domains: Vec<String>,
+    /// A Claude part the installed version did not have.
+    pub claude_theme: bool,
 }
 
 impl RiskAdded {
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        !self.code && self.domains.is_empty()
+        !self.code && !self.claude_theme && self.domains.is_empty()
     }
 }
 
 impl ThemeRisk {
-    /// Code or declared domains.
+    /// Code, a Claude part or domains: every install of such a package needs a confirmation.
     #[must_use]
     pub fn is_risky(&self) -> bool {
-        self.has_code || !self.network.is_empty()
+        self.has_code || self.claude_theme || !self.network.is_empty()
     }
 
     /// What this package adds to `installed`, or everything risky when nothing is installed.
@@ -46,6 +48,7 @@ impl ThemeRisk {
                 .filter(|domain| !known(domain))
                 .cloned()
                 .collect(),
+            claude_theme: self.claude_theme && !installed.is_some_and(|old| old.claude_theme),
         }
     }
 }
@@ -56,9 +59,11 @@ pub fn inspect_package<'a>(
     manifest: &ManifestRecord,
     paths: impl IntoIterator<Item = &'a str>,
 ) -> ThemeRisk {
-    let has_code = paths
-        .into_iter()
-        .any(|path| extension(path).is_some_and(|ext| ext == "js" || ext == "mjs"));
+    let has_code = paths.into_iter().any(|path| {
+        extension(path).is_some_and(|ext| {
+            ext == "js" || ext == "mjs" || (is_claude_path(path) && (ext == "ts" || ext == "tsx"))
+        })
+    });
     let mut network: Vec<String> = Vec::new();
     for domain in &manifest.network {
         let domain = domain.to_ascii_lowercase();
@@ -109,12 +114,29 @@ mod tests {
 
     #[test]
     fn script_files_anywhere_count_as_code() {
-        for path in ["main.js", "lib/util.mjs", "claude/hooks/run.JS"] {
+        for path in [
+            "main.js",
+            "lib/util.mjs",
+            "claude/hooks/run.JS",
+            "claude/hooks/run.ts",
+            "claude/a/b.tsx",
+        ] {
             let risk = inspect_package(&manifest(&[], false), ["theme.css", path]);
             assert!(risk.has_code, "{path}");
         }
         let risk = inspect_package(&manifest(&[], false), ["theme.css", "js/readme.json"]);
         assert!(!risk.has_code);
+    }
+
+    #[test]
+    fn a_claude_part_alone_is_risky_and_counts_as_added_once() {
+        let risk = inspect_package(
+            &manifest(&[], true),
+            ["theme.css", "claude/hooks/hooks.json"],
+        );
+        assert!(risk.is_risky() && !risk.has_code);
+        assert!(risk.added_to(None).claude_theme);
+        assert!(!risk.added_to(Some(&risk)).claude_theme);
     }
 
     #[test]

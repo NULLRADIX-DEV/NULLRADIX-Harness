@@ -1012,7 +1012,8 @@ mod tests {
             problem["confirmation"],
             json!({
                 "hasCode": true, "domains": ["fonts.example.com"], "claudeTheme": false,
-                "update": false, "added": { "code": true, "domains": ["fonts.example.com"] }
+                "update": false, "version": "1.2.0", "sha256": null,
+                "added": { "code": true, "claudeTheme": false, "domains": ["fonts.example.com"] }
             })
         );
         let (_, list) = call(&api, "GET", "/api/v1/themes", None).await;
@@ -1022,7 +1023,10 @@ mod tests {
         assert_eq!((status, &theme["id"]), (201, &json!("night-blue")));
 
         let newer = domains.replace("1.2.0", "1.3.0");
-        let (status, _, again) = upload(&api, with_code(&newer)).await;
+        let (status, _, problem) = upload(&api, with_code(&newer)).await;
+        assert_eq!(status, 409, "{problem}");
+        assert_eq!(problem["confirmation"]["added"]["code"], false);
+        let (status, _, again) = upload_to(&api, confirmed, with_code(&newer)).await;
         assert_eq!((status, &again["version"]), (200, &json!(2)));
         let more = newer.replace("Fonts.Example.com", "cdn.example.com");
         let (status, _, problem) = upload(&api, with_code(&more)).await;

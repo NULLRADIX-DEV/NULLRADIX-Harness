@@ -254,7 +254,7 @@ mod tests {
             "manifest.json={THEME}\n--\ntheme.css=a {{}}\n--\nclaude/hooks/hooks.json={{}}"
         )
         .into_bytes();
-        let request = bearer(Request::post("/api/v1/themes"), &api.token)
+        let request = bearer(Request::post("/api/v1/themes?confirmed=true"), &api.token)
             .body(Body::from(bytes))
             .unwrap();
         let (status, _, body) = send(&api.router, request).await;

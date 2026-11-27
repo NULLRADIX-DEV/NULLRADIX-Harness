@@ -35,7 +35,7 @@
     },
     {
       "name": "install the package",
-      "cli": { "args": ["theme", "install", "{{WORK}}/night-blue.nullradix"] }
+      "cli": { "args": ["theme", "install", "{{WORK}}/night-blue.nullradix", "--yes"] }
     },
     {
       "name": "choose the installed theme",

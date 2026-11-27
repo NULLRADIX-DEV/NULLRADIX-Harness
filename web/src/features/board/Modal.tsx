@@ -17,6 +17,7 @@ function focusables(node: HTMLElement): HTMLElement[] {
 export interface ModalProps {
   labelledBy: string;
   describedBy?: string;
+  role?: 'dialog' | 'alertdialog';
   onEscape: () => void;
   onSubmit: (event: SubmitEvent<HTMLFormElement>) => void;
   className?: string;
@@ -27,6 +28,7 @@ export interface ModalProps {
 export function Modal({
   labelledBy,
   describedBy,
+  role = 'dialog',
   onEscape,
   onSubmit,
   className = 'panel db-modal',
@@ -70,7 +72,7 @@ export function Modal({
     <div className="db-modal-backdrop">
       <form
         ref={ref}
-        role="dialog"
+        role={role}
         aria-modal="true"
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}

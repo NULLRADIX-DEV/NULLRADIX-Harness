@@ -46,13 +46,19 @@ pub struct ConfirmationDto {
     pub update: bool,
     /// What the package adds to the installed version; everything risky for a new install.
     pub added: AddedDto,
+    /// Version of the package.
+    pub version: String,
+    /// Checksum of a catalog package; send it back as `confirmedSha256` to confirm exactly it.
+    pub sha256: Option<String>,
 }
 
 /// Code and domains a package brings that the installed version lacked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct AddedDto {
     pub code: bool,
     pub domains: Vec<String>,
+    pub claude_theme: bool,
 }
 
 impl From<&ConfirmationFacts> for ConfirmationDto {
@@ -62,9 +68,12 @@ impl From<&ConfirmationFacts> for ConfirmationDto {
             domains: facts.risk.network.clone(),
             claude_theme: facts.risk.claude_theme,
             update: facts.update,
+            version: facts.version.clone(),
+            sha256: facts.sha256.clone(),
             added: AddedDto {
                 code: facts.added.code,
                 domains: facts.added.domains.clone(),
+                claude_theme: facts.added.claude_theme,
             },
         }
     }

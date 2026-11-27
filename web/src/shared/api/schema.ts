@@ -1912,6 +1912,7 @@ export interface components {
         };
         /** @description Code and domains a package brings that the installed version lacked. */
         AddedDto: {
+            claudeTheme: boolean;
             code: boolean;
             domains: string[];
         };
@@ -2192,8 +2193,12 @@ export interface components {
             domains: string[];
             /** @description The package holds script files. */
             hasCode: boolean;
+            /** @description Checksum of a catalog package; send it back as `confirmedSha256` to confirm exactly it. */
+            sha256?: string | null;
             /** @description The package replaces an installed theme. */
             update: boolean;
+            /** @description Version of the package. */
+            version: string;
         };
         /** @description Context use after the last answer, input and cache included. */
         ContextUsageDto: {
@@ -9794,8 +9799,8 @@ export interface operations {
             query?: {
                 /** @description Replace a theme of the same id that was installed from another source or by upload. */
                 replace?: boolean;
-                /** @description Confirmed: the package may bring code or network domains. */
-                confirmed?: boolean;
+                /** @description Checksum of the package the person confirmed, from the `confirmation` of the refusal. */
+                confirmedSha256?: string;
             };
             header?: never;
             path: {
@@ -9845,7 +9850,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmed=true` after the person confirmed the code and domains in the problem) */
+            /** @description `catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmedSha256` from the problem) */
             409: {
                 headers: {
                     [name: string]: unknown;

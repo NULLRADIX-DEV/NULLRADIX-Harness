@@ -7092,12 +7092,12 @@
             }
           },
           {
-            "name": "confirmed",
+            "name": "confirmedSha256",
             "in": "query",
-            "description": "Confirmed: the package may bring code or network domains.",
+            "description": "Checksum of the package the person confirmed, from the `confirmation` of the refusal.",
             "required": false,
             "schema": {
-              "type": "boolean"
+              "type": "string"
             }
           }
         ],
@@ -7150,7 +7150,7 @@
             }
           },
           "409": {
-            "description": "`catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmed=true` after the person confirmed the code and domains in the problem)",
+            "description": "`catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmedSha256` from the problem)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10271,9 +10271,13 @@
         "description": "Code and domains a package brings that the installed version lacked.",
         "required": [
           "code",
-          "domains"
+          "domains",
+          "claudeTheme"
         ],
         "properties": {
+          "claudeTheme": {
+            "type": "boolean"
+          },
           "code": {
             "type": "boolean"
           },
@@ -11129,7 +11133,8 @@
           "domains",
           "claudeTheme",
           "update",
-          "added"
+          "added",
+          "version"
         ],
         "properties": {
           "added": {
@@ -11151,9 +11156,20 @@
             "type": "boolean",
             "description": "The package holds script files."
           },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Checksum of a catalog package; send it back as `confirmedSha256` to confirm exactly it."
+          },
           "update": {
             "type": "boolean",
             "description": "The package replaces an installed theme."
+          },
+          "version": {
+            "type": "string",
+            "description": "Version of the package."
           }
         }
       },

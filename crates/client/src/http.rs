@@ -682,7 +682,7 @@ impl Client {
         decode(&mut response, 200)
     }
 
-    /// Installs a theme a source offers; `replace` takes over one, `confirmed` allows new code.
+    /// Installs a theme a source offers; `confirmed` confirms the package the daemon names.
     pub fn install_from_catalog(
         &self,
         source: &str,
@@ -690,32 +690,49 @@ impl Client {
         replace: bool,
         confirmed: bool,
     ) -> Result<ThemeDto, ClientError> {
-        let query = match (replace, confirmed) {
-            (false, false) => "",
-            (true, false) => "?replace=true",
-            (false, true) => "?confirmed=true",
-            (true, true) => "?replace=true&confirmed=true",
-        };
-        let route = format!(
-            "/theme-catalog/sources/{}/themes/{}/install{query}",
+        let base = format!(
+            "/theme-catalog/sources/{}/themes/{}/install",
             segment(source),
             segment(theme)
         );
-        let mut response = self
-            .agent
-            .post(&self.url(&route))
-            .config()
-            .timeout_global(Some(DOWNLOAD_TIMEOUT))
-            .build()
-            .header("Authorization", &self.authorization()?)
-            .send_empty()
-            .map_err(|source| self.unreachable(source))?;
+        let query = if replace { "?replace=true" } else { "" };
+        let mut response = self.post_install(&format!("{base}{query}"))?;
+        if confirmed && response.status().as_u16() == 409 {
+            let problem = response.body_mut().read_json::<Problem>().ok();
+            let sha = problem
+                .as_ref()
+                .filter(|problem| problem.code == "theme-confirmation-required")
+                .and_then(|problem| problem.confirmation.as_ref())
+                .and_then(|facts| facts.sha256.clone());
+            if let Some(sha) = sha {
+                let joiner = if replace { '&' } else { '?' };
+                let route = format!("{base}{query}{joiner}confirmedSha256={sha}");
+                response = self.post_install(&route)?;
+            } else if let Some(problem) = problem {
+                return Err(ClientError::Refused {
+                    status: 409,
+                    detail: describe(&problem),
+                    code: problem.code,
+                });
+            }
+        }
         let expected = if response.status().as_u16() == 200 {
             200
         } else {
             201
         };
         decode(&mut response, expected)
+    }
+
+    fn post_install(&self, route: &str) -> Result<Response<Body>, ClientError> {
+        self.agent
+            .post(&self.url(route))
+            .config()
+            .timeout_global(Some(DOWNLOAD_TIMEOUT))
+            .build()
+            .header("Authorization", &self.authorization()?)
+            .send_empty()
+            .map_err(|source| self.unreachable(source))
     }
 
     /// Whether the Claude part of the chosen theme is put into the Claude folders, and where.

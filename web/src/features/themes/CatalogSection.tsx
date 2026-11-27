@@ -133,7 +133,7 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
           facts={facts}
           busy={install.isPending}
           onConfirm={() => {
-            install.mutate({ ...asked, confirmed: true });
+            install.mutate({ ...asked, confirmedSha256: facts.sha256 ?? undefined });
           }}
           onCancel={install.reset}
         />

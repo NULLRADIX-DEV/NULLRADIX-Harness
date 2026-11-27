@@ -32,6 +32,7 @@ export function ThemeConfirmDialog({
     <Modal
       labelledBy={titleId}
       describedBy={descriptionId}
+      role="alertdialog"
       className="panel db-dialog"
       onEscape={onCancel}
       onSubmit={(event) => {
@@ -41,36 +42,39 @@ export function ThemeConfirmDialog({
     >
       <strong id={titleId}>{update ? `Update ${name}?` : `Install ${name}?`}</strong>
       <div id={descriptionId} className="theme-confirm-facts">
-        {facts.added.code && (
+        {facts.hasCode && (
           <p>
-            {update ? 'This update adds code.' : 'This theme contains code.'} Code runs in NULLRADIX
-            with full rights. Install it only from a source you trust.
+            This package contains code
+            {update && facts.added.code ? ' (new in this update)' : ''}. Code runs in NULLRADIX with
+            full rights. Install it only from a source you trust.
           </p>
         )}
-        {facts.added.domains.length > 0 && (
+        {facts.claudeTheme && (
+          <p>
+            It has a Claude Code theme that is put into the Claude folders
+            {update && facts.added.claudeTheme ? ' (new in this update)' : ''}.
+          </p>
+        )}
+        {facts.domains.length > 0 && (
           <>
-            <p>
-              {update
-                ? 'This update adds network domains:'
-                : 'This theme declares network domains:'}
-            </p>
+            <p>It declares network domains:</p>
             <ul aria-label="Network domains">
-              {facts.added.domains.map((domain) => (
-                <li key={domain}>{domain}</li>
+              {facts.domains.map((domain) => (
+                <li key={domain}>
+                  {domain}
+                  {update && facts.added.domains.includes(domain) ? ' (new)' : ''}
+                </li>
               ))}
             </ul>
           </>
         )}
-        {facts.claudeTheme && (
-          <p>It also brings a Claude Code theme that is put into the Claude folders.</p>
-        )}
       </div>
       <div className="actions">
-        <button type="submit" className="btn primary" disabled={busy}>
-          {update ? 'Update' : 'Install'}
-        </button>
         <button type="button" className="btn" onClick={onCancel}>
           Cancel
+        </button>
+        <button type="submit" className="btn primary" disabled={busy}>
+          {update ? 'Update' : 'Install'}
         </button>
       </div>
     </Modal>

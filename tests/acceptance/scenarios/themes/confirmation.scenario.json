@@ -51,8 +51,12 @@
       "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v2.nullradix"] }
     },
     {
-      "name": "an update that adds nothing risky needs no confirmation",
+      "name": "an update that adds nothing new still asks because the package has code",
       "cli": { "args": ["theme", "install", "{{WORK}}/v2.nullradix"] }
+    },
+    {
+      "name": "confirming installs the same-code update",
+      "cli": { "args": ["theme", "install", "{{WORK}}/v2.nullradix", "--yes"] }
     },
     {
       "name": "manifest of an update with another domain",
@@ -66,7 +70,7 @@
       "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v3.nullradix"] }
     },
     {
-      "name": "an update that adds a domain asks for a confirmation",
+      "name": "an update that adds a domain asks too",
       "cli": { "args": ["theme", "install", "{{WORK}}/v3.nullradix"] }
     },
     {

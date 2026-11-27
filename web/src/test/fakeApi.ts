@@ -55,7 +55,9 @@ export function confirmation(overrides: Partial<Confirmation>): Response {
     domains: [],
     claudeTheme: false,
     update: false,
-    added: { code: false, domains: [] },
+    version: '1.0.0',
+    sha256: null,
+    added: { code: false, claudeTheme: false, domains: [] },
     ...overrides,
   };
   const body = {
