@@ -1,0 +1,31 @@
+.step-up-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 420px;
+  padding: 10px 14px;
+}
+
+.step-up-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.step-up-panel p {
+  margin: 0;
+}
+
+.step-up-code-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.step-up-code-row input {
+  flex: 1;
+  min-width: 0;
+}

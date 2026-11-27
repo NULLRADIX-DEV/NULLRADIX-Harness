@@ -494,6 +494,11 @@ export function SetupStepsEditor({ form, errors, edit }: Omit<EditorProps, 'acco
           );
         })}
       </ol>
+      {errors['worktreeSetup'] !== undefined && (
+        <p className="form-error" role="alert">
+          {errors['worktreeSetup']}
+        </p>
+      )}
       <div>
         <Button
           type="button"

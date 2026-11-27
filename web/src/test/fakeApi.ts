@@ -18,12 +18,13 @@ export function problem(status: number, code: string, detail: string): Response 
   });
 }
 
-export const signedIn: Handler = () => json(200, { kind: 'session' });
+export const signedIn: Handler = () => json(200, { kind: 'session', elevatedUntil: null });
 export const signedOut: Handler = () => problem(401, 'credentials-missing', 'sign in first');
 
 const defaults: Record<string, Handler> = {
   'GET /api/v1/health': () => json(200, { status: 'ok', version: '0.1.0', apiVersion: 1 }),
   'GET /api/v1/auth/me': signedIn,
+  'GET /api/v1/settings/step-up': () => json(200, { required: true }),
 };
 
 // Routes by "METHOD /path"; unknown routes answer 404.

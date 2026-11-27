@@ -12,10 +12,17 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider, createBrowserRouter } from 'react-router';
 import { AppProviders } from './app/providers';
 import { createQueryClient } from './app/queryClient';
+import { adoptTabKey } from './shared/api/tabKey';
 import { routes } from './app/routes';
+import { StepUpCapture } from './features/stepUp/StepUpCapture';
+import { takeConfirmCode } from './features/stepUp/confirmLink';
 import { loadThemeModule } from './shared/lib/loadThemeModule';
 import { dismissStartOverlay } from './shared/lib/startOverlay';
 import { themesQuery } from './shared/query/themes';
+
+// before the router reads the address: the sign-in leaves the key of this tab in it
+adoptTabKey();
+const confirmCode = takeConfirmCode();
 
 const container = document.getElementById('root');
 if (!container) throw new Error('missing #root element');
@@ -30,6 +37,7 @@ function Root() {
   return (
     <AppProviders queryClient={queryClient}>
       <RouterProvider router={router} />
+      <StepUpCapture first={confirmCode} />
     </AppProviders>
   );
 }

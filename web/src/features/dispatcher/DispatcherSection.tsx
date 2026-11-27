@@ -28,6 +28,7 @@ import {
   useSaveDispatcherConfig,
   type DispatcherConfigView,
 } from './queries';
+import { STEP_UP_HOW, StepUpPanel } from '../stepUp/StepUpPanel';
 import './dispatcher.css';
 import { Button } from '../../shared/ui/Button';
 import { Panel } from '../../shared/ui/Panel';
@@ -39,6 +40,8 @@ export const INVALID_MESSAGE = 'Some fields are not valid. They are marked below
 const MESSAGES = {
   'version-conflict': CONFLICT_MESSAGE,
   'dispatcher-config-invalid': INVALID_MESSAGE,
+  'step-up-required': `The fields that run commands are marked below. ${STEP_UP_HOW}`,
+  'command-change-needs-person': 'Only the person in the app can change the fields marked below.',
 };
 
 function serverErrors(error: unknown): FieldErrors {
@@ -435,7 +438,7 @@ function AutoRuns({ form, errors, edit }: FormProps) {
   );
 }
 
-function ClaudeSettings({ form, edit }: FormProps) {
+function ClaudeSettings({ form, errors, edit }: FormProps) {
   const set = <K extends keyof DispatcherForm>(key: K, value: DispatcherForm[K]) => {
     edit((current) => ({ ...current, [key]: value }));
   };
@@ -446,6 +449,7 @@ function ClaudeSettings({ form, edit }: FormProps) {
         hint="claude or a full path."
         mono
         value={form.command}
+        error={errors['claude.command']}
         onChange={(value) => {
           set('command', value);
         }}
@@ -454,6 +458,7 @@ function ClaudeSettings({ form, edit }: FormProps) {
         label="Permission mode"
         hint="Value of --permission-mode."
         value={form.permissionMode}
+        error={errors['claude.permissionMode']}
         onChange={(value) => {
           set('permissionMode', value);
         }}
@@ -463,6 +468,7 @@ function ClaudeSettings({ form, edit }: FormProps) {
         hint="Empty means the dispatcher looks for it."
         mono
         value={form.gitBashPath}
+        error={errors['claude.gitBashPath']}
         onChange={(value) => {
           set('gitBashPath', value);
         }}
@@ -472,6 +478,7 @@ function ClaudeSettings({ form, edit }: FormProps) {
         hint="What the agent may do without asking (--allowedTools)."
         rows={6}
         value={form.allowedTools}
+        error={errors['claude.allowedTools'] ?? errors['claude.extraArgs']}
         onChange={(value) => {
           set('allowedTools', value);
         }}
@@ -566,6 +573,9 @@ function ConfigEditor({
       <AccountSettings {...props} />
       <AutoRuns {...props} />
       <ClaudeSettings {...props} />
+      <Group title="Confirmation">
+        <StepUpPanel />
+      </Group>
       <FormError
         message={problemMessage(save.error, MESSAGES, 'Could not save the configuration.')}
       />

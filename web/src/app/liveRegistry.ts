@@ -14,6 +14,7 @@ import { customizationsLive } from '../features/customizations/queries';
 import { snippetsLive } from '../features/snippets/queries';
 import { favoritesLive } from '../features/sessions/favoriteQueries';
 import { sessionsLive } from '../features/sessions/queries';
+import { stepUpLive } from '../features/stepUp/queries';
 import { ticketsLive } from '../features/tickets/queries';
 import { defineChangeRegistry } from '../shared/live/registry';
 
@@ -35,4 +36,5 @@ export const liveRegistry = defineChangeRegistry(
   catalogLive,
   customizationsLive,
   snippetsLive,
+  stepUpLive,
 );
