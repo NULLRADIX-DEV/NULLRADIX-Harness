@@ -147,6 +147,24 @@
       }
     },
     {
+      "name": "an agent adds a step",
+      "cli": {
+        "args": ["step", "add", "ARC-1", "Agent step", "--author", "claude"],
+        "env": {
+          "NULLRADIX_SESSION": "session-1"
+        }
+      }
+    },
+    {
+      "name": "an agent checks it",
+      "cli": {
+        "args": ["step", "check", "ARC-1", "2", "--author", "claude"],
+        "env": {
+          "NULLRADIX_SESSION": "session-1"
+        }
+      }
+    },
+    {
       "name": "detail",
       "http": {
         "method": "GET",

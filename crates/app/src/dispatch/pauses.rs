@@ -20,7 +20,7 @@ use crate::accounts::AccountService;
 use crate::comments::CommentService;
 use crate::notifier::{Notice, NoticeKind, Notifier};
 use crate::runs::{RunFilter, RunService};
-use crate::tickets::TicketService;
+use crate::tickets::{TicketService, WriteOptions};
 use crate::{AppError, Clock, ErrorKind};
 
 /// Limit pauses in a row that count no attempt; the next one counts as one.
@@ -520,7 +520,13 @@ impl PauseHook for DispatchPauses {
         if ours {
             match self
                 .tickets
-                .release(&text, Some("planned"), actor, Some(current.version), false)
+                .release(
+                    &text,
+                    Some("planned"),
+                    actor,
+                    Some(current.version),
+                    WriteOptions::default(),
+                )
                 .await
             {
                 Ok(_) => {}

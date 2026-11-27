@@ -16,7 +16,7 @@ The board is the task tracker. Change tickets only through `nullradix`, never by
 5. A missing decision from the user is a question (`nullradix question add ... --ticket KEY`), not a blocked reason.
 6. Order belongs in dependencies (`--depends-on`), not in the description.
 7. A finding about something else is a note, not a comment and not a ticket on suspicion.
-8. Pass `--author claude` (`--agent claude` for claim) so the history shows who acted.
+8. Pass `--author claude` (`--agent claude` for claim) on every write, steps and create included, so the history shows who acted.
 9. Never use `--force`, delete, switch or create boards or projects without being told to.
 
 ## Columns
@@ -24,7 +24,8 @@ The board is the task tracker. Change tickets only through `nullradix`, never by
 `backlog`, `in-planning`, `planned`, `in-progress`, `done`, plus `blocked` and `not-needed`.
 
 - `not-needed` and `in-planning` belong to the user; `move` and `claim` refuse them. If a ticket looks superfluous, comment.
-- Tickets with an open dependency or question wait; claim and move to in-progress or done fail.
+- Tickets with an open dependency or question wait; claim, release, plan and move to in-progress or done fail, and done without acceptance fails everywhere.
+- A blocked reason belongs to `blocked`: set `--status blocked` and `--blocked-reason` together; a reason on any other status is refused.
 - Order within a column follows priority, then number (`ticket set KEY --priority high`).
 
 ## Read first

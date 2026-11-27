@@ -116,6 +116,9 @@ pub(crate) struct WriteArgs {
     acceptance: Option<String>,
     #[arg(long)]
     status: Option<String>,
+    /// Who plans, such as claude; the person the daemon acts for when left out
+    #[arg(long)]
+    author: Option<String>,
 }
 
 pub(crate) fn run(
@@ -131,8 +134,8 @@ pub(crate) fn run(
                 diagram: text(args.diagram, args.diagram_file.as_deref())?,
                 acceptance: args.acceptance,
                 status: args.status,
-                author: None,
-                session: None,
+                author: args.author,
+                session: agent_session(),
             };
             report(
                 &client.write_plan(&canonical(&args.key)?, &input)?,
@@ -169,6 +172,7 @@ pub(crate) fn run(
                     agent,
                     project_id: project,
                     board_id: board,
+                    session: agent_session(),
                 })?,
                 None => client.next_planning(project, board)?,
             };
@@ -178,12 +182,16 @@ pub(crate) fn run(
             }
         }
         PlanCommand::Claim { key, agent } => {
-            let ticket = client.claim_planning(&canonical(&key)?, &ClaimPlanning { agent })?;
+            let input = ClaimPlanning {
+                agent,
+                session: agent_session(),
+            };
+            let ticket = client.claim_planning(&canonical(&key)?, &input)?;
             report(&ticket, "claimed for planning");
         }
         PlanCommand::Release { key, agent } => {
             let key = canonical(&key)?;
-            client.release_planning(&key, &agent)?;
+            client.release_planning(&key, &agent, agent_session().as_deref())?;
             println!("{key} no longer claimed for planning by {agent}");
         }
     }

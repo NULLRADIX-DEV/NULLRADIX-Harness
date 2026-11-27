@@ -1931,10 +1931,14 @@ export interface components {
              * @description Position from 1; without one the step goes last.
              */
             at?: number | null;
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
             /** @description Guidance for the step; blank guidance is none. */
             detail?: string | null;
             /** @description The text the step at `at` had when it was read. */
             expectText?: string | null;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
             text: string;
             /**
              * Format: int64
@@ -2095,10 +2099,14 @@ export interface components {
         ChangeOriginDto: "git" | "transcript" | "none";
         /** @description A change of one step; left out fields stay, a `null` detail removes the guidance. */
         ChangeStep: {
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
             detail?: string | null;
             done?: boolean | null;
             /** @description The text the step had when it was read. */
             expectText?: string | null;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
             text?: string | null;
             /** Format: int64 */
             version?: number | null;
@@ -2125,6 +2133,8 @@ export interface components {
         };
         ClaimPlanning: {
             agent: string;
+            /** @description Agent session of the caller; the agent then writes as a session of that name. */
+            session?: string | null;
         };
         ClaimSession: {
             /** @description The ticket the session now works on. */
@@ -2135,6 +2145,8 @@ export interface components {
             agent: string;
             /** @description Takes the ticket from another assignee and lifts the locks. */
             force?: boolean;
+            /** @description Agent session of the caller; the agent then writes as a session of that name. */
+            session?: string | null;
             status?: components["schemas"]["TicketStatusDto"] | null;
             /** Format: int64 */
             version?: number | null;
@@ -2313,6 +2325,8 @@ export interface components {
             acceptance?: string | null;
             /** @description Allows an open ticket with the same title on the board. */
             allowDuplicate?: boolean;
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
             /** @description Ticket keys, case and padding do not matter. */
             dependsOn?: string[];
             description?: string | null;
@@ -2322,6 +2336,8 @@ export interface components {
             labels?: string[];
             needsPlanning?: boolean | null;
             priority?: components["schemas"]["PriorityDto"] | null;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
             status?: components["schemas"]["TicketStatusDto"] | null;
             /** @description Texts of work steps, none done. */
             steps?: string[];
@@ -2723,6 +2739,10 @@ export interface components {
         };
         /** @description Tickets of other boards of the same project to bring onto this board. */
         ImportTickets: {
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
             /** @description 1 to 200 ticket keys; all move or none. */
             ticketKeys: string[];
         };
@@ -2905,7 +2925,11 @@ export interface components {
         };
         /** @description A move of one step to another number. */
         MoveStep: {
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
             expectText?: string | null;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
             /** Format: int64 */
             to: number;
             /** Format: int64 */
@@ -2946,6 +2970,8 @@ export interface components {
             boardId?: string | null;
             /** Format: uuid */
             projectId?: string | null;
+            /** @description Agent session of the caller; the agent then writes as a session of that name. */
+            session?: string | null;
         };
         /** @description A finding kept for a later ticket; timestamps are Unix milliseconds. */
         NoteDto: {
@@ -3321,6 +3347,10 @@ export interface components {
             kind: components["schemas"]["HookKindDto"];
         };
         ReleaseTicket: {
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
             status?: components["schemas"]["TicketStatusDto"] | null;
         };
         RenameBoard: {
@@ -3846,6 +3876,8 @@ export interface components {
         };
         /** @description Starts a ticket from a folder on a runner; `joinTicket` and `join` exclude each other. */
         StartTicket: {
+            /** @description Name to write under, such as `claude`; the acting person when left out. */
+            author?: string | null;
             /** @description Absolute folder in the board's repository; without a target the branch starts at its HEAD. */
             cwd: string;
             /** @description Lifts the dependency and question locks. */
@@ -3856,6 +3888,8 @@ export interface components {
             joinTicket?: string | null;
             /** Format: uuid */
             runnerId: string;
+            /** @description Agent session of the caller; a name then writes as a session of that name. */
+            session?: string | null;
         };
         StartedTicket: {
             branch: string;
@@ -11424,6 +11458,8 @@ export interface operations {
             query: {
                 /** @description Name of the agent that holds the claim. */
                 agent: string;
+                /** @description Agent session of the caller; the agent then writes as a session of that name. */
+                session?: string;
             };
             header?: never;
             path: {
@@ -12100,6 +12136,10 @@ export interface operations {
                 version?: number;
                 /** @description The text the step had when it was read. */
                 expectText?: string;
+                /** @description Name to write under, such as `claude`; the acting person when left out. */
+                author?: string;
+                /** @description Agent session of the caller; a name then writes as a session of that name. */
+                session?: string;
             };
             header?: never;
             path: {

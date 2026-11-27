@@ -101,7 +101,102 @@
       "name": "accept twice",
       "http": { "method": "POST", "path": "/api/v1/tickets/ARC-1/accept", "body": {} }
     },
+    {
+      "name": "release done without acceptance",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-2/release",
+        "body": {
+          "status": "done"
+        }
+      }
+    },
+    {
+      "name": "release not needed as an agent",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-2/release",
+        "body": {
+          "status": "not-needed"
+        }
+      }
+    },
+    {
+      "name": "plan done without acceptance",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/tickets/ARC-2/plan",
+        "body": {
+          "plan": "Done already",
+          "status": "done"
+        }
+      }
+    },
+    {
+      "name": "claim done without acceptance",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-2/claim",
+        "body": {
+          "agent": "claude",
+          "status": "done"
+        }
+      }
+    },
+    {
+      "name": "a run plans past its gate under a name",
+      "cli": {
+        "args": [
+          "plan",
+          "write",
+          "ARC-2",
+          "--plan",
+          "Done already",
+          "--acceptance",
+          "It works",
+          "--status",
+          "done",
+          "--author",
+          "planner-ARC-0002"
+        ],
+        "env": {
+          "NULLRADIX_RUN": "run-1"
+        }
+      }
+    },
     { "name": "release", "cli": { "args": ["ticket", "release", "ARC-2", "--status", "planned"] } },
+    {
+      "name": "the person plans it away",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/tickets/ARC-2/plan",
+        "body": {
+          "plan": "Not now",
+          "status": "not-needed"
+        },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "the person releases it",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-2/release",
+        "body": {
+          "status": "planned"
+        },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "plan under a name in a session",
+      "cli": {
+        "args": ["plan", "write", "ARC-2", "--plan", "Again", "--author", "planner-ARC-0002"],
+        "env": {
+          "NULLRADIX_SESSION": "session-1"
+        }
+      }
+    },
     { "name": "detail", "http": { "method": "GET", "path": "/api/v1/tickets/ARC-1" } }
   ]
 }

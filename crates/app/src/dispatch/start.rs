@@ -893,7 +893,13 @@ Account: {} ({}).",
         }
         let released = self
             .tickets
-            .release(&text, Some("planned"), actor, Some(version), false)
+            .release(
+                &text,
+                Some("planned"),
+                actor,
+                Some(version),
+                WriteOptions::default(),
+            )
             .await;
         if let Err(error) = released
             && error.kind() != ErrorKind::Conflict

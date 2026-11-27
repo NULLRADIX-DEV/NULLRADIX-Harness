@@ -588,6 +588,40 @@
     "stdout": "\nBacklog (1)\n  ARC-0001  Stepped  [planning] [1/1 steps]\n"
   },
   {
+    "cli": [
+      "step",
+      "add",
+      "ARC-1",
+      "Agent step",
+      "--author",
+      "claude"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 0,
+    "name": "an agent adds a step",
+    "stderr": "",
+    "stdout": "ARC-0001: step 2 added (1/2 done).\n  1. [x] Write\n  2. [ ] Agent step\n"
+  },
+  {
+    "cli": [
+      "step",
+      "check",
+      "ARC-1",
+      "2",
+      "--author",
+      "claude"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 0,
+    "name": "an agent checks it",
+    "stderr": "",
+    "stdout": "ARC-0001: 2/2 steps done.\n"
+  },
+  {
     "name": "detail",
     "request": {
       "method": "GET",
@@ -659,6 +693,24 @@
             "from": "2: Plan it",
             "note": "step removed",
             "to": null
+          },
+          {
+            "actorId": "<ID-9>",
+            "actorName": "claude",
+            "at": "<TIME>",
+            "field": "step",
+            "from": null,
+            "note": "step added",
+            "to": "2: Agent step"
+          },
+          {
+            "actorId": "<ID-9>",
+            "actorName": "claude",
+            "at": "<TIME>",
+            "field": "step",
+            "from": "2: open",
+            "note": "Agent step",
+            "to": "2: done"
           }
         ],
         "steps": [
@@ -668,6 +720,13 @@
             "id": "<ID-5>",
             "number": 1,
             "text": "Write"
+          },
+          {
+            "detail": null,
+            "done": true,
+            "id": "<ID-10>",
+            "number": 2,
+            "text": "Agent step"
           }
         ],
         "ticket": {
@@ -700,13 +759,13 @@
           "priority": "normal",
           "projectId": "<ID-1>",
           "status": "backlog",
-          "stepsDone": 1,
-          "stepsTotal": 1,
+          "stepsDone": 2,
+          "stepsTotal": 2,
           "targetBranch": null,
           "title": "Stepped",
           "unlocks": [],
           "updatedAt": "<TIME>",
-          "version": 7,
+          "version": 9,
           "waiting": false,
           "worktree": null
         }

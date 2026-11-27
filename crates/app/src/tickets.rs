@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    ASSIGNEE_MAX, Actor, ActorKind, AgentWriteRefusal, Board, BoardMoveError, ClaimError, Column,
+    ASSIGNEE_MAX, Actor, AgentWriteRefusal, Board, BoardMoveError, ClaimError, Column,
     DependencyIndex, HistoryEntry, Id, PlanChange, Priority, Project, ProjectKey, RuleError,
     StatusFacts, StatusLock, StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError,
     Ticket, TicketDraft, TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle,
@@ -344,6 +344,9 @@ pub fn invalid(error: &TicketError) -> AppError {
         TicketError::Title(text) => AppError::text(*text, "title-empty", message),
         TicketError::Assignee(text) | TicketError::BlockedReason(text) => {
             AppError::text(*text, "value-too-long", message)
+        }
+        TicketError::BlockedReasonNotBlocked => {
+            AppError::invalid("blocked-reason-not-blocked", message)
         }
         TicketError::TargetBranchTooLong(_) => AppError::invalid("value-too-long", message),
         TicketError::InvalidTargetBranch(_) | TicketError::TicketBranchTarget(_) => {
@@ -694,7 +697,7 @@ impl TicketService {
         })
     }
 
-    /// Changes fields as legacy `update` did; a change without effect still bumps the version.
+    /// Changes fields as legacy `update` did; a change without effect writes nothing.
     pub async fn update(
         &self,
         key: &str,
@@ -716,6 +719,10 @@ impl TicketService {
         let before = load(write.as_mut(), &key, Some(expected)).await?;
         let index = write.dependency_index().await?;
         let after = apply(write.as_mut(), &before, patch, status, priority, &index).await?;
+        if changes(before.record(), &after).is_empty() {
+            drop(write);
+            return self.get(&key.to_string()).await;
+        }
         guard_agent_write(write.as_mut(), options.from_agent, &before, &after).await?;
         check_change(write.as_mut(), &before, &after, &index, options).await?;
         let now = self.clock.now();
@@ -888,33 +895,27 @@ impl TicketService {
         let name = agent_name(agent)?;
         let before = load(write.as_mut(), &key, expected).await?;
         before.claim_precheck(status, force).map_err(claim_error)?;
-        let index = write.dependency_index().await?;
-        let mut facts = StatusFacts::default();
-        if !force {
-            facts.open_dependencies = index.open_dependencies(&before.record().depends_on);
-            // the question read only matters when no dependency refuses first
-            if facts.open_dependencies.is_empty() {
-                facts.open_questions = open_question_keys(write.as_mut(), before.id()).await?;
-            }
-        }
-        let mut after = before
-            .claimed(name, status, force, &facts)
-            .map_err(claim_error)?;
+        let mut after = before.claimed(name, status);
         if before.record().changes_column(&after) {
             after.sort_order = write.next_sort_order(after.board, status).await?;
         }
-        self.save(write, &before, after, actor, Some("claimed"), from_agent)
+        let options = WriteOptions {
+            force,
+            from_agent,
+            ..WriteOptions::default()
+        };
+        self.save(write, &before, after, actor, Some("claimed"), options)
             .await
     }
 
-    /// Clears the assignee; a given status applies without any lock.
+    /// Clears the assignee; a given status runs the locks of any other status change.
     pub async fn release(
         &self,
         key: &str,
         status: Option<&str>,
         actor: &Actor,
         expected: Option<Version>,
-        from_agent: bool,
+        options: WriteOptions,
     ) -> Result<TicketView, AppError> {
         let status = optional_status(status)?;
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
@@ -924,7 +925,7 @@ impl TicketService {
         if before.record().changes_column(&after) {
             after.sort_order = write.next_sort_order(after.board, after.status).await?;
         }
-        self.save(write, &before, after, actor, Some("released"), from_agent)
+        self.save(write, &before, after, actor, Some("released"), options)
             .await
     }
 
@@ -949,19 +950,17 @@ impl TicketService {
         after.sort_order = write
             .next_sort_order(after.board, TicketStatus::Done)
             .await?;
-        let index = write.dependency_index().await?;
-        check_change(write.as_mut(), &before, &after, &index, options).await?;
-        self.save(write, &before, after, actor, Some("accepted"), false)
+        self.save(write, &before, after, actor, Some("accepted"), options)
             .await
     }
 
-    /// Writes the plan as legacy `plan` did: no locks, planned unless told, claim cleared.
+    /// Writes the plan: the status locks of any change apply, planned unless told, claim cleared.
     pub async fn plan(
         &self,
         key: &str,
         input: &PlanInput,
         actor: &Actor,
-        from_agent: bool,
+        options: WriteOptions,
     ) -> Result<TicketView, AppError> {
         if input.plan.is_none() && input.handbook.is_none() && input.diagram.is_none() {
             return Err(AppError::invalid(
@@ -987,7 +986,7 @@ impl TicketService {
             }
         }
         let status = optional_status(input.status.as_deref())?.unwrap_or(TicketStatus::Planned);
-        if actor.kind() != ActorKind::Human
+        if options.from_agent
             && !matches!(
                 status,
                 TicketStatus::Planned | TicketStatus::Blocked | TicketStatus::InPlanning
@@ -1022,7 +1021,7 @@ impl TicketService {
         } else {
             "planned"
         };
-        self.save(write, &before, after, actor, Some(note), from_agent)
+        self.save(write, &before, after, actor, Some(note), options)
             .await
     }
 
@@ -1044,8 +1043,8 @@ impl TicketService {
         let after = before
             .planning_claimed(name, self.clock.now())
             .map_err(|error| AppError::conflict("plan-claimed", error.to_string()))?;
-        self.save(write, &before, after, actor, None, from_agent)
-            .await
+        let options = agent_options(from_agent);
+        self.save(write, &before, after, actor, None, options).await
     }
 
     /// Gives up the planning claim; a claim of someone else stays without a word.
@@ -1062,7 +1061,8 @@ impl TicketService {
         let Some(after) = before.planning_released(agent) else {
             return Ok(());
         };
-        self.save(write, &before, after, actor, None, from_agent)
+        let options = agent_options(from_agent);
+        self.save(write, &before, after, actor, None, options)
             .await?;
         Ok(())
     }
@@ -1115,8 +1115,9 @@ impl TicketService {
             let Ok(after) = before.planning_claimed(name.clone(), now) else {
                 continue;
             };
+            let options = agent_options(from_agent);
             return Ok(Some(
-                self.save(write, &before, after, actor, None, from_agent)
+                self.save(write, &before, after, actor, None, options)
                     .await?,
             ));
         }
@@ -1131,9 +1132,13 @@ impl TicketService {
         after: TicketRecord,
         actor: &Actor,
         note: Option<&str>,
-        from_agent: bool,
+        options: WriteOptions,
     ) -> Result<TicketView, AppError> {
-        guard_agent_write(write.as_mut(), from_agent, before, &after).await?;
+        guard_agent_write(write.as_mut(), options.from_agent, before, &after).await?;
+        if before.status() != after.status {
+            let index = write.dependency_index().await?;
+            check_change(write.as_mut(), before, &after, &index, options).await?;
+        }
         let now = self.clock.now();
         let revised = before.revised(after, now);
         let history = self.history(before, &revised, actor, now, note);
@@ -1291,6 +1296,13 @@ impl TicketService {
     }
 }
 
+fn agent_options(from_agent: bool) -> WriteOptions {
+    WriteOptions {
+        from_agent,
+        ..WriteOptions::default()
+    }
+}
+
 fn optional_status(text: Option<&str>) -> Result<Option<TicketStatus>, AppError> {
     text.map(TicketStatus::parse)
         .transpose()
@@ -1439,15 +1451,21 @@ async fn check_change(
     index: &DependencyIndex,
     options: WriteOptions,
 ) -> Result<(), AppError> {
-    let facts = StatusFacts {
-        acceptance_blank: after.acceptance.trim().is_empty(),
-        open_dependencies: index.open_dependencies(&after.depends_on),
-        open_questions: open_question_keys(write, before.id()).await?,
-    };
     let request = StatusRequest {
         by_person: options.by_person,
         force: options.force && !options.from_agent,
     };
+    let mut facts = StatusFacts {
+        acceptance_blank: after.acceptance.trim().is_empty(),
+        ..StatusFacts::default()
+    };
+    if !request.force {
+        facts.open_dependencies = index.open_dependencies(&after.depends_on);
+        // a dependency refuses before the questions are asked
+        if facts.open_dependencies.is_empty() {
+            facts.open_questions = open_question_keys(write, before.id()).await?;
+        }
+    }
     check_status_change(Some(before.status()), after.status, request, &facts)
         .map_err(|error| locked(&error))
 }

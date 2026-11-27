@@ -35,6 +35,7 @@ const TICKET_MESSAGES: ProblemMessages = {
   'comment-empty': 'A comment needs a text.',
   'target-branch-invalid': 'This is not a valid branch name.',
   'target-branch-locked': 'The target branch can only change before the ticket starts.',
+  'blocked-reason-not-blocked': 'A reason belongs to a blocked ticket; block the ticket first.',
 };
 
 // Text for a failed change of `ticket`; open dependencies are named.

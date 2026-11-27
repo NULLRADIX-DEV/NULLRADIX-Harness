@@ -56,7 +56,7 @@
       "http": {
         "method": "PATCH",
         "path": "/api/v1/tickets/ARC-1",
-        "body": { "version": 2, "targetBranch": "release/1" }
+        "body": { "version": 1, "targetBranch": "release/1" }
       }
     }
   ]

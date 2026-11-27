@@ -698,6 +698,155 @@
     }
   },
   {
+    "name": "a reason without blocked",
+    "request": {
+      "body": {
+        "blockedReason": "why",
+        "version": 3
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-2"
+    },
+    "response": {
+      "json": {
+        "code": "blocked-reason-not-blocked",
+        "detail": "a blocked reason belongs to a ticket that is blocked; set the status to blocked too",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:blocked-reason-not-blocked"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a change without effect",
+    "request": {
+      "body": {
+        "priority": "normal",
+        "title": "Top",
+        "version": 3
+      },
+      "method": "PATCH",
+      "path": "/api/v1/tickets/ARC-2"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "waits"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "targetBranch",
+            "from": null,
+            "note": null,
+            "to": "release/2"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "blocked",
+            "note": null,
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": "waits",
+            "note": null,
+            "to": null
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "targetBranch",
+            "from": "release/2",
+            "note": null,
+            "to": null
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "waiting",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [
+            "ARC-0001"
+          ],
+          "dependsOpen": [
+            "ARC-0001"
+          ],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-5>",
+          "key": "ARC-0002",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 2,
+          "openQuestions": [],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Top",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 3,
+          "waiting": true,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
+  },
+  {
     "cli": [
       "ticket",
       "set",

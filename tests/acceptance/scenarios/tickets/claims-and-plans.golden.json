@@ -359,8 +359,8 @@
             "to": "backlog"
           },
           {
-            "actorId": "<ID-3>",
-            "actorName": "tester",
+            "actorId": "<ID-6>",
+            "actorName": "planner",
             "at": "<TIME>",
             "field": "planningClaimBy",
             "from": null,
@@ -440,8 +440,8 @@
             "to": "8 characters"
           },
           {
-            "actorId": "<ID-3>",
-            "actorName": "tester",
+            "actorId": "<ID-7>",
+            "actorName": "claude",
             "at": "<TIME>",
             "field": "status",
             "from": "planned",
@@ -449,8 +449,8 @@
             "to": "in-progress"
           },
           {
-            "actorId": "<ID-3>",
-            "actorName": "tester",
+            "actorId": "<ID-7>",
+            "actorName": "claude",
             "at": "<TIME>",
             "field": "assignee",
             "from": null,
@@ -551,6 +551,110 @@
     }
   },
   {
+    "name": "release done without acceptance",
+    "request": {
+      "body": {
+        "status": "done"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-2/release"
+    },
+    "response": {
+      "json": {
+        "code": "acceptance-missing",
+        "detail": "a ticket is done only with acceptance criteria",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:acceptance-missing"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "release not needed as an agent",
+    "request": {
+      "body": {
+        "status": "not-needed"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-2/release"
+    },
+    "response": {
+      "json": {
+        "code": "not-needed-human-only",
+        "detail": "only a person may decide that a ticket is not needed",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:not-needed-human-only"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "plan done without acceptance",
+    "request": {
+      "body": {
+        "plan": "Done already",
+        "status": "done"
+      },
+      "method": "PUT",
+      "path": "/api/v1/tickets/ARC-2/plan"
+    },
+    "response": {
+      "json": {
+        "code": "acceptance-missing",
+        "detail": "a ticket is done only with acceptance criteria",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:acceptance-missing"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "claim done without acceptance",
+    "request": {
+      "body": {
+        "agent": "claude",
+        "status": "done"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-2/claim"
+    },
+    "response": {
+      "json": {
+        "code": "acceptance-missing",
+        "detail": "a ticket is done only with acceptance criteria",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:acceptance-missing"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-2",
+      "--plan",
+      "Done already",
+      "--acceptance",
+      "It works",
+      "--status",
+      "done",
+      "--author",
+      "planner-ARC-0002"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run plans past its gate under a name",
+    "stderr": "error: the daemon refused the request: an agent plans only into planned, blocked or in-planning, not done (plan-status-denied)\n",
+    "stdout": ""
+  },
+  {
     "cli": [
       "ticket",
       "release",
@@ -562,6 +666,133 @@
     "name": "release",
     "stderr": "",
     "stdout": "ARC-0002 released (planned)\n"
+  },
+  {
+    "name": "the person plans it away",
+    "request": {
+      "auth": "session",
+      "body": {
+        "plan": "Not now",
+        "status": "not-needed"
+      },
+      "method": "PUT",
+      "path": "/api/v1/tickets/ARC-2/plan"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "not-needed",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-5>",
+        "key": "ARC-0002",
+        "labels": [],
+        "needsPlanning": false,
+        "number": 2,
+        "openQuestions": [],
+        "plan": "Not now",
+        "plannedAt": "<TIME>",
+        "plannedBy": "tester",
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "not-needed",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Then me",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 3,
+        "waiting": false,
+        "worktree": null
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the person releases it",
+    "request": {
+      "auth": "session",
+      "body": {
+        "status": "planned"
+      },
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-2/release"
+    },
+    "response": {
+      "json": {
+        "acceptance": "",
+        "assignee": null,
+        "blockedReason": null,
+        "boardId": "<ID-2>",
+        "branch": null,
+        "column": "planned",
+        "createdAt": "<TIME>",
+        "createdById": "<ID-3>",
+        "createdByName": "tester",
+        "dependents": [],
+        "dependsOn": [],
+        "dependsOpen": [],
+        "description": "",
+        "diagram": "",
+        "handbook": "",
+        "id": "<ID-5>",
+        "key": "ARC-0002",
+        "labels": [],
+        "needsPlanning": false,
+        "number": 2,
+        "openQuestions": [],
+        "plan": "Not now",
+        "plannedAt": "<TIME>",
+        "plannedBy": "tester",
+        "planningClaimAt": null,
+        "planningClaimBy": null,
+        "priority": "normal",
+        "projectId": "<ID-1>",
+        "status": "planned",
+        "stepsDone": 0,
+        "stepsTotal": 0,
+        "targetBranch": null,
+        "title": "Then me",
+        "unlocks": [],
+        "updatedAt": "<TIME>",
+        "version": 4,
+        "waiting": false,
+        "worktree": null
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-2",
+      "--plan",
+      "Again",
+      "--author",
+      "planner-ARC-0002"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 0,
+    "name": "plan under a name in a session",
+    "stderr": "",
+    "stdout": "ARC-0002 planned (planned)\n"
   },
   {
     "name": "detail",
@@ -583,8 +814,8 @@
             "to": "backlog"
           },
           {
-            "actorId": "<ID-3>",
-            "actorName": "tester",
+            "actorId": "<ID-6>",
+            "actorName": "planner",
             "at": "<TIME>",
             "field": "planningClaimBy",
             "from": null,
@@ -664,8 +895,8 @@
             "to": "8 characters"
           },
           {
-            "actorId": "<ID-3>",
-            "actorName": "tester",
+            "actorId": "<ID-7>",
+            "actorName": "claude",
             "at": "<TIME>",
             "field": "status",
             "from": "planned",
@@ -673,8 +904,8 @@
             "to": "in-progress"
           },
           {
-            "actorId": "<ID-3>",
-            "actorName": "tester",
+            "actorId": "<ID-7>",
+            "actorName": "claude",
             "at": "<TIME>",
             "field": "assignee",
             "from": null,

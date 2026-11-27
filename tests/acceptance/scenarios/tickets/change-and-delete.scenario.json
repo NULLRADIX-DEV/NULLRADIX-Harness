@@ -98,6 +98,29 @@
         "body": { "version": 2, "status": "backlog", "blockedReason": null, "targetBranch": null }
       }
     },
+    {
+      "name": "a reason without blocked",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-2",
+        "body": {
+          "version": 3,
+          "blockedReason": "why"
+        }
+      }
+    },
+    {
+      "name": "a change without effect",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/tickets/ARC-2",
+        "body": {
+          "version": 3,
+          "title": "Top",
+          "priority": "normal"
+        }
+      }
+    },
     { "name": "set without fields", "cli": { "args": ["ticket", "set", "ARC-2"] } },
     {
       "name": "move without status",

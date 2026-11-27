@@ -189,6 +189,11 @@ impl AbortAttempts {
                 Aborted::Postponed
             });
         }
+        // only the final abort forces its way past the locks
+        let options = WriteOptions {
+            force: last,
+            ..WriteOptions::default()
+        };
         let changed = if last {
             let patch = TicketPatch {
                 status: Some(String::from("blocked")),
@@ -198,17 +203,13 @@ impl AbortAttempts {
                 assignee: Some(None),
                 ..TicketPatch::default()
             };
-            let options = WriteOptions {
-                force: true,
-                ..WriteOptions::default()
-            };
             self.tickets
                 .update(&text, &patch, actor, record.version, options)
                 .await
                 .map(|_| ())
         } else if request.standing == Standing::Claimed {
             self.tickets
-                .release(&text, Some("planned"), actor, Some(record.version), false)
+                .release(&text, Some("planned"), actor, Some(record.version), options)
                 .await
                 .map(|_| ())
         } else {

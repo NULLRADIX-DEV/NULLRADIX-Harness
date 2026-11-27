@@ -53,6 +53,12 @@ const PERSON: WriteOptions = WriteOptions {
     allow_duplicate: false,
     from_agent: false,
 };
+const FROM_AGENT: WriteOptions = WriteOptions {
+    by_person: false,
+    force: false,
+    allow_duplicate: false,
+    from_agent: true,
+};
 
 async fn fixture() -> Fixture {
     let store = Arc::new(Store::in_memory().await.unwrap());
@@ -668,14 +674,43 @@ async fn updates_check_locks_and_versions_like_legacy() {
         (TicketStatus::InProgress, 3)
     );
 
-    // legacy bumps the version even when nothing really changes
+    // a change without effect writes nothing, but a stale version still fails
     let same = TicketPatch {
         title: Some(String::from("Base")),
         ..patch()
     };
-    let bumped = fx.update("ARC-1", same, 3, AGENT).await.unwrap();
-    assert_eq!(bumped.view.ticket.record().version.value(), 4);
-    assert_eq!(bumped.history.len(), 3);
+    let kept = fx.update("ARC-1", same.clone(), 3, AGENT).await.unwrap();
+    assert_eq!(kept.view.ticket.record().version.value(), 3);
+    assert_eq!(kept.history.len(), 3);
+    assert_eq!(
+        fx.update("ARC-1", same, 2, AGENT).await.unwrap_err(),
+        "version-conflict"
+    );
+}
+
+#[tokio::test]
+async fn a_no_op_update_changes_no_version_and_sends_no_change() {
+    let mut fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("One"), AGENT).await.unwrap();
+    let same = TicketPatch {
+        title: Some(String::from("One")),
+        priority: Some(String::from("normal")),
+        labels: Some(Vec::new()),
+        ..patch()
+    };
+    fx.head.borrow_and_update();
+    let detail = fx.update("ARC-1", same.clone(), 1, AGENT).await.unwrap();
+    assert_eq!(detail.view.ticket.record().version, Version::INITIAL);
+    assert_eq!(detail.history.len(), 1);
+    assert!(!fx.head.has_changed().unwrap());
+    let real = TicketPatch {
+        priority: Some(String::from("high")),
+        ..same
+    };
+    let changed = fx.update("ARC-1", real, 1, AGENT).await.unwrap();
+    assert_eq!(changed.view.ticket.record().version.value(), 2);
+    assert!(fx.head.has_changed().unwrap());
 }
 
 #[tokio::test]
@@ -685,7 +720,6 @@ async fn updates_write_fields_and_move_between_boards_of_one_project() {
     fx.create(&board, titled("Base"), AGENT).await.unwrap();
     let fields = TicketPatch {
         assignee: Some(Some(String::from(" claude "))),
-        blocked_reason: Some(Some(String::from("waits"))),
         labels: Some(vec![String::from("ui, UI, api")]),
         description: Some(String::from("four")),
         target_branch: Some(Some(String::from("release/2"))),
@@ -701,13 +735,7 @@ async fn updates_write_fields_and_move_between_boards_of_one_project() {
         .collect();
     assert_eq!(
         fields,
-        [
-            "assignee",
-            "blockedReason",
-            "targetBranch",
-            "labels",
-            "description"
-        ]
+        ["assignee", "targetBranch", "labels", "description"]
     );
     let cleared = TicketPatch {
         assignee: Some(None),
@@ -942,26 +970,36 @@ async fn updates_clear_the_block_reason_and_lock_not_needed_like_legacy() {
         ..patch()
     };
     fx.update("ARC-1", blocked, 1, AGENT).await.unwrap();
-    let kept = TicketPatch {
+    let noted = TicketPatch {
         status: Some(String::from("planned")),
         blocked_reason: Some(Some(String::from("still noted"))),
         ..patch()
     };
-    let detail = fx.update("ARC-1", kept, 2, AGENT).await.unwrap();
     assert_eq!(
-        detail.view.ticket.record().blocked_reason.as_deref(),
-        Some("still noted")
+        fx.update("ARC-1", noted, 2, AGENT).await.unwrap_err(),
+        "blocked-reason-not-blocked"
+    );
+    let still = fx.tickets.get("ARC-1").await.unwrap();
+    assert_eq!(still.view.ticket.record().version.value(), 2);
+    assert_eq!(
+        still.view.ticket.record().blocked_reason.as_deref(),
+        Some("waits")
     );
     let again = TicketPatch {
         status: Some(String::from("blocked")),
+        blocked_reason: Some(Some(String::from("waits again"))),
         ..patch()
     };
-    fx.update("ARC-1", again, 3, AGENT).await.unwrap();
+    let detail = fx.update("ARC-1", again, 2, AGENT).await.unwrap();
+    assert_eq!(
+        detail.view.ticket.record().blocked_reason.as_deref(),
+        Some("waits again")
+    );
     let left = TicketPatch {
         status: Some(String::from("backlog")),
         ..patch()
     };
-    let detail = fx.update("ARC-1", left, 4, AGENT).await.unwrap();
+    let detail = fx.update("ARC-1", left, 3, AGENT).await.unwrap();
     let record = detail.view.ticket.record();
     assert_eq!(record.blocked_reason, None);
     // ARC-2 holds place 1 in the backlog, so ARC-1 comes after it
@@ -1324,7 +1362,7 @@ async fn claims_take_free_tickets_and_release_gives_them_back() {
 
     let released = fx
         .tickets
-        .release("ARC-1", Some("planned"), &fx.person, None, false)
+        .release("ARC-1", Some("planned"), &fx.person, None, AGENT)
         .await
         .unwrap();
     let record = released.ticket.record();
@@ -1362,7 +1400,7 @@ async fn a_release_on_a_stale_version_changes_nothing() {
         .unwrap();
     let refused = fx
         .tickets
-        .release("ARC-1", Some("planned"), &fx.person, Some(stale), false)
+        .release("ARC-1", Some("planned"), &fx.person, Some(stale), AGENT)
         .await
         .unwrap_err();
     assert_eq!(refused.code(), "version-conflict");
@@ -1474,7 +1512,7 @@ async fn plans_and_planning_claims_follow_the_legacy_rules() {
     assert_eq!(owner, Some("other"));
 
     let empty = tickets
-        .plan("ARC-1", &PlanInput::default(), &fx.person, false)
+        .plan("ARC-1", &PlanInput::default(), &fx.person, PERSON)
         .await;
     assert_eq!(empty.unwrap_err().code(), "plan-empty");
     let plan = PlanInput {
@@ -1484,7 +1522,7 @@ async fn plans_and_planning_claims_follow_the_legacy_rules() {
         ..PlanInput::default()
     };
     let planned = tickets
-        .plan("ARC-1", &plan, &fx.person, false)
+        .plan("ARC-1", &plan, &fx.person, PERSON)
         .await
         .unwrap();
     let record = planned.ticket.record();
@@ -1529,7 +1567,7 @@ async fn an_agent_plans_only_into_planned_blocked_or_in_planning() {
             status: Some(status.to_owned()),
             ..PlanInput::default()
         };
-        let refused = fx.tickets.plan("ARC-1", &input, &agent, false).await;
+        let refused = fx.tickets.plan("ARC-1", &input, &agent, FROM_AGENT).await;
         assert_eq!(
             refused.unwrap_err().code(),
             "plan-status-denied",
@@ -1543,17 +1581,27 @@ async fn an_agent_plans_only_into_planned_blocked_or_in_planning() {
             ..PlanInput::default()
         };
         fx.tickets
-            .plan("ARC-1", &input, &agent, false)
+            .plan("ARC-1", &input, &agent, FROM_AGENT)
             .await
             .unwrap();
     }
+    // the gate asks the headers of the request, not the kind of the author it resolved to
     let input = PlanInput {
         plan: Some(String::from("Do it")),
         status: Some(String::from("done")),
+        acceptance: Some(String::from("It works")),
         ..PlanInput::default()
     };
+    let named_outside_a_session = fx
+        .tickets
+        .plan("ARC-1", &input, &fx.person, FROM_AGENT)
+        .await;
+    assert_eq!(
+        named_outside_a_session.unwrap_err().code(),
+        "plan-status-denied"
+    );
     fx.tickets
-        .plan("ARC-1", &input, &fx.person, false)
+        .plan("ARC-1", &input, &agent, AGENT)
         .await
         .unwrap();
 }
@@ -1577,7 +1625,7 @@ async fn a_plan_text_above_the_cap_is_a_field_problem_and_one_at_the_cap_is_kept
             "diagram" => input.diagram = text,
             _ => input.acceptance = text,
         }
-        let refused = fx.tickets.plan("ARC-1", &input, &fx.person, false).await;
+        let refused = fx.tickets.plan("ARC-1", &input, &fx.person, PERSON).await;
         assert_eq!(refused.unwrap_err().code(), "value-too-long", "{field}");
     }
     let input = PlanInput {
@@ -1586,7 +1634,7 @@ async fn a_plan_text_above_the_cap_is_a_field_problem_and_one_at_the_cap_is_kept
     };
     let planned = fx
         .tickets
-        .plan("ARC-1", &input, &fx.person, false)
+        .plan("ARC-1", &input, &fx.person, PERSON)
         .await
         .unwrap();
     assert_eq!(planned.ticket.record().plan, at_cap);
@@ -1723,7 +1771,7 @@ async fn claims_and_plans_keep_versions_columns_and_history_like_legacy() {
     assert_eq!(order(&same), 2);
     let released = fx
         .tickets
-        .release("ARC-3", Some("in-progress"), &fx.person, None, false)
+        .release("ARC-3", Some("in-progress"), &fx.person, None, AGENT)
         .await
         .unwrap();
     assert_eq!(order(&released), 2);
@@ -2135,4 +2183,342 @@ async fn a_claim_reads_dependencies_and_questions_only_when_the_checks_before_th
     );
     let (result, seen) = claim("ARC-3", None, true).await;
     assert_eq!((result, seen), (Ok(()), vec!["dependency_index"]));
+}
+
+/// Leaves a reason on a ticket that is not blocked, as a row from before the rule would.
+async fn plant_stale_reason(fx: &Fixture, key: &str, reason: &str) {
+    let mut write = TicketRepository::begin(fx.store.as_ref()).await.unwrap();
+    let before = write
+        .ticket(&TicketKey::parse(key).unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut after = before.record().clone();
+    after.blocked_reason = Some(reason.to_owned());
+    let revised = before.revised(after, SystemClock.now());
+    write
+        .update(&revised, before.record().version, &[])
+        .await
+        .unwrap();
+    write.commit().await.unwrap();
+}
+
+async fn record_of(fx: &Fixture, key: &str) -> nullradix_domain::TicketRecord {
+    fx.tickets
+        .get(key)
+        .await
+        .unwrap()
+        .view
+        .ticket
+        .record()
+        .clone()
+}
+
+#[tokio::test]
+async fn release_runs_the_status_locks_of_a_move() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("Base"), AGENT).await.unwrap();
+    let top = NewTicket {
+        depends_on: vec![String::from("ARC-1")],
+        ..titled("Top")
+    };
+    fx.create(&board, top, AGENT).await.unwrap();
+    fx.tickets
+        .claim(
+            "ARC-2",
+            "claude",
+            Some("planned"),
+            &fx.person,
+            None,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+    let before = record_of(&fx, "ARC-2").await;
+    let release = |status: &'static str, options: WriteOptions| {
+        let fx = &fx;
+        async move {
+            fx.tickets
+                .release("ARC-2", Some(status), &fx.person, None, options)
+                .await
+                .map_err(|error| error.code().to_owned())
+        }
+    };
+
+    assert_eq!(
+        release("done", AGENT).await.unwrap_err(),
+        "acceptance-missing"
+    );
+    assert_eq!(
+        release("done", PERSON).await.unwrap_err(),
+        "acceptance-missing"
+    );
+    let acceptance = TicketPatch {
+        acceptance: Some(String::from("It works")),
+        ..patch()
+    };
+    fx.update("ARC-2", acceptance, before.version.value(), AGENT)
+        .await
+        .unwrap();
+    for status in ["done", "in-progress"] {
+        assert_eq!(
+            release(status, AGENT).await.unwrap_err(),
+            "dependency-open",
+            "{status}"
+        );
+    }
+    assert_eq!(
+        release("not-needed", AGENT).await.unwrap_err(),
+        "not-needed-human-only"
+    );
+    assert_eq!(
+        release("not-needed", FROM_AGENT).await.unwrap_err(),
+        "not-needed-human-only"
+    );
+    let still = record_of(&fx, "ARC-2").await;
+    assert_eq!(still.assignee.as_deref(), Some("claude"));
+    assert_eq!(still.status, TicketStatus::Planned);
+
+    let given_back = release("planned", AGENT).await.unwrap();
+    assert_eq!(given_back.ticket.record().assignee, None);
+    fx.tickets
+        .claim(
+            "ARC-2",
+            "claude",
+            Some("planned"),
+            &fx.person,
+            None,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+    let unneeded = release("not-needed", PERSON).await.unwrap();
+    let record = unneeded.ticket.record();
+    assert_eq!(
+        (record.assignee.as_deref(), record.status),
+        (None, TicketStatus::NotNeeded)
+    );
+}
+
+#[tokio::test]
+async fn plan_runs_the_status_locks_of_a_move() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("Base"), AGENT).await.unwrap();
+    let top = NewTicket {
+        depends_on: vec![String::from("ARC-1")],
+        acceptance: Some(String::from("Known")),
+        ..titled("Top")
+    };
+    fx.create(&board, top, AGENT).await.unwrap();
+    fx.create(&board, titled("Bare"), AGENT).await.unwrap();
+    let plan =
+        |key: &'static str, status: &str, acceptance: Option<&str>, options: WriteOptions| {
+            let input = PlanInput {
+                plan: Some(String::from("Do it")),
+                status: Some(status.to_owned()),
+                acceptance: acceptance.map(str::to_owned),
+                ..PlanInput::default()
+            };
+            let fx = &fx;
+            async move {
+                fx.tickets
+                    .plan(key, &input, &fx.person, options)
+                    .await
+                    .map_err(|error| error.code().to_owned())
+            }
+        };
+
+    assert_eq!(
+        plan("ARC-3", "done", None, PERSON).await.unwrap_err(),
+        "acceptance-missing"
+    );
+    assert_eq!(
+        plan("ARC-3", "done", Some("  "), PERSON).await.unwrap_err(),
+        "acceptance-missing"
+    );
+    assert_eq!(
+        plan("ARC-2", "done", None, PERSON).await.unwrap_err(),
+        "dependency-open"
+    );
+    assert_eq!(
+        plan("ARC-2", "in-progress", None, AGENT).await.unwrap_err(),
+        "dependency-open"
+    );
+    assert_eq!(
+        plan("ARC-2", "not-needed", None, AGENT).await.unwrap_err(),
+        "not-needed-human-only"
+    );
+    assert_eq!(record_of(&fx, "ARC-2").await.plan, "");
+    assert!(plan("ARC-2", "planned", None, FROM_AGENT).await.is_ok());
+    assert!(
+        plan("ARC-3", "done", Some("It works"), PERSON)
+            .await
+            .is_ok()
+    );
+    assert!(plan("ARC-2", "not-needed", None, PERSON).await.is_ok());
+}
+
+#[tokio::test]
+async fn claim_runs_the_status_locks_of_a_move() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("Base"), AGENT).await.unwrap();
+    let top = NewTicket {
+        depends_on: vec![String::from("ARC-1")],
+        acceptance: Some(String::from("Known")),
+        ..titled("Top")
+    };
+    fx.create(&board, top, AGENT).await.unwrap();
+    let claim = |key: &'static str, status: &'static str, force: bool, from_agent: bool| {
+        let fx = &fx;
+        async move {
+            fx.tickets
+                .claim(
+                    key,
+                    "claude",
+                    Some(status),
+                    &fx.person,
+                    None,
+                    force,
+                    from_agent,
+                )
+                .await
+                .map_err(|error| error.code().to_owned())
+        }
+    };
+
+    for (force, from_agent) in [(false, false), (true, false), (true, true)] {
+        assert_eq!(
+            claim("ARC-1", "done", force, from_agent).await.unwrap_err(),
+            "acceptance-missing",
+            "{force} {from_agent}"
+        );
+    }
+    assert_eq!(
+        claim("ARC-2", "done", false, false).await.unwrap_err(),
+        "dependency-open"
+    );
+    assert_eq!(
+        claim("ARC-2", "in-progress", true, true).await.unwrap_err(),
+        "dependency-open"
+    );
+    assert!(claim("ARC-2", "in-progress", true, false).await.is_ok());
+    assert!(claim("ARC-1", "planned", false, false).await.is_ok());
+    assert_eq!(record_of(&fx, "ARC-1").await.status, TicketStatus::Planned);
+}
+
+#[tokio::test]
+async fn a_reason_left_outside_blocked_goes_with_the_next_write() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    let ready = |title: &str| NewTicket {
+        status: Some(String::from("planned")),
+        acceptance: Some(String::from("Known")),
+        ..titled(title)
+    };
+    for title in ["Update", "Move", "Claim", "Release", "Plan"] {
+        fx.create(&board, ready(title), AGENT).await.unwrap();
+        let key = format!("ARC-{}", record_count(&fx).await);
+        plant_stale_reason(&fx, &key, "Human Interaction: look").await;
+    }
+    let reason = |key: &'static str| {
+        let fx = &fx;
+        async move { record_of(fx, key).await.blocked_reason }
+    };
+    for key in ["ARC-1", "ARC-2", "ARC-3", "ARC-4", "ARC-5"] {
+        assert_eq!(
+            reason(key).await.as_deref(),
+            Some("Human Interaction: look")
+        );
+    }
+
+    let title = TicketPatch {
+        title: Some(String::from("Update again")),
+        ..patch()
+    };
+    fx.update("ARC-1", title, 2, AGENT).await.unwrap();
+    fx.tickets
+        .move_to("ARC-2", Some("planned"), None, &fx.person, None, PERSON)
+        .await
+        .unwrap();
+    fx.tickets
+        .claim("ARC-3", "claude", None, &fx.person, None, false, false)
+        .await
+        .unwrap();
+    fx.tickets
+        .release("ARC-4", None, &fx.person, None, AGENT)
+        .await
+        .unwrap();
+    let input = PlanInput {
+        plan: Some(String::from("Do it")),
+        ..PlanInput::default()
+    };
+    fx.tickets
+        .plan("ARC-5", &input, &fx.person, AGENT)
+        .await
+        .unwrap();
+    for key in ["ARC-1", "ARC-2", "ARC-3", "ARC-4", "ARC-5"] {
+        assert_eq!(reason(key).await, None, "{key}");
+    }
+}
+
+async fn record_count(fx: &Fixture) -> usize {
+    fx.tickets
+        .list(&TicketFilter::default())
+        .await
+        .unwrap()
+        .len()
+}
+
+#[tokio::test]
+async fn a_blocked_reason_belongs_to_blocked_and_blocked_needs_none() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    fx.create(&board, titled("One"), AGENT).await.unwrap();
+    let with = |status: Option<&str>, reason: Option<Option<&str>>| TicketPatch {
+        status: status.map(str::to_owned),
+        blocked_reason: reason.map(|reason| reason.map(str::to_owned)),
+        ..patch()
+    };
+    let refused = fx
+        .update("ARC-1", with(None, Some(Some("why"))), 1, AGENT)
+        .await;
+    assert_eq!(refused.unwrap_err(), "blocked-reason-not-blocked");
+    let refused = fx
+        .update("ARC-1", with(Some("planned"), Some(Some("why"))), 1, AGENT)
+        .await;
+    assert_eq!(refused.unwrap_err(), "blocked-reason-not-blocked");
+    assert_eq!(record_of(&fx, "ARC-1").await.version, Version::INITIAL);
+
+    let bare = fx
+        .update("ARC-1", with(Some("blocked"), None), 1, AGENT)
+        .await
+        .unwrap();
+    assert_eq!(bare.view.ticket.record().blocked_reason, None);
+    let reasoned = fx
+        .update("ARC-1", with(None, Some(Some("  why  "))), 2, AGENT)
+        .await
+        .unwrap();
+    assert_eq!(
+        reasoned.view.ticket.record().blocked_reason.as_deref(),
+        Some("why")
+    );
+    let other = TicketPatch {
+        priority: Some(String::from("high")),
+        ..patch()
+    };
+    let kept = fx.update("ARC-1", other, 3, AGENT).await.unwrap();
+    assert_eq!(
+        kept.view.ticket.record().blocked_reason.as_deref(),
+        Some("why")
+    );
+    let cleared = fx
+        .update("ARC-1", with(Some("planned"), Some(None)), 4, AGENT)
+        .await
+        .unwrap();
+    assert_eq!(cleared.view.ticket.record().blocked_reason, None);
 }

@@ -29,6 +29,12 @@ pub struct StartTicket {
     /// Lifts the dependency and question locks.
     #[serde(default)]
     pub force: bool,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -200,11 +206,21 @@ pub struct ResumedTicket {
 )]
 pub(crate) async fn start_ticket(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<StartTicket>,
 ) -> Result<Json<StartedTicket>, ApiError> {
     let mode = StartMode::of(input.join_ticket, input.join)?;
+    let actor = crate::tickets::author_of(
+        &state,
+        &principal,
+        context,
+        input.author.as_deref(),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let started = state
         .worktrees
         .start(
@@ -214,7 +230,7 @@ pub(crate) async fn start_ticket(
             mode,
             input.force,
             context.is_agent(),
-            &state.person,
+            &actor,
         )
         .await?;
     Ok(Json(started.into()))

@@ -10,7 +10,7 @@ use super::abort::{AbortAttempts, AbortRequest, Aborted, Standing};
 use super::pass::{PassContext, PassReport, PassStep};
 use super::start::TicketStarter;
 use crate::runs::RunService;
-use crate::tickets::{TicketFilter, TicketService};
+use crate::tickets::{TicketFilter, TicketService, WriteOptions};
 use crate::{AppError, ErrorKind};
 
 const MINUTE_MS: i64 = 60_000;
@@ -115,7 +115,13 @@ impl PassStep for ReleaseStale {
             }
             match self
                 .tickets
-                .release(&key, Some("planned"), actor, Some(record.version), false)
+                .release(
+                    &key,
+                    Some("planned"),
+                    actor,
+                    Some(record.version),
+                    WriteOptions::default(),
+                )
                 .await
             {
                 Ok(_) => report.released.push(key.clone()),

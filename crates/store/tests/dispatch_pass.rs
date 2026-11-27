@@ -1431,7 +1431,13 @@ async fn a_ticket_that_changed_during_setup_does_not_get_a_run() {
     f.setup.entered.notified().await;
     // a person takes the ticket back while the setup runs
     f.tickets
-        .release(&key, Some("planned"), &f.person, None, false)
+        .release(
+            &key,
+            Some("planned"),
+            &f.person,
+            None,
+            WriteOptions::default(),
+        )
         .await
         .unwrap();
     gate.notify_one();
@@ -1766,7 +1772,13 @@ async fn a_setup_that_fails_after_the_ticket_changed_does_not_block_it() {
     assert_eq!(f.dispatcher.pass.run().await.started, [key.clone()]);
     f.setup.entered.notified().await;
     f.tickets
-        .release(&key, Some("planned"), &f.person, None, false)
+        .release(
+            &key,
+            Some("planned"),
+            &f.person,
+            None,
+            WriteOptions::default(),
+        )
         .await
         .unwrap();
     gate.notify_one();
@@ -1790,7 +1802,13 @@ async fn a_run_for_a_ticket_that_changed_while_it_started_is_stopped() {
     });
     f.machine.start_entered.notified().await;
     f.tickets
-        .release(&key, Some("planned"), &f.person, None, false)
+        .release(
+            &key,
+            Some("planned"),
+            &f.person,
+            None,
+            WriteOptions::default(),
+        )
         .await
         .unwrap();
     gate.notify_one();
@@ -1832,7 +1850,13 @@ async fn a_ticket_whose_worktree_is_being_set_up_is_not_claimed() {
         .await
         .unwrap();
     f.tickets
-        .release(&second, Some("planned"), &f.person, None, false)
+        .release(
+            &second,
+            Some("planned"),
+            &f.person,
+            None,
+            WriteOptions::default(),
+        )
         .await
         .unwrap();
     let before = f.record(&second).await;
@@ -5891,7 +5915,14 @@ impl Fixture {
             handbook: Some(String::from("cargo test")),
             ..nullradix_app::tickets::PlanInput::default()
         };
-        self.tickets.plan(key, &input, &actor, false).await.unwrap();
+        let options = WriteOptions {
+            from_agent: true,
+            ..WriteOptions::default()
+        };
+        self.tickets
+            .plan(key, &input, &actor, options)
+            .await
+            .unwrap();
     }
 
     async fn plan_tracked(&self, key: &str) -> Option<nullradix_app::dispatch::tracking::Tracked> {
