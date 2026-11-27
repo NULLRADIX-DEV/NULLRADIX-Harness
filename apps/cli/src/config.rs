@@ -29,6 +29,14 @@ impl Profile {
         }
     }
 
+    /// The value of `--profile`.
+    pub(crate) const fn flag(self) -> &'static str {
+        match self {
+            Self::Release => "release",
+            Self::Dev => "dev",
+        }
+    }
+
     pub(crate) const fn default_port(self) -> u16 {
         match self {
             Self::Release => 4710,

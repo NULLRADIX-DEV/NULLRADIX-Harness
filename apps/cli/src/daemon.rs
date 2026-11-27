@@ -8,6 +8,7 @@ use anyhow::{Context, bail};
 use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
 use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
+use nullradix_app::autostart::{Autostart, AutostartService, NoAutostart};
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::claude_theme::ClaudeThemeService;
 use nullradix_app::comments::CommentService;
@@ -29,6 +30,7 @@ use nullradix_app::hooks::HookService;
 use nullradix_app::inbox::InboxService;
 use nullradix_app::login::LoginService;
 use nullradix_app::notes::NoteService;
+use nullradix_app::notifier::{NoNotifier, Notifier};
 use nullradix_app::projects::ProjectService;
 use nullradix_app::questions::QuestionService;
 use nullradix_app::repositories::RunnerService;
@@ -55,6 +57,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::claude_slots::{FolderSlots, default_claude_dir};
 use crate::config::Config;
+use crate::desktop::{LoginEntry, ToastNotifier};
 use crate::intake;
 use crate::logging;
 use crate::secrets::OsSecretStore;
@@ -157,6 +160,8 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     if let Err(error) = claude_theme.reconcile().await {
         tracing::warn!(%error, "cannot sync the Claude theme");
     }
+    let autostart = start_autostart(config);
+    autostart.refresh().await;
     let (favorites, sessions) = start_sessions(&store, &runners, &signal);
     let hooks = start_hooks(config, &store, &sessions, &shutdown);
     let dispatcher_prompts = dispatcher_prompt_service(&dispatcher_config, &board);
@@ -173,6 +178,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
             dispatch: dispatch_runs.clone(),
             prompts: dispatcher_prompts.clone(),
             board: &board,
+            notifier: start_notifier(config),
         },
     );
     let state = ApiState {
@@ -213,6 +219,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         themes,
         catalog,
         claude_theme,
+        autostart,
         customizations,
         changes: Arc::new(store.clone()),
         signal,
@@ -303,6 +310,7 @@ struct DispatcherParts<'a> {
     dispatch: Arc<DispatchRuns>,
     prompts: Arc<DispatcherPromptService>,
     board: &'a BoardServices,
+    notifier: Arc<dyn Notifier>,
 }
 
 /// What runs for the dispatcher and must end before the store closes.
@@ -380,7 +388,7 @@ fn start_dispatcher(
         ids: Arc::new(UuidV7Generator),
         signal: signal.clone(),
         local_time: Arc::new(OsLocalTime),
-        notifier: Arc::new(nullradix_app::notifier::NoNotifier),
+        notifier: parts.notifier,
         interval: Some(PASS_INTERVAL),
     });
     let scheduler = spawn_scheduler(
@@ -567,6 +575,24 @@ fn start_extensions(
 }
 
 /// The Claude part of themes goes into the default Claude folder and every account's folder.
+/// Toasts for notices; a home override, as tests use, shows none.
+fn start_notifier(config: &Config) -> Arc<dyn Notifier> {
+    if config.isolated {
+        Arc::new(NoNotifier)
+    } else {
+        Arc::new(ToastNotifier)
+    }
+}
+
+/// The login entry of the real user; an isolated daemon must never touch it.
+fn start_autostart(config: &Config) -> Arc<AutostartService> {
+    let port: Arc<dyn Autostart> = match LoginEntry::new(config.profile) {
+        Some(entry) if !config.isolated => Arc::new(entry),
+        _ => Arc::new(NoAutostart),
+    };
+    Arc::new(AutostartService::new(port))
+}
+
 fn start_claude_theme(
     config: &Config,
     store: &Store,

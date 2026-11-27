@@ -20,12 +20,19 @@ pub(crate) fn run(
     input: Option<&[u8]>,
     limit: Duration,
 ) -> io::Result<Reply> {
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // no console window flashes up when the caller has none
+        command.creation_flags(0x0800_0000);
+    }
+    let mut child = command.spawn()?;
     if let Some(mut stdin) = child.stdin.take()
         && let Some(bytes) = input
     {
