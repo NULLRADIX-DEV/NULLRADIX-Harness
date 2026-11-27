@@ -13,6 +13,9 @@ use crate::command;
 
 #[cfg(any(windows, test))]
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+/// The same key below `HKCU`.
+#[cfg(windows)]
+const RUN_SUBKEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 /// Where Windows keeps the switch of the Startup apps settings page.
 #[cfg(any(windows, test))]
 const APPROVED_KEY: &str =
@@ -122,13 +125,9 @@ fn reg_delete_args(key: &str, name: &str) -> Vec<String> {
     ["delete", key, "/v", name, "/f"].map(String::from).to_vec()
 }
 
-/// The program of the Run value in the output of `reg query`.
+/// The program a Run value starts: its first word.
 #[cfg(any(windows, test))]
-fn run_program(output: &str) -> Option<PathBuf> {
-    let line = output
-        .lines()
-        .find(|line| line.contains("REG_SZ") || line.contains("REG_EXPAND_SZ"))?;
-    let (_, data) = line.split_once("SZ")?;
+fn command_program(data: &str) -> Option<PathBuf> {
     let data = data.trim();
     let program = match data.strip_prefix('"') {
         Some(rest) => rest.split('"').next()?,
@@ -382,20 +381,20 @@ mod platform {
     use std::io;
 
     use super::{
-        APPROVED_KEY, AutostartEntry, AutostartState, RUN_KEY, approved_off, reg, reg_add_args,
-        reg_delete_args, reg_failed, reg_query_args, run_program,
+        APPROVED_KEY, AutostartEntry, AutostartState, RUN_KEY, RUN_SUBKEY, approved_off,
+        command_program, reg, reg_add_args, reg_delete_args, reg_failed, reg_query_args,
     };
 
     pub(super) fn state(name: &str) -> io::Result<AutostartState> {
-        let run = reg(&reg_query_args(RUN_KEY, name))?;
-        if !run.success {
+        // read as UTF-16: reg.exe writes the OEM code page to a pipe and garbles other paths
+        let Some(command) = crate::windows::registry_read_string(RUN_SUBKEY, name)? else {
             return Ok(AutostartState::default());
-        }
+        };
         let approved = reg(&reg_query_args(APPROVED_KEY, name))?;
         Ok(AutostartState {
             exists: true,
             disabled: approved.success && approved_off(&approved.stdout),
-            program: run_program(&run.stdout),
+            program: command_program(&command),
         })
     }
 
@@ -564,17 +563,19 @@ mod tests {
 
     #[test]
     fn the_run_value_names_its_program() {
-        let quoted = "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n    nullradix    REG_SZ    \"C:\\Program Files\\N\\nullradix-desktop.exe\" --hidden\r\n";
         assert_eq!(
-            run_program(quoted),
+            command_program("\"C:\\Program Files\\N\\nullradix-desktop.exe\" --hidden"),
             Some(PathBuf::from(r"C:\Program Files\N\nullradix-desktop.exe"))
         );
-        let plain = "    nullradix    REG_SZ    C:\\bin\\nullradix.exe serve\n";
         assert_eq!(
-            run_program(plain),
+            command_program("C:\\bin\\nullradix.exe serve"),
             Some(PathBuf::from(r"C:\bin\nullradix.exe"))
         );
-        assert_eq!(run_program("nothing here"), None);
+        assert_eq!(
+            command_program("\"C:\\Pf\u{e4}d\\\u{4e2d}.exe\" --x"),
+            Some(PathBuf::from("C:\\Pf\u{e4}d\\\u{4e2d}.exe"))
+        );
+        assert_eq!(command_program("  "), None);
     }
 
     #[test]
