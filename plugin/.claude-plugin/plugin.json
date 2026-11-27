@@ -1,0 +1,11 @@
+{
+  "name": "nullradix",
+  "displayName": "NULLRADIX",
+  "version": "0.1.0",
+  "description": "Board, tickets, sessions and worktrees for parallel Claude Code sessions.",
+  "author": { "name": "NULLRADIX-Dev" },
+  "homepage": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness#readme",
+  "repository": "https://github.com/NULLRADIX-DEV/NULLRADIX-Harness",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "keywords": ["kanban", "tickets", "sessions", "worktrees"]
+}
