@@ -89,6 +89,7 @@ fn drain(pipe: Option<impl Read + Send + 'static>) -> mpsc::Receiver<String> {
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
         let mut kept = Vec::new();
+        let mut cut = false;
         if let Some(mut pipe) = pipe {
             let mut chunk = [0_u8; 8192];
             while let Ok(read) = pipe.read(&mut chunk) {
@@ -96,17 +97,24 @@ fn drain(pipe: Option<impl Read + Send + 'static>) -> mpsc::Receiver<String> {
                     break;
                 }
                 let room = OUTPUT_LIMIT.saturating_sub(kept.len());
+                cut |= read > room;
                 kept.extend_from_slice(&chunk[..read.min(room)]);
             }
         }
-        let _ = sender.send(String::from_utf8_lossy(&kept).into_owned());
+        let mut text = String::from_utf8_lossy(&kept).into_owned();
+        if cut {
+            text.push_str("\n[output truncated]");
+        }
+        let _ = sender.send(text);
     });
     receiver
 }
 
 /// What a reader kept; a descendant that outlived its tree and holds the pipe cannot hold us.
 fn collect(reader: &mpsc::Receiver<String>, grace: Duration) -> String {
-    reader.recv_timeout(grace).unwrap_or_default()
+    reader
+        .recv_timeout(grace)
+        .unwrap_or_else(|_| "[output not collected]".to_owned())
 }
 
 /// Runs `program` and, past `timeout`, kills it with everything it started.
@@ -238,16 +246,16 @@ mod tests {
         assert!(answer.text.contains("not found"));
     }
 
-    /// A script that notes it started and runs a grandchild that writes `late.txt` after 3 s.
+    /// A script whose grandchild notes its start and writes `late.txt` after 5 s.
     fn script_with_grandchild(dir: &Path) -> PathBuf {
         if cfg!(windows) {
             let script = dir.join("claude.cmd");
-            let body = "@echo off\r\necho started> \"%~dp0started.txt\"\r\nstart /b cmd /c \"ping -n 4 127.0.0.1 >nul & echo late> %~dp0late.txt\"\r\nping -n 14 127.0.0.1\r\n";
+            let body = "@echo off\r\nstart /b cmd /c \"echo started> \"%~dp0started.txt\" & ping -n 6 127.0.0.1 >nul & echo late> \"%~dp0late.txt\"\"\r\nping -n 14 127.0.0.1\r\n";
             fs::write(&script, body).unwrap();
             script
         } else {
             let script = dir.join("claude");
-            let body = "#!/bin/sh\nd=$(dirname \"$0\")\necho started > \"$d/started.txt\"\n(sleep 3; echo late > \"$d/late.txt\") &\nsleep 12\n";
+            let body = "#!/bin/sh\nd=$(dirname \"$0\")\n(echo started > \"$d/started.txt\"; sleep 5; echo late > \"$d/late.txt\") &\nsleep 12\n";
             fs::write(&script, body).unwrap();
             #[cfg(unix)]
             {
@@ -259,10 +267,10 @@ mod tests {
     }
 
     fn run_once_started(script: &Path) -> Answer {
-        let answer = run_program(script, Duration::from_secs(1), None, &[]);
+        let answer = run_program(script, Duration::from_secs(2), None, &[]);
         // a script another thread was still writing cannot start; try once more
         if answer.text.contains("busy") {
-            return run_program(script, Duration::from_secs(1), None, &[]);
+            return run_program(script, Duration::from_secs(2), None, &[]);
         }
         answer
     }
@@ -283,8 +291,8 @@ mod tests {
         assert!(!answer.ok);
         assert!(answer.text.contains("did not finish"), "{}", answer.text);
 
-        // the grandchild writes after 3 s; a survivor of the kill would have written by now
-        thread::sleep(Duration::from_secs(5));
+        // the grandchild writes 5 s after its start; a survivor would have written by now
+        thread::sleep(Duration::from_secs(6));
         assert!(!temp.path().join("late.txt").exists());
     }
 
@@ -294,7 +302,8 @@ mod tests {
 
         let kept = collect(&drain(Some(big)), Duration::from_secs(10));
 
-        assert_eq!(kept.len(), OUTPUT_LIMIT);
+        let text = kept.strip_suffix("\n[output truncated]").unwrap();
+        assert_eq!(text.len(), OUTPUT_LIMIT);
     }
 
     struct Stuck;
@@ -312,7 +321,7 @@ mod tests {
 
         let kept = collect(&drain(Some(Stuck)), Duration::from_millis(100));
 
-        assert_eq!(kept, "");
+        assert_eq!(kept, "[output not collected]");
         assert!(started.elapsed() < Duration::from_secs(5));
     }
 }
