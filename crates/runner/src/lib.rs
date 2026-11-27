@@ -23,7 +23,7 @@ mod transcript;
 mod usage_api;
 mod worktree;
 
-pub use accounts::LocalAccountFolders;
+pub use accounts::{LocalAccountFolders, expand_home};
 pub use catalog_fetch::CurlCatalogFetcher;
 pub use claude_login::LocalClaudeLogins;
 pub use detached::LocalDetached;

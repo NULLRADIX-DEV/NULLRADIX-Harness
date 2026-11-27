@@ -89,12 +89,16 @@ fn text(value: &Value) -> anyhow::Result<String> {
 }
 
 /// Every plugin file as it is staged for `profile`; the manifest and the hooks are adapted.
-pub(crate) fn render(profile: Profile, version: &str) -> anyhow::Result<Vec<(String, String)>> {
+pub(crate) fn render(
+    profile: Profile,
+    version: &str,
+    home: Option<&Path>,
+) -> anyhow::Result<Vec<(String, String)>> {
     let mut files = Vec::new();
     for (path, shipped) in FILES {
         let content = match *path {
             MANIFEST => text(&manifest(profile, version, shipped)?)?,
-            HOOKS => text(&hooks(profile, shipped)?)?,
+            HOOKS => text(&hooks(profile, home, shipped)?)?,
             _ => (*shipped).to_owned(),
         };
         files.push(((*path).to_owned(), content));
@@ -111,7 +115,7 @@ fn manifest(profile: Profile, version: &str, shipped: &str) -> anyhow::Result<Va
 }
 
 /// Hooks name their profile, so a hook of a dev plugin never reports to the installed daemon.
-fn hooks(profile: Profile, shipped: &str) -> anyhow::Result<Value> {
+fn hooks(profile: Profile, home: Option<&Path>, shipped: &str) -> anyhow::Result<Value> {
     let mut hooks: Value = serde_json::from_str(shipped)?;
     let events = hooks["hooks"]
         .as_object_mut()
@@ -121,7 +125,11 @@ fn hooks(profile: Profile, shipped: &str) -> anyhow::Result<Value> {
             let Some(args) = hook["args"].as_array_mut() else {
                 bail!("a shipped hook has no args");
             };
-            args.splice(0..0, [json!("--profile"), json!(profile.flag())]);
+            let mut flags = vec![json!("--profile"), json!(profile.flag())];
+            if let Some(home) = home {
+                flags.extend([json!("--home"), json!(home.display().to_string())]);
+            }
+            args.splice(0..0, flags);
         }
     }
     Ok(hooks)
@@ -146,6 +154,7 @@ fn marketplace(profile: Profile, version: &str) -> anyhow::Result<String> {
             "version": version,
             "source": format!("./{}", profile.plugin_name()),
             "description": "Board, tickets, sessions and worktrees for parallel Claude Code sessions",
+            "defaultEnabled": false,
         }],
     }))
 }
@@ -229,16 +238,23 @@ fn copy_binary(from: &Path, to: &Path, dry_run: bool) -> anyhow::Result<bool> {
         if let Some(dir) = to.parent() {
             fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
         }
-        fs::copy(from, to).with_context(|| {
-            format!(
-                "cannot replace {}; end the Claude sessions that run it and try again",
-                to.display()
-            )
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(to, fs::Permissions::from_mode(0o755))?;
+        let staging = to.with_extension("staging");
+        let placed = fs::copy(from, &staging).and_then(|_| {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&staging, fs::Permissions::from_mode(0o755))?;
+            }
+            fs::rename(&staging, to)
+        });
+        if let Err(error) = placed {
+            let _ = fs::remove_file(&staging);
+            return Err(error).with_context(|| {
+                format!(
+                    "cannot replace {}; end the Claude sessions that run it and try again",
+                    to.display()
+                )
+            });
         }
     }
     Ok(true)
@@ -250,7 +266,7 @@ fn files_below(dir: &Path, found: &mut Vec<PathBuf>) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
             files_below(&path, found);
         } else {
             found.push(path);
@@ -287,15 +303,16 @@ pub(crate) fn stage(
     root: &Path,
     profile: Profile,
     binary: &Path,
+    home: Option<&Path>,
     now_seconds: u64,
     dry_run: bool,
 ) -> anyhow::Result<Staged> {
-    let hash = content_hash(&render(profile, "")?, binary)?;
+    let hash = content_hash(&render(profile, "", home)?, binary)?;
     let version = match read_state(root) {
         Some(state) if state.hash == hash => state.version,
         _ => next_version(now_seconds),
     };
-    let files = render(profile, &version)?;
+    let files = render(profile, &version, home)?;
     let plugin = root.join(profile.plugin_name());
     let mut staged = Staged {
         version: version.clone(),
@@ -303,6 +320,7 @@ pub(crate) fn stage(
         removed: 0,
         binary_copied: false,
     };
+    staged.binary_copied = copy_binary(binary, &plugin.join("bin").join(BINARY), dry_run)?;
     let mut keep = Vec::new();
     for (path, content) in &files {
         let target = plugin.join(path);
@@ -316,7 +334,6 @@ pub(crate) fn stage(
         marketplace(profile, &version)?.as_bytes(),
         dry_run,
     )?);
-    staged.binary_copied = copy_binary(binary, &plugin.join("bin").join(BINARY), dry_run)?;
     let state = serde_json::to_vec(&State { hash, version })?;
     write_if_changed(&root.join(STATE_FILE), &state, dry_run)?;
     Ok(staged)
@@ -354,7 +371,7 @@ mod tests {
 
     #[test]
     fn the_release_plugin_has_the_release_names_and_hook_profile() {
-        let files = render(Profile::Release, "0.1.5").unwrap();
+        let files = render(Profile::Release, "0.1.5", None).unwrap();
         let get = |path: &str| {
             files
                 .iter()
@@ -375,7 +392,7 @@ mod tests {
     #[test]
     fn the_staged_hook_arguments_are_a_hook_call_of_the_daemon_binary() {
         for profile in [Profile::Release, Profile::Dev] {
-            let files = render(profile, "0.1.5").unwrap();
+            let files = render(profile, "0.1.5", None).unwrap();
             let hooks: Value =
                 serde_json::from_str(&files.iter().find(|(name, _)| name == HOOKS).unwrap().1)
                     .unwrap();
@@ -392,8 +409,75 @@ mod tests {
     }
 
     #[test]
+    fn hooks_carry_the_home_the_install_ran_with() {
+        let home = Path::new("/data/with space");
+        let files = render(Profile::Dev, "0.1.5", Some(home)).unwrap();
+        let hooks: Value =
+            serde_json::from_str(&files.iter().find(|(name, _)| name == HOOKS).unwrap().1).unwrap();
+        let args = &hooks["hooks"]["Stop"][0]["hooks"][0]["args"];
+        assert_eq!(
+            *args,
+            json!([
+                "--profile",
+                "dev",
+                "--home",
+                home.display().to_string(),
+                "hook",
+                "stop"
+            ])
+        );
+        let parsed: Vec<std::ffi::OsString> = args
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|arg| std::ffi::OsString::from(arg.as_str().unwrap()))
+            .collect();
+        assert!(crate::hook::HookCall::parse(&parsed).is_some());
+    }
+
+    #[test]
+    fn the_marketplace_entry_is_off_by_default() {
+        let market: Value =
+            serde_json::from_str(&marketplace(Profile::Release, "0.1.5").unwrap()).unwrap();
+        assert_eq!(market["plugins"][0]["defaultEnabled"], false);
+    }
+
+    #[test]
+    fn the_binary_is_placed_whole_and_leaves_no_staging_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = binary(temp.path(), b"binary one");
+        let root = temp.path().join("plugin");
+
+        stage(&root, Profile::Release, &binary, None, 1000, false).unwrap();
+
+        let bin = root.join("nullradix/bin");
+        let names: Vec<String> = fs::read_dir(&bin)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, [BINARY]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_removal_never_follows_a_symlinked_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = binary(temp.path(), b"binary one");
+        let root = temp.path().join("plugin");
+        stage(&root, Profile::Release, &binary, None, 1000, false).unwrap();
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("keep.txt"), "mine").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("nullradix/skills/linked")).unwrap();
+
+        stage(&root, Profile::Release, &binary, None, 2000, false).unwrap();
+
+        assert!(outside.join("keep.txt").is_file());
+    }
+
+    #[test]
     fn the_dev_plugin_is_a_separate_plugin_that_reports_to_the_dev_daemon() {
-        let files = render(Profile::Dev, "0.1.5").unwrap();
+        let files = render(Profile::Dev, "0.1.5", None).unwrap();
         let manifest: Value =
             serde_json::from_str(&files.iter().find(|(name, _)| name == MANIFEST).unwrap().1)
                 .unwrap();
@@ -415,7 +499,7 @@ mod tests {
         let binary = binary(temp.path(), b"binary one");
         let root = temp.path().join("plugin");
 
-        let first = stage(&root, Profile::Dev, &binary, 1000, false).unwrap();
+        let first = stage(&root, Profile::Dev, &binary, None, 1000, false).unwrap();
         assert!(first.changed());
         assert_eq!(
             first.version,
@@ -426,7 +510,7 @@ mod tests {
         assert!(root.join("nullradix-dev/bin").join(BINARY).is_file());
         assert!(root.join(".claude-plugin/marketplace.json").is_file());
 
-        let second = stage(&root, Profile::Dev, &binary, 2000, false).unwrap();
+        let second = stage(&root, Profile::Dev, &binary, None, 2000, false).unwrap();
         assert!(!second.changed(), "{second:?}");
         assert_eq!(second.version, first.version);
     }
@@ -436,20 +520,20 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let binary = binary(temp.path(), b"binary one");
         let root = temp.path().join("plugin");
-        let first = stage(&root, Profile::Release, &binary, 1000, false).unwrap();
+        let first = stage(&root, Profile::Release, &binary, None, 1000, false).unwrap();
         let plugin = root.join("nullradix");
         fs::write(plugin.join("skills/board/SKILL.md"), "edited").unwrap();
         fs::create_dir_all(plugin.join("skills/old")).unwrap();
         fs::write(plugin.join("skills/old/SKILL.md"), "stale").unwrap();
 
-        let repaired = stage(&root, Profile::Release, &binary, 2000, false).unwrap();
+        let repaired = stage(&root, Profile::Release, &binary, None, 2000, false).unwrap();
         assert_eq!(repaired.written, 1);
         assert_eq!(repaired.removed, 1);
         assert_eq!(repaired.version, first.version);
         assert!(!plugin.join("skills/old").exists());
 
         fs::write(&binary, b"binary two").unwrap();
-        let updated = stage(&root, Profile::Release, &binary, 3000, false).unwrap();
+        let updated = stage(&root, Profile::Release, &binary, None, 3000, false).unwrap();
         assert!(updated.binary_copied);
         assert_ne!(updated.version, first.version);
         let manifest = fs::read_to_string(plugin.join(MANIFEST)).unwrap();
@@ -462,7 +546,7 @@ mod tests {
         let binary = binary(temp.path(), b"binary one");
         let root = temp.path().join("plugin");
 
-        let planned = stage(&root, Profile::Release, &binary, 1000, true).unwrap();
+        let planned = stage(&root, Profile::Release, &binary, None, 1000, true).unwrap();
         assert!(planned.changed());
         assert!(planned.written > 10);
         assert!(!root.exists());

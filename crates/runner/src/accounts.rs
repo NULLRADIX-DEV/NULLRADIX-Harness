@@ -51,7 +51,8 @@ impl LocalAccountFolders {
 }
 
 /// `~` and `~/...` stand for the home folder; anything else is taken as typed.
-pub(crate) fn expand_home(home: Option<&Path>, typed: &str) -> PathBuf {
+#[must_use]
+pub fn expand_home(home: Option<&Path>, typed: &str) -> PathBuf {
     let rest = typed
         .strip_prefix("~/")
         .or_else(|| typed.strip_prefix("~\\"));

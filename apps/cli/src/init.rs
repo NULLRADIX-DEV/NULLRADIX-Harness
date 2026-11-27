@@ -5,7 +5,7 @@ use std::process::{Command, ExitCode};
 
 use anyhow::{Context, bail};
 use clap::Args;
-use nullradix_api::BoardDto;
+use nullradix_api::{BoardDto, RunnerDto};
 use nullradix_client::Client;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -116,12 +116,21 @@ fn write(path: &Path, text: &str) -> anyhow::Result<()> {
         .with_context(|| format!("cannot write {}", path.display()))
 }
 
+/// Rules of the first version carry a marker in another language; they count as ours.
+const EARLIER_MARKER_PREFIX: &str = "# Angelegt von `nullradix init`";
+
+fn written_by_nullradix(text: &str) -> bool {
+    text.lines()
+        .take(3)
+        .any(|line| line == RULE_MARKER || line.starts_with(EARLIER_MARKER_PREFIX))
+}
+
 fn apply_rule(root: &Path, rule: &Rule) -> anyhow::Result<State> {
     let file = root.join(rule.path);
     let content = rule.content()?;
     match read_text(&file)? {
         Some(old) if old == content => Ok(State::Unchanged),
-        Some(old) if !old.lines().take(3).any(|line| line == RULE_MARKER) => Ok(State::Kept),
+        Some(old) if !written_by_nullradix(&old) => Ok(State::Kept),
         _ => {
             write(&file, &content)?;
             Ok(State::Written)
@@ -263,36 +272,38 @@ enum Lookup {
     Offline(String),
 }
 
-/// The board of the repository, bound first when `bind` names one.
-fn lookup(
-    profile: Profile,
-    home: Option<&Path>,
-    root: &Path,
-    bind: Option<Uuid>,
-) -> anyhow::Result<Lookup> {
-    let client = match connect::connect(profile, home) {
-        Ok(client) => client,
-        Err(error) if bind.is_none() => return Ok(Lookup::Offline(format!("{error:#}"))),
-        Err(error) => return Err(error),
-    };
-    find_or_bind(&client, root, bind)
+/// A board that exists and the daemon that will bind it, checked before any file is written.
+struct Bind {
+    client: Client,
+    board: BoardDto,
+    local: RunnerDto,
 }
 
-fn find_or_bind(client: &Client, root: &Path, bind: Option<Uuid>) -> anyhow::Result<Lookup> {
-    let local = local_runner(client)?;
-    if let Some(id) = bind {
-        let Some(board) = client
-            .list_all_boards()?
-            .items
-            .into_iter()
-            .find(|board| board.id == id)
-        else {
-            bail!("no board has the id {id}");
-        };
-        return Ok(Lookup::Bound(bind_repository(
-            client, &board, &local, root,
-        )?));
-    }
+fn prepare_bind(profile: Profile, home: Option<&Path>, id: Uuid) -> anyhow::Result<Bind> {
+    let client = connect::connect(profile, home)?;
+    let local = local_runner(&client)?;
+    let Some(board) = client
+        .list_all_boards()?
+        .items
+        .into_iter()
+        .find(|board| board.id == id)
+    else {
+        bail!("no board has the id {id}");
+    };
+    Ok(Bind {
+        client,
+        board,
+        local,
+    })
+}
+
+/// The board bound to the repository, or what stopped the lookup.
+fn lookup(profile: Profile, home: Option<&Path>, root: &Path) -> anyhow::Result<Lookup> {
+    let client = match connect::connect(profile, home) {
+        Ok(client) => client,
+        Err(error) => return Ok(Lookup::Offline(format!("{error:#}"))),
+    };
+    let local = local_runner(&client)?;
     let Some(text) = root.to_str() else {
         bail!("{} is not valid UTF-8", root.display());
     };
@@ -344,8 +355,20 @@ pub(crate) fn run(
     let folder = std::env::current_dir().context("cannot read the current folder")?;
     let (root, common) = repository_of(&folder)?;
     let id = format!("{}@{}", profile.plugin_name(), profile.marketplace_name());
+    let bind = args
+        .board
+        .map(|board| prepare_bind(profile, home, board))
+        .transpose()?;
     let applied = apply(&root, &common, &id)?;
-    let found = lookup(profile, home, &root, args.board)?;
+    let found = match bind {
+        Some(bind) => Lookup::Bound(bind_repository(
+            &bind.client,
+            &bind.board,
+            &bind.local,
+            &root,
+        )?),
+        None => lookup(profile, home, &root)?,
+    };
     let report = Report {
         root: root.display().to_string(),
         plugin: id,
@@ -448,6 +471,23 @@ mod tests {
                 .unwrap()
                 .contains("NULLRADIX board")
         );
+    }
+
+    #[test]
+    fn a_rule_of_the_first_version_is_replaced_not_kept() {
+        let (_temp, root, common) = project();
+        let board = root.join(".claude/rules/nullradix-board.md");
+        fs::create_dir_all(board.parent().unwrap()).unwrap();
+        fs::write(
+            &board,
+            format!("---\n{EARLIER_MARKER_PREFIX}, not versioned.\n---\n@~/.nullradix/rules/board.md\n"),
+        )
+        .unwrap();
+
+        let applied = apply(&root, &common, ID).unwrap();
+
+        assert_eq!(applied.rules[1].state, State::Written);
+        assert!(fs::read_to_string(&board).unwrap().contains(RULE_MARKER));
     }
 
     #[test]

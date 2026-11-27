@@ -2,6 +2,7 @@
 
 mod account;
 mod board;
+mod claude;
 mod claude_slots;
 mod comment;
 mod config;

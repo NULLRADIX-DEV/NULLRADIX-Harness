@@ -118,6 +118,24 @@ fn init_binds_a_board_to_the_repository_and_names_it_afterwards() {
 }
 
 #[test]
+fn init_checks_the_board_before_it_writes_anything() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let repo = repository(temp.path());
+    let unknown = "018f0000-0000-7000-8000-000000000001";
+
+    let offline = run_in(&home, &repo, &["init", "--board", unknown]);
+    assert!(!offline.status.success());
+    assert!(!repo.join(".claude").exists());
+
+    let _daemon = Daemon::start(&home);
+    let missing = run_in(&home, &repo, &["init", "--board", unknown]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("no board has the id"));
+    assert!(!repo.join(".claude").exists());
+}
+
+#[test]
 fn install_dry_run_without_a_daemon_names_the_default_folder_and_writes_nothing() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
