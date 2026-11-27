@@ -77,7 +77,10 @@
           {
             "author": "Ada",
             "claudeTheme": false,
+            "codeEnabled": false,
+            "codeUrl": "/api/v1/themes/night-code/files/main.js?v=1",
             "colorScheme": "dark",
+            "hasCode": true,
             "id": "night-code",
             "installedAt": "<TIME>",
             "name": "Night Code",
@@ -182,7 +185,10 @@
           {
             "author": "Ada",
             "claudeTheme": false,
+            "codeEnabled": false,
+            "codeUrl": "/api/v1/themes/night-code/files/main.js?v=2",
             "colorScheme": "dark",
+            "hasCode": true,
             "id": "night-code",
             "installedAt": "<TIME>",
             "name": "Night Code",

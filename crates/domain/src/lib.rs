@@ -140,8 +140,8 @@ pub use snippet::{
 pub use step::{STEP_MAX, Step, StepEdit, StepError};
 pub use text::{TextError, optional_text, required_text, utf16_len, utf16_prefix};
 pub use theme::{
-    BUILTIN_THEMES, CLAUDE_DIR, CLAUDE_HOOKS_FILE, ColorScheme, DEFAULT_THEME, FieldError,
-    InstalledTheme, InstalledThemeRecord, MANIFEST_FILE, MAX_ENTRIES, MAX_ENTRY_PATH,
+    BUILTIN_THEMES, CLAUDE_DIR, CLAUDE_HOOKS_FILE, CODE_FILE, ColorScheme, DEFAULT_THEME,
+    FieldError, InstalledTheme, InstalledThemeRecord, MANIFEST_FILE, MAX_ENTRIES, MAX_ENTRY_PATH,
     MAX_FILE_BYTES, MAX_PACKAGE_BYTES, ManifestDraft, ManifestRecord, PackageError, SDK_VERSION,
     STYLE_FILE, SelectOption, SettingSpec, THEME_ID_MAX, ThemeError, ThemeId, ThemeManifest,
     asset_segments, check_claude_files, check_entry_path, check_theme_css, content_type,

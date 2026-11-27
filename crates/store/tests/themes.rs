@@ -243,11 +243,15 @@ async fn the_service_installs_selects_and_removes_against_the_database() {
         "manifest.json={MANIFEST}\n--\ntheme.css=a {{ color: red }}\n--\nclaude/hooks/hooks.json={{}}"
     )
     .into_bytes();
-    let installed = service.install(archive.clone(), true).await.unwrap().theme;
+    let installed = service
+        .install(archive.clone(), true, true)
+        .await
+        .unwrap()
+        .theme;
     service.select("night-blue").await.unwrap();
     assert_eq!(service.list().await.unwrap().active, "night-blue");
 
-    let again = service.install(archive, true).await.unwrap().theme;
+    let again = service.install(archive, true, true).await.unwrap().theme;
     assert_eq!(again.record().version, Version::from_stored(2));
     assert_eq!(again.record().installed_at, installed.record().installed_at);
 
@@ -417,6 +421,46 @@ async fn an_origin_is_kept_replaced_and_dropped_with_the_write() {
     assert!(store.origins().await.unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn the_code_switch_is_a_row_that_exists_only_while_it_is_on() {
+    let store = Store::in_memory().await.unwrap();
+    let at = Timestamp::from_millis(4);
+    let id = ThemeId::parse("night-blue").unwrap();
+    let other = ThemeId::parse("other-theme").unwrap();
+    let feed = Uuid::from_u128(11);
+    let mut write = store.begin().await.unwrap();
+    write.insert(&theme(MANIFEST, 1), feed).await.unwrap();
+    write.commit().await.unwrap();
+    assert!(store.code_switches().await.unwrap().is_empty());
+
+    let mut write = store.begin().await.unwrap();
+    assert!(!write.code_enabled(&id).await.unwrap());
+    let on = write.set_code(&id, true, at).await.unwrap().unwrap();
+    assert_eq!(
+        (on.entity, on.op, on.entity_id),
+        (Entity::Setting, ChangeOp::Update, feed)
+    );
+    assert!(write.code_enabled(&id).await.unwrap());
+    // already on is no change, and a theme that is not installed gets no row
+    assert!(write.set_code(&id, true, at).await.unwrap().is_none());
+    assert!(write.set_code(&other, true, at).await.unwrap().is_none());
+    write.commit().await.unwrap();
+    let switched = store.code_switches().await.unwrap();
+    assert_eq!(switched.len(), 1);
+    assert!(switched.contains(&id));
+
+    let mut write = store.begin().await.unwrap();
+    assert!(write.set_code(&id, false, at).await.unwrap().is_some());
+    assert!(write.set_code(&id, false, at).await.unwrap().is_none());
+    drop(write);
+    assert!(store.code_switches().await.unwrap().contains(&id));
+    let mut write = store.begin().await.unwrap();
+    write.set_code(&id, false, at).await.unwrap();
+    write.set_code(&other, false, at).await.unwrap();
+    write.commit().await.unwrap();
+    assert!(store.code_switches().await.unwrap().is_empty());
+}
+
 fn archive() -> Vec<u8> {
     let hooks = "claude/hooks/hooks.json={}";
     format!("manifest.json={MANIFEST}\n--\ntheme.css=a {{ color: red }}\n--\n{hooks}").into_bytes()
@@ -436,7 +480,7 @@ fn service(store: &Arc<Store>) -> ThemeService {
 async fn the_service_saves_and_drops_settings_with_the_theme() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = service(&store);
-    service.install(archive(), true).await.unwrap();
+    service.install(archive(), true, true).await.unwrap();
     let saved = service
         .save_settings("night-blue", input(&[("mode", choice("b"))]), None)
         .await
@@ -450,7 +494,7 @@ async fn the_service_saves_and_drops_settings_with_the_theme() {
     assert_eq!(service.settings("night-blue").await.unwrap(), saved);
 
     // a reinstall keeps what was chosen
-    let again = service.install(archive(), true).await.unwrap().theme;
+    let again = service.install(archive(), true, true).await.unwrap().theme;
     assert_eq!(service.settings("night-blue").await.unwrap(), saved);
 
     // a refused removal leaves the values where they were
@@ -467,7 +511,7 @@ async fn the_service_saves_and_drops_settings_with_the_theme() {
         .unwrap();
     let id = ThemeId::parse("night-blue").unwrap();
     assert_eq!(store.settings(&id).await.unwrap(), None);
-    service.install(archive(), true).await.unwrap();
+    service.install(archive(), true, true).await.unwrap();
     assert_eq!(service.settings("night-blue").await.unwrap().version, None);
 }
 
@@ -475,7 +519,7 @@ async fn the_service_saves_and_drops_settings_with_the_theme() {
 async fn resetting_removes_the_row_and_reports_a_stale_version() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = service(&store);
-    service.install(archive(), true).await.unwrap();
+    service.install(archive(), true, true).await.unwrap();
     service.reset_settings("night-blue", None).await.unwrap();
     let off = input(&[("dim", SettingValue::Switch(false))]);
     let saved = service
@@ -499,7 +543,7 @@ async fn resetting_removes_the_row_and_reports_a_stale_version() {
 async fn two_saves_from_the_same_version_let_exactly_one_win() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = service(&store);
-    service.install(archive(), true).await.unwrap();
+    service.install(archive(), true, true).await.unwrap();
     let (first, second) = tokio::join!(
         service.save_settings("night-blue", input(&[("mode", choice("a"))]), None),
         service.save_settings("night-blue", input(&[("mode", choice("b"))]), None),
@@ -516,7 +560,7 @@ async fn two_saves_from_the_same_version_let_exactly_one_win() {
 async fn a_save_after_the_uninstall_finds_no_theme() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = service(&store);
-    let installed = service.install(archive(), true).await.unwrap().theme;
+    let installed = service.install(archive(), true, true).await.unwrap().theme;
     service
         .remove("night-blue", installed.record().version)
         .await

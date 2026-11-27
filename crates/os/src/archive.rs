@@ -177,11 +177,11 @@ pub fn read_tree(dir: &Path, limits: Limits) -> Result<Vec<Entry>, ArchiveError>
     Ok(entries)
 }
 
-/// Paths of the plain files below `dir`, skipping hidden names and links; `None` on any failure.
+/// Paths of the files below `dir`, hidden ones too, at most `max` files and `max` other entries.
 #[must_use]
 pub fn list_files(dir: &Path, max: usize) -> Option<Vec<String>> {
     let mut files = Vec::new();
-    let mut seen = 0;
+    let mut others = 0;
     let mut pending = vec![(dir.to_path_buf(), String::new())];
     while let Some((folder, prefix)) = pending.pop() {
         let children = match fs::read_dir(&folder) {
@@ -195,18 +195,24 @@ pub fn list_files(dir: &Path, max: usize) -> Option<Vec<String>> {
             let child = child.ok()?;
             let name = child.file_name().to_string_lossy().into_owned();
             let kind = child.file_type().ok()?;
-            if kind.is_symlink() || name.starts_with('.') || !plain_name(&name) {
-                continue;
+            let walkable = !kind.is_symlink() && plain_name(&name);
+            if !walkable || !kind.is_file() {
+                others += 1;
+                if others > max {
+                    return None;
+                }
             }
-            seen += 1;
-            if seen > max {
-                return None;
+            if !walkable {
+                continue;
             }
             let path = format!("{prefix}{name}");
             if kind.is_dir() {
                 pending.push((child.path(), format!("{path}/")));
             } else if kind.is_file() {
                 files.push(path);
+                if files.len() > max {
+                    return None;
+                }
             }
         }
     }
@@ -738,7 +744,7 @@ mod tests {
     }
 
     #[test]
-    fn listing_a_folder_skips_hidden_files_and_stops_at_the_cap() {
+    fn listing_a_folder_includes_hidden_files_and_stops_at_the_cap() {
         let parent = tempfile::tempdir().unwrap();
         let dir = parent.path().join("pack");
         fs::create_dir_all(dir.join("assets")).unwrap();
@@ -747,10 +753,55 @@ mod tests {
         fs::write(dir.join(".DS_Store"), "x").unwrap();
         assert_eq!(
             list_files(&dir, 8).unwrap(),
-            ["assets/a.png", "manifest.json"]
+            [".DS_Store", "assets/a.png", "manifest.json"]
         );
         assert_eq!(list_files(&dir.join("gone"), 8), Some(Vec::new()));
         assert_eq!(list_files(&dir, 2), None);
+    }
+
+    #[test]
+    fn folders_do_not_count_against_the_file_cap() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("pack");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::write(dir.join("manifest.json"), "{}").unwrap();
+        fs::write(dir.join("assets/a.png"), "p").unwrap();
+        // two files and one folder fit a cap of two files
+        assert_eq!(
+            list_files(&dir, 2).unwrap(),
+            ["assets/a.png", "manifest.json"]
+        );
+        fs::write(dir.join("assets/b.png"), "p").unwrap();
+        assert_eq!(list_files(&dir, 2), None);
+    }
+
+    #[test]
+    fn hidden_folders_are_walked_and_bounded_like_any_other() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("pack");
+        fs::create_dir_all(dir.join(".cache")).unwrap();
+        fs::write(dir.join(".cache/x.js"), "1").unwrap();
+        assert_eq!(list_files(&dir, 4).unwrap(), [".cache/x.js"]);
+        for name in ["a", "b", "c"] {
+            fs::create_dir(dir.join(".cache").join(name)).unwrap();
+        }
+        // four folders in all are above a cap of three
+        assert_eq!(list_files(&dir, 3), None);
+        assert!(list_files(&dir, 4).is_some());
+    }
+
+    #[test]
+    fn a_link_counts_against_the_bound_but_is_not_listed() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("pack");
+        let outside = parent.path().join("outside");
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("secret.js"), "x").unwrap();
+        // a folder link always works (junction on Windows), so this cannot pass by skipping
+        assert!(link(&outside, &dir.join("out")), "no folder link possible");
+        assert_eq!(list_files(&dir, 1).unwrap(), Vec::<String>::new());
+        assert_eq!(list_files(&dir, 0), None);
     }
 
     #[test]

@@ -65,7 +65,10 @@
           {
             "author": "Ada",
             "claudeTheme": false,
+            "codeEnabled": false,
+            "codeUrl": null,
             "colorScheme": "dark",
+            "hasCode": false,
             "id": "night-blue",
             "installedAt": "<TIME>",
             "name": "Night Blue",
@@ -207,7 +210,10 @@
           {
             "author": "Ada",
             "claudeTheme": false,
+            "codeEnabled": false,
+            "codeUrl": null,
             "colorScheme": "dark",
+            "hasCode": false,
             "id": "night-blue",
             "installedAt": "<TIME>",
             "name": "Night Blue",
@@ -385,7 +391,10 @@
           {
             "author": "Ada",
             "claudeTheme": false,
+            "codeEnabled": false,
+            "codeUrl": null,
             "colorScheme": "dark",
+            "hasCode": false,
             "id": "night-blue",
             "installedAt": "<TIME>",
             "name": "Night Blue",

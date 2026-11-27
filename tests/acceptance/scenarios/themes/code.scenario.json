@@ -1,0 +1,330 @@
+{
+  "title": "The code switch of a theme is off by default, only the person in the app can turn it on and keep it on through updates, and scripts are not served while it is off",
+  "steps": [
+    {
+      "name": "manifest of a theme without code",
+      "file": {
+        "path": "{{WORK}}/plain/manifest.json",
+        "text": "{\"id\":\"plain-blue\",\"name\":\"Plain Blue\",\"version\":\"1.0.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[]}}"
+      }
+    },
+    {
+      "name": "plain stylesheet",
+      "file": {
+        "path": "{{WORK}}/plain/theme.css",
+        "text": "a { color: blue }\n"
+      }
+    },
+    {
+      "name": "pack the plain theme",
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/plain", "--out", "{{WORK}}/plain.nullradix"]
+      }
+    },
+    {
+      "name": "install the plain theme",
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/plain.nullradix"]
+      }
+    },
+    {
+      "name": "the person cannot turn on the code of a theme without code",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/plain-blue/code",
+        "body": {
+          "enabled": true,
+          "version": 1
+        },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "turning the code of a theme without code off is fine",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/plain-blue/code",
+        "body": {
+          "enabled": false
+        },
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
+      }
+    },
+    {
+      "name": "uninstall the plain theme",
+      "cli": {
+        "args": ["theme", "remove", "plain-blue"]
+      }
+    },
+    {
+      "name": "manifest with a domain",
+      "file": {
+        "path": "{{WORK}}/night-code/manifest.json",
+        "text": "{\"id\":\"night-code\",\"name\":\"Night Code\",\"version\":\"1.0.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[\"fonts.example.com\"]}}"
+      }
+    },
+    {
+      "name": "stylesheet",
+      "file": {
+        "path": "{{WORK}}/night-code/theme.css",
+        "text": "a { color: red }\n"
+      }
+    },
+    {
+      "name": "script",
+      "file": {
+        "path": "{{WORK}}/night-code/main.js",
+        "text": "export default { id: 'night-code', slots: {} };\n"
+      }
+    },
+    {
+      "name": "pack the folder",
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v1.nullradix"]
+      }
+    },
+    {
+      "name": "install the confirmed package",
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"]
+      }
+    },
+    {
+      "name": "the theme has code and the switch is off",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes",
+        "keep": ["items.0.id", "items.0.version", "items.0.hasCode", "items.0.codeEnabled"]
+      }
+    },
+    {
+      "name": "the module is not served while the switch is off",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
+      }
+    },
+    {
+      "name": "a token cannot turn the code on",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": {
+          "enabled": true,
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "a token cannot turn it on for an unknown theme either",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/missing-theme/code",
+        "body": {
+          "enabled": true,
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "a token may turn it off, without a version",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": {
+          "enabled": false
+        },
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
+      }
+    },
+    {
+      "name": "turning off an unknown theme finds none",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/missing-theme/code",
+        "body": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "name": "the person cannot turn it on for an unknown theme",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/missing-theme/code",
+        "body": {
+          "enabled": true,
+          "version": 1
+        },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "the person must name the version when turning it on",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": {
+          "enabled": true
+        },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "the person is refused a stale version",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": {
+          "enabled": true,
+          "version": 7
+        },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "the module is still not served",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
+      }
+    },
+    {
+      "name": "the person turns the code on",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": {
+          "enabled": true,
+          "version": 1
+        },
+        "auth": "session",
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
+      }
+    },
+    {
+      "name": "the module is served while the switch is on",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
+      }
+    },
+    {
+      "name": "the person installs the same package again",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v1.nullradix",
+        "auth": "session",
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
+      }
+    },
+    {
+      "name": "an update that adds nothing keeps the switch on",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes",
+        "keep": ["items.0.version", "items.0.codeEnabled"]
+      }
+    },
+    {
+      "name": "the module is still served",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
+      }
+    },
+    {
+      "name": "a token installs the same package again",
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"]
+      }
+    },
+    {
+      "name": "the token's install turned the switch off",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes",
+        "keep": ["items.0.version", "items.0.codeEnabled"]
+      }
+    },
+    {
+      "name": "the module is not served after the token's install",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
+      }
+    },
+    {
+      "name": "the person turns the code on again",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": {
+          "enabled": true,
+          "version": 3
+        },
+        "auth": "session",
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
+      }
+    },
+    {
+      "name": "manifest of an update with another domain",
+      "file": {
+        "path": "{{WORK}}/night-code/manifest.json",
+        "text": "{\"id\":\"night-code\",\"name\":\"Night Code\",\"version\":\"1.1.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[\"fonts.example.com\",\"cdn.example.com\"]}}"
+      }
+    },
+    {
+      "name": "pack the update",
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v2.nullradix"]
+      }
+    },
+    {
+      "name": "the person installs the update that adds a domain",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v2.nullradix",
+        "auth": "session",
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
+      }
+    },
+    {
+      "name": "the switch is off after the update that adds a domain",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes",
+        "keep": ["items.0.version", "items.0.codeEnabled"]
+      }
+    },
+    {
+      "name": "the module is not served after the update",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
+      }
+    },
+    {
+      "name": "uninstall the theme",
+      "cli": {
+        "args": ["theme", "remove", "night-code"]
+      }
+    },
+    {
+      "name": "a reinstall starts with the switch off",
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v2.nullradix", "--yes"]
+      }
+    },
+    {
+      "name": "the new install is off",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes",
+        "keep": ["items.0.version", "items.0.codeEnabled"]
+      }
+    }
+  ]
+}

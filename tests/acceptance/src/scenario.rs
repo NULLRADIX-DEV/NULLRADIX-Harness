@@ -42,6 +42,8 @@ pub(crate) enum Action {
 pub(crate) enum Auth {
     #[default]
     Token,
+    /// A browser session of the person: cookie and same-origin header, no token.
+    Session,
     None,
 }
 
@@ -52,6 +54,9 @@ pub(crate) struct Http {
     pub(crate) path: String,
     #[serde(default)]
     pub(crate) body: Option<Value>,
+    /// A file whose bytes are sent as the body, such as a theme package.
+    #[serde(default)]
+    pub(crate) body_file: Option<String>,
     #[serde(default)]
     pub(crate) auth: Auth,
     /// Dotted paths of the JSON response to record; the rest varies from day to day.

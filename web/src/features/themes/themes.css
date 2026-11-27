@@ -19,6 +19,14 @@
   min-width: 0;
 }
 
+.theme-code {
+  margin-top: 8px;
+}
+
+.theme-code p {
+  margin: 4px 0 0;
+}
+
 .theme-preview {
   width: 64px;
   height: 40px;

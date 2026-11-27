@@ -127,12 +127,28 @@ fn http_step(
 ) -> anyhow::Result<(Value, Value)> {
     let path = fill(&http.path, saved);
     let body = http.body.as_ref().map(|body| fill_value(body, saved));
-    let reply = request(agent, daemon, &http.method, &path, body.as_ref(), http.auth)?;
+    let package = http
+        .body_file
+        .as_ref()
+        .map(|file| {
+            let file = fill(file, saved);
+            std::fs::read(&file).with_context(|| format!("cannot read {file}"))
+        })
+        .transpose()?;
+    let content = match (&body, &package) {
+        (Some(body), _) => Content::Json(body),
+        (None, Some(bytes)) => Content::Bytes(bytes),
+        (None, None) => Content::Nothing,
+    };
+    let reply = request(agent, daemon, &http.method, &path, content, http.auth)?;
     let mut request = Map::new();
     request.insert(String::from("method"), Value::from(http.method.clone()));
     request.insert(String::from("path"), Value::from(path));
     if let Some(body) = body {
         request.insert(String::from("body"), body);
+    }
+    if let Some(file) = &http.body_file {
+        request.insert(String::from("bodyFile"), Value::from(fill(file, saved)));
     }
     let mut response = Map::new();
     response.insert(String::from("status"), Value::from(reply.status));
@@ -191,22 +207,42 @@ struct Reply {
     payload: Payload,
 }
 
+/// What a request sends.
+#[derive(Clone, Copy)]
+enum Content<'a> {
+    Nothing,
+    Json(&'a Value),
+    Bytes(&'a [u8]),
+}
+
+/// The headers that tell the daemon who asks.
+fn credentials(daemon: &Daemon, auth: Auth) -> anyhow::Result<Vec<(&'static str, String)>> {
+    Ok(match auth {
+        Auth::Token => vec![("Authorization", format!("Bearer {}", daemon.token))],
+        Auth::Session => vec![
+            ("Cookie", daemon.session_cookie()?.to_owned()),
+            ("Origin", format!("http://{}", daemon.address)),
+        ],
+        Auth::None => Vec::new(),
+    })
+}
+
 fn request(
     agent: &Agent,
     daemon: &Daemon,
     method: &str,
     path: &str,
-    body: Option<&Value>,
+    content: Content<'_>,
     auth: Auth,
 ) -> anyhow::Result<Reply> {
     let url = daemon.url(path);
-    let bearer = (auth == Auth::Token).then(|| format!("Bearer {}", daemon.token));
+    let headers = credentials(daemon, auth)?;
     let mut response = match method {
-        "GET" => get_retrying(agent, &url, bearer.as_deref())?,
+        "GET" => get_retrying(agent, &url, &headers)?,
         "DELETE" => {
             let mut builder = agent.delete(&url);
-            if let Some(bearer) = &bearer {
-                builder = builder.header("Authorization", bearer);
+            for (name, value) in &headers {
+                builder = builder.header(*name, value);
             }
             builder
                 .call()
@@ -218,12 +254,15 @@ fn request(
                 "PATCH" => agent.patch(&url),
                 _ => agent.put(&url),
             };
-            if let Some(bearer) = &bearer {
-                builder = builder.header("Authorization", bearer);
+            for (name, value) in &headers {
+                builder = builder.header(*name, value);
             }
-            match body {
-                Some(body) => builder.send_json(body),
-                None => builder.send_empty(),
+            match content {
+                Content::Json(body) => builder.send_json(body),
+                Content::Bytes(bytes) => {
+                    builder.content_type("application/octet-stream").send(bytes)
+                }
+                Content::Nothing => builder.send_empty(),
             }
             .map_err(|error| not_retried(method, &error))?
         }
@@ -258,13 +297,13 @@ fn request(
 fn get_retrying(
     agent: &Agent,
     url: &str,
-    bearer: Option<&str>,
+    headers: &[(&'static str, String)],
 ) -> anyhow::Result<ureq::http::Response<ureq::Body>> {
     let deadline = Instant::now() + REQUEST_LIMIT;
     loop {
         let mut builder = agent.get(url);
-        if let Some(bearer) = bearer {
-            builder = builder.header("Authorization", bearer);
+        for (name, value) in headers {
+            builder = builder.header(*name, value);
         }
         match builder.call() {
             Ok(response) => return Ok(response),
@@ -368,7 +407,7 @@ fn wait_step(
     let path = fill(&wait.path, saved);
     let deadline = Instant::now() + Duration::from_millis(wait.timeout_ms);
     loop {
-        let reply = request(agent, daemon, "GET", &path, None, Auth::Token)?;
+        let reply = request(agent, daemon, "GET", &path, Content::Nothing, Auth::Token)?;
         let seen = match &reply.payload {
             Payload::Json(json) => field(json, &wait.field).cloned(),
             _ => None,

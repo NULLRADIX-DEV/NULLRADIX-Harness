@@ -5,6 +5,7 @@ import type { ChangeRegistry } from '../live/registry';
 import { useInvalidate } from './useInvalidate';
 
 export type Theme = components['schemas']['ThemeDto'];
+export type ThemeList = components['schemas']['ThemeListDto'];
 export type ThemeSettingSpec = components['schemas']['ThemeSettingDto'];
 export type ThemeSettings = components['schemas']['ThemeSettingsDto'];
 export type ClaudeTheme = components['schemas']['ClaudeThemeDto'];
@@ -65,6 +66,28 @@ export function useRemoveTheme() {
         }),
       );
     },
+    onSettled: invalidate,
+  });
+}
+
+export function useSetThemeCode() {
+  const invalidate = useInvalidate(themeKeys.all);
+  return useMutation({
+    mutationFn: async ({
+      id,
+      enabled,
+      version,
+    }: {
+      id: string;
+      enabled: boolean;
+      version: number;
+    }) =>
+      unwrap(
+        await api.PUT('/api/v1/themes/{id}/code', {
+          params: { path: { id } },
+          body: { enabled, version },
+        }),
+      ),
     onSettled: invalidate,
   });
 }

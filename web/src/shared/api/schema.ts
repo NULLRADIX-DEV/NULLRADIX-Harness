@@ -1365,6 +1365,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/themes/{id}/code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_theme_code"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/themes/{id}/files/{*path}": {
         parameters: {
             query?: never;
@@ -2193,8 +2209,9 @@ export interface components {
             domains: string[];
             /** @description The package holds script files. */
             hasCode: boolean;
-            /** @description Id and name of the theme in the package. */
+            /** @description Id of the theme in the package. */
             id: string;
+            /** @description Name of the theme in the package. */
             name: string;
             /** @description Checksum of a catalog package; send it back as `confirmedSha256` to confirm exactly it. */
             sha256?: string | null;
@@ -3738,6 +3755,15 @@ export interface components {
              */
             version: number;
         };
+        SetThemeCode: {
+            /** @description Let the web UI run `main.js` of the theme while it is chosen, or stop it. */
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @description Version of the theme the person saw, so a later update cannot slip in; needed to turn on.
+             */
+            version?: number | null;
+        };
         /** @description A note the similarity check found. */
         SimilarNoteDto: {
             /** Format: int64 */
@@ -3969,7 +3995,13 @@ export interface components {
             author: string;
             /** @description Whether the package brings a theme for Claude Code. */
             claudeTheme: boolean;
+            /** @description The person turned the code switch on; only then does the web UI run `main.js`. */
+            codeEnabled: boolean;
+            /** @description URL of `main.js`, set when the package has one. */
+            codeUrl?: string | null;
             colorScheme: components["schemas"]["ColorSchemeDto"];
+            /** @description The package has a `main.js` for the web UI. */
+            hasCode: boolean;
             id: string;
             /** Format: int64 */
             installedAt: number;
@@ -9816,7 +9848,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Replaced the installed theme with the same id */
+            /** @description Replaced the installed theme with the same id; an install by a token turns its code switch off */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9954,7 +9986,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Replaced the installed theme with the same id */
+            /** @description Replaced the installed theme with the same id; an install by a token turns its code switch off */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10049,6 +10081,77 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_theme_code: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Theme id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetThemeCode"];
+            };
+        };
+        responses: {
+            /** @description The switch is set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `theme-code-needs-person`: a token tried to turn the code on; only a browser session may, a token may turn it off */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The theme is not installed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Turning on with a stale version: the theme was updated since the person saw it */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `theme-has-no-code`: no `main.js` to turn on; `theme-version-required`: turning on needs a version */
             422: {
                 headers: {
                     [name: string]: unknown;

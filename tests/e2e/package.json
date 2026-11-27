@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "build:daemon": "cargo build --locked -p nullradix-cli -p nullradix-fake-claude",
+    "build:sdk": "npm run build --prefix ../../sdk/theme",
     "build:web": "npm run build --prefix ../../web",
-    "build": "npm run build:daemon && npm run build:web",
+    "build": "npm run build:daemon && npm run build:sdk && npm run build:web",
     "browsers": "playwright install chromium",
     "browsers:ci": "playwright install --with-deps chromium",
     "test": "playwright test",

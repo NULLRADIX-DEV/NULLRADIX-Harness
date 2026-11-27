@@ -9,7 +9,10 @@ COPY sdk/theme/package.json sdk/theme/
 COPY tests/e2e/package.json tests/e2e/
 RUN npm ci --ignore-scripts
 COPY web web
+COPY sdk/theme sdk/theme
 COPY assets assets
+# the web app imports the built theme SDK
+RUN npm run build -w sdk/theme
 RUN npm run build
 
 # Toolchain and dependency layers, so source edits do not rebuild the dependencies

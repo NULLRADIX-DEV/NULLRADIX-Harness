@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
 use nullradix_app::theme_package::{manifest_json, parse_manifest};
@@ -21,6 +21,8 @@ const SELECTION_KEY: &str = "theme";
 
 const ORIGIN_PREFIX: &str = "theme-origin.";
 
+const CODE_PREFIX: &str = "theme-code.";
+
 /// Settings key of the values chosen for one theme.
 fn settings_key(id: &ThemeId) -> String {
     format!("theme-settings.{id}")
@@ -29,6 +31,11 @@ fn settings_key(id: &ThemeId) -> String {
 /// Settings key of the catalog source a theme was installed from.
 fn origin_key(id: &ThemeId) -> String {
     format!("{ORIGIN_PREFIX}{id}")
+}
+
+/// Settings key of the code switch of a theme; the row exists only while the switch is on.
+fn code_key(id: &ThemeId) -> String {
+    format!("{CODE_PREFIX}{id}")
 }
 
 fn corrupt(what: &str) -> StoreError {
@@ -432,6 +439,59 @@ impl ThemeWrite for Write {
         Ok(())
     }
 
+    async fn code_enabled(&mut self, id: &ThemeId) -> Result<bool, AppError> {
+        let key = code_key(id);
+        let row = sqlx::query_scalar!("SELECT key FROM settings WHERE key = ?", key)
+            .fetch_optional(&mut *self.0)
+            .await
+            .map_err(database)?;
+        Ok(row.is_some())
+    }
+
+    async fn set_code(
+        &mut self,
+        id: &ThemeId,
+        enabled: bool,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        let key = code_key(id);
+        let name = id.as_str();
+        let changed = if enabled {
+            let millis = at.as_millis();
+            sqlx::query!(
+                "INSERT INTO settings (key, value, version, updated_at)
+                 SELECT ?, 'true', 1, ?
+                 WHERE EXISTS (SELECT 1 FROM installed_themes WHERE theme_id = ?)
+                 ON CONFLICT (key) DO NOTHING",
+                key,
+                millis,
+                name,
+            )
+            .execute(&mut *self.0)
+            .await
+            .map_err(database)?
+            .rows_affected()
+                > 0
+        } else {
+            sqlx::query!("DELETE FROM settings WHERE key = ?", key)
+                .execute(&mut *self.0)
+                .await
+                .map_err(database)?
+                .rows_affected()
+                > 0
+        };
+        if !changed {
+            return Ok(None);
+        }
+        let Some(feed_id) = feed_id_of(&mut self.0, id).await? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            change_feed::record(&mut self.0, Entity::Setting, feed_id, ChangeOp::Update, at)
+                .await?,
+        ))
+    }
+
     async fn commit(self: Box<Self>) -> Result<(), AppError> {
         self.0.commit().await.map_err(database)
     }
@@ -501,5 +561,20 @@ impl ThemeRepository for Store {
             origins.insert(id, source);
         }
         Ok(origins)
+    }
+
+    async fn code_switches(&self) -> Result<BTreeSet<ThemeId>, AppError> {
+        let mut read = self.reader.acquire().await.map_err(database)?;
+        let rows = sqlx::query_scalar!("SELECT key FROM settings WHERE key LIKE 'theme-code.%'")
+            .fetch_all(&mut *read)
+            .await
+            .map_err(database)?;
+        rows.iter()
+            .map(|key| {
+                key.strip_prefix(CODE_PREFIX)
+                    .and_then(|id| ThemeId::parse(id).ok())
+                    .ok_or_else(|| corrupt("code switch").into())
+            })
+            .collect()
     }
 }

@@ -11,6 +11,15 @@ export function confirmationOf(error: unknown): Confirmation | null {
   return error.confirmation;
 }
 
+// What happens to the code switch of the theme after this install.
+function codeSwitchLine(facts: Confirmation): string {
+  if (!facts.update) return 'The code switch of this theme starts off.';
+  const added = facts.added.code || facts.added.claudeTheme || facts.added.domains.length > 0;
+  return added
+    ? 'This update adds something, so the code switch of this theme turns off until you turn it on again.'
+    : 'This update adds nothing new, so the code switch of this theme stays as it is.';
+}
+
 // Asks before a package with code, network domains or a Claude part is installed.
 export function ThemeConfirmDialog({
   facts,
@@ -49,6 +58,7 @@ export function ThemeConfirmDialog({
             full rights. Install it only from a source you trust.
           </p>
         )}
+        {facts.hasCode && <p>{codeSwitchLine(facts)}</p>}
         {facts.claudeTheme && (
           <p>
             It has a Claude Code theme that is put into the Claude folders

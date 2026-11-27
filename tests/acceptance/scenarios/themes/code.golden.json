@@ -1,0 +1,581 @@
+[
+  {
+    "file": "<WORK>/plain/manifest.json",
+    "lines": 0,
+    "name": "manifest of a theme without code"
+  },
+  {
+    "file": "<WORK>/plain/theme.css",
+    "lines": 0,
+    "name": "plain stylesheet"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/plain",
+      "--out",
+      "<WORK>/plain.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the plain theme",
+    "stderr": "",
+    "stdout": "packed plain-blue 1.0.0 (2 files) into <WORK>/plain.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/plain.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "install the plain theme",
+    "stderr": "",
+    "stdout": "installed plain-blue 1.0.0\n"
+  },
+  {
+    "name": "the person cannot turn on the code of a theme without code",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/plain-blue/code"
+    },
+    "response": {
+      "json": {
+        "code": "theme-has-no-code",
+        "detail": "plain-blue has no main.js to run",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-has-no-code"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "turning the code of a theme without code off is fine",
+    "request": {
+      "body": {
+        "enabled": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/plain-blue/code"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": false,
+        "hasCode": false,
+        "id": "plain-blue",
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "remove",
+      "plain-blue"
+    ],
+    "exitCode": 0,
+    "name": "uninstall the plain theme",
+    "stderr": "",
+    "stdout": "removed plain-blue\n"
+  },
+  {
+    "file": "<WORK>/night-code/manifest.json",
+    "lines": 0,
+    "name": "manifest with a domain"
+  },
+  {
+    "file": "<WORK>/night-code/theme.css",
+    "lines": 0,
+    "name": "stylesheet"
+  },
+  {
+    "file": "<WORK>/night-code/main.js",
+    "lines": 0,
+    "name": "script"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-code",
+      "--out",
+      "<WORK>/v1.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the folder",
+    "stderr": "",
+    "stdout": "packed night-code 1.0.0 (3 files) into <WORK>/v1.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v1.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "install the confirmed package",
+    "stderr": "",
+    "stdout": "installed night-code 1.0.0\n"
+  },
+  {
+    "name": "the theme has code and the switch is off",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "items": {
+          "0": {
+            "codeEnabled": false,
+            "hasCode": true,
+            "id": "night-code",
+            "version": 1
+          }
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the module is not served while the switch is off",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a token cannot turn the code on",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "code": "theme-code-needs-person",
+        "detail": "only the person in the app can turn theme code on; tokens may only turn it off",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:theme-code-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a token cannot turn it on for an unknown theme either",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/missing-theme/code"
+    },
+    "response": {
+      "json": {
+        "code": "theme-code-needs-person",
+        "detail": "only the person in the app can turn theme code on; tokens may only turn it off",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:theme-code-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a token may turn it off, without a version",
+    "request": {
+      "body": {
+        "enabled": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": false,
+        "hasCode": true,
+        "id": "night-code",
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "turning off an unknown theme finds none",
+    "request": {
+      "body": {
+        "enabled": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/missing-theme/code"
+    },
+    "response": {
+      "json": {
+        "code": "theme-not-found",
+        "detail": "the theme missing-theme is not installed",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "the person cannot turn it on for an unknown theme",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/missing-theme/code"
+    },
+    "response": {
+      "json": {
+        "code": "theme-not-found",
+        "detail": "the theme missing-theme is not installed",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "the person must name the version when turning it on",
+    "request": {
+      "body": {
+        "enabled": true
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "code": "theme-version-required",
+        "detail": "turning the code on needs the version of the theme the person saw",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-version-required"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the person is refused a stale version",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 7
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "theme night-code was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "the module is still not served",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "the person turns the code on",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": true,
+        "hasCode": true,
+        "id": "night-code",
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the module is served while the switch is on",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "status": 200,
+      "text": "export default { id: 'night-code', slots: {} };\n"
+    }
+  },
+  {
+    "name": "the person installs the same package again",
+    "request": {
+      "bodyFile": "<WORK>/v1.nullradix",
+      "method": "POST",
+      "path": "/api/v1/themes?confirmed=true"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": true,
+        "hasCode": true,
+        "id": "night-code",
+        "version": 2
+      },
+      "location": "/api/v1/themes/night-code/files/theme.css?v=2",
+      "status": 200
+    }
+  },
+  {
+    "name": "an update that adds nothing keeps the switch on",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "items": {
+          "0": {
+            "codeEnabled": true,
+            "version": 2
+          }
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the module is still served",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "status": 200,
+      "text": "export default { id: 'night-code', slots: {} };\n"
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v1.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "a token installs the same package again",
+    "stderr": "",
+    "stdout": "installed night-code 1.0.0\n"
+  },
+  {
+    "name": "the token's install turned the switch off",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "items": {
+          "0": {
+            "codeEnabled": false,
+            "version": 3
+          }
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the module is not served after the token's install",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "the person turns the code on again",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 3
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": true,
+        "hasCode": true,
+        "id": "night-code",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "file": "<WORK>/night-code/manifest.json",
+    "lines": 0,
+    "name": "manifest of an update with another domain"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-code",
+      "--out",
+      "<WORK>/v2.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the update",
+    "stderr": "",
+    "stdout": "packed night-code 1.1.0 (3 files) into <WORK>/v2.nullradix\n"
+  },
+  {
+    "name": "the person installs the update that adds a domain",
+    "request": {
+      "bodyFile": "<WORK>/v2.nullradix",
+      "method": "POST",
+      "path": "/api/v1/themes?confirmed=true"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": false,
+        "hasCode": true,
+        "id": "night-code",
+        "version": 4
+      },
+      "location": "/api/v1/themes/night-code/files/theme.css?v=4",
+      "status": 200
+    }
+  },
+  {
+    "name": "the switch is off after the update that adds a domain",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "items": {
+          "0": {
+            "codeEnabled": false,
+            "version": 4
+          }
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the module is not served after the update",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "remove",
+      "night-code"
+    ],
+    "exitCode": 0,
+    "name": "uninstall the theme",
+    "stderr": "",
+    "stdout": "removed night-code\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v2.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "a reinstall starts with the switch off",
+    "stderr": "",
+    "stdout": "installed night-code 1.1.0\n"
+  },
+  {
+    "name": "the new install is off",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "items": {
+          "0": {
+            "codeEnabled": false,
+            "version": 1
+          }
+        }
+      },
+      "status": 200
+    }
+  }
+]

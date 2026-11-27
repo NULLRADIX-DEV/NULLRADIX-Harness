@@ -1,5 +1,5 @@
 {
-  "title": "A theme with code or network domains is installed only after a confirmation",
+  "title": "A theme with code, network domains or a Claude part is installed only after a confirmation",
   "steps": [
     {
       "name": "manifest with a domain",

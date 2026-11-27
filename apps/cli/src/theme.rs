@@ -115,10 +115,7 @@ fn facts_text(detail: &str, facts: &ConfirmationDto) -> String {
             added_text(&facts.added)
         ));
     }
-    lines.join(
-        "
-",
-    )
+    lines.join("\n")
 }
 
 fn added_text(added: &AddedDto) -> String {
@@ -146,30 +143,43 @@ fn added_text(added: &AddedDto) -> String {
 pub(crate) fn ask_for_yes(error: ClientError) -> anyhow::Error {
     match error {
         ClientError::ConfirmationRequired { detail, facts } => anyhow::anyhow!(
-            "{}
-run it again with --yes to confirm",
+            "{}\nrun it again with --yes to confirm",
             facts_text(&detail, &facts)
         ),
         other => other.into(),
     }
 }
 
-/// A refusal of a catalog package names the checksum to repeat.
-pub(crate) fn ask_for_checksum(error: ClientError) -> anyhow::Error {
+/// The catalog install a refusal came from, to print the command that repeats it.
+pub(crate) struct CatalogInstall<'a> {
+    pub(crate) theme: &'a str,
+    pub(crate) source: &'a str,
+    pub(crate) replace: bool,
+}
+
+impl CatalogInstall<'_> {
+    fn command(&self, sha: &str) -> String {
+        format!(
+            "nullradix theme catalog install {} --source {}{} --confirm {sha}",
+            plain(self.theme),
+            plain(self.source),
+            if self.replace { " --replace" } else { "" },
+        )
+    }
+}
+
+/// A refusal of a catalog package names the checksum and the command to repeat.
+pub(crate) fn ask_for_checksum(error: ClientError, install: &CatalogInstall<'_>) -> anyhow::Error {
     match error {
         ClientError::ConfirmationRequired { detail, facts } => {
             let text = facts_text(&detail, &facts);
             match facts.sha256.as_deref() {
                 Some(sha) => anyhow::anyhow!(
-                    "{text}
-  checksum: {sha}
-to install exactly this package run it again with --confirm {sha}",
-                    sha = plain(sha)
+                    "{text}\n  checksum: {sha}\nto install exactly this package run: {command}",
+                    sha = plain(sha),
+                    command = install.command(&plain(sha)),
                 ),
-                None => anyhow::anyhow!(
-                    "{text}
-the daemon named no checksum to confirm"
-                ),
+                None => anyhow::anyhow!("{text}\nthe daemon named no checksum to confirm"),
             }
         }
         other => other.into(),
@@ -473,6 +483,9 @@ mod tests {
             network: Vec::new(),
             settings,
             claude_theme: false,
+            has_code: false,
+            code_enabled: false,
+            code_url: None,
             installed_at: 0,
             updated_at: 0,
             version: 1,
@@ -603,13 +616,7 @@ mod tests {
             "  network domains: a.example.com",
             "run it again with --yes to confirm",
         ];
-        assert_eq!(
-            text,
-            lines.join(
-                "
-"
-            )
-        );
+        assert_eq!(text, lines.join("\n"));
         let update = ask_for_yes(refused(true, None)).to_string();
         assert!(update.contains("1.0.0, update"), "{update}");
         assert!(
@@ -626,17 +633,30 @@ mod tests {
 
     #[test]
     fn a_refused_catalog_package_names_the_checksum_to_confirm() {
-        let text = ask_for_checksum(refused(false, Some("ab12"))).to_string();
+        let install = CatalogInstall {
+            theme: "night-blue",
+            source: "src-1",
+            replace: false,
+        };
+        let text = ask_for_checksum(refused(false, Some("ab12")), &install).to_string();
+        assert!(text.contains("  checksum: ab12\n"), "{text}");
         assert!(
-            text.contains(
-                "  checksum: ab12
-"
+            text.ends_with(
+                "run: nullradix theme catalog install night-blue --source src-1 --confirm ab12"
             ),
             "{text}"
         );
-        assert!(text.ends_with("--confirm ab12"), "{text}");
         assert!(!text.contains("--yes"), "{text}");
-        let none = ask_for_checksum(refused(false, None)).to_string();
+        let replacing = CatalogInstall {
+            replace: true,
+            ..install
+        };
+        let text = ask_for_checksum(refused(true, Some("ab12")), &replacing).to_string();
+        assert!(
+            text.ends_with("--source src-1 --replace --confirm ab12"),
+            "{text}"
+        );
+        let none = ask_for_checksum(refused(false, None), &install).to_string();
         assert!(none.contains("no checksum"), "{none}");
     }
 }

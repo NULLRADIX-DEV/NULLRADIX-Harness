@@ -7103,7 +7103,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Replaced the installed theme with the same id",
+            "description": "Replaced the installed theme with the same id; an install by a token turns its code switch off",
             "content": {
               "application/json": {
                 "schema": {
@@ -7272,7 +7272,7 @@
         },
         "responses": {
           "200": {
-            "description": "Replaced the installed theme with the same id",
+            "description": "Replaced the installed theme with the same id; an install by a token turns its code switch off",
             "content": {
               "application/json": {
                 "schema": {
@@ -7391,6 +7391,96 @@
             }
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/themes/{id}/code": {
+      "put": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "set_theme_code",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetThemeCode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The switch is set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`theme-code-needs-person`: a token tried to turn the code on; only a browser session may, a token may turn it off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The theme is not installed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Turning on with a stale version: the theme was updated since the person saw it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`theme-has-no-code`: no `main.js` to turn on; `theme-version-required`: turning on needs a version",
             "content": {
               "application/json": {
                 "schema": {
@@ -11160,10 +11250,11 @@
           },
           "id": {
             "type": "string",
-            "description": "Id and name of the theme in the package."
+            "description": "Id of the theme in the package."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Name of the theme in the package."
           },
           "sha256": {
             "type": [
@@ -16110,6 +16201,27 @@
         },
         "additionalProperties": false
       },
+      "SetThemeCode": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Let the web UI run `main.js` of the theme while it is chosen, or stop it."
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Version of the theme the person saw, so a later update cannot slip in; needed to turn on."
+          }
+        },
+        "additionalProperties": false
+      },
       "SimilarNoteDto": {
         "type": "object",
         "description": "A note the similarity check found.",
@@ -16791,6 +16903,8 @@
           "network",
           "settings",
           "claudeTheme",
+          "hasCode",
+          "codeEnabled",
           "installedAt",
           "updatedAt",
           "version"
@@ -16803,8 +16917,23 @@
             "type": "boolean",
             "description": "Whether the package brings a theme for Claude Code."
           },
+          "codeEnabled": {
+            "type": "boolean",
+            "description": "The person turned the code switch on; only then does the web UI run `main.js`."
+          },
+          "codeUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of `main.js`, set when the package has one."
+          },
           "colorScheme": {
             "$ref": "#/components/schemas/ColorSchemeDto"
+          },
+          "hasCode": {
+            "type": "boolean",
+            "description": "The package has a `main.js` for the web UI."
           },
           "id": {
             "type": "string"

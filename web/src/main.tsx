@@ -13,7 +13,9 @@ import { RouterProvider, createBrowserRouter } from 'react-router';
 import { AppProviders } from './app/providers';
 import { createQueryClient } from './app/queryClient';
 import { routes } from './app/routes';
+import { loadThemeModule } from './shared/lib/loadThemeModule';
 import { dismissStartOverlay } from './shared/lib/startOverlay';
+import { themesQuery } from './shared/query/themes';
 
 const container = document.getElementById('root');
 if (!container) throw new Error('missing #root element');
@@ -32,8 +34,15 @@ function Root() {
   );
 }
 
-createRoot(container).render(
-  <StrictMode>
-    <Root />
-  </StrictMode>,
-);
+const start = async () => {
+  // the theme list also fills the cache the settings read
+  const fetchThemes = () => queryClient.query({ ...themesQuery(), retry: false });
+  await loadThemeModule({ fetchThemes }).catch(() => undefined);
+  createRoot(container).render(
+    <StrictMode>
+      <Root />
+    </StrictMode>,
+  );
+};
+
+void start();

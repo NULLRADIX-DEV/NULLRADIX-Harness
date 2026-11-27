@@ -183,7 +183,14 @@ fn install(
     };
     let installed = client
         .install_from_catalog(&source, theme, replace, confirm)
-        .map_err(crate::theme::ask_for_checksum)?;
+        .map_err(|error| {
+            let install = crate::theme::CatalogInstall {
+                theme,
+                source: &source,
+                replace,
+            };
+            crate::theme::ask_for_checksum(error, &install)
+        })?;
     println!(
         "installed {} {}",
         plain(&installed.id),

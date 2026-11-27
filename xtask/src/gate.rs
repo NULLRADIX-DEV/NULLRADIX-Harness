@@ -268,7 +268,7 @@ pub(crate) fn gate(root: &Path, skip_web: bool) -> ExitCode {
     });
     tests(root, &mut reports);
     if skip_web {
-        for name in ["eslint", "typecheck", "web tests", "web build"] {
+        for name in ["sdk build", "eslint", "typecheck", "web tests", "web build"] {
             reports.push(Report {
                 name,
                 outcome: Outcome::Skipped("--skip-web".to_owned()),
@@ -276,6 +276,10 @@ pub(crate) fn gate(root: &Path, skip_web: bool) -> ExitCode {
             });
         }
     } else {
+        // the web app imports the built SDK, so lint, types, tests and build need it
+        step("sdk build", &mut reports, || {
+            run(root, npm, &["run", "build", "-w", "sdk/theme"])
+        });
         step("eslint", &mut reports, || run(root, npm, &["run", "lint"]));
         step("typecheck", &mut reports, || {
             run(root, npm, &["run", "typecheck"])
