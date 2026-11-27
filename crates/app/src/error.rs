@@ -32,7 +32,10 @@ pub struct FieldProblem {
 
 /// Boxed apart so a failure stays small.
 #[derive(Debug)]
-struct FieldList(Vec<FieldProblem>);
+struct Extra {
+    fields: Vec<FieldProblem>,
+    confirmation: Option<ConfirmationFacts>,
+}
 
 /// What a person confirms before a theme package is installed, for `theme-confirmation-required`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,10 +58,8 @@ pub struct AppError {
     existing: Option<String>,
     /// Notes that already describe the finding, for `note-similar`.
     similar: Vec<SimilarNote>,
-    /// Refused fields of the input, for `theme-manifest-invalid`.
-    fields: Option<Box<FieldList>>,
-    /// Facts to confirm, for `theme-confirmation-required`.
-    confirmation: Option<Box<ConfirmationFacts>>,
+    /// Refused fields (`theme-manifest-invalid`) and facts to confirm (`theme-confirmation-required`).
+    extra: Option<Box<Extra>>,
     source: Option<Box<dyn Error + Send + Sync>>,
 }
 
@@ -71,8 +72,7 @@ impl AppError {
             message: message.into(),
             existing: None,
             similar: Vec::new(),
-            fields: None,
-            confirmation: None,
+            extra: None,
             source: None,
         }
     }
@@ -161,24 +161,40 @@ impl AppError {
 
     #[must_use]
     pub fn with_fields(mut self, fields: Vec<FieldProblem>) -> Self {
-        self.fields = (!fields.is_empty()).then(|| Box::new(FieldList(fields)));
+        let confirmation = self.extra.take().and_then(|extra| extra.confirmation);
+        self.extra = (!fields.is_empty() || confirmation.is_some()).then(|| {
+            Box::new(Extra {
+                fields,
+                confirmation,
+            })
+        });
         self
     }
 
     #[must_use]
     pub fn fields(&self) -> &[FieldProblem] {
-        self.fields.as_ref().map_or(&[], |list| &list.0)
+        self.extra.as_ref().map_or(&[], |extra| &extra.fields)
     }
 
     #[must_use]
     pub fn with_confirmation(mut self, facts: ConfirmationFacts) -> Self {
-        self.confirmation = Some(Box::new(facts));
+        let fields = self
+            .extra
+            .take()
+            .map(|extra| extra.fields)
+            .unwrap_or_default();
+        self.extra = Some(Box::new(Extra {
+            fields,
+            confirmation: Some(facts),
+        }));
         self
     }
 
     #[must_use]
     pub fn confirmation(&self) -> Option<&ConfirmationFacts> {
-        self.confirmation.as_deref()
+        self.extra
+            .as_ref()
+            .and_then(|extra| extra.confirmation.as_ref())
     }
 
     #[must_use]

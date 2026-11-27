@@ -289,9 +289,7 @@ impl ThemeService {
         Ok(ThemeList { themes, active })
     }
 
-    /// Installs the package, or replaces the installed theme with the same id.
-    ///
-    /// Code or network domains the installed version did not have need `confirmed`.
+    /// Installs or replaces the theme; new code or domains need `confirmed`.
     pub async fn install(&self, archive: Vec<u8>, confirmed: bool) -> Result<Installed, AppError> {
         self.install_expecting(archive, None, None, confirmed).await
     }

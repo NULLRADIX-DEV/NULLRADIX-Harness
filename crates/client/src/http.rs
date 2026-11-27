@@ -627,9 +627,7 @@ impl Client {
         self.get_json("/themes")
     }
 
-    /// Installs a `.nullradix` package, or replaces the theme with the same id.
-    ///
-    /// Code or network domains the installed version lacked need `confirmed`.
+    /// Installs a package or replaces the theme; new code or domains need `confirmed`.
     pub fn install_theme(&self, package: &[u8], confirmed: bool) -> Result<ThemeDto, ClientError> {
         let query = if confirmed { "?confirmed=true" } else { "" };
         let mut response = self
@@ -684,9 +682,7 @@ impl Client {
         decode(&mut response, 200)
     }
 
-    /// Installs a theme a source offers; `replace` takes over one from elsewhere.
-    ///
-    /// Code or network domains the installed version lacked need `confirmed`.
+    /// Installs a theme a source offers; `replace` takes over one, `confirmed` allows new code.
     pub fn install_from_catalog(
         &self,
         source: &str,

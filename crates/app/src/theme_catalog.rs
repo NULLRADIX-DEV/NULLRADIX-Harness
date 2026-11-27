@@ -456,9 +456,7 @@ impl CatalogService {
         })
     }
 
-    /// Installs the offered theme; one from another source needs `replace`.
-    ///
-    /// Code or domains the installed version did not have need `confirmed`.
+    /// Installs the offered theme; `replace` takes over one from elsewhere.
     pub async fn install(
         &self,
         source: &str,

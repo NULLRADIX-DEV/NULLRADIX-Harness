@@ -243,7 +243,7 @@ async fn the_service_installs_selects_and_removes_against_the_database() {
         "manifest.json={MANIFEST}\n--\ntheme.css=a {{ color: red }}\n--\nclaude/hooks/hooks.json={{}}"
     )
     .into_bytes();
-    let installed = service.install(archive.clone(), false).await.unwrap().theme;
+    let installed = service.install(archive.clone(), true).await.unwrap().theme;
     service.select("night-blue").await.unwrap();
     assert_eq!(service.list().await.unwrap().active, "night-blue");
 
@@ -436,7 +436,7 @@ fn service(store: &Arc<Store>) -> ThemeService {
 async fn the_service_saves_and_drops_settings_with_the_theme() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = service(&store);
-    service.install(archive(), false).await.unwrap();
+    service.install(archive(), true).await.unwrap();
     let saved = service
         .save_settings("night-blue", input(&[("mode", choice("b"))]), None)
         .await
@@ -467,7 +467,7 @@ async fn the_service_saves_and_drops_settings_with_the_theme() {
         .unwrap();
     let id = ThemeId::parse("night-blue").unwrap();
     assert_eq!(store.settings(&id).await.unwrap(), None);
-    service.install(archive(), false).await.unwrap();
+    service.install(archive(), true).await.unwrap();
     assert_eq!(service.settings("night-blue").await.unwrap().version, None);
 }
 
@@ -475,7 +475,7 @@ async fn the_service_saves_and_drops_settings_with_the_theme() {
 async fn resetting_removes_the_row_and_reports_a_stale_version() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = service(&store);
-    service.install(archive(), false).await.unwrap();
+    service.install(archive(), true).await.unwrap();
     service.reset_settings("night-blue", None).await.unwrap();
     let off = input(&[("dim", SettingValue::Switch(false))]);
     let saved = service
@@ -499,7 +499,7 @@ async fn resetting_removes_the_row_and_reports_a_stale_version() {
 async fn two_saves_from_the_same_version_let_exactly_one_win() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = service(&store);
-    service.install(archive(), false).await.unwrap();
+    service.install(archive(), true).await.unwrap();
     let (first, second) = tokio::join!(
         service.save_settings("night-blue", input(&[("mode", choice("a"))]), None),
         service.save_settings("night-blue", input(&[("mode", choice("b"))]), None),
@@ -516,7 +516,7 @@ async fn two_saves_from_the_same_version_let_exactly_one_win() {
 async fn a_save_after_the_uninstall_finds_no_theme() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = service(&store);
-    let installed = service.install(archive(), false).await.unwrap().theme;
+    let installed = service.install(archive(), true).await.unwrap().theme;
     service
         .remove("night-blue", installed.record().version)
         .await
