@@ -12,7 +12,7 @@ use nullradix_app::autostart::{Autostart, AutostartService, NoAutostart};
 use nullradix_app::boards::{BoardService, local_person};
 use nullradix_app::claude_theme::ClaudeThemeService;
 use nullradix_app::comments::CommentService;
-use nullradix_app::customizations::{CustomizationService, NoStandards};
+use nullradix_app::customizations::CustomizationService;
 use nullradix_app::dispatch::accounts::AccountPauses;
 use nullradix_app::dispatch::assemble::{DispatcherDeps, assemble};
 use nullradix_app::dispatch::control::DispatcherService;
@@ -566,7 +566,7 @@ fn start_extensions(
     ));
     let customizations = Arc::new(CustomizationService::new(
         Arc::new(store.clone()),
-        Arc::new(NoStandards),
+        Arc::new(crate::plugin::ShippedStandards),
         Arc::new(SystemClock),
         Arc::new(UuidV7Generator),
         signal.clone(),

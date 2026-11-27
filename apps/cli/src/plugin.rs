@@ -2,6 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
+use async_trait::async_trait;
+use nullradix_api::{CustomizationDto, ExtensionPointDto, OverlayStateDto};
+use nullradix_app::AppError;
+use nullradix_app::customizations::StandardCatalog;
+use nullradix_domain::{ExtensionPoint, OverlayName};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -79,6 +84,73 @@ pub(crate) fn shipped(path: &str) -> Option<&'static str> {
         .map(|(_, text)| *text)
 }
 
+fn skill_file(name: &str) -> String {
+    format!("skills/{name}/SKILL.md")
+}
+
+fn style_file(name: &str) -> String {
+    format!("output-styles/{name}.md")
+}
+
+/// The names of the shipped skills or output styles, sorted.
+pub(crate) fn shipped_names(point: ExtensionPoint) -> Vec<String> {
+    let (prefix, suffix) = match point {
+        ExtensionPoint::Skill => ("skills/", "/SKILL.md"),
+        ExtensionPoint::OutputStyle => ("output-styles/", ".md"),
+    };
+    let mut names: Vec<String> = FILES
+        .iter()
+        .filter_map(|(path, _)| path.strip_prefix(prefix)?.strip_suffix(suffix))
+        .map(str::to_owned)
+        .collect();
+    names.sort();
+    names
+}
+
+/// The shipped skills and output styles as the files a customization can replace.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ShippedStandards;
+
+#[async_trait]
+impl StandardCatalog for ShippedStandards {
+    async fn get(
+        &self,
+        point: ExtensionPoint,
+        name: &OverlayName,
+    ) -> Result<Option<String>, AppError> {
+        let name = name.to_string();
+        let path = match point {
+            ExtensionPoint::Skill => skill_file(&name),
+            ExtensionPoint::OutputStyle => style_file(&name),
+        };
+        Ok(shipped(&path).map(str::to_owned))
+    }
+}
+
+/// A customization that goes on top of the shipped files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Custom {
+    path: String,
+    content: String,
+}
+
+impl Custom {
+    /// The file of an active customization; one that does not apply gives `None`.
+    pub(crate) fn of(line: &CustomizationDto) -> Option<Self> {
+        if line.state != OverlayStateDto::Active {
+            return None;
+        }
+        let path = match line.point {
+            ExtensionPointDto::Skill => skill_file(&line.name),
+            ExtensionPointDto::OutputStyle => style_file(&line.name),
+        };
+        Some(Self {
+            path,
+            content: line.content.clone(),
+        })
+    }
+}
+
 /// Where the plugin is staged: a local marketplace folder that holds the plugin folder.
 pub(crate) fn marketplace_dir(data: &Path) -> PathBuf {
     data.join("plugin")
@@ -93,6 +165,7 @@ pub(crate) fn render(
     profile: Profile,
     version: &str,
     home: Option<&Path>,
+    customs: &[Custom],
 ) -> anyhow::Result<Vec<(String, String)>> {
     let mut files = Vec::new();
     for (path, shipped) in FILES {
@@ -102,6 +175,12 @@ pub(crate) fn render(
             _ => (*shipped).to_owned(),
         };
         files.push(((*path).to_owned(), content));
+    }
+    for custom in customs {
+        match files.iter_mut().find(|(path, _)| *path == custom.path) {
+            Some(file) => file.1.clone_from(&custom.content),
+            None => files.push((custom.path.clone(), custom.content.clone())),
+        }
     }
     Ok(files)
 }
@@ -306,15 +385,16 @@ pub(crate) fn stage(
     profile: Profile,
     binary: &Path,
     home: Option<&Path>,
+    customs: &[Custom],
     now_seconds: u64,
     dry_run: bool,
 ) -> anyhow::Result<Staged> {
-    let hash = content_hash(&render(profile, "", home)?, binary)?;
+    let hash = content_hash(&render(profile, "", home, customs)?, binary)?;
     let version = match read_state(root) {
         Some(state) if state.hash == hash => state.version,
         _ => next_version(now_seconds),
     };
-    let files = render(profile, &version, home)?;
+    let files = render(profile, &version, home, customs)?;
     let plugin = root.join(profile.plugin_name());
     let mut staged = Staged {
         version: version.clone(),
@@ -373,7 +453,7 @@ mod tests {
 
     #[test]
     fn the_release_plugin_has_the_release_names_and_hook_profile() {
-        let files = render(Profile::Release, "0.1.5", None).unwrap();
+        let files = render(Profile::Release, "0.1.5", None, &[]).unwrap();
         let get = |path: &str| {
             files
                 .iter()
@@ -394,7 +474,7 @@ mod tests {
     #[test]
     fn the_staged_hook_arguments_are_a_hook_call_of_the_daemon_binary() {
         for profile in [Profile::Release, Profile::Dev] {
-            let files = render(profile, "0.1.5", None).unwrap();
+            let files = render(profile, "0.1.5", None, &[]).unwrap();
             let hooks: Value =
                 serde_json::from_str(&files.iter().find(|(name, _)| name == HOOKS).unwrap().1)
                     .unwrap();
@@ -414,7 +494,7 @@ mod tests {
     fn hooks_carry_the_home_the_install_ran_with() {
         let base = tempfile::tempdir().unwrap();
         let home = base.path().join("with space");
-        let files = render(Profile::Dev, "0.1.5", Some(&home)).unwrap();
+        let files = render(Profile::Dev, "0.1.5", Some(&home), &[]).unwrap();
         let hooks: Value =
             serde_json::from_str(&files.iter().find(|(name, _)| name == HOOKS).unwrap().1).unwrap();
         let args = &hooks["hooks"]["Stop"][0]["hooks"][0]["args"];
@@ -440,7 +520,7 @@ mod tests {
 
     #[test]
     fn a_relative_home_is_written_as_an_absolute_one() {
-        let files = render(Profile::Dev, "0.1.5", Some(Path::new("relative/home"))).unwrap();
+        let files = render(Profile::Dev, "0.1.5", Some(Path::new("relative/home")), &[]).unwrap();
         let hooks: Value =
             serde_json::from_str(&files.iter().find(|(name, _)| name == HOOKS).unwrap().1).unwrap();
         let args = hooks["hooks"]["Stop"][0]["hooks"][0]["args"]
@@ -464,7 +544,7 @@ mod tests {
         let binary = binary(temp.path(), b"binary one");
         let root = temp.path().join("plugin");
 
-        stage(&root, Profile::Release, &binary, None, 1000, false).unwrap();
+        stage(&root, Profile::Release, &binary, None, &[], 1000, false).unwrap();
 
         let bin = root.join("nullradix/bin");
         let names: Vec<String> = fs::read_dir(&bin)
@@ -480,20 +560,20 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let binary = binary(temp.path(), b"binary one");
         let root = temp.path().join("plugin");
-        stage(&root, Profile::Release, &binary, None, 1000, false).unwrap();
+        stage(&root, Profile::Release, &binary, None, &[], 1000, false).unwrap();
         let outside = temp.path().join("outside");
         fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("keep.txt"), "mine").unwrap();
         std::os::unix::fs::symlink(&outside, root.join("nullradix/skills/linked")).unwrap();
 
-        stage(&root, Profile::Release, &binary, None, 2000, false).unwrap();
+        stage(&root, Profile::Release, &binary, None, &[], 2000, false).unwrap();
 
         assert!(outside.join("keep.txt").is_file());
     }
 
     #[test]
     fn the_dev_plugin_is_a_separate_plugin_that_reports_to_the_dev_daemon() {
-        let files = render(Profile::Dev, "0.1.5", None).unwrap();
+        let files = render(Profile::Dev, "0.1.5", None, &[]).unwrap();
         let manifest: Value =
             serde_json::from_str(&files.iter().find(|(name, _)| name == MANIFEST).unwrap().1)
                 .unwrap();
@@ -515,7 +595,7 @@ mod tests {
         let binary = binary(temp.path(), b"binary one");
         let root = temp.path().join("plugin");
 
-        let first = stage(&root, Profile::Dev, &binary, None, 1000, false).unwrap();
+        let first = stage(&root, Profile::Dev, &binary, None, &[], 1000, false).unwrap();
         assert!(first.changed());
         assert_eq!(
             first.version,
@@ -526,7 +606,7 @@ mod tests {
         assert!(root.join("nullradix-dev/bin").join(BINARY).is_file());
         assert!(root.join(".claude-plugin/marketplace.json").is_file());
 
-        let second = stage(&root, Profile::Dev, &binary, None, 2000, false).unwrap();
+        let second = stage(&root, Profile::Dev, &binary, None, &[], 2000, false).unwrap();
         assert!(!second.changed(), "{second:?}");
         assert_eq!(second.version, first.version);
     }
@@ -536,20 +616,20 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let binary = binary(temp.path(), b"binary one");
         let root = temp.path().join("plugin");
-        let first = stage(&root, Profile::Release, &binary, None, 1000, false).unwrap();
+        let first = stage(&root, Profile::Release, &binary, None, &[], 1000, false).unwrap();
         let plugin = root.join("nullradix");
         fs::write(plugin.join("skills/board/SKILL.md"), "edited").unwrap();
         fs::create_dir_all(plugin.join("skills/old")).unwrap();
         fs::write(plugin.join("skills/old/SKILL.md"), "stale").unwrap();
 
-        let repaired = stage(&root, Profile::Release, &binary, None, 2000, false).unwrap();
+        let repaired = stage(&root, Profile::Release, &binary, None, &[], 2000, false).unwrap();
         assert_eq!(repaired.written, 1);
         assert_eq!(repaired.removed, 1);
         assert_eq!(repaired.version, first.version);
         assert!(!plugin.join("skills/old").exists());
 
         fs::write(&binary, b"binary two").unwrap();
-        let updated = stage(&root, Profile::Release, &binary, None, 3000, false).unwrap();
+        let updated = stage(&root, Profile::Release, &binary, None, &[], 3000, false).unwrap();
         assert!(updated.binary_copied);
         assert_ne!(updated.version, first.version);
         let manifest = fs::read_to_string(plugin.join(MANIFEST)).unwrap();
@@ -562,9 +642,156 @@ mod tests {
         let binary = binary(temp.path(), b"binary one");
         let root = temp.path().join("plugin");
 
-        let planned = stage(&root, Profile::Release, &binary, None, 1000, true).unwrap();
+        let planned = stage(&root, Profile::Release, &binary, None, &[], 1000, true).unwrap();
         assert!(planned.changed());
         assert!(planned.written > 10);
         assert!(!root.exists());
+    }
+
+    async fn service() -> nullradix_app::customizations::CustomizationService {
+        let store = std::sync::Arc::new(nullradix_store::Store::in_memory().await.unwrap());
+        nullradix_app::customizations::CustomizationService::new(
+            store,
+            std::sync::Arc::new(ShippedStandards),
+            std::sync::Arc::new(nullradix_app::SystemClock),
+            std::sync::Arc::new(nullradix_app::UuidV7Generator),
+            nullradix_app::ChangeSignal::new(),
+        )
+    }
+
+    fn customs(lines: &[nullradix_app::customizations::OverlayLine]) -> Vec<Custom> {
+        lines
+            .iter()
+            .filter_map(|line| Custom::of(&CustomizationDto::from(line)))
+            .collect()
+    }
+
+    const BOARD: &str = "---
+name: board
+description: My board
+---
+Mine
+";
+
+    #[test]
+    fn the_catalog_lists_the_shipped_skills_and_output_styles() {
+        assert_eq!(
+            shipped_names(ExtensionPoint::Skill),
+            [
+                "board",
+                "customize",
+                "grill",
+                "implement",
+                "question",
+                "setup",
+                "tasks",
+                "wayfinder"
+            ]
+        );
+        assert_eq!(
+            shipped_names(ExtensionPoint::OutputStyle),
+            ["software-engineer"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_copy_starts_from_the_shipped_text() {
+        let service = service().await;
+        let line = service
+            .create(ExtensionPoint::Skill, "board", None)
+            .await
+            .unwrap();
+        assert_eq!(
+            line.overlay.record().content,
+            shipped("skills/board/SKILL.md").unwrap()
+        );
+        assert!(line.standard);
+        let none = service.create(ExtensionPoint::Skill, "nope", None).await;
+        assert!(none.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_customized_skill_is_staged_and_changes_the_version_only_when_it_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = binary(temp.path(), b"binary one");
+        let root = temp.path().join("plugin");
+        let plain = stage(&root, Profile::Release, &binary, None, &[], 1000, false).unwrap();
+
+        let service = service().await;
+        let line = service
+            .create(ExtensionPoint::Skill, "board", Some(BOARD))
+            .await
+            .unwrap();
+        service
+            .create(
+                ExtensionPoint::Skill,
+                "mine",
+                Some(
+                    "---
+name: mine
+description: Own
+---
+Own
+",
+                ),
+            )
+            .await
+            .unwrap();
+        let disabled = service
+            .create(ExtensionPoint::OutputStyle, "software-engineer", None)
+            .await
+            .unwrap();
+        service
+            .update(
+                ExtensionPoint::OutputStyle,
+                "software-engineer",
+                None,
+                Some(false),
+                disabled.overlay.record().version,
+            )
+            .await
+            .unwrap();
+        assert!(line.problems.is_empty());
+        let applied = customs(&service.list().await.unwrap());
+        assert_eq!(applied.len(), 2);
+
+        let first = stage(
+            &root,
+            Profile::Release,
+            &binary,
+            None,
+            &applied,
+            2000,
+            false,
+        )
+        .unwrap();
+        assert_ne!(first.version, plain.version);
+        let plugin = root.join("nullradix");
+        assert_eq!(
+            fs::read_to_string(plugin.join("skills/board/SKILL.md")).unwrap(),
+            BOARD
+        );
+        assert!(plugin.join("skills/mine/SKILL.md").is_file());
+        assert_eq!(
+            fs::read_to_string(plugin.join("output-styles/software-engineer.md")).unwrap(),
+            shipped("output-styles/software-engineer.md").unwrap()
+        );
+
+        let again = stage(
+            &root,
+            Profile::Release,
+            &binary,
+            None,
+            &applied,
+            3000,
+            false,
+        )
+        .unwrap();
+        assert!(!again.changed(), "{again:?}");
+        assert_eq!(again.version, first.version);
+
+        let back = stage(&root, Profile::Release, &binary, None, &[], 4000, false).unwrap();
+        assert_ne!(back.version, first.version);
+        assert!(!plugin.join("skills/mine").exists());
     }
 }
