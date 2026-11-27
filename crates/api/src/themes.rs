@@ -33,6 +33,14 @@ impl From<ColorScheme> for ColorSchemeDto {
     }
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct InstallQuery {
+    /// Confirmed: the package may hold code, network domains or a Claude part.
+    #[serde(default)]
+    confirmed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ThemeOptionDto {
     pub value: String,
@@ -292,6 +300,7 @@ pub(crate) async fn list_themes(
     post,
     path = "/themes",
     tag = "themes",
+    params(InstallQuery),
     request_body(
         content = Vec<u8>,
         content_type = "application/octet-stream",
@@ -302,11 +311,13 @@ pub(crate) async fn list_themes(
             headers(("Location" = String, description = "URL of the stylesheet"))),
         (status = 200, description = "Replaced the installed theme with the same id", body = ThemeDto),
         (status = 401, body = Problem),
+        (status = 409, description = "`theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them)", body = Problem),
         (status = 422, description = "Not a valid package: `theme-package-invalid`, `theme-manifest-invalid` with the refused fields, or `theme-id-reserved`", body = Problem),
     )
 )]
 pub(crate) async fn install_theme(
     State(state): State<ApiState>,
+    ApiQuery(query): ApiQuery<InstallQuery>,
     body: Body,
 ) -> Result<(StatusCode, HeaderMap, Json<ThemeDto>), ApiError> {
     // the default body limit of extractors is far below a package, so the limit is set here
@@ -317,7 +328,11 @@ pub(crate) async fn install_theme(
             format!("the package is larger than {MAX_PACKAGE_BYTES} bytes"),
         )
     })?;
-    let theme = state.themes.install(archive.to_vec()).await?;
+    let theme = state
+        .themes
+        .install(archive.to_vec(), query.confirmed)
+        .await?
+        .theme;
     crate::claude_theme::resync(&state).await;
     let dto = ThemeDto::from(&theme);
     let created = theme.record().version.value() == 1;
@@ -538,6 +553,11 @@ pub(crate) mod fake {
                 .and_then(|files| files.iter().find(|file| file.path == joined))
                 .map(|file| file.data.clone()))
         }
+        async fn paths(&self, id: &ThemeId) -> Option<Vec<String>> {
+            let files = self.0.lock();
+            let stored = files.get(id.as_str()).map_or(&[][..], Vec::as_slice);
+            Some(stored.iter().map(|file| file.path.clone()).collect())
+        }
     }
 }
 
@@ -575,7 +595,11 @@ mod tests {
     }
 
     async fn upload(api: &TestApi, bytes: Vec<u8>) -> (u16, Option<String>, Value) {
-        let request = bearer(Request::post("/api/v1/themes"), &api.token)
+        upload_to(api, "/api/v1/themes", bytes).await
+    }
+
+    async fn upload_to(api: &TestApi, path: &str, bytes: Vec<u8>) -> (u16, Option<String>, Value) {
+        let request = bearer(Request::post(path), &api.token)
             .header(header::CONTENT_TYPE, "application/octet-stream")
             .body(Body::from(bytes))
             .unwrap();
@@ -969,5 +993,50 @@ mod tests {
             let (status, _, _) = send(&api.router, request.body(Body::empty()).unwrap()).await;
             assert_eq!(status, 401);
         }
+    }
+
+    fn with_code(manifest: &str) -> Vec<u8> {
+        let mut bytes = package(manifest);
+        bytes.extend_from_slice(b"\n--\nmain.js=run()");
+        bytes
+    }
+
+    #[tokio::test]
+    async fn a_package_with_code_needs_the_confirmed_flag() {
+        let api = test_api().await;
+        let domains = MANIFEST.replace(r#""network": []"#, r#""network": ["Fonts.Example.com"]"#);
+        let (status, _, problem) = upload(&api, with_code(&domains)).await;
+        assert_eq!(status, 409, "{problem}");
+        assert_eq!(problem["code"], "theme-confirmation-required");
+        assert_eq!(
+            problem["confirmation"],
+            json!({
+                "hasCode": true, "domains": ["fonts.example.com"], "claudeTheme": false,
+                "update": false, "id": "night-blue", "name": "Night Blue", "version": "1.2.0",
+                "sha256": null,
+                "added": { "code": true, "claudeTheme": false, "domains": ["fonts.example.com"] }
+            })
+        );
+        let (_, list) = call(&api, "GET", "/api/v1/themes", None).await;
+        assert_eq!(list["items"].as_array().unwrap().len(), 0);
+        let confirmed = "/api/v1/themes?confirmed=true";
+        let (status, _, theme) = upload_to(&api, confirmed, with_code(&domains)).await;
+        assert_eq!((status, &theme["id"]), (201, &json!("night-blue")));
+
+        let newer = domains.replace("1.2.0", "1.3.0");
+        let (status, _, problem) = upload(&api, with_code(&newer)).await;
+        assert_eq!(status, 409, "{problem}");
+        assert_eq!(problem["confirmation"]["added"]["code"], false);
+        let (status, _, again) = upload_to(&api, confirmed, with_code(&newer)).await;
+        assert_eq!((status, &again["version"]), (200, &json!(2)));
+        let more = newer.replace("Fonts.Example.com", "cdn.example.com");
+        let (status, _, problem) = upload(&api, with_code(&more)).await;
+        assert_eq!(status, 409, "{problem}");
+        assert_eq!(problem["confirmation"]["update"], true);
+        assert_eq!(problem["confirmation"]["added"]["code"], false);
+        assert_eq!(
+            problem["confirmation"]["added"]["domains"],
+            json!(["cdn.example.com"])
+        );
     }
 }

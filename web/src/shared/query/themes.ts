@@ -41,9 +41,10 @@ export function useChooseTheme() {
 export function useInstallTheme() {
   const invalidate = useInvalidate(themeKeys.all);
   return useMutation({
-    mutationFn: async (file: Blob) =>
+    mutationFn: async ({ file, confirmed }: { file: File; confirmed?: boolean }) =>
       unwrap(
         await api.POST('/api/v1/themes', {
+          params: { query: confirmed === true ? { confirmed: true } : {} },
           // the schema types a byte list, the body is the file itself
           body: [],
           bodySerializer: () => file,

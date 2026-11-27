@@ -6,21 +6,21 @@ use nullradix_api::{
     AccountStatusList, AddCatalogSource, AddComment, AddQuestionComment, AddStep, AnswerQuestion,
     BoardDeleted, BoardDto, BoardList, CatalogDto, CatalogSourceDto, CatalogSourceListDto,
     ChangeStep, ChooseTheme, ClaimPlanning, ClaimSession, ClaimTicket, CommentDto, CommentList,
-    CreateAccount, CreateAccountLogin, CreateBoard, CreateCustomization, CreateNote, CreateProject,
-    CreateQuestion, CreateTicket, CustomizationDto, CustomizationList, DecideQuestion,
-    DispatcherConfigView, DispatcherStatusDto, DropNote, EffectiveDto, ExtensionPointDto,
-    FavoriteDto, FavoriteList, FileDiffDto, FinishTicket, FinishedTicket, Handoff, Health,
-    HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode, LoginDto,
-    MarkFavorite, MergeRetryDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim, NoteDto,
-    NoteList, PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto, ProjectList,
-    PromoteNote, PromotedNote, PromptDetail, PromptKindDto, PromptListDto, PromptPreviewDto,
-    QuestionCommentDto, QuestionDetailDto, QuestionList, RebaseCustomization, ReleaseTicket,
-    RenameBoard, RenameProject, RepositoryList, RetryMerge, ReturnReview, RunDto, RunList,
-    RunOutput, RunnerList, SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto,
-    SessionDto, SessionList, SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun,
-    StartTicket, StartedTicket, SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto,
-    TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateAccount, UpdateCustomization,
-    UpdateDispatcher, UpdateDispatcherConfig, UpdateTicket, WritePlan,
+    ConfirmationDto, CreateAccount, CreateAccountLogin, CreateBoard, CreateCustomization,
+    CreateNote, CreateProject, CreateQuestion, CreateTicket, CustomizationDto, CustomizationList,
+    DecideQuestion, DispatcherConfigView, DispatcherStatusDto, DropNote, EffectiveDto,
+    ExtensionPointDto, FavoriteDto, FavoriteList, FileDiffDto, FinishTicket, FinishedTicket,
+    Handoff, Health, HookEventDto, HookEventList, HookKindDto, HookReplyDto, InboxList, LoginCode,
+    LoginDto, MarkFavorite, MergeRetryDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim,
+    NoteDto, NoteList, PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto,
+    ProjectList, PromoteNote, PromotedNote, PromptDetail, PromptKindDto, PromptListDto,
+    PromptPreviewDto, QuestionCommentDto, QuestionDetailDto, QuestionList, RebaseCustomization,
+    ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RetryMerge, ReturnReview, RunDto,
+    RunList, RunOutput, RunnerList, SaveThemeSettings, SeenNote, SessionChangesDto,
+    SessionDetailDto, SessionDto, SessionList, SetBoardRepository, SetPrompt, SetRunToken,
+    StartLogin, StartRun, StartTicket, StartedTicket, SubmitResearch, ThemeDto, ThemeListDto,
+    ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateAccount,
+    UpdateCustomization, UpdateDispatcher, UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -45,6 +45,11 @@ pub enum ClientError {
         status: u16,
         code: String,
         detail: String,
+    },
+    #[error("the daemon refused the request: {detail} (theme-confirmation-required)")]
+    ConfirmationRequired {
+        detail: String,
+        facts: Box<ConfirmationDto>,
     },
     #[error("unexpected response from the daemon: {0}")]
     Protocol(String),
@@ -627,11 +632,12 @@ impl Client {
         self.get_json("/themes")
     }
 
-    /// Installs a `.nullradix` package, or replaces the theme with the same id.
-    pub fn install_theme(&self, package: &[u8]) -> Result<ThemeDto, ClientError> {
+    /// Installs a package or replaces the theme; code, domains or a Claude part need `confirmed`.
+    pub fn install_theme(&self, package: &[u8], confirmed: bool) -> Result<ThemeDto, ClientError> {
+        let query = if confirmed { "?confirmed=true" } else { "" };
         let mut response = self
             .agent
-            .post(&self.url("/themes"))
+            .post(&self.url(&format!("/themes{query}")))
             .header("Authorization", &self.authorization()?)
             .header("Content-Type", "application/octet-stream")
             .send(package)
@@ -681,14 +687,26 @@ impl Client {
         decode(&mut response, 200)
     }
 
-    /// Installs a theme a source offers; `replace` takes over one from elsewhere.
+    /// Installs a theme of a source; `confirmed` is the checksum of the package that was seen.
     pub fn install_from_catalog(
         &self,
         source: &str,
         theme: &str,
         replace: bool,
+        confirmed: Option<&str>,
     ) -> Result<ThemeDto, ClientError> {
-        let query = if replace { "?replace=true" } else { "" };
+        let mut query = Vec::new();
+        if replace {
+            query.push(String::from("replace=true"));
+        }
+        if let Some(sha) = confirmed {
+            query.push(format!("confirmedSha256={}", segment(sha)));
+        }
+        let query = if query.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", query.join("&"))
+        };
         let route = format!(
             "/theme-catalog/sources/{}/themes/{}/install{query}",
             segment(source),
@@ -1502,12 +1520,25 @@ fn decode<T: DeserializeOwned>(
             .map_err(|error| ClientError::Protocol(error.to_string()));
     }
     match response.body_mut().read_json::<Problem>() {
-        Ok(problem) => Err(ClientError::Refused {
-            status,
-            detail: describe(&problem),
-            code: problem.code,
-        }),
+        Ok(problem) => Err(refusal(status, problem)),
         Err(_) => Err(ClientError::Protocol(format!("unexpected status {status}"))),
+    }
+}
+
+fn refusal(status: u16, problem: Problem) -> ClientError {
+    let detail = describe(&problem);
+    match problem.confirmation {
+        Some(facts) if problem.code == "theme-confirmation-required" => {
+            ClientError::ConfirmationRequired {
+                detail,
+                facts: Box::new(facts),
+            }
+        }
+        _ => ClientError::Refused {
+            status,
+            detail,
+            code: problem.code,
+        },
     }
 }
 
@@ -2036,11 +2067,135 @@ mod tests {
             Some("catalog-unreachable")
         );
         let missing = client
-            .install_from_catalog(&source.id, "night-blue", false)
+            .install_from_catalog(&source.id, "night-blue", false, None)
             .unwrap_err();
         assert!(matches!(missing, ClientError::Refused { status: 503, .. }));
         client.remove_catalog_source(&source.id, 1).unwrap();
         assert_eq!(client.catalog_sources().unwrap().items.len(), 0);
+    }
+
+    const SHA: &str = "ab12";
+
+    fn night_blue_dto() -> ThemeDto {
+        ThemeDto {
+            id: String::from("night-blue"),
+            name: String::from("Night Blue"),
+            package_version: String::from("1.0.0"),
+            author: String::from("Ada"),
+            sdk_version: String::from("^1.3"),
+            color_scheme: nullradix_api::ColorSchemeDto::Dark,
+            start_color: None,
+            preview_url: None,
+            style_url: String::new(),
+            slots: Vec::new(),
+            network: Vec::new(),
+            settings: Vec::new(),
+            claude_theme: false,
+            installed_at: 0,
+            updated_at: 0,
+            version: 1,
+        }
+    }
+
+    /// Answers every request of a catalog install: 201 for `SHA`, else the refusal with the facts.
+    fn spawn_catalog_daemon() -> (SocketAddr, std::sync::mpsc::Receiver<String>) {
+        use std::io::{Read, Write};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (seen, requests) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut head = Vec::new();
+                let mut byte = [0_u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    if stream.read(&mut byte).unwrap_or(0) == 0 {
+                        break;
+                    }
+                    head.push(byte[0]);
+                }
+                let head = String::from_utf8_lossy(&head).into_owned();
+                let target = head
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_owned();
+                let (status, body) = if target.contains("/broken/") {
+                    ("409 Conflict", String::from("not json"))
+                } else if target.ends_with(&format!("confirmedSha256={SHA}")) {
+                    (
+                        "201 Created",
+                        serde_json::to_string(&night_blue_dto()).unwrap(),
+                    )
+                } else {
+                    let facts = serde_json::json!({
+                        "hasCode": true, "domains": [], "claudeTheme": false, "update": false,
+                        "added": { "code": true, "domains": [], "claudeTheme": false },
+                        "id": "night-blue", "name": "Night Blue", "version": "1.0.0",
+                        "sha256": SHA,
+                    });
+                    let problem = serde_json::json!({
+                        "type": "about:blank", "title": "Conflict", "status": 409,
+                        "detail": "night-blue contains code", "code": "theme-confirmation-required",
+                        "confirmation": facts,
+                    });
+                    ("409 Conflict", problem.to_string())
+                };
+                let reply = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(reply.as_bytes());
+                let _ = seen.send(target);
+            }
+        });
+        (address, requests)
+    }
+
+    #[test]
+    fn a_catalog_install_is_one_request_and_only_the_named_checksum_confirms() {
+        let (address, requests) = spawn_catalog_daemon();
+        let client = Client::new(address, PATIENT, PATIENT)
+            .with_token(Secret::parse(&"c".repeat(64)).unwrap());
+        let refusal = |confirmed: Option<&str>| match client
+            .install_from_catalog("src", "night-blue", false, confirmed)
+            .unwrap_err()
+        {
+            ClientError::ConfirmationRequired { facts, .. } => facts,
+            other => panic!("{other:?}"),
+        };
+        let facts = refusal(None);
+        assert_eq!(
+            (facts.sha256.as_deref(), facts.name.as_str()),
+            (Some(SHA), "Night Blue")
+        );
+        assert!(requests.recv().unwrap().ends_with("/install"));
+        // a wrong checksum is refused again with the facts
+        let facts = refusal(Some("0000"));
+        assert_eq!(facts.sha256.as_deref(), Some(SHA));
+        assert!(
+            requests
+                .recv()
+                .unwrap()
+                .ends_with("/install?confirmedSha256=0000")
+        );
+
+        let theme = client
+            .install_from_catalog("src", "night-blue", true, Some(SHA))
+            .unwrap();
+        assert_eq!(theme.id, "night-blue");
+        assert!(
+            requests
+                .recv()
+                .unwrap()
+                .ends_with("/install?replace=true&confirmedSha256=ab12")
+        );
+        assert!(requests.try_recv().is_err());
+
+        let broken = client
+            .install_from_catalog("broken", "night-blue", false, Some(SHA))
+            .unwrap_err();
+        assert!(matches!(broken, ClientError::Protocol(_)), "{broken:?}");
     }
 
     #[test]

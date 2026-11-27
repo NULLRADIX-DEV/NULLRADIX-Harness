@@ -28,6 +28,7 @@ pub mod step;
 mod text;
 mod theme;
 mod theme_catalog;
+mod theme_risk;
 mod theme_settings;
 mod ticket;
 mod ticket_transitions;
@@ -151,6 +152,7 @@ pub use theme_catalog::{
     EntryDraft, MAX_DESCRIPTION_CHARS, MAX_INDEX_BYTES, MAX_INDEX_ENTRIES, MAX_SOURCES,
     MAX_URL_CHARS, MAX_VERSION_CHARS, Reach, SourceId, is_public_address,
 };
+pub use theme_risk::{RiskAdded, ThemeRisk, inspect_package};
 pub use theme_settings::{SETTING_VALUE_MAX, SettingValue, ThemeSettingValues};
 pub use ticket::{
     ASSIGNEE_MAX, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange, HUMAN_INTERACTION, HistoryEntry,

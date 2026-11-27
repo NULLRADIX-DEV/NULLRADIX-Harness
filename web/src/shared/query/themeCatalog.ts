@@ -73,16 +73,21 @@ export function useInstallFromCatalog() {
       sourceId,
       id,
       replace,
+      confirmedSha256,
     }: {
       sourceId: string;
       id: string;
       replace?: boolean;
+      confirmedSha256?: string;
     }) =>
       unwrap(
         await api.POST('/api/v1/theme-catalog/sources/{id}/themes/{theme}/install', {
           params: {
             path: { id: sourceId, theme: id },
-            query: replace === true ? { replace: true } : {},
+            query: {
+              ...(replace === true ? { replace: true } : {}),
+              ...(confirmedSha256 ? { confirmedSha256 } : {}),
+            },
           },
         }),
       ),

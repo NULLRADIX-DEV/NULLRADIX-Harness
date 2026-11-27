@@ -7090,6 +7090,15 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "confirmedSha256",
+            "in": "query",
+            "description": "Checksum of the package the person confirmed, from the `confirmation` of the refusal.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -7141,7 +7150,7 @@
             }
           },
           "409": {
-            "description": "`catalog-theme-incompatible` or `catalog-theme-installed-elsewhere` (retry with `replace=true`)",
+            "description": "`catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmedSha256` from the problem)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7234,6 +7243,17 @@
           "themes"
         ],
         "operationId": "install_theme",
+        "parameters": [
+          {
+            "name": "confirmed",
+            "in": "query",
+            "description": "Confirmed: the package may hold code, network domains or a Claude part.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "description": "A `.nullradix` theme package, a zip archive",
           "content": {
@@ -7280,6 +7300,16 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10236,6 +10266,29 @@
         },
         "additionalProperties": false
       },
+      "AddedDto": {
+        "type": "object",
+        "description": "Code, domains and Claude part added to the installed version.",
+        "required": [
+          "code",
+          "domains",
+          "claudeTheme"
+        ],
+        "properties": {
+          "claudeTheme": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "boolean"
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "AnswerQuestion": {
         "type": "object",
         "description": "An answer: exactly one of `option` and `text`; only a person answers.",
@@ -11069,6 +11122,63 @@
               "$ref": "#/components/schemas/CommentDto"
             },
             "description": "Oldest first."
+          }
+        }
+      },
+      "ConfirmationDto": {
+        "type": "object",
+        "description": "Code, domains and Claude part of a theme package to confirm, and what an update adds.",
+        "required": [
+          "hasCode",
+          "domains",
+          "claudeTheme",
+          "update",
+          "added",
+          "id",
+          "name",
+          "version"
+        ],
+        "properties": {
+          "added": {
+            "$ref": "#/components/schemas/AddedDto",
+            "description": "What the package adds to the installed version; everything risky for a new install."
+          },
+          "claudeTheme": {
+            "type": "boolean",
+            "description": "The package has a Claude Code theme."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains the package declares in `permissions.network`."
+          },
+          "hasCode": {
+            "type": "boolean",
+            "description": "The package holds script files."
+          },
+          "id": {
+            "type": "string",
+            "description": "Id and name of the theme in the package."
+          },
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Checksum of a catalog package; send it back as `confirmedSha256` to confirm exactly it."
+          },
+          "update": {
+            "type": "boolean",
+            "description": "The package replaces an installed theme."
+          },
+          "version": {
+            "type": "string",
+            "description": "Version of the package."
           }
         }
       },
@@ -13838,6 +13948,17 @@
         "properties": {
           "code": {
             "type": "string"
+          },
+          "confirmation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConfirmationDto",
+                "description": "What to confirm before installing, for `theme-confirmation-required`."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "detail": {
             "type": "string"

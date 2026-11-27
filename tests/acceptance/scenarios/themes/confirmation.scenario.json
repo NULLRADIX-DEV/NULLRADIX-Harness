@@ -1,0 +1,85 @@
+{
+  "title": "A theme with code or network domains is installed only after a confirmation",
+  "steps": [
+    {
+      "name": "manifest with a domain",
+      "file": {
+        "path": "{{WORK}}/night-code/manifest.json",
+        "text": "{\"id\":\"night-code\",\"name\":\"Night Code\",\"version\":\"1.0.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[\"Fonts.Example.com\"]}}"
+      }
+    },
+    {
+      "name": "stylesheet",
+      "file": { "path": "{{WORK}}/night-code/theme.css", "text": "a { color: red }\n" }
+    },
+    {
+      "name": "script",
+      "file": {
+        "path": "{{WORK}}/night-code/main.js",
+        "text": "export default function run() {}\n"
+      }
+    },
+    {
+      "name": "pack the folder",
+      "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v1.nullradix"] }
+    },
+    {
+      "name": "installing without confirming names code and domains",
+      "cli": { "args": ["theme", "install", "{{WORK}}/v1.nullradix"] }
+    },
+    {
+      "name": "nothing was installed",
+      "http": { "method": "GET", "path": "/api/v1/themes" }
+    },
+    {
+      "name": "confirming installs the theme",
+      "cli": { "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"] }
+    },
+    {
+      "name": "the confirmed theme is listed",
+      "http": { "method": "GET", "path": "/api/v1/themes" }
+    },
+    {
+      "name": "manifest of an update with the same code and domain",
+      "file": {
+        "path": "{{WORK}}/night-code/manifest.json",
+        "text": "{\"id\":\"night-code\",\"name\":\"Night Code\",\"version\":\"1.1.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[\"Fonts.Example.com\"]}}"
+      }
+    },
+    {
+      "name": "pack the update",
+      "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v2.nullradix"] }
+    },
+    {
+      "name": "an update that adds nothing new still asks because the package has code",
+      "cli": { "args": ["theme", "install", "{{WORK}}/v2.nullradix"] }
+    },
+    {
+      "name": "confirming installs the same-code update",
+      "cli": { "args": ["theme", "install", "{{WORK}}/v2.nullradix", "--yes"] }
+    },
+    {
+      "name": "manifest of an update with another domain",
+      "file": {
+        "path": "{{WORK}}/night-code/manifest.json",
+        "text": "{\"id\":\"night-code\",\"name\":\"Night Code\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[\"fonts.example.com\",\"cdn.example.com\"]}}"
+      }
+    },
+    {
+      "name": "pack the update with a new domain",
+      "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v3.nullradix"] }
+    },
+    {
+      "name": "an update that adds a domain asks too",
+      "cli": { "args": ["theme", "install", "{{WORK}}/v3.nullradix"] }
+    },
+    {
+      "name": "the version stays",
+      "http": { "method": "GET", "path": "/api/v1/themes" }
+    },
+    {
+      "name": "confirming installs the update",
+      "cli": { "args": ["theme", "install", "{{WORK}}/v3.nullradix", "--yes"] }
+    }
+  ]
+}

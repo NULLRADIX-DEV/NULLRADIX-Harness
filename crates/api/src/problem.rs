@@ -3,7 +3,7 @@ use std::error::Error;
 use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use nullradix_app::{AppError, ErrorKind, SimilarNote};
+use nullradix_app::{AppError, ConfirmationFacts, ErrorKind, SimilarNote};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -27,6 +27,61 @@ pub struct Problem {
     /// Refused fields of the input, for `theme-manifest-invalid`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<FieldProblemDto>,
+    /// What to confirm before installing, for `theme-confirmation-required`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmation: Option<ConfirmationDto>,
+}
+
+/// Code, domains and Claude part of a theme package to confirm, and what an update adds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmationDto {
+    /// The package holds script files.
+    pub has_code: bool,
+    /// Domains the package declares in `permissions.network`.
+    pub domains: Vec<String>,
+    /// The package has a Claude Code theme.
+    pub claude_theme: bool,
+    /// The package replaces an installed theme.
+    pub update: bool,
+    /// What the package adds to the installed version; everything risky for a new install.
+    pub added: AddedDto,
+    /// Id and name of the theme in the package.
+    pub id: String,
+    pub name: String,
+    /// Version of the package.
+    pub version: String,
+    /// Checksum of a catalog package; send it back as `confirmedSha256` to confirm exactly it.
+    pub sha256: Option<String>,
+}
+
+/// Code, domains and Claude part added to the installed version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedDto {
+    pub code: bool,
+    pub domains: Vec<String>,
+    pub claude_theme: bool,
+}
+
+impl From<&ConfirmationFacts> for ConfirmationDto {
+    fn from(facts: &ConfirmationFacts) -> Self {
+        Self {
+            has_code: facts.risk.has_code,
+            domains: facts.risk.network.clone(),
+            claude_theme: facts.risk.claude_theme,
+            update: facts.update,
+            id: facts.id.clone(),
+            name: facts.name.clone(),
+            version: facts.version.clone(),
+            sha256: facts.sha256.clone(),
+            added: AddedDto {
+                code: facts.added.code,
+                domains: facts.added.domains.clone(),
+                claude_theme: facts.added.claude_theme,
+            },
+        }
+    }
 }
 
 /// One refused field of an input; lists carry the index, such as `slots[1]`.
@@ -97,6 +152,7 @@ impl IntoResponse for ApiError {
                 message: field.message.clone(),
             })
             .collect();
+        problem.confirmation = error.confirmation().map(ConfirmationDto::from);
         render(problem)
     }
 }
@@ -121,6 +177,7 @@ fn problem(status: StatusCode, code: &str, detail: &str) -> Problem {
         existing: None,
         similar: Vec::new(),
         errors: Vec::new(),
+        confirmation: None,
     }
 }
 

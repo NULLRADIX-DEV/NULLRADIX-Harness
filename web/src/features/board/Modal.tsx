@@ -16,6 +16,8 @@ function focusables(node: HTMLElement): HTMLElement[] {
 
 export interface ModalProps {
   labelledBy: string;
+  describedBy?: string;
+  role?: 'dialog' | 'alertdialog';
   onEscape: () => void;
   onSubmit: (event: SubmitEvent<HTMLFormElement>) => void;
   className?: string;
@@ -25,6 +27,8 @@ export interface ModalProps {
 // Modal form over the page: focus moves in on open, stays inside on Tab and returns on close.
 export function Modal({
   labelledBy,
+  describedBy,
+  role = 'dialog',
   onEscape,
   onSubmit,
   className = 'panel db-modal',
@@ -68,9 +72,10 @@ export function Modal({
     <div className="db-modal-backdrop">
       <form
         ref={ref}
-        role="dialog"
+        role={role}
         aria-modal="true"
         aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
         tabIndex={-1}
         className={className}
         onKeyDown={onKeyDown}

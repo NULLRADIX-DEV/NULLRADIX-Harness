@@ -31,6 +31,9 @@ pub(crate) enum CatalogCommand {
         /// Replace a theme of the same id that was installed from another source or by upload
         #[arg(long)]
         replace: bool,
+        /// Checksum from the refusal; confirms the code, domains or Claude part of that package
+        #[arg(long, value_name = "SHA256")]
+        confirm: Option<String>,
     },
 }
 
@@ -56,12 +59,19 @@ pub(crate) fn run(command: CatalogCommand, client: &Client) -> anyhow::Result<()
             theme,
             source,
             replace,
-        } => install(client, &theme, source.as_deref(), replace),
+            confirm,
+        } => install(
+            client,
+            &theme,
+            source.as_deref(),
+            replace,
+            confirm.as_deref(),
+        ),
     }
 }
 
 /// The text with control and direction characters replaced, so an index cannot steer the terminal.
-fn plain(text: &str) -> String {
+pub(crate) fn plain(text: &str) -> String {
     text.chars()
         .map(|c| {
             let direction = matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
@@ -149,6 +159,7 @@ fn install(
     theme: &str,
     source: Option<&str>,
     replace: bool,
+    confirm: Option<&str>,
 ) -> anyhow::Result<()> {
     let source = if let Some(source) = source {
         source.to_owned()
@@ -170,7 +181,9 @@ fn install(
             ),
         }
     };
-    let installed = client.install_from_catalog(&source, theme, replace)?;
+    let installed = client
+        .install_from_catalog(&source, theme, replace, confirm)
+        .map_err(crate::theme::ask_for_checksum)?;
     println!(
         "installed {} {}",
         plain(&installed.id),

@@ -8,7 +8,7 @@ import {
   removeThemeStylesheet,
 } from '../../shared/lib/theme';
 import type { Theme } from '../../shared/query/themes';
-import { fakeApi, json, problem } from '../../test/fakeApi';
+import { confirmation, fakeApi, json, problem } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
 
 function theme(overrides: Partial<Theme> = {}): Theme {
@@ -207,5 +207,82 @@ describe('ThemesSection', () => {
       expect(select).toHaveValue('nullradix');
     });
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('nullradix');
+  });
+
+  it('asks before installing a package with code and sends the confirmed request', async () => {
+    const api = themesServer();
+    api.set('POST /api/v1/themes', (request) => {
+      if (new URL(request.url).searchParams.get('confirmed') === 'true') {
+        return json(201, theme());
+      }
+      return confirmation({
+        hasCode: true,
+        claudeTheme: true,
+        version: '1.2.0',
+        domains: ['fonts.example.com'],
+      });
+    });
+    renderApp('/settings');
+    await screen.findByText(/No theme package is installed/);
+    await userEvent.upload(
+      screen.getByLabelText('Install a theme package'),
+      new File(['zip'], 'night-blue.nullradix'),
+    );
+    const dialog = await screen.findByRole('alertdialog', {
+      name: 'Install Night Blue 1.2.0?',
+    });
+    expect(within(dialog).getByText(/This package contains code/)).toBeInTheDocument();
+    expect(within(dialog).getByText('fonts.example.com')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Claude Code theme/)).toBeInTheDocument();
+    expect(screen.queryByText('the package needs a confirmation')).not.toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Install' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+    const calls = api.requests('POST /api/v1/themes');
+    expect(calls.map((request) => new URL(request.url).search)).toEqual(['', '?confirmed=true']);
+    expect(await calls[1]?.clone().text()).toBe('zip');
+  });
+
+  it('closes the confirmation with Escape and installs nothing', async () => {
+    const api = themesServer();
+    api.set('POST /api/v1/themes', () =>
+      confirmation({
+        update: true,
+        domains: ['a.b.com'],
+        added: { code: false, claudeTheme: false, domains: ['a.b.com'] },
+      }),
+    );
+    renderApp('/settings');
+    await screen.findByText(/No theme package is installed/);
+    await userEvent.upload(
+      screen.getByLabelText('Install a theme package'),
+      new File(['zip'], 'night-blue.nullradix'),
+    );
+    const dialog = await screen.findByRole('alertdialog', { name: 'Update Night Blue 1.0.0?' });
+    expect(within(dialog).getByText('a.b.com (new)')).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(api.requests('POST /api/v1/themes')).toHaveLength(1);
+    expect(screen.getByText(/No theme package is installed/)).toBeInTheDocument();
+  });
+
+  it('does not install when Enter is pressed right after the dialog opens', async () => {
+    const api = themesServer();
+    api.set('POST /api/v1/themes', () => confirmation({ hasCode: true }));
+    renderApp('/settings');
+    await screen.findByText(/No theme package is installed/);
+    await userEvent.upload(
+      screen.getByLabelText('Install a theme package'),
+      new File(['zip'], 'night-blue.nullradix'),
+    );
+    const dialog = await screen.findByRole('alertdialog', {
+      name: 'Install Night Blue 1.0.0?',
+    });
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(api.requests('POST /api/v1/themes')).toHaveLength(1);
   });
 });

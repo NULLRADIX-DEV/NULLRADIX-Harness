@@ -8,6 +8,7 @@ import {
   type Theme,
 } from '../../shared/query/themes';
 import { FormError } from '../../shared/ui/FormError';
+import { ThemeConfirmDialog, confirmationOf } from './ThemeConfirmDialog';
 import './themes.css';
 
 export const PACKAGE_EXTENSION = '.nullradix';
@@ -75,6 +76,8 @@ export function ThemesSection() {
   const install = useInstallTheme();
   const input = useRef<HTMLInputElement>(null);
   const items = themes.data?.items ?? [];
+  const facts = confirmationOf(install.error);
+  const asked = install.variables;
 
   return (
     <section className="panel page-section" aria-labelledby="themes-heading">
@@ -102,17 +105,32 @@ export function ThemesSection() {
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (!file) return;
-              install.mutate(file, {
-                onSettled: () => {
-                  if (input.current) input.current.value = '';
+              install.mutate(
+                { file },
+                {
+                  onSettled: () => {
+                    if (input.current) input.current.value = '';
+                  },
                 },
-              });
+              );
             }}
           />
         </label>
         <FormError
-          message={problemMessage(install.error, MESSAGES, 'Could not install the package.')}
+          message={
+            facts ? null : problemMessage(install.error, MESSAGES, 'Could not install the package.')
+          }
         />
+        {facts && asked && (
+          <ThemeConfirmDialog
+            facts={facts}
+            busy={install.isPending}
+            onConfirm={() => {
+              install.mutate({ file: asked.file, confirmed: true });
+            }}
+            onCancel={install.reset}
+          />
+        )}
       </div>
     </section>
   );

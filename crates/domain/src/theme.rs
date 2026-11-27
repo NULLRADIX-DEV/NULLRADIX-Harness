@@ -605,7 +605,7 @@ pub fn check_entry_path(name: &str) -> Result<Vec<&str>, PackageError> {
         .collect()
 }
 
-fn extension(path: &str) -> Option<String> {
+pub(crate) fn extension(path: &str) -> Option<String> {
     let name = path.rsplit('/').next().unwrap_or(path);
     name.rsplit_once('.')
         .map(|(_, extension)| extension.to_ascii_lowercase())

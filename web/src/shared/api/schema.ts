@@ -1910,6 +1910,12 @@ export interface components {
              */
             version?: number | null;
         };
+        /** @description Code, domains and Claude part added to the installed version. */
+        AddedDto: {
+            claudeTheme: boolean;
+            code: boolean;
+            domains: string[];
+        };
         /** @description An answer: exactly one of `option` and `text`; only a person answers. */
         AnswerQuestion: {
             /** @description Name of the person who decides; the acting person when left out. */
@@ -2176,6 +2182,26 @@ export interface components {
         CommentList: {
             /** @description Oldest first. */
             items: components["schemas"]["CommentDto"][];
+        };
+        /** @description Code, domains and Claude part of a theme package to confirm, and what an update adds. */
+        ConfirmationDto: {
+            /** @description What the package adds to the installed version; everything risky for a new install. */
+            added: components["schemas"]["AddedDto"];
+            /** @description The package has a Claude Code theme. */
+            claudeTheme: boolean;
+            /** @description Domains the package declares in `permissions.network`. */
+            domains: string[];
+            /** @description The package holds script files. */
+            hasCode: boolean;
+            /** @description Id and name of the theme in the package. */
+            id: string;
+            name: string;
+            /** @description Checksum of a catalog package; send it back as `confirmedSha256` to confirm exactly it. */
+            sha256?: string | null;
+            /** @description The package replaces an installed theme. */
+            update: boolean;
+            /** @description Version of the package. */
+            version: string;
         };
         /** @description Context use after the last answer, input and cache included. */
         ContextUsageDto: {
@@ -3036,6 +3062,7 @@ export interface components {
         /** @description RFC 9457 problem details with a stable `code` extension. */
         Problem: {
             code: string;
+            confirmation?: components["schemas"]["ConfirmationDto"] | null;
             detail: string;
             /** @description Refused fields of the input, for `theme-manifest-invalid`. */
             errors?: components["schemas"]["FieldProblemDto"][];
@@ -9775,6 +9802,8 @@ export interface operations {
             query?: {
                 /** @description Replace a theme of the same id that was installed from another source or by upload. */
                 replace?: boolean;
+                /** @description Checksum of the package the person confirmed, from the `confirmation` of the refusal. */
+                confirmedSha256?: string;
             };
             header?: never;
             path: {
@@ -9824,7 +9853,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `catalog-theme-incompatible` or `catalog-theme-installed-elsewhere` (retry with `replace=true`) */
+            /** @description `catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmedSha256` from the problem) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9910,7 +9939,10 @@ export interface operations {
     };
     install_theme: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Confirmed: the package may hold code, network domains or a Claude part. */
+                confirmed?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9943,6 +9975,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

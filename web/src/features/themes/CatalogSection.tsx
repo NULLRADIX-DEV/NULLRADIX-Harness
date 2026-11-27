@@ -11,6 +11,7 @@ import {
   type CatalogTheme,
 } from '../../shared/query/themeCatalog';
 import { FormError } from '../../shared/ui/FormError';
+import { ThemeConfirmDialog, confirmationOf } from './ThemeConfirmDialog';
 import './themes.css';
 
 const ADD_MESSAGES = {
@@ -48,6 +49,8 @@ function stateText(theme: CatalogTheme): string {
 function ThemeRow({ theme }: { theme: CatalogTheme }) {
   const install = useInstallFromCatalog();
   const [confirming, setConfirming] = useState(false);
+  const facts = confirmationOf(install.error);
+  const asked = install.variables;
   const elsewhere = theme.state === 'other-source';
   const label = theme.state === 'update' ? 'Update' : elsewhere ? 'Replace' : 'Install';
   return (
@@ -118,8 +121,25 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
         </div>
       )}
       <FormError
-        message={problemMessage(install.error, INSTALL_MESSAGES, 'Could not install the theme.')}
+        message={
+          facts
+            ? null
+            : problemMessage(install.error, INSTALL_MESSAGES, 'Could not install the theme.')
+        }
       />
+      {facts && asked && (
+        <ThemeConfirmDialog
+          facts={facts}
+          busy={install.isPending}
+          onConfirm={() => {
+            install.mutate({
+              ...asked,
+              ...(facts.sha256 ? { confirmedSha256: facts.sha256 } : {}),
+            });
+          }}
+          onCancel={install.reset}
+        />
+      )}
     </li>
   );
 }

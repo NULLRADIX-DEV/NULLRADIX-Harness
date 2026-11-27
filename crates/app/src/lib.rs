@@ -40,5 +40,5 @@ pub mod worktrees;
 
 pub use changes::{Change, ChangeFeed, ChangeOp, ChangeSignal, Entity};
 pub use clock::{Clock, SystemClock};
-pub use error::{AppError, ErrorKind, FieldProblem, SimilarNote};
+pub use error::{AppError, ConfirmationFacts, ErrorKind, FieldProblem, SimilarNote};
 pub use ids::{IdGenerator, UuidV7Generator};
