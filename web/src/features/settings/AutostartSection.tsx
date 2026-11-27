@@ -10,7 +10,7 @@ const MESSAGES = {
 export function autostartHint(status: Autostart): string {
   if (!status.available) return 'This host cannot start NULLRADIX at login.';
   return status.enabled
-    ? 'NULLRADIX starts in the tray when you log in.'
+    ? 'NULLRADIX starts when you log in.'
     : 'Off: NULLRADIX starts when you open it.';
 }
 

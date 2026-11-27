@@ -21,6 +21,8 @@ pub(crate) enum TrayState {
     Ready,
     Waiting,
     Question,
+    /// The daemon does not answer.
+    Offline,
 }
 
 impl TrayState {
@@ -31,12 +33,14 @@ impl TrayState {
             Self::Ready => include_bytes!("../icons/tray/ready@2x.png"),
             Self::Waiting => include_bytes!("../icons/tray/waiting@2x.png"),
             Self::Question => include_bytes!("../icons/tray/question@2x.png"),
+            Self::Offline => include_bytes!("../icons/tray/offline@2x.png"),
         };
         #[cfg(not(target_os = "macos"))]
         let bytes: &[u8] = match self {
             Self::Ready => include_bytes!("../icons/tray/ready.png"),
             Self::Waiting => include_bytes!("../icons/tray/waiting.png"),
             Self::Question => include_bytes!("../icons/tray/question.png"),
+            Self::Offline => include_bytes!("../icons/tray/offline.png"),
         };
         Image::from_bytes(bytes)
     }
@@ -46,6 +50,7 @@ impl TrayState {
             Self::Ready => "ready",
             Self::Waiting => "waiting",
             Self::Question => "question open",
+            Self::Offline => "daemon not reachable",
         }
     }
 }
@@ -80,6 +85,9 @@ pub(crate) struct Snapshot {
 
 /// A question comes first, then anything else that waits; a running dispatcher is not waiting.
 pub(crate) fn state(snapshot: &Snapshot) -> TrayState {
+    if snapshot.dispatcher.is_none() && snapshot.inbox.is_none() {
+        return TrayState::Offline;
+    }
     match snapshot.inbox {
         Some(inbox) if inbox.questions > 0 => TrayState::Question,
         Some(inbox) if inbox.others() > 0 => TrayState::Waiting,
@@ -222,13 +230,13 @@ mod tests {
     }
 
     #[test]
-    fn nothing_waiting_or_no_daemon_is_ready() {
+    fn nothing_waiting_is_ready_and_no_daemon_is_offline() {
         let empty = Snapshot {
             dispatcher: None,
             inbox: inbox(0, 0),
         };
         assert_eq!(state(&empty), TrayState::Ready);
-        assert_eq!(state(&Snapshot::default()), TrayState::Ready);
+        assert_eq!(state(&Snapshot::default()), TrayState::Offline);
     }
 
     #[test]
@@ -268,6 +276,7 @@ mod tests {
     #[test]
     fn a_missing_daemon_and_a_missing_part_read_differently() {
         let gone = texts(&Snapshot::default());
+        assert_eq!(gone.tooltip, "NULLRADIX - daemon not reachable");
         assert_eq!(gone.dispatcher, "Daemon not reachable");
         assert_eq!(gone.inbox, "Open: unknown");
         let partial = texts(&Snapshot {
@@ -291,7 +300,12 @@ mod tests {
 
     #[test]
     fn every_icon_decodes() {
-        for state in [TrayState::Ready, TrayState::Waiting, TrayState::Question] {
+        for state in [
+            TrayState::Ready,
+            TrayState::Waiting,
+            TrayState::Question,
+            TrayState::Offline,
+        ] {
             assert!(state.icon().is_ok(), "{state:?}");
         }
     }
