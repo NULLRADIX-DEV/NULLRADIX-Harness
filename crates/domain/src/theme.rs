@@ -651,7 +651,7 @@ pub fn check_claude_files<'a>(
     Err(FieldError::new("claudeTheme", message))
 }
 
-/// Refuses malformed text, escapes, `@import`, loading functions and any `url()` not relative or `data:`.
+/// Refuses malformed text, escapes, `@import`, loading functions and outside urls.
 pub fn check_theme_css(css: &str) -> Result<(), PackageError> {
     crate::css_check::check_css(css, true).map_err(PackageError::ForbiddenCss)
 }

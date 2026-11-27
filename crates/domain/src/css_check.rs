@@ -10,7 +10,7 @@ const LOADING_FUNCTIONS: [&str; 5] = ["image-set", "image", "src", "element", "c
 
 type Failure = ParseError<String>;
 
-/// Refuses text that is malformed or loads anything but `data:` urls (and package paths if allowed).
+/// Refuses malformed text and any url but `data:` (and package paths if allowed).
 pub(crate) fn check_css(css: &str, allow_relative: bool) -> Result<(), String> {
     if css.contains('\\') {
         return Err(String::from("backslash escapes are not allowed"));
