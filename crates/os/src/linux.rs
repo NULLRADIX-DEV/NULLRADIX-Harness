@@ -29,7 +29,7 @@ const TICK: Duration = Duration::from_millis(100);
 const STATUS_VAR: &str = "NULLRADIX_REAPER_STATUS";
 /// The name the reaper shows in process lists.
 const REAPER_NAME: &str = "nullradix";
-/// Signals sent to the reaper alone that it passes on; others keep their default action.
+/// Signals that reach the reaper and that it passes on; others keep their default action.
 const FORWARDED: [Signal; 7] = [
     Signal::SIGTERM,
     Signal::SIGINT,
