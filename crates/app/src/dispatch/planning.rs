@@ -20,7 +20,7 @@ use super::detached::{
 };
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, LogLevel};
-use super::outcome::never_spawned;
+use super::outcome::{never_spawned, unpaused_outcome};
 use super::pass::{DispatchPass, PassContext, PassReport, PassStep, counts_for_wip};
 use super::pause::{PauseHook, PauseKind};
 use super::research::{BoardRoot, board_roots, same_folder};
@@ -514,11 +514,7 @@ impl PlanningRuns {
             _ => None,
         };
         // a run that never spawned counts for nothing and pauses nothing
-        let unpaused = if never_spawned(run) {
-            DispatchOutcome::StartFailed
-        } else {
-            DispatchOutcome::Other
-        };
+        let unpaused = unpaused_outcome(run);
         let outcome_of = |kind: PauseKind| match kind {
             PauseKind::UsageLimit => DispatchOutcome::PauseLimit,
             PauseKind::ClaudeMissing => DispatchOutcome::PauseClaudeMissing,

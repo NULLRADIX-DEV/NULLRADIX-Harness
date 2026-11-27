@@ -61,6 +61,16 @@ pub fn never_spawned(run: &Run) -> bool {
             .is_some_and(|abort| abort.category == AbortCategory::StartFailed)
 }
 
+/// The outcome of a research or plan run no pause takes: never spawned, or any other end.
+#[must_use]
+pub fn unpaused_outcome(run: &Run) -> DispatchOutcome {
+    if never_spawned(run) {
+        DispatchOutcome::StartFailed
+    } else {
+        DispatchOutcome::Other
+    }
+}
+
 /// Decides from the ticket as it is now; `agent` is the name the run worked under.
 #[must_use]
 pub fn decide(

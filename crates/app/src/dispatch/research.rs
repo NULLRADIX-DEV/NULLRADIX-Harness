@@ -21,7 +21,7 @@ use super::detached::{
 };
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, LogLevel};
-use super::outcome::never_spawned;
+use super::outcome::{never_spawned, unpaused_outcome};
 use super::pass::{DispatchPass, PassContext, PassReport, PassStep};
 use super::pause::{PauseHook, PauseKind};
 use super::runs::{DispatchRuns, StartDispatchRun};
@@ -528,11 +528,7 @@ impl ResearchRuns {
             _ => None,
         };
         // a run that never spawned counts for nothing and pauses nothing
-        let unpaused = if never_spawned(run) {
-            DispatchOutcome::StartFailed
-        } else {
-            DispatchOutcome::Other
-        };
+        let unpaused = unpaused_outcome(run);
         let outcome_of = |kind: PauseKind| match kind {
             PauseKind::UsageLimit => DispatchOutcome::PauseLimit,
             PauseKind::ClaudeMissing => DispatchOutcome::PauseClaudeMissing,
