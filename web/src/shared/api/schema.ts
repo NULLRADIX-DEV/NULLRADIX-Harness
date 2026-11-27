@@ -9848,7 +9848,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Replaced the installed theme with the same id */
+            /** @description Replaced the installed theme with the same id; an install by a token turns its code switch off */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9986,7 +9986,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Replaced the installed theme with the same id */
+            /** @description Replaced the installed theme with the same id; an install by a token turns its code switch off */
             200: {
                 headers: {
                     [name: string]: unknown;

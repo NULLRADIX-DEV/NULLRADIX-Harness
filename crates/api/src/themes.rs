@@ -340,7 +340,7 @@ pub(crate) async fn list_themes(
     responses(
         (status = 201, description = "Installed", body = ThemeDto,
             headers(("Location" = String, description = "URL of the stylesheet"))),
-        (status = 200, description = "Replaced the installed theme with the same id", body = ThemeDto),
+        (status = 200, description = "Replaced the installed theme with the same id; an install by a token turns its code switch off", body = ThemeDto),
         (status = 401, body = Problem),
         (status = 409, description = "`theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them)", body = Problem),
         (status = 422, description = "Not a valid package: `theme-package-invalid`, `theme-manifest-invalid` with the refused fields, or `theme-id-reserved`", body = Problem),
@@ -348,6 +348,7 @@ pub(crate) async fn list_themes(
 )]
 pub(crate) async fn install_theme(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     ApiQuery(query): ApiQuery<InstallQuery>,
     body: Body,
 ) -> Result<(StatusCode, HeaderMap, Json<ThemeDto>), ApiError> {
@@ -361,7 +362,11 @@ pub(crate) async fn install_theme(
     })?;
     let installed = state
         .themes
-        .install(archive.to_vec(), query.confirmed)
+        .install(
+            archive.to_vec(),
+            query.confirmed,
+            matches!(principal, Principal::Session { .. }),
+        )
         .await?;
     crate::claude_theme::resync(&state).await;
     let dto = ThemeDto::new(&installed.theme, installed.code);
@@ -1118,6 +1123,19 @@ mod tests {
         (status.as_u16(), json)
     }
 
+    /// An upload by the person in the browser.
+    async fn person_upload(api: &TestApi, path: &str, bytes: Vec<u8>) -> (u16, Value) {
+        let cookie = open_session(api).await;
+        let request = local(Request::post(path))
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, "http://127.0.0.1:4711")
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .body(Body::from(bytes))
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        (status.as_u16(), json)
+    }
+
     async fn first_theme(api: &TestApi) -> Value {
         let (_, list) = call(api, "GET", "/api/v1/themes", None).await;
         list["items"][0].clone()
@@ -1203,6 +1221,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_upload_by_a_token_turns_the_switch_off_but_the_persons_keeps_it() {
+        let api = test_api().await;
+        let confirmed = "/api/v1/themes?confirmed=true";
+        upload_to(&api, confirmed, with_code(MANIFEST)).await;
+        let path = "/api/v1/themes/night-blue/code";
+        let on = json!({ "enabled": true, "version": 1 });
+        person(&api, path, on).await;
+        assert_eq!(first_theme(&api).await["codeEnabled"], true);
+
+        // nothing is added, yet a token cannot keep the switch
+        let newer = MANIFEST.replace("1.2.0", "1.3.0");
+        let mut swapped = package(&newer);
+        swapped.extend_from_slice(
+            b"
+--
+main.js=steal()",
+        );
+        let (status, _, theme) = upload_to(&api, confirmed, swapped).await;
+        assert_eq!((status, &theme["codeEnabled"]), (200, &json!(false)));
+        let url = "/api/v1/themes/night-blue/files/main.js?v=2";
+        assert_eq!(file(&api, url).await.status, 404);
+
+        person(&api, path, json!({ "enabled": true, "version": 2 })).await;
+        assert_eq!(first_theme(&api).await["codeEnabled"], true);
+        let again = MANIFEST.replace("1.2.0", "1.4.0");
+        let (status, theme) = person_upload(&api, confirmed, with_code(&again)).await;
+        assert_eq!((status, &theme["codeEnabled"]), (200, &json!(true)));
+        assert_eq!(first_theme(&api).await["codeEnabled"], true);
+    }
+
+    #[tokio::test]
     async fn main_js_is_served_only_while_the_code_switch_is_on() {
         let api = test_api().await;
         upload_to(&api, "/api/v1/themes?confirmed=true", with_code(MANIFEST)).await;
@@ -1219,7 +1268,7 @@ mod tests {
             served.kind.as_deref(),
             Some("text/javascript; charset=utf-8")
         );
-        // turning off needs no version, and no version is needed to ask for it either
+        // turning off needs no version, turning on does
         let (status, set) = call(&api, "PUT", path, Some(json!({ "enabled": false }))).await;
         assert_eq!((status, &set["codeEnabled"]), (200, &json!(false)));
         assert_eq!(file(&api, url).await.status, 404);

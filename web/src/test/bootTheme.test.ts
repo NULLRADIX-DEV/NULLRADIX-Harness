@@ -57,6 +57,14 @@ describe('boot-theme.js', () => {
     expect(link()).toBeNull();
   });
 
+  it('reads safe mode from an encoded parameter name', () => {
+    installLook();
+    window.history.replaceState(null, '', '/?x=1&safe%2Dtheme');
+    boot();
+    expect(document.documentElement.dataset['theme']).toBe('light');
+    expect(link()).toBeNull();
+  });
+
   it('follows the system in safe mode', () => {
     installLook();
     mockMatchMedia(true);

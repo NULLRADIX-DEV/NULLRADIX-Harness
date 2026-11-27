@@ -214,7 +214,7 @@ async fn installing_and_choosing_a_theme_never_applies_its_claude_part() {
     let f = fixture().await;
     add_account(&f.store, "work", "/accounts/work", 1).await;
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -231,7 +231,7 @@ async fn the_switch_puts_the_theme_into_the_default_folder_and_every_account() {
     add_account(&f.store, "work", "/accounts/work", 1).await;
     add_account(&f.store, "spare", "/accounts/spare", 2).await;
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -258,7 +258,7 @@ async fn the_switch_puts_the_theme_into_the_default_folder_and_every_account() {
 async fn a_second_reconcile_writes_nothing() {
     let f = fixture().await;
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -272,7 +272,7 @@ async fn a_second_reconcile_writes_nothing() {
 async fn saving_theme_settings_and_reinstalling_carry_over() {
     let f = fixture().await;
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -294,7 +294,10 @@ async fn saving_theme_settings_and_reinstalling_carry_over() {
     let newer = String::from_utf8(package("night-blue", true))
         .unwrap()
         .replace(r#""version": "1.0.0""#, r#""version": "1.1.0""#);
-    f.themes.install(newer.into_bytes(), true).await.unwrap();
+    f.themes
+        .install(newer.into_bytes(), true, true)
+        .await
+        .unwrap();
     f.service.reconcile().await.unwrap();
     assert_eq!(f.slots.holds("/home/.claude").unwrap().version, "1.1.0");
 }
@@ -303,7 +306,7 @@ async fn saving_theme_settings_and_reinstalling_carry_over() {
 async fn a_folder_written_with_older_settings_is_not_reported_active() {
     let f = fixture().await;
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -328,11 +331,11 @@ async fn switching_off_or_to_another_theme_takes_it_out_again() {
     let f = fixture().await;
     add_account(&f.store, "work", "/accounts/work", 1).await;
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes
-        .install(package("plain", false), false)
+        .install(package("plain", false), false, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -357,7 +360,7 @@ async fn removing_the_chosen_theme_takes_it_out() {
     let f = fixture().await;
     let installed = f
         .themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap()
         .theme;
@@ -376,7 +379,7 @@ async fn a_removed_account_loses_the_theme_in_its_folder() {
     let f = fixture().await;
     let work = add_account(&f.store, "work", "/accounts/work", 1).await;
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -408,7 +411,7 @@ async fn a_foreign_folder_is_reported_and_the_others_still_get_the_theme() {
         .unwrap()
         .insert(String::from("/accounts/work"));
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -444,7 +447,7 @@ async fn a_failing_folder_shows_as_error_and_is_kept_for_removal() {
         .unwrap()
         .insert(String::from("/accounts/work"));
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -465,7 +468,7 @@ async fn a_failing_folder_shows_as_error_and_is_kept_for_removal() {
 async fn the_status_only_reads() {
     let f = fixture().await;
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();
@@ -486,7 +489,7 @@ async fn the_status_only_reads() {
 async fn a_theme_without_a_claude_part_wants_nothing_even_when_switched_on() {
     let f = fixture().await;
     f.themes
-        .install(package("plain", false), false)
+        .install(package("plain", false), false, true)
         .await
         .unwrap();
     f.themes.select("plain").await.unwrap();
@@ -502,7 +505,7 @@ async fn account_folders_spelled_alike_are_written_once() {
     let f = fixture().await;
     add_account(&f.store, "work", "/HOME/.claude", 1).await;
     f.themes
-        .install(package("night-blue", true), true)
+        .install(package("night-blue", true), true, true)
         .await
         .unwrap();
     f.themes.select("night-blue").await.unwrap();

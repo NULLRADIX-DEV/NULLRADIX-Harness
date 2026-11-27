@@ -1,9 +1,10 @@
 //! Theme catalogs: sources, the themes they offer and installing one.
 
-use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::{Extension, Json};
 use nullradix_app::AppError;
+use nullradix_app::auth::Principal;
 use nullradix_app::theme_catalog::{
     Catalog, CatalogTheme, SkippedEntry, SourceList, SourceProblem, SourceStatus,
 };
@@ -324,7 +325,7 @@ pub(crate) async fn browse_catalog(
     responses(
         (status = 201, description = "Installed", body = ThemeDto,
             headers(("Location" = String, description = "URL of the stylesheet"))),
-        (status = 200, description = "Replaced the installed theme with the same id", body = ThemeDto),
+        (status = 200, description = "Replaced the installed theme with the same id; an install by a token turns its code switch off", body = ThemeDto),
         (status = 401, body = Problem),
         (status = 404, description = "`catalog-source-not-found` or `catalog-theme-not-found`", body = Problem),
         (status = 409, description = "`catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmedSha256` from the problem)", body = Problem),
@@ -334,6 +335,7 @@ pub(crate) async fn browse_catalog(
 )]
 pub(crate) async fn install_catalog_theme(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     ApiPath(path): ApiPath<InstallPath>,
     ApiQuery(query): ApiQuery<InstallQuery>,
 ) -> Result<(StatusCode, HeaderMap, Json<ThemeDto>), ApiError> {
@@ -344,6 +346,7 @@ pub(crate) async fn install_catalog_theme(
             &path.theme,
             query.replace,
             query.confirmed_sha256.as_deref(),
+            matches!(principal, Principal::Session { .. }),
         )
         .await?;
     crate::claude_theme::resync(&state).await;
@@ -405,7 +408,7 @@ mod tests {
     use serde_json::{Value, json};
     use sha2::{Digest, Sha256};
 
-    use crate::tests::{TestApi, bearer, local, send, test_api};
+    use crate::tests::{TestApi, bearer, local, open_session, send, test_api};
 
     const MANIFEST: &str = r##"{
         "id": "night-blue", "name": "Night Blue", "version": "1.2.0", "author": "Ada",
@@ -704,5 +707,57 @@ mod tests {
         let right = format!("{path}?confirmedSha256={sha}");
         let (status, theme) = call(&api, "POST", &right, None).await;
         assert_eq!((status, theme["id"].as_str()), (201, Some("night-blue")));
+    }
+
+    #[tokio::test]
+    async fn only_the_person_keeps_the_code_switch_on_when_installing_again() {
+        let api = test_api().await;
+        let mut bytes = package();
+        bytes.extend_from_slice(
+            b"
+--
+main.js=run()",
+        );
+        let (_, added) = add(&api, SOURCE).await;
+        let id = added["id"].as_str().unwrap();
+        api.fetcher.answer(SOURCE, Ok(index(&bytes)));
+        api.fetcher.answer(PACKAGE, Ok(bytes));
+        let path = format!("/api/v1/theme-catalog/sources/{id}/themes/night-blue/install");
+        let (_, problem) = call(&api, "POST", &path, None).await;
+        let sha = problem["confirmation"]["sha256"].as_str().unwrap();
+        let install = format!("{path}?confirmedSha256={sha}");
+        let cookie = open_session(&api).await;
+        let person = |method: &'static str, path: String, body: Body| {
+            local(Request::builder().method(method).uri(path))
+                .header(header::COOKIE, &cookie)
+                .header(header::ORIGIN, "http://127.0.0.1:4711")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .unwrap()
+        };
+        let enabled = || async {
+            let (_, list) = call(&api, "GET", "/api/v1/themes", None).await;
+            list["items"][0]["codeEnabled"].clone()
+        };
+        let turn_on = || async {
+            let body = Body::from(json!({ "enabled": true, "version": 1 }).to_string());
+            let request = person("PUT", "/api/v1/themes/night-blue/code".to_owned(), body);
+            assert_eq!(send(&api.router, request).await.0, 200);
+        };
+
+        let request = person("POST", install.clone(), Body::empty());
+        assert_eq!(send(&api.router, request).await.0, 201);
+        turn_on().await;
+        assert_eq!(enabled().await, json!(true));
+
+        // nothing is added, so the person's own update keeps the switch
+        let request = person("POST", install.clone(), Body::empty());
+        assert_eq!(send(&api.router, request).await.0, 200);
+        assert_eq!(enabled().await, json!(true));
+
+        // a token never does
+        let (status, theme) = call(&api, "POST", &install, None).await;
+        assert_eq!((status, &theme["codeEnabled"]), (200, &json!(false)));
+        assert_eq!(enabled().await, json!(false));
     }
 }

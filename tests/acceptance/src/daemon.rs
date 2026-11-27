@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -132,6 +133,7 @@ pub(crate) struct Daemon {
     pub(crate) work: PathBuf,
     env: BTreeMap<String, String>,
     nullradix: PathBuf,
+    session: OnceCell<String>,
 }
 
 impl Daemon {
@@ -165,6 +167,7 @@ impl Daemon {
             work,
             env: env.clone(),
             nullradix: binaries.nullradix.clone(),
+            session: OnceCell::new(),
         };
         let discovery = daemon.home.path().join("data").join("daemon.json");
         let deadline = Instant::now() + STARTUP;
@@ -228,6 +231,34 @@ impl Daemon {
     #[must_use]
     pub(crate) fn url(&self, path: &str) -> String {
         format!("http://{}{path}", self.address)
+    }
+
+    /// The cookie of a browser session, opened on first use with a handoff like the app does.
+    pub(crate) fn session_cookie(&self) -> anyhow::Result<&str> {
+        if let Some(cookie) = self.session.get() {
+            return Ok(cookie);
+        }
+        let agent: Agent = Agent::config_builder()
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .timeout_global(Some(Duration::from_secs(10)))
+            .proxy(None)
+            .build()
+            .into();
+        let mut made = agent
+            .post(&self.url("/api/v1/auth/handoffs"))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .send_empty()?;
+        let handoff: Value = made.body_mut().read_json()?;
+        let path = handoff["path"].as_str().context("handoff without path")?;
+        let redeemed = agent.get(&self.url(path)).call()?;
+        let cookie = redeemed
+            .headers()
+            .get("set-cookie")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .context("the handoff set no session cookie")?;
+        Ok(self.session.get_or_init(|| cookie.to_owned()))
     }
 }
 

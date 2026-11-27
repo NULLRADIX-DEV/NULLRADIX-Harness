@@ -472,6 +472,7 @@ impl CatalogService {
         theme: &str,
         replace: bool,
         confirmed: Option<&str>,
+        by_person: bool,
     ) -> Result<Installed, AppError> {
         let id = SourceId::parse(source).ok_or_else(source_not_found)?;
         let theme_id = ThemeId::parse(theme)
@@ -533,6 +534,7 @@ impl CatalogService {
                     replace,
                 }),
                 confirmed,
+                by_person,
             )
             .await
             .map_err(|error| with_checksum(error, &entry.sha256))
@@ -840,7 +842,7 @@ mod tests {
             .to_string();
         world
             .service
-            .install(&source, "night-blue", false, None)
+            .install(&source, "night-blue", false, None, true)
             .await
             .unwrap();
         let catalog = world.service.browse().await.unwrap();
@@ -951,7 +953,7 @@ mod tests {
         let source = ready(&world, &bytes).await;
         let theme = world
             .service
-            .install(&source, "night-blue", false, None)
+            .install(&source, "night-blue", false, None, true)
             .await
             .unwrap();
         assert_eq!(theme.theme.id().as_str(), "night-blue");
@@ -965,7 +967,11 @@ mod tests {
         let world = world(Reach::Public);
         let bytes = night_blue();
         let source = ready(&world, &bytes).await;
-        world.themes.install(bytes.clone(), false).await.unwrap();
+        world
+            .themes
+            .install(bytes.clone(), false, true)
+            .await
+            .unwrap();
         let catalog = world.service.browse().await.unwrap();
         assert_eq!(
             catalog.themes[0].availability,
@@ -973,14 +979,14 @@ mod tests {
         );
         let error = world
             .service
-            .install(&source, "night-blue", false, None)
+            .install(&source, "night-blue", false, None, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-theme-installed-elsewhere");
 
         world
             .service
-            .install(&source, "night-blue", true, None)
+            .install(&source, "night-blue", true, None, true)
             .await
             .unwrap();
         let catalog = world.service.browse().await.unwrap();
@@ -991,7 +997,7 @@ mod tests {
         // now it is from this source: no flag needed
         world
             .service
-            .install(&source, "night-blue", false, None)
+            .install(&source, "night-blue", false, None, true)
             .await
             .unwrap();
 
@@ -1016,17 +1022,21 @@ mod tests {
         )));
         let error = world
             .service
-            .install(other.id().as_str(), "night-blue", false, None)
+            .install(other.id().as_str(), "night-blue", false, None, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-theme-installed-elsewhere");
 
         // an upload and a removal forget where the theme came from
-        world.themes.install(bytes.clone(), false).await.unwrap();
+        world
+            .themes
+            .install(bytes.clone(), false, true)
+            .await
+            .unwrap();
         assert!(world.themes.origins().await.unwrap().is_empty());
         world
             .service
-            .install(&source, "night-blue", true, None)
+            .install(&source, "night-blue", true, None, true)
             .await
             .unwrap();
         let theme = world.themes.list().await.unwrap().themes.remove(0);
@@ -1062,7 +1072,7 @@ mod tests {
         world.fetcher.answer(PACKAGE_URL, Ok(b"tampered".to_vec()));
         let error = world
             .service
-            .install(&source, "night-blue", false, None)
+            .install(&source, "night-blue", false, None, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-checksum-mismatch");
@@ -1074,7 +1084,7 @@ mod tests {
         other.answer(PACKAGE_URL, Ok(bytes.clone()));
         let error = world
             .service
-            .install(&source, "night-blue", false, None)
+            .install(&source, "night-blue", false, None, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-package-mismatch");
@@ -1088,19 +1098,19 @@ mod tests {
         let source = ready(&world, &bytes).await;
         let error = world
             .service
-            .install(&source, "ghost-theme", false, None)
+            .install(&source, "ghost-theme", false, None, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-theme-not-found");
         let error = world
             .service
-            .install("111111111111", "night-blue", false, None)
+            .install("111111111111", "night-blue", false, None, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-source-not-found");
         let error = world
             .service
-            .install(&source, "Bad Id", false, None)
+            .install(&source, "Bad Id", false, None, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-id-invalid");
@@ -1111,7 +1121,7 @@ mod tests {
         world.fetcher.answer(SOURCE, index(&[old]));
         let error = world
             .service
-            .install(&source, "night-blue", false, None)
+            .install(&source, "night-blue", false, None, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "catalog-theme-incompatible");
@@ -1129,7 +1139,7 @@ mod tests {
             world.fetcher.answer(PACKAGE_URL, Err(failure));
             let error = world
                 .service
-                .install(&source, "night-blue", false, None)
+                .install(&source, "night-blue", false, None, true)
                 .await
                 .unwrap_err();
             assert_eq!(error.code(), code);
@@ -1156,7 +1166,7 @@ mod tests {
         let source = ready(&world, &bytes).await;
         let error = world
             .service
-            .install(&source, "night-blue", false, None)
+            .install(&source, "night-blue", false, None, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-confirmation-required");
@@ -1167,14 +1177,14 @@ mod tests {
         let other = Some("0".repeat(64));
         let error = world
             .service
-            .install(&source, "night-blue", false, other.as_deref())
+            .install(&source, "night-blue", false, other.as_deref(), true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-confirmation-required");
         let upper = facts.sha256.as_deref().map(str::to_ascii_uppercase);
         let installed = world
             .service
-            .install(&source, "night-blue", false, upper.as_deref())
+            .install(&source, "night-blue", false, upper.as_deref(), true)
             .await
             .unwrap();
         assert!(installed.added.code);

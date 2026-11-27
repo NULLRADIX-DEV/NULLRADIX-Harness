@@ -335,17 +335,24 @@ impl ThemeService {
     }
 
     /// Installs or replaces the theme; code, network domains or a Claude part need `confirmed`.
-    pub async fn install(&self, archive: Vec<u8>, confirmed: bool) -> Result<Installed, AppError> {
-        self.install_expecting(archive, None, None, confirmed).await
+    pub async fn install(
+        &self,
+        archive: Vec<u8>,
+        confirmed: bool,
+        by_person: bool,
+    ) -> Result<Installed, AppError> {
+        self.install_expecting(archive, None, None, confirmed, by_person)
+            .await
     }
 
-    /// Installs a package that must be the theme and version expected, recording its origin.
+    /// Installs the expected package; only the person's install can keep the code switch on.
     pub async fn install_expecting(
         &self,
         archive: Vec<u8>,
         expected: Option<(&ThemeId, &str)>,
         origin: Option<Origin<'_>>,
         confirmed: bool,
+        by_person: bool,
     ) -> Result<Installed, AppError> {
         let files = self.files.unpack(archive).await?;
         let manifest = check_package(&files, false)?;
@@ -394,7 +401,7 @@ impl ThemeService {
         let has_code = files.iter().any(|file| file.path == CODE_FILE);
         let now = self.clock.now();
         // what the person allowed is not what this package brings; off before its files appear
-        if known.is_none() || !added.is_empty() || !has_code {
+        if known.is_none() || !added.is_empty() || !has_code || !by_person {
             let mut off = self.repository.begin().await?;
             let change = off.set_code(manifest.id(), false, now).await?;
             off.commit().await?;
@@ -637,6 +644,10 @@ impl ThemeService {
         Ok(())
     }
 
+    async fn code_is_on(&self, id: &ThemeId) -> Result<bool, AppError> {
+        Ok(self.repository.code_switches().await?.contains(id))
+    }
+
     /// A file of an installed theme; anything unsafe or missing is simply not found.
     pub async fn asset(&self, id: &str, path: &str) -> Result<Asset, AppError> {
         let theme = ThemeId::parse(id).map_err(|_| file_not_found())?;
@@ -648,7 +659,8 @@ impl ThemeService {
             .await?
             .ok_or_else(file_not_found)?;
         // script files are served only while the person's code switch is on
-        if is_script(path) && !self.repository.code_switches().await?.contains(&theme) {
+        let script = is_script(path);
+        if script && !self.code_is_on(&theme).await? {
             return Err(file_not_found());
         }
         let data = self
@@ -656,6 +668,10 @@ impl ThemeService {
             .read(&theme, &segments)
             .await?
             .ok_or_else(file_not_found)?;
+        // an install may have turned the switch off while the file was read
+        if script && !self.code_is_on(&theme).await? {
+            return Err(file_not_found());
+        }
         Ok(Asset {
             data,
             content_type: content_type(path),
@@ -942,6 +958,8 @@ pub(crate) mod tests {
         unknown_paths: Mutex<bool>,
         /// When set, `store` announces itself and waits to be released.
         hold_store: Mutex<bool>,
+        /// When set, `read` announces itself and waits to be released.
+        hold_read: Mutex<bool>,
         entered: tokio::sync::Notify,
         release: tokio::sync::Notify,
     }
@@ -991,6 +1009,11 @@ pub(crate) mod tests {
 
         async fn read(&self, id: &ThemeId, path: &[String]) -> Result<Option<Vec<u8>>, AppError> {
             let joined = path.join("/");
+            let hold = *self.hold_read.lock();
+            if hold {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
             Ok(self
                 .stored
                 .lock()
@@ -1070,7 +1093,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         fixture
             .service
-            .install(with_settings(), false)
+            .install(with_settings(), false, true)
             .await
             .unwrap();
         let none = fixture.service.settings("night-blue").await.unwrap();
@@ -1112,7 +1135,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         fixture
             .service
-            .install(with_settings(), false)
+            .install(with_settings(), false, true)
             .await
             .unwrap();
         let both = input(&[("dim", SettingValue::Switch(false)), ("mode", choice("b"))]);
@@ -1125,7 +1148,7 @@ pub(crate) mod tests {
             "options": [{ "value": "a", "label": "A" }] } }"#;
         fixture
             .service
-            .install(with_schema(reduced), false)
+            .install(with_schema(reduced), false, true)
             .await
             .unwrap();
         let read = fixture.service.settings("night-blue").await.unwrap();
@@ -1143,7 +1166,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         fixture
             .service
-            .install(with_settings(), false)
+            .install(with_settings(), false, true)
             .await
             .unwrap();
         let both = input(&[("dim", SettingValue::Switch(false)), ("mode", choice("b"))]);
@@ -1156,7 +1179,7 @@ pub(crate) mod tests {
             "options": [{ "value": "a", "label": "A" }, { "value": "b", "label": "B" }] } }"#;
         fixture
             .service
-            .install(with_schema(kept), false)
+            .install(with_schema(kept), false, true)
             .await
             .unwrap();
         let read = fixture.service.settings("night-blue").await.unwrap();
@@ -1173,7 +1196,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         fixture
             .service
-            .install(with_settings(), false)
+            .install(with_settings(), false, true)
             .await
             .unwrap();
         let on = input(&[("dim", SettingValue::Switch(true))]);
@@ -1227,7 +1250,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_theme_without_settings_refuses_every_key() {
         let fixture = fixture();
-        fixture.service.install(night_blue(), false).await.unwrap();
+        fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         let on = input(&[("dim", SettingValue::Switch(true))]);
         let error = fixture
             .service
@@ -1248,7 +1275,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         fixture
             .service
-            .install(with_settings(), false)
+            .install(with_settings(), false, true)
             .await
             .unwrap();
         fixture
@@ -1289,7 +1316,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         let theme = fixture
             .service
-            .install(with_settings(), false)
+            .install(with_settings(), false, true)
             .await
             .unwrap()
             .theme;
@@ -1307,7 +1334,7 @@ pub(crate) mod tests {
         assert!(fixture.memory.settings.lock().is_empty());
         fixture
             .service
-            .install(with_settings(), false)
+            .install(with_settings(), false, true)
             .await
             .unwrap();
         let read = fixture.service.settings("night-blue").await.unwrap();
@@ -1317,7 +1344,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_removal_waits_for_an_install_in_progress() {
         let fixture = fixture();
-        fixture.service.install(night_blue(), false).await.unwrap();
+        fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         *fixture.files.hold_store.lock() = true;
         let mut files = package();
         files[0] = file("manifest.json", &MANIFEST.replace("1.0.0", "1.1.0"));
@@ -1329,8 +1360,10 @@ pub(crate) mod tests {
             files_gate.release.notify_one();
             attempt.is_err()
         };
-        let (installed, waited) =
-            tokio::join!(fixture.service.install(archive(&files), false), waited);
+        let (installed, waited) = tokio::join!(
+            fixture.service.install(archive(&files), false, true),
+            waited
+        );
         installed.unwrap();
         assert!(
             waited,
@@ -1342,7 +1375,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn files_of_a_theme_that_is_not_installed_are_not_served() {
         let fixture = fixture();
-        fixture.service.install(night_blue(), false).await.unwrap();
+        fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         fixture.memory.themes.lock().clear();
         let missing = fixture.service.asset("night-blue", "theme.css").await;
         assert!(missing.is_err());
@@ -1361,7 +1398,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         let theme = fixture
             .service
-            .install(night_blue(), false)
+            .install(night_blue(), false, true)
             .await
             .unwrap()
             .theme;
@@ -1378,12 +1415,16 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn installing_the_same_id_again_replaces_it_and_bumps_the_version() {
         let fixture = fixture();
-        fixture.service.install(night_blue(), false).await.unwrap();
+        fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         let mut files = package();
         files[0] = file("manifest.json", &MANIFEST.replace("1.0.0", "1.1.0"));
         let again = fixture
             .service
-            .install(archive(&files), false)
+            .install(archive(&files), false, true)
             .await
             .unwrap()
             .theme;
@@ -1400,14 +1441,14 @@ pub(crate) mod tests {
         files.push(file("../evil.css", "x"));
         let error = fixture
             .service
-            .install(archive(&files), false)
+            .install(archive(&files), false, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-package-invalid");
         let broken = vec![file("manifest.json", "{"), file("theme.css", "a {}")];
         let error = fixture
             .service
-            .install(archive(&broken), false)
+            .install(archive(&broken), false, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-manifest-invalid");
@@ -1424,7 +1465,7 @@ pub(crate) mod tests {
         ];
         let error = fixture
             .service
-            .install(archive(&files), false)
+            .install(archive(&files), false, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-id-reserved");
@@ -1440,7 +1481,11 @@ pub(crate) mod tests {
         assert_eq!(error.code(), "theme-not-found");
         let error = fixture.service.select("Bad Id").await.unwrap_err();
         assert_eq!(error.code(), "theme-id-invalid");
-        fixture.service.install(night_blue(), false).await.unwrap();
+        fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         fixture.service.select("night-blue").await.unwrap();
         assert_eq!(fixture.service.list().await.unwrap().active, "night-blue");
     }
@@ -1461,7 +1506,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         let theme = fixture
             .service
-            .install(night_blue(), false)
+            .install(night_blue(), false, true)
             .await
             .unwrap()
             .theme;
@@ -1498,7 +1543,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         let theme = fixture
             .service
-            .install(night_blue(), false)
+            .install(night_blue(), false, true)
             .await
             .unwrap()
             .theme;
@@ -1520,7 +1565,11 @@ pub(crate) mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-not-found");
-        fixture.service.install(night_blue(), false).await.unwrap();
+        fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         let error = fixture
             .service
             .remove("night-blue", Version::from_stored(7))
@@ -1541,7 +1590,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         let theme = fixture
             .service
-            .install(night_blue(), false)
+            .install(night_blue(), false, true)
             .await
             .unwrap()
             .theme;
@@ -1564,7 +1613,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn assets_are_served_with_their_type_and_unsafe_paths_are_not_found() {
         let fixture = fixture();
-        fixture.service.install(night_blue(), false).await.unwrap();
+        fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         let css = fixture
             .service
             .asset("night-blue", "theme.css")
@@ -1604,7 +1657,11 @@ pub(crate) mod tests {
     }
 
     async fn refused(fixture: &Fixture, bytes: Vec<u8>) -> AppError {
-        let error = fixture.service.install(bytes, false).await.unwrap_err();
+        let error = fixture
+            .service
+            .install(bytes, false, true)
+            .await
+            .unwrap_err();
         assert_eq!(error.code(), "theme-confirmation-required");
         assert_eq!(error.kind(), crate::ErrorKind::Conflict);
         error
@@ -1631,7 +1688,7 @@ pub(crate) mod tests {
         refused(&fixture, risky("1.0.0", "", true)).await;
         let installed = fixture
             .service
-            .install(risky("1.0.0", r#""a.example.com""#, true), true)
+            .install(risky("1.0.0", r#""a.example.com""#, true), true, true)
             .await
             .unwrap();
         assert!(installed.added.code);
@@ -1643,7 +1700,11 @@ pub(crate) mod tests {
     async fn every_install_of_a_risky_package_needs_a_confirmation_but_a_plain_one_does_not() {
         let fixture = fixture();
         let first = risky("1.0.0", r#""a.example.com""#, true);
-        fixture.service.install(first.clone(), true).await.unwrap();
+        fixture
+            .service
+            .install(first.clone(), true, true)
+            .await
+            .unwrap();
         for bytes in [
             first,
             risky("1.1.0", r#""A.example.com""#, true),
@@ -1652,10 +1713,14 @@ pub(crate) mod tests {
             let error = refused(&fixture, bytes.clone()).await;
             let facts = error.confirmation().unwrap();
             assert!(facts.update && facts.risk.has_code && facts.added.is_empty());
-            let done = fixture.service.install(bytes, true).await.unwrap();
+            let done = fixture.service.install(bytes, true, true).await.unwrap();
             assert!(done.added.is_empty());
         }
-        let plain = fixture.service.install(night_blue(), false).await.unwrap();
+        let plain = fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         assert!(plain.added.is_empty());
     }
 
@@ -1688,7 +1753,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn an_update_that_adds_code_or_a_domain_needs_a_confirmation() {
         let fixture = fixture();
-        fixture.service.install(night_blue(), false).await.unwrap();
+        fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         let error = refused(&fixture, risky("1.1.0", "", true)).await;
         let facts = error.confirmation().unwrap();
         assert!(facts.update && facts.added.code && facts.added.domains.is_empty());
@@ -1704,7 +1773,7 @@ pub(crate) mod tests {
         );
         let updated = fixture
             .service
-            .install(risky("1.1.0", r#""b.example.com""#, true), true)
+            .install(risky("1.1.0", r#""b.example.com""#, true), true, true)
             .await
             .unwrap();
         assert!(updated.added.code);
@@ -1737,13 +1806,13 @@ pub(crate) mod tests {
         let main = [file("main.js", "export default () => {}")];
         fixture
             .service
-            .install(everything("1.0.0", &main), true)
+            .install(everything("1.0.0", &main), true, true)
             .await
             .unwrap();
         *fixture.files.unknown_paths.lock() = true;
         let again = fixture
             .service
-            .install(everything("1.0.1", &main), true)
+            .install(everything("1.0.1", &main), true, true)
             .await
             .unwrap();
         // the stored manifest still knows the domains and the Claude part
@@ -1752,7 +1821,7 @@ pub(crate) mod tests {
         assert!(!again.added.claude_theme);
         let error = fixture
             .service
-            .install(everything("1.0.2", &main), false)
+            .install(everything("1.0.2", &main), false, true)
             .await
             .unwrap_err();
         let facts = error.confirmation().unwrap();
@@ -1775,7 +1844,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         let installed = fixture
             .service
-            .install(with_code("1.0.0"), true)
+            .install(with_code("1.0.0"), true, true)
             .await
             .unwrap();
         assert_eq!(
@@ -1822,7 +1891,11 @@ pub(crate) mod tests {
             .unwrap_err();
         assert_eq!(invalid.code(), "theme-id-invalid");
 
-        fixture.service.install(night_blue(), false).await.unwrap();
+        fixture
+            .service
+            .install(night_blue(), false, true)
+            .await
+            .unwrap();
         let plain = fixture
             .service
             .set_code("night-blue", true, Some(Version::INITIAL))
@@ -1839,7 +1912,7 @@ pub(crate) mod tests {
 
         fixture
             .service
-            .install(with_code("1.1.0"), true)
+            .install(with_code("1.1.0"), true, true)
             .await
             .unwrap();
         let stale = fixture
@@ -1856,7 +1929,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         fixture
             .service
-            .install(with_code("1.0.0"), true)
+            .install(with_code("1.0.0"), true, true)
             .await
             .unwrap();
         let version = code_of(&fixture).await.0;
@@ -1869,7 +1942,7 @@ pub(crate) mod tests {
         // nothing new: the choice of the person stays
         let same = fixture
             .service
-            .install(with_code("1.0.1"), true)
+            .install(with_code("1.0.1"), true, true)
             .await
             .unwrap();
         assert!(same.added.is_empty() && same.code.enabled);
@@ -1877,7 +1950,7 @@ pub(crate) mod tests {
 
         // a new domain
         let more = risky("1.1.0", r#""a.example.com", "b.example.com""#, true);
-        let updated = fixture.service.install(more, true).await.unwrap();
+        let updated = fixture.service.install(more, true, true).await.unwrap();
         assert_eq!(updated.added.domains, ["b.example.com"]);
         assert!(!updated.code.enabled);
         assert!(!code_of(&fixture).await.1.enabled);
@@ -1889,7 +1962,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         fixture
             .service
-            .install(with_code("1.0.0"), true)
+            .install(with_code("1.0.0"), true, true)
             .await
             .unwrap();
         let version = code_of(&fixture).await.0;
@@ -1901,7 +1974,7 @@ pub(crate) mod tests {
         *fixture.files.unknown_paths.lock() = true;
         let done = fixture
             .service
-            .install(with_code("1.0.1"), true)
+            .install(with_code("1.0.1"), true, true)
             .await
             .unwrap();
         assert!(done.added.code && !done.code.enabled);
@@ -1925,7 +1998,7 @@ pub(crate) mod tests {
         };
         fixture
             .service
-            .install(lib("1.0.0", true), true)
+            .install(lib("1.0.0", true), true, true)
             .await
             .unwrap();
         let version = code_of(&fixture).await.0;
@@ -1937,14 +2010,14 @@ pub(crate) mod tests {
         // the library still counts as code, so nothing is added later
         let dropped = fixture
             .service
-            .install(lib("1.1.0", false), true)
+            .install(lib("1.1.0", false), true, true)
             .await
             .unwrap();
         assert!(dropped.added.is_empty());
         assert!(!dropped.code.has_code && !dropped.code.enabled);
         let back = fixture
             .service
-            .install(lib("1.2.0", true), true)
+            .install(lib("1.2.0", true), true, true)
             .await
             .unwrap();
         assert!(back.added.is_empty());
@@ -1961,7 +2034,7 @@ pub(crate) mod tests {
             .insert(String::from("night-blue"));
         let fresh = fixture
             .service
-            .install(with_code("1.0.0"), true)
+            .install(with_code("1.0.0"), true, true)
             .await
             .unwrap();
         assert!(!fresh.code.enabled);
@@ -1976,7 +2049,7 @@ pub(crate) mod tests {
         assert!(fixture.memory.code.lock().is_empty());
         let again = fixture
             .service
-            .install(with_code("1.0.0"), true)
+            .install(with_code("1.0.0"), true, true)
             .await
             .unwrap();
         assert!(!again.code.enabled);
@@ -1987,13 +2060,18 @@ pub(crate) mod tests {
         let fixture = Arc::new(fixture());
         fixture
             .service
-            .install(with_code("1.0.0"), true)
+            .install(with_code("1.0.0"), true, true)
             .await
             .unwrap();
         *fixture.files.hold_store.lock() = true;
         let install = {
             let fixture = fixture.clone();
-            tokio::spawn(async move { fixture.service.install(with_code("1.1.0"), true).await })
+            tokio::spawn(async move {
+                fixture
+                    .service
+                    .install(with_code("1.1.0"), true, true)
+                    .await
+            })
         };
         fixture.files.entered.notified().await;
         // the install holds the files of 1.1.0 and the row of 1.0.0
@@ -2020,7 +2098,7 @@ pub(crate) mod tests {
         let fixture = fixture();
         fixture
             .service
-            .install(with_code("1.0.0"), true)
+            .install(with_code("1.0.0"), true, true)
             .await
             .unwrap();
         let before = fixture.memory.feed.lock().len();
@@ -2044,7 +2122,7 @@ pub(crate) mod tests {
         let fixture = Arc::new(fixture());
         fixture
             .service
-            .install(with_code("1.0.0"), true)
+            .install(with_code("1.0.0"), true, true)
             .await
             .unwrap();
         fixture
@@ -2056,7 +2134,7 @@ pub(crate) mod tests {
         let more = risky("1.1.0", r#""a.example.com", "b.example.com""#, true);
         let install = {
             let fixture = fixture.clone();
-            tokio::spawn(async move { fixture.service.install(more, true).await })
+            tokio::spawn(async move { fixture.service.install(more, true, true).await })
         };
         fixture.files.entered.notified().await;
         // the new files are not stored yet, and no page may run them as allowed
@@ -2084,7 +2162,7 @@ pub(crate) mod tests {
         ];
         fixture
             .service
-            .install(archive(&files), true)
+            .install(archive(&files), true, true)
             .await
             .unwrap();
         for path in ["main.js", "lib/util.mjs"] {
@@ -2131,11 +2209,90 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn an_install_by_anyone_but_the_person_turns_the_switch_off() {
+        let fixture = fixture();
+        fixture
+            .service
+            .install(with_code("1.0.0"), true, true)
+            .await
+            .unwrap();
+        let turn_on = async |fixture: &Fixture| {
+            let version = code_of(fixture).await.0;
+            fixture
+                .service
+                .set_code("night-blue", true, Some(version))
+                .await
+                .unwrap();
+        };
+        turn_on(&fixture).await;
+
+        // the same domains with new code adds nothing, but only the person may keep it on
+        let manifest = MANIFEST
+            .replace("1.0.0", "1.0.1")
+            .replace(r#""network": []"#, r#""network": ["a.example.com"]"#);
+        let swapped = archive(&[
+            file("manifest.json", &manifest),
+            file("theme.css", ":root { --accent: #6c63ff }"),
+            file("main.js", "steal()"),
+        ]);
+        let token = fixture.service.install(swapped, true, false).await.unwrap();
+        assert!(token.added.is_empty() && !token.code.enabled);
+        assert!(!code_of(&fixture).await.1.enabled);
+        assert!(fixture.memory.code.lock().is_empty());
+        assert!(
+            fixture
+                .service
+                .asset("night-blue", "main.js")
+                .await
+                .is_err()
+        );
+
+        // the person's own update that adds nothing keeps the switch
+        turn_on(&fixture).await;
+        let person = fixture
+            .service
+            .install(with_code("1.0.2"), true, true)
+            .await
+            .unwrap();
+        assert!(person.added.is_empty() && person.code.enabled);
+        assert!(code_of(&fixture).await.1.enabled);
+    }
+
+    #[tokio::test]
+    async fn a_script_is_refused_when_the_switch_goes_off_while_it_is_read() {
+        let fixture = Arc::new(fixture());
+        fixture
+            .service
+            .install(with_code("1.0.0"), true, true)
+            .await
+            .unwrap();
+        fixture
+            .service
+            .set_code("night-blue", true, Some(Version::INITIAL))
+            .await
+            .unwrap();
+        *fixture.files.hold_read.lock() = true;
+        let read = {
+            let fixture = fixture.clone();
+            tokio::spawn(async move { fixture.service.asset("night-blue", "main.js").await })
+        };
+        fixture.files.entered.notified().await;
+        fixture
+            .service
+            .set_code("night-blue", false, None)
+            .await
+            .unwrap();
+        fixture.files.release.notify_one();
+        let error = read.await.unwrap().unwrap_err();
+        assert_eq!(error.code(), "theme-file-not-found");
+    }
+
+    #[tokio::test]
     async fn turning_on_needs_a_version_and_turning_off_does_not() {
         let fixture = fixture();
         fixture
             .service
-            .install(with_code("1.0.0"), true)
+            .install(with_code("1.0.0"), true, true)
             .await
             .unwrap();
         let error = fixture

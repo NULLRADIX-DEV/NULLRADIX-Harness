@@ -94,7 +94,7 @@ export async function loadThemeModule(deps: ThemeModuleDeps): Promise<ThemeLoadR
       );
     }
     let module: unknown;
-    // a module past the limit is dropped here, but its top-level code has already run
+    // a module past the limit is dropped, but its top-level code may still run
     try {
       module = await Promise.race([importModule(codeUrl), timeout]);
     } catch (error) {

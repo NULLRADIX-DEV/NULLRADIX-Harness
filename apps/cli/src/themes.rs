@@ -148,7 +148,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let themes = service(dir.path().join("themes")).await;
         themes
-            .install(package(&[entry("assets/a.png", "png")]), false)
+            .install(package(&[entry("assets/a.png", "png")]), false, true)
             .await
             .unwrap();
         assert!(dir.path().join("themes/night-blue/theme.css").is_file());
@@ -185,16 +185,16 @@ mod tests {
         writer.start_file("theme.css", options).unwrap();
         writer.start_file("../../evil.css", options).unwrap();
         let traversal = writer.finish().unwrap().into_inner();
-        let error = themes.install(traversal, false).await.unwrap_err();
+        let error = themes.install(traversal, false, true).await.unwrap_err();
         assert_eq!(error.code(), "theme-package-invalid");
 
         let error = themes
-            .install(b"not a zip".to_vec(), false)
+            .install(b"not a zip".to_vec(), false, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-package-invalid");
         let error = themes
-            .install(package(&[entry("script.sh", "rm -rf")]), false)
+            .install(package(&[entry("script.sh", "rm -rf")]), false, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-package-invalid");
@@ -208,11 +208,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let themes = service(dir.path().join("themes")).await;
         themes
-            .install(package(&[entry("old.css", "old")]), false)
+            .install(package(&[entry("old.css", "old")]), false, true)
             .await
             .unwrap();
         themes
-            .install(package(&[entry("new.css", "new")]), false)
+            .install(package(&[entry("new.css", "new")]), false, true)
             .await
             .unwrap();
         assert!(!dir.path().join("themes/night-blue/old.css").exists());
@@ -226,28 +226,28 @@ mod tests {
         let files = FolderThemes::new(dir.path().join("themes"));
         let id = ThemeId::parse("night-blue").unwrap();
         assert_eq!(files.paths(&id).await, Some(Vec::new()));
-        themes.install(package(&[]), false).await.unwrap();
+        themes.install(package(&[]), false, true).await.unwrap();
         assert_eq!(
             files.paths(&id).await.unwrap(),
             ["manifest.json", "theme.css"]
         );
         let error = themes
-            .install(package(&[entry("main.js", "run()")]), false)
+            .install(package(&[entry("main.js", "run()")]), false, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-confirmation-required");
         let done = themes
-            .install(package(&[entry("main.js", "run()")]), true)
+            .install(package(&[entry("main.js", "run()")]), true, true)
             .await
             .unwrap();
         assert!(done.added.code);
         let error = themes
-            .install(package(&[entry("main.js", "run()")]), false)
+            .install(package(&[entry("main.js", "run()")]), false, true)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-confirmation-required");
         let same = themes
-            .install(package(&[entry("main.js", "run()")]), true)
+            .install(package(&[entry("main.js", "run()")]), true, true)
             .await
             .unwrap();
         assert!(same.added.is_empty());
@@ -259,11 +259,11 @@ mod tests {
         let themes = service(dir.path().join("themes")).await;
         let folder = dir.path().join("themes/night-blue");
         let code = package(&[entry("main.js", "run()")]);
-        themes.install(code.clone(), true).await.unwrap();
+        themes.install(code.clone(), true, true).await.unwrap();
         std::fs::write(folder.join(".DS_Store"), "x").unwrap();
-        let same = themes.install(code.clone(), true).await.unwrap();
+        let same = themes.install(code.clone(), true, true).await.unwrap();
         assert!(same.added.is_empty());
-        let error = themes.install(code.clone(), false).await.unwrap_err();
+        let error = themes.install(code.clone(), false, true).await.unwrap_err();
         assert_eq!(error.code(), "theme-confirmation-required");
 
         // too many files: the old risk is unknown, so code counts as added
@@ -272,7 +272,7 @@ mod tests {
         for n in 0..=MAX_ENTRIES {
             std::fs::write(crowd.join(format!("{n}.css")), "").unwrap();
         }
-        let repaired = themes.install(code, true).await.unwrap();
+        let repaired = themes.install(code, true, true).await.unwrap();
         assert!(repaired.added.code);
     }
 
@@ -284,8 +284,8 @@ mod tests {
         let mut files = vec![entry("main.js", "run()")];
         files.extend((0..MAX_ENTRIES - 3).map(|n| entry(&format!("assets/{n}.css"), "")));
         let full = package(&files);
-        themes.install(full.clone(), true).await.unwrap();
-        let again = themes.install(full, true).await.unwrap();
+        themes.install(full.clone(), true, true).await.unwrap();
+        let again = themes.install(full, true, true).await.unwrap();
         assert!(again.added.is_empty());
     }
 
@@ -294,9 +294,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let themes = service(dir.path().join("themes")).await;
         let hidden = package(&[entry(".cache/run.js", "run()")]);
-        let first = themes.install(hidden.clone(), true).await.unwrap();
+        let first = themes.install(hidden.clone(), true, true).await.unwrap();
         assert!(first.added.code);
-        let again = themes.install(hidden, true).await.unwrap();
+        let again = themes.install(hidden, true, true).await.unwrap();
         assert!(again.added.is_empty());
     }
 }

@@ -7103,7 +7103,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Replaced the installed theme with the same id",
+            "description": "Replaced the installed theme with the same id; an install by a token turns its code switch off",
             "content": {
               "application/json": {
                 "schema": {
@@ -7272,7 +7272,7 @@
         },
         "responses": {
           "200": {
-            "description": "Replaced the installed theme with the same id",
+            "description": "Replaced the installed theme with the same id; an install by a token turns its code switch off",
             "content": {
               "application/json": {
                 "schema": {
