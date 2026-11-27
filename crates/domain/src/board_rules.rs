@@ -61,7 +61,7 @@ pub fn normalize_dependencies(keys: Vec<TicketKey>) -> Vec<TicketKey> {
         .collect()
 }
 
-/// The dependencies after a change: a full list wins, otherwise `added` join `current`; `removed` go last.
+/// Dependencies after a change: a full list wins, else `added` join `current`; `removed` go last.
 #[must_use]
 pub fn changed_dependencies(
     current: &[TicketKey],
