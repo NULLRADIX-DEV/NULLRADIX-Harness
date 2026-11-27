@@ -3995,7 +3995,7 @@ export interface components {
             author: string;
             /** @description Whether the package brings a theme for Claude Code. */
             claudeTheme: boolean;
-            /** @description The person turned the code switch on; the web UI runs `main.js` of the chosen theme only then. */
+            /** @description The person turned the code switch on; only then does the web UI run `main.js`. */
             codeEnabled: boolean;
             /** @description URL of `main.js`, set when the package has one. */
             codeUrl?: string | null;

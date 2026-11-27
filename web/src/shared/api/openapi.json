@@ -16907,7 +16907,7 @@
           },
           "codeEnabled": {
             "type": "boolean",
-            "description": "The person turned the code switch on; the web UI runs `main.js` of the chosen theme only then."
+            "description": "The person turned the code switch on; only then does the web UI run `main.js`."
           },
           "codeUrl": {
             "type": [
