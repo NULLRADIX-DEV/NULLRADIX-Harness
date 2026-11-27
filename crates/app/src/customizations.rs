@@ -233,6 +233,12 @@ pub fn evaluate(overlay: Overlay, standard: Option<&str>) -> OverlayLine {
         )),
         BaseState::Current | BaseState::None => {}
     }
+    if OverlayName::parse(record.name.as_str()) == Err(OverlayError::ReservedName) {
+        warnings.push(Finding::new(
+            "name-reserved",
+            "this name is reserved on Windows and is not installed; reset it",
+        ));
+    }
     if record.kind == OverlayKind::New && standard.is_some() {
         warnings.push(Finding::new(
             "standard-exists",
@@ -298,7 +304,7 @@ impl CustomizationService {
     }
 
     pub async fn get(&self, point: ExtensionPoint, name: &str) -> Result<OverlayLine, AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let overlay = self
             .repository
             .get(point, &name)
@@ -358,7 +364,7 @@ impl CustomizationService {
         enabled: Option<bool>,
         expected: Version,
     ) -> Result<OverlayLine, AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let content = content
             .map(|text| overlay_content(text).map_err(|error| name_invalid(&error)))
             .transpose()?;
@@ -396,7 +402,7 @@ impl CustomizationService {
         name: &str,
         expected: Version,
     ) -> Result<OverlayLine, AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let standard = self
             .standards
             .get(point, &name)
@@ -433,7 +439,7 @@ impl CustomizationService {
         name: &str,
         expected: Version,
     ) -> Result<(), AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let change = write
             .delete(point, &name, expected, self.clock.now())
@@ -450,7 +456,7 @@ impl CustomizationService {
         point: ExtensionPoint,
         name: &str,
     ) -> Result<Effective, AppError> {
-        let name = OverlayName::parse(name).map_err(|error| name_invalid(&error))?;
+        let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let standard = self.standards.get(point, &name).await?;
         let overlay = self.repository.get(point, &name).await?;
         let Some(overlay) = overlay else {

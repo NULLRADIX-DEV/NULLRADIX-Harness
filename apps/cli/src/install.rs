@@ -905,6 +905,8 @@ Connection: close
         .with_token(nullradix_app::auth::Secret::parse(&"d".repeat(64)).unwrap());
         let error = read_customs(&client).unwrap_err();
         server.join().unwrap();
-        assert!(format!("{error:#}").contains("cannot read the customizations"));
+        let chain = format!("{error:#}");
+        assert!(chain.contains("cannot read the customizations"), "{chain}");
+        assert!(chain.contains("500"), "{chain}");
     }
 }

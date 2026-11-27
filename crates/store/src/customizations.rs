@@ -39,7 +39,7 @@ impl Row {
                 .point
                 .parse::<ExtensionPoint>()
                 .map_err(|_| corrupt("point"))?,
-            name: OverlayName::parse(&self.name).map_err(|_| corrupt("name"))?,
+            name: OverlayName::parse_stored(&self.name).map_err(|_| corrupt("name"))?,
             kind: self
                 .kind
                 .parse::<OverlayKind>()

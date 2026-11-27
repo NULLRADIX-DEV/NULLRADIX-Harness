@@ -64,7 +64,17 @@ fn is_device_name(text: &str) -> bool {
 }
 
 impl OverlayName {
+    /// A name a person may choose: also not a Windows device name.
     pub fn parse(text: &str) -> Result<Self, OverlayError> {
+        let name = Self::parse_stored(text)?;
+        if is_device_name(text) {
+            return Err(OverlayError::ReservedName);
+        }
+        Ok(name)
+    }
+
+    /// A stored name: the shape only, so an older row can still be read and dropped.
+    pub fn parse_stored(text: &str) -> Result<Self, OverlayError> {
         let valid = !text.is_empty()
             && text.len() <= OVERLAY_NAME_MAX
             && text.split('-').all(|part| {
@@ -75,9 +85,6 @@ impl OverlayName {
             });
         if !valid {
             return Err(OverlayError::InvalidName);
-        }
-        if is_device_name(text) {
-            return Err(OverlayError::ReservedName);
         }
         Ok(Self(text.to_owned()))
     }
@@ -338,6 +345,11 @@ mod tests {
         for good in ["com0", "com10", "nul-x", "console", "lpt"] {
             assert!(OverlayName::parse(good).is_ok(), "{good}");
         }
+        assert!(OverlayName::parse_stored("nul").is_ok());
+        assert_eq!(
+            OverlayName::parse_stored("Nul"),
+            Err(OverlayError::InvalidName)
+        );
     }
 
     #[test]

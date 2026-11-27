@@ -269,6 +269,50 @@ body";
 }
 
 #[tokio::test]
+async fn a_stored_device_name_still_lists_warns_and_can_be_reset() {
+    let store = Arc::new(Store::in_memory().await.unwrap());
+    let service = CustomizationService::new(
+        store.clone(),
+        Arc::new(Shipped),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        ChangeSignal::new(),
+    );
+    let name = OverlayName::parse_stored("nul").unwrap();
+    let row = Overlay::create(
+        ExtensionPoint::Skill,
+        name,
+        OverlayKind::New,
+        String::from(
+            "---
+name: nul
+description: old
+---
+body",
+        ),
+        None,
+        Timestamp::from_millis(1),
+    );
+    let mut write = store.begin().await.unwrap();
+    write.insert(&row, Uuid::now_v7()).await.unwrap();
+    write.commit().await.unwrap();
+
+    let lines = service.list().await.unwrap();
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].warnings.iter().any(|w| w.code == "name-reserved"));
+    let line = service.get(ExtensionPoint::Skill, "nul").await.unwrap();
+    service
+        .delete(ExtensionPoint::Skill, "nul", line.overlay.record().version)
+        .await
+        .unwrap();
+    assert_eq!(store.list().await.unwrap().len(), 0);
+    let again = service
+        .create(ExtensionPoint::Skill, "nul", Some("x"))
+        .await;
+    assert!(again.is_err());
+}
+
+#[tokio::test]
 async fn the_service_copies_edits_rebases_and_drops_against_the_database() {
     let store = Arc::new(Store::in_memory().await.unwrap());
     let service = CustomizationService::new(
