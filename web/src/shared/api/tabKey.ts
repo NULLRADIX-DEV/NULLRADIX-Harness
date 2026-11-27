@@ -53,8 +53,7 @@ export function onTabKey(listener: (key: string) => void): () => void {
   };
 }
 
-// The daemon sends `/#k=<key>` after a sign-in: keep the key, take it off the address and tell
-// the other tabs, which share the cookie the sign-in replaced.
+// Keeps the key from `/#k=<key>`, clears the address and tells the other tabs.
 export function adoptTabKey(): boolean {
   const found = FRAGMENT.exec(window.location.hash);
   if (!found?.[1]) return false;

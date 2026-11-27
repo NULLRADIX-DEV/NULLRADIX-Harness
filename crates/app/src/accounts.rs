@@ -272,8 +272,7 @@ impl AccountService {
             .ok_or_else(|| not_found(slug))
     }
 
-    /// Adds an account; without a folder it gets its own below the accounts folder.
-    /// A folder elsewhere ends up as `CLAUDE_CONFIG_DIR`, so `commands` can refuse it.
+    /// Adds an account; a folder outside the accounts folder goes through `commands`.
     pub async fn create(
         &self,
         name: &str,
