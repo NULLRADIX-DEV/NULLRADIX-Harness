@@ -9,7 +9,7 @@ const MANIFEST = {
   name: 'Night Code',
   version: '1.0.0',
   author: 'Ada',
-  sdkVersion: '^1.3',
+  sdkVersion: '^2.0',
   colorScheme: 'dark',
   slots: ['Panel'],
   permissions: { network: [] },
@@ -67,7 +67,7 @@ test('theme code runs only after its switch is on, and not in safe mode', async 
   await expect(page.getByRole('switch', { name: 'Run the code of Night Code' })).toBeChecked();
 
   await page.reload();
-  await expect(root).toHaveAttribute('data-theme-code', /^19\.\d+\.\d+ 1\.\d+\.\d+$/);
+  await expect(root).toHaveAttribute('data-theme-code', /^19\.\d+\.\d+ 2\.\d+\.\d+$/);
   // the Panel component of the theme module styles the inside of the settings panels
   await expect(
     page.locator('section[data-slot="Panel"] [data-themed-panel]').first(),

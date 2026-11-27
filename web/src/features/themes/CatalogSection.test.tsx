@@ -21,7 +21,7 @@ function offered(overrides: Partial<CatalogTheme> = {}): CatalogTheme {
     id: 'night-blue',
     name: 'Night Blue',
     version: '1.2.0',
-    sdkVersion: '^1.3',
+    sdkVersion: '^2.0',
     compatible: true,
     description: 'A dark theme',
     state: 'available',

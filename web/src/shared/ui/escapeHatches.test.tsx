@@ -128,7 +128,7 @@ describe('the way out of theme code never runs through slots', () => {
       id,
       name,
       version: '1.0.0',
-      sdkVersion: '^1.3',
+      sdkVersion: '^2.0',
       compatible: true,
       description: null,
       state,

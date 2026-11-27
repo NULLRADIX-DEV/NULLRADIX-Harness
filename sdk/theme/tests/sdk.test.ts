@@ -22,8 +22,8 @@ describe('SDK_VERSION', () => {
     expect(SDK_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it('is 1.3.0 (new: Claude theme in the package, manifest field claudeTheme)', () => {
-    expect(SDK_VERSION).toBe('1.3.0');
+  it('is 2.0.0 (breaking: string board ids, user settings reduced to the theme)', () => {
+    expect(SDK_VERSION).toBe('2.0.0');
   });
 
   it('matches the version in package.json', () => {

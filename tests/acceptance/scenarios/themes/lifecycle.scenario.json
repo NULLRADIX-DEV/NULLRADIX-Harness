@@ -9,7 +9,7 @@
       "name": "manifest",
       "file": {
         "path": "{{WORK}}/night-blue/manifest.json",
-        "text": "{\"id\":\"night-blue\",\"name\":\"Night Blue\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"startColor\":\"#101018\",\"preview\":\"assets/preview.png\",\"slots\":[],\"permissions\":{\"network\":[]},\"settingsSchema\":{\"dim\":{\"type\":\"boolean\",\"label\":\"Dim\",\"default\":true}}}"
+        "text": "{\"id\":\"night-blue\",\"name\":\"Night Blue\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^2.0\",\"colorScheme\":\"dark\",\"startColor\":\"#101018\",\"preview\":\"assets/preview.png\",\"slots\":[],\"permissions\":{\"network\":[]},\"settingsSchema\":{\"dim\":{\"type\":\"boolean\",\"label\":\"Dim\",\"default\":true}}}"
       }
     },
     {
@@ -101,7 +101,7 @@
       "name": "a package may not take a built-in name",
       "file": {
         "path": "{{WORK}}/dark/manifest.json",
-        "text": "{\"id\":\"dark\",\"name\":\"Dark\",\"version\":\"1.0.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\"}"
+        "text": "{\"id\":\"dark\",\"name\":\"Dark\",\"version\":\"1.0.0\",\"author\":\"Ada\",\"sdkVersion\":\"^2.0\",\"colorScheme\":\"dark\"}"
       }
     },
     {

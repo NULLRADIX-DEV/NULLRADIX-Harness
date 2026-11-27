@@ -89,7 +89,7 @@ mod tests {
             name: Some("Night Blue".into()),
             version: Some("1.0.0".into()),
             author: Some("Ada".into()),
-            sdk_version: Some("^1.3".into()),
+            sdk_version: Some("^2.0".into()),
             color_scheme: Some("dark".into()),
             network: network
                 .iter()

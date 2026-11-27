@@ -50,8 +50,10 @@ describe('satisfiesSdkRange', () => {
   });
 
   it('accepts the SDK version of this build for the ranges the shipped themes use', () => {
-    expect(satisfiesSdkRange(SDK_VERSION, '^1.3')).toBe(true);
-    expect(satisfiesSdkRange(SDK_VERSION, '^1.0')).toBe(true);
+    expect(satisfiesSdkRange(SDK_VERSION, '^2.0')).toBe(true);
+    // themes of SDK 1 get the old board ids and settings, so they are refused
+    expect(satisfiesSdkRange(SDK_VERSION, '^1.3')).toBe(false);
+    expect(satisfiesSdkRange(SDK_VERSION, '^1.0')).toBe(false);
     expect(satisfiesSdkRange(SDK_VERSION, '^9.0')).toBe(false);
   });
 });

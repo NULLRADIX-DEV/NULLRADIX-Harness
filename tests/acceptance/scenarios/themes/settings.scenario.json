@@ -5,7 +5,7 @@
       "name": "manifest",
       "file": {
         "path": "{{WORK}}/night-blue/manifest.json",
-        "text": "{\"id\":\"night-blue\",\"name\":\"Night Blue\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[]},\"settingsSchema\":{\"dim\":{\"type\":\"boolean\",\"label\":\"Dim\",\"default\":true},\"mode\":{\"type\":\"select\",\"label\":\"Mode\",\"default\":\"calm\",\"options\":[{\"value\":\"calm\",\"label\":\"Calm\"},{\"value\":\"bold\",\"label\":\"Bold\"}]}}}"
+        "text": "{\"id\":\"night-blue\",\"name\":\"Night Blue\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^2.0\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[]},\"settingsSchema\":{\"dim\":{\"type\":\"boolean\",\"label\":\"Dim\",\"default\":true},\"mode\":{\"type\":\"select\",\"label\":\"Mode\",\"default\":\"calm\",\"options\":[{\"value\":\"calm\",\"label\":\"Calm\"},{\"value\":\"bold\",\"label\":\"Bold\"}]}}}"
       }
     },
     {

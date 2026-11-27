@@ -18,7 +18,7 @@ function theme(overrides: Partial<Theme> = {}): Theme {
     name: 'Night Blue',
     packageVersion: '1.2.0',
     author: 'Ada',
-    sdkVersion: '^1.3',
+    sdkVersion: '^2.0',
     colorScheme: 'dark',
     startColor: '#101018',
     previewUrl: '/api/v1/themes/night-blue/files/assets/preview.png',

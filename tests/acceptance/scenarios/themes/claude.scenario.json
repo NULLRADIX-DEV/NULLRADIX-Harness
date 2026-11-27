@@ -12,7 +12,7 @@
       "name": "manifest",
       "file": {
         "path": "{{WORK}}/night-blue/manifest.json",
-        "text": "{\"id\":\"night-blue\",\"name\":\"Night Blue\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"claudeTheme\":true,\"permissions\":{\"network\":[]},\"settingsSchema\":{\"dim\":{\"type\":\"boolean\",\"label\":\"Dim\",\"default\":true}}}"
+        "text": "{\"id\":\"night-blue\",\"name\":\"Night Blue\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^2.0\",\"colorScheme\":\"dark\",\"slots\":[],\"claudeTheme\":true,\"permissions\":{\"network\":[]},\"settingsSchema\":{\"dim\":{\"type\":\"boolean\",\"label\":\"Dim\",\"default\":true}}}"
       }
     },
     {

@@ -12,7 +12,7 @@ function theme(overrides: Partial<Theme> = {}): Theme {
     name: 'Ocean',
     packageVersion: '1.0.0',
     author: 'Ada',
-    sdkVersion: '^1.3',
+    sdkVersion: '^2.0',
     colorScheme: 'dark',
     startColor: null,
     previewUrl: null,
@@ -41,7 +41,7 @@ function deps(overrides: Partial<ThemeModuleDeps> = {}) {
   return {
     importModule: vi.fn(() => Promise.resolve({ default: definition })),
     fetchThemes: vi.fn(() => Promise.resolve(list())),
-    sdkVersion: '1.3.0',
+    sdkVersion: '2.0.0',
     search: '',
     timeoutMs: 50,
     ...overrides,
@@ -130,7 +130,7 @@ describe('loadThemeModule', () => {
     expect(getTheme('ocean')).toBeUndefined();
     expect(getThemeNotice()).toMatchObject({
       kind: 'error',
-      message: expect.stringContaining('SDK 1.3.0, needs ^9') as string,
+      message: expect.stringContaining('SDK 2.0.0, needs ^9') as string,
     });
   });
 
@@ -141,6 +141,15 @@ describe('loadThemeModule', () => {
     });
     Reflect.deleteProperty(fits, 'sdkVersion');
     expect((await loadThemeModule(fits)).status).toBe('loaded');
+  });
+
+  it('refuses a theme made for SDK 1 with the notice', async () => {
+    const d = deps({
+      fetchThemes: vi.fn(() => Promise.resolve(list([theme({ sdkVersion: '^1.3' })]))),
+    });
+    expect((await loadThemeModule(d)).status).toBe('incompatible');
+    expect(d.importModule).not.toHaveBeenCalled();
+    expect(getThemeNotice()?.message).toContain('SDK 2.0.0, needs ^1.3');
   });
 
   it('falls back to the default when the import fails', async () => {

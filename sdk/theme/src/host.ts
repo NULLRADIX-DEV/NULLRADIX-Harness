@@ -5,7 +5,7 @@ import type { NavIconName, ShellParts } from './slots.js';
 export interface NavItem {
   id: NavIconName;
   label: string;
-  /** Route target, such as `/p/<pid>/board` */
+  /** Route target, such as `/board` */
   href: string;
   /** Does the open page show this target? */
   active: boolean;

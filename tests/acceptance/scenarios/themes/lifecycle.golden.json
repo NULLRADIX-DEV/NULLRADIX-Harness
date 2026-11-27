@@ -75,7 +75,7 @@
             "network": [],
             "packageVersion": "1.2.0",
             "previewUrl": "/api/v1/themes/night-blue/files/assets/preview.png",
-            "sdkVersion": "^1.3",
+            "sdkVersion": "^2.0",
             "settings": [
               {
                 "default": true,
@@ -220,7 +220,7 @@
             "network": [],
             "packageVersion": "1.2.0",
             "previewUrl": "/api/v1/themes/night-blue/files/assets/preview.png",
-            "sdkVersion": "^1.3",
+            "sdkVersion": "^2.0",
             "settings": [
               {
                 "default": true,
@@ -401,7 +401,7 @@
             "network": [],
             "packageVersion": "1.2.0",
             "previewUrl": "/api/v1/themes/night-blue/files/assets/preview.png",
-            "sdkVersion": "^1.3",
+            "sdkVersion": "^2.0",
             "settings": [
               {
                 "default": true,
