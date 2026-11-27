@@ -35,7 +35,7 @@ parking_lot.workspace = true
 nullradix-runner.workspace = true
 nullradix-store.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "rt"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "test-util"] }
 tower = { workspace = true, features = ["util"] }
 
 [lints]

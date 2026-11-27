@@ -11,7 +11,7 @@ use crate::{API_PREFIX, problem};
 
 /// A client gets this long for a request head, also between requests on one connection.
 const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
-/// Above a theme download budget of 120 s; downloads queued behind four others may time out.
+/// Above a theme download budget of 120 s; a queued download may still time out.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(150);
 /// Far above a person's tabs, CLI and hooks, and below a Unix soft limit of 256 files.
 const MAX_CONNECTIONS: usize = 128;
