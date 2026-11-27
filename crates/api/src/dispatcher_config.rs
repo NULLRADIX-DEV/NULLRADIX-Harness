@@ -636,7 +636,7 @@ mod tests {
         assert_eq!(config["rules"][3]["when"]["filesMin"], 6);
         assert_eq!(
             config["claude"]["allowedTools"].as_array().unwrap().len(),
-            16
+            29
         );
     }
 

@@ -9888,7 +9888,7 @@ export interface operations {
             query?: {
                 /** @description Replace a theme of the same id that was installed from another source or by upload. */
                 replace?: boolean;
-                /** @description Checksum of the package the person confirmed, from the `confirmation` of the refusal; a token cannot confirm. */
+                /** @description Checksum of the package the person confirmed, from the refusal; only a person can confirm. */
                 confirmedSha256?: string;
             };
             header?: never;
@@ -10026,7 +10026,7 @@ export interface operations {
     install_theme: {
         parameters: {
             query?: {
-                /** @description Confirmed: the package may hold code, network domains or a Claude part; only counts from the person. */
+                /** @description Confirmed: code, network domains or a Claude part; only counts from the person. */
                 confirmed?: boolean;
             };
             header?: never;

@@ -7136,7 +7136,7 @@
           {
             "name": "confirmedSha256",
             "in": "query",
-            "description": "Checksum of the package the person confirmed, from the `confirmation` of the refusal; a token cannot confirm.",
+            "description": "Checksum of the package the person confirmed, from the refusal; only a person can confirm.",
             "required": false,
             "schema": {
               "type": "string"
@@ -7289,7 +7289,7 @@
           {
             "name": "confirmed",
             "in": "query",
-            "description": "Confirmed: the package may hold code, network domains or a Claude part; only counts from the person.",
+            "description": "Confirmed: code, network domains or a Claude part; only counts from the person.",
             "required": false,
             "schema": {
               "type": "boolean"
