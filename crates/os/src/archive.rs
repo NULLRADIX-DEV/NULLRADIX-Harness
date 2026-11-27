@@ -172,7 +172,7 @@ pub fn read_zip_entry(archive: &[u8], path: &str, max: u64) -> Result<Vec<u8>, A
     if file.size() > max {
         return Err(too_large());
     }
-    // the zip reader stops at the stated size; one byte more than allowed is the backup if it stops
+    // the stated size can lie; one byte past the limit catches a reader that does not stop
     let mut data = Vec::new();
     (&mut file)
         .take(max + 1)

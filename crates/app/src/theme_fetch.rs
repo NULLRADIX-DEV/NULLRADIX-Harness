@@ -358,13 +358,20 @@ impl ThemeAssets {
         if let Some(cached) = self.cached_entry(&grant.id, &key).await {
             return Ok(cached);
         }
-        // a cached archive is read whole, so only a few are read or cut open at once
-        let _archive = self.archives.acquire().await.map_err(AppError::internal)?;
+        // the flight comes first: a request waiting for a slow download holds no archive permit
+        let archive_key = cache_key(&[url.as_str()]);
+        let flight = self.flights.enter(&grant.id, &archive_key).await;
+        // an archive is read whole, so only a few are read, downloaded or cut open at once
+        let _permit = self.archives.acquire().await.map_err(AppError::internal)?;
         // whoever was ahead may have cut the file out meanwhile
         if let Some(cached) = self.cached_entry(&grant.id, &key).await {
             return Ok(cached);
         }
-        let archive = self.resource(grant, url, sum, MAX_ARCHIVE_BYTES).await?;
+        let archive = self
+            .load(grant, url, sum, MAX_ARCHIVE_BYTES, &archive_key)
+            .await?;
+        // the bytes are in hand, so the next request for this archive may read it while this one cuts
+        drop(flight);
         let bytes = self
             .entries
             .entry(archive, entry, MAX_ASSET_BYTES)
@@ -414,9 +421,21 @@ impl ThemeAssets {
         if let Some(bytes) = self.cached(grant, &key, sum, max).await? {
             return Ok(bytes);
         }
-        // whoever was ahead may have loaded it meanwhile
         let _flight = self.flights.enter(&grant.id, &key).await;
-        if let Some(bytes) = self.cached(grant, &key, sum, max).await? {
+        self.load(grant, url, sum, max, &key).await
+    }
+
+    /// The resource from the cache or the host; the caller holds the flight of `key`.
+    async fn load(
+        &self,
+        grant: &AssetGrant,
+        url: &AssetUrl,
+        sum: Option<&str>,
+        max: u64,
+        key: &str,
+    ) -> Result<Vec<u8>, AppError> {
+        // whoever was ahead may have loaded it meanwhile
+        if let Some(bytes) = self.cached(grant, key, sum, max).await? {
             return Ok(bytes);
         }
         let mut bytes = {
@@ -433,7 +452,7 @@ impl ThemeAssets {
             }
             bytes = hashed;
         }
-        self.keep(grant, &key, bytes).await
+        self.keep(grant, key, bytes).await
     }
 
     /// Follows redirects, each one checked against the domains of the theme.
@@ -674,6 +693,47 @@ mod tests {
                 .insert((theme.to_string(), key.to_owned()), bytes.clone());
             Ok(Stored { bytes, error: None })
         }
+    }
+
+    /// A memory cache that holds reads of the listed keys at a gate and counts them.
+    #[derive(Default)]
+    struct SlowReads {
+        memory: Memory,
+        slow: Mutex<Vec<String>>,
+        entered: Permits,
+        release: Permits,
+        inflight: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl AssetCache for SlowReads {
+        async fn get(&self, theme: &ThemeId, key: &str) -> Option<Vec<u8>> {
+            let held = self.slow.lock().iter().any(|slow| slow == key);
+            if held {
+                let now = self.inflight.fetch_add(1, Ordering::SeqCst) + 1;
+                self.peak.fetch_max(now, Ordering::SeqCst);
+                self.entered.add_permits(1);
+                self.release.acquire().await.unwrap().forget();
+                self.inflight.fetch_sub(1, Ordering::SeqCst);
+            }
+            self.memory.get(theme, key).await
+        }
+
+        async fn put(
+            &self,
+            theme: &ThemeId,
+            key: &str,
+            bytes: Vec<u8>,
+        ) -> Result<Stored, AppError> {
+            self.memory.put(theme, key, bytes).await
+        }
+    }
+
+    /// The cache key of the archive at `url`, which must be on a declared domain.
+    fn archive_key(url: &str) -> String {
+        let url = AssetUrl::parse(url, &["cdn.example.com".to_owned()]).unwrap();
+        cache_key(&[url.as_str()])
     }
 
     struct Setup {
@@ -1478,9 +1538,8 @@ mod tests {
             .map(|n| format!("{n}.png"))
             .collect();
         let archive = format!("{}=DATA\n", names.join("=DATA\n"));
-        let url = AssetUrl::parse(jar, &["cdn.example.com".to_owned()]).unwrap();
         setup.cache.kept.lock().insert(
-            ("night-blue".to_owned(), cache_key(&[url.as_str()])),
+            ("night-blue".to_owned(), archive_key(jar)),
             archive.into_bytes(),
         );
         let gated = Arc::new(Gated::default());
@@ -1512,6 +1571,95 @@ mod tests {
         assert_eq!(gated.peak.load(Ordering::SeqCst), MAX_PARALLEL_ARCHIVES);
         // the archive came from the cache every time
         assert_eq!(setup.hosts.asked(), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn no_more_than_four_cached_archives_are_read_at_the_same_time() {
+        let setup = setup(true).await;
+        let cache = Arc::new(SlowReads::default());
+        let jars: Vec<String> = (0..=MAX_PARALLEL_ARCHIVES)
+            .map(|n| format!("https://cdn.example.com/{n}.jar"))
+            .collect();
+        for jar in &jars {
+            let key = archive_key(jar);
+            cache.slow.lock().push(key.clone());
+            cache
+                .memory
+                .kept
+                .lock()
+                .insert(("night-blue".to_owned(), key), b"a.png=DATA\n".to_vec());
+        }
+        let assets = Arc::new(ThemeAssets::new(
+            setup.fixture.service.clone(),
+            setup.hosts.clone(),
+            Arc::new(Lines),
+            cache.clone(),
+        ));
+        let fetching: Vec<_> = jars
+            .iter()
+            .map(|jar| {
+                let (assets, jar) = (assets.clone(), jar.clone());
+                tokio::spawn(async move { assets.fetch(entry_of(&jar, "a.png")).await })
+            })
+            .collect();
+        for _ in 0..MAX_PARALLEL_ARCHIVES {
+            cache.entered.acquire().await.unwrap().forget();
+        }
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        // the fifth archive waits for a free place before it is read
+        assert_eq!(cache.inflight.load(Ordering::SeqCst), MAX_PARALLEL_ARCHIVES);
+        cache.release.add_permits(MAX_PARALLEL_ARCHIVES + 1);
+        for task in fetching {
+            assert_eq!(task.await.unwrap().unwrap().data, b"DATA");
+        }
+        assert_eq!(cache.peak.load(Ordering::SeqCst), MAX_PARALLEL_ARCHIVES);
+    }
+
+    #[tokio::test]
+    async fn a_slow_archive_with_many_waiters_does_not_hold_up_a_cached_one() {
+        let setup = setup(true).await;
+        let slow = "https://cdn.example.com/slow.jar";
+        let cached = "https://cdn.example.com/cached.jar";
+        setup
+            .hosts
+            .body(slow, b"a.png=1\nb.png=2\nc.png=3\nd.png=4\n");
+        setup.cache.kept.lock().insert(
+            ("night-blue".to_owned(), archive_key(cached)),
+            b"y.png=SKY\n".to_vec(),
+        );
+        *setup.hosts.gate.lock() = true;
+        let waiting: Vec<_> = ["a.png", "b.png", "c.png", "d.png"]
+            .into_iter()
+            .map(|name| {
+                let assets = setup.assets.clone();
+                tokio::spawn(async move { assets.fetch(entry_of(slow, name)).await })
+            })
+            .collect();
+        // one request downloads, the other three wait for it
+        setup.hosts.entered.acquire().await.unwrap().forget();
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        let other = {
+            let assets = setup.assets.clone();
+            tokio::spawn(async move { assets.fetch(entry_of(cached, "y.png")).await })
+        };
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            other.is_finished(),
+            "the cached archive waits for the slow one"
+        );
+        assert_eq!(other.await.unwrap().unwrap().data, b"SKY");
+        setup.hosts.release.add_permits(1);
+        for (task, expected) in waiting.into_iter().zip(["1", "2", "3", "4"]) {
+            assert_eq!(task.await.unwrap().unwrap().data, expected.as_bytes());
+        }
+        assert_eq!(setup.hosts.asked(), [slow]);
+        assert!(setup.assets.flights.slots.lock().is_empty());
     }
 
     #[tokio::test]
