@@ -2,6 +2,7 @@ import { ThemeHostProvider, type ShellParts, type ThemeHost } from '@nullradix/t
 import { useCallback, useMemo, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { useSlotTheme } from '../../shared/ui/useSlot';
+import { appPathOf } from './appPath';
 import { useHostBoards } from './hostBoards';
 import { useHostNav } from './hostNav';
 import { useHostColorScheme } from './hostScheme';
@@ -27,13 +28,12 @@ export function NullradixThemeHost({
   const settings = useHostSettings();
   const themeSettings = useHostThemeSettings(active);
   const colorScheme = useHostColorScheme();
-  // only places of the app: the address is resolved like the browser does, backslashes included
+  // only places of the app; a navigation the router rejects ends here, not as an unhandled error
   const navigate = useCallback(
     (to: string) => {
-      if (typeof to !== 'string' || !to.startsWith('/')) return;
-      const url = new URL(to, window.location.origin);
-      if (url.origin !== window.location.origin || url.pathname.startsWith('//')) return;
-      void routerNavigate(`${url.pathname}${url.search}${url.hash}`);
+      const path = appPathOf(to);
+      if (path === null) return;
+      Promise.resolve(routerNavigate(path)).catch(() => undefined);
     },
     [routerNavigate],
   );

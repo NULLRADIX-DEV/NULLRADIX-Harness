@@ -379,7 +379,7 @@ fn check_sdk_range(range: Option<&str>, claude_theme: bool, errors: &mut Vec<Fie
     if claude_theme && too_old {
         errors.push(FieldError::new(
             "sdkVersion",
-            "a theme with a Claude Code theme needs sdkVersion 1.3 or newer, such as ^2.0",
+            "a theme with a Claude Code theme needs an sdkVersion range that accepts no SDK before 1.3, such as >=1.3 or ^2.0",
         ));
     }
 }
@@ -814,6 +814,8 @@ mod tests {
         claude.claude_theme = true;
         claude.sdk_version = Some(String::from("^1.0"));
         assert_eq!(fields(claude.clone()), ["sdkVersion"]);
+        let errors = ThemeManifest::build(claude.clone(), Vec::new()).unwrap_err();
+        assert!(errors[0].message.contains("accepts no SDK before 1.3"));
         claude.sdk_version = Some(String::from(">=1.3"));
         assert!(ThemeManifest::build(claude, Vec::new()).is_ok());
     }

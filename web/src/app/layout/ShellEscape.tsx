@@ -15,6 +15,14 @@ export function wantsBuiltinShell(state: unknown): boolean {
   );
 }
 
+// Whether the page was loaded on the settings the escape link showed in the built-in shell.
+export function loadedInBuiltinShell(): boolean {
+  // the router keeps the state of a navigation under `usr` in the history entry
+  const entry: unknown = window.history.state;
+  const state = typeof entry === 'object' && entry !== null && 'usr' in entry ? entry.usr : null;
+  return window.location.pathname === '/settings' && wantsBuiltinShell(state);
+}
+
 // Plain elements outside the slot Shell, in the top layer: the way to the settings and safe mode.
 export function ShellEscape({
   assign = (url) => {
