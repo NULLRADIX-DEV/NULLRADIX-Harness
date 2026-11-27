@@ -376,6 +376,10 @@ impl ThemeAssets {
             drop(permit);
             let flight = self.flights.enter(&grant.id, &archive_key).await;
             let permit = self.archives.acquire().await.map_err(AppError::internal)?;
+            // the flight ahead may have cut this file meanwhile
+            if let Some(cached) = self.cached_entry(&grant.id, &key).await {
+                return Ok(cached);
+            }
             let archive = self
                 .load(grant, url, sum, MAX_ARCHIVE_BYTES, &archive_key)
                 .await?;
@@ -542,6 +546,16 @@ mod tests {
         }
     }
 
+    impl Permits {
+        /// Waits for one arrival; a rule that never lets it come fails the test.
+        async fn arrived(&self) {
+            let permit = tokio::time::timeout(Duration::from_secs(5), self.0.acquire())
+                .await
+                .expect("nothing reached the gate within 5 seconds");
+            permit.unwrap().forget();
+        }
+    }
+
     impl std::ops::Deref for Permits {
         type Target = tokio::sync::Semaphore;
 
@@ -642,6 +656,7 @@ mod tests {
         release: Permits,
         inflight: AtomicUsize,
         peak: AtomicUsize,
+        calls: AtomicUsize,
     }
 
     #[async_trait]
@@ -652,6 +667,7 @@ mod tests {
             path: &str,
             max_bytes: u64,
         ) -> Result<Vec<u8>, EntryError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
             let now = self.inflight.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak.fetch_max(now, Ordering::SeqCst);
             self.entered.add_permits(1);
@@ -1284,7 +1300,7 @@ mod tests {
             let assets = setup.assets.clone();
             tokio::spawn(async move { assets.fetch(request(ICON)).await })
         };
-        setup.hosts.entered.acquire().await.unwrap().forget();
+        setup.hosts.entered.arrived().await;
         setup
             .fixture
             .service
@@ -1306,7 +1322,7 @@ mod tests {
             let assets = setup.assets.clone();
             tokio::spawn(async move { assets.fetch(request(ICON)).await })
         };
-        setup.hosts.entered.acquire().await.unwrap().forget();
+        setup.hosts.entered.arrived().await;
         // the person's update keeps the code on but replaces the theme
         setup
             .fixture
@@ -1396,7 +1412,7 @@ mod tests {
                 tokio::spawn(async move { assets.fetch(entry_of(jar, entry)).await })
             })
             .collect();
-        setup.hosts.entered.acquire().await.unwrap().forget();
+        setup.hosts.entered.arrived().await;
         for _ in 0..100 {
             tokio::task::yield_now().await;
         }
@@ -1446,7 +1462,7 @@ mod tests {
             })
             .collect();
         for _ in 0..MAX_PARALLEL_DOWNLOADS {
-            setup.hosts.entered.acquire().await.unwrap().forget();
+            setup.hosts.entered.arrived().await;
         }
         for _ in 0..100 {
             tokio::task::yield_now().await;
@@ -1454,7 +1470,7 @@ mod tests {
         // the fifth waits for a free place
         assert_eq!(setup.hosts.asked().len(), MAX_PARALLEL_DOWNLOADS);
         setup.hosts.release.add_permits(1);
-        setup.hosts.entered.acquire().await.unwrap().forget();
+        setup.hosts.entered.arrived().await;
         assert_eq!(setup.hosts.asked().len(), MAX_PARALLEL_DOWNLOADS + 1);
         setup.hosts.release.add_permits(MAX_PARALLEL_DOWNLOADS);
         for task in fetching {
@@ -1516,7 +1532,7 @@ mod tests {
             tokio::spawn(async move { assets.fetch(request(ICON)).await })
         };
         let first = spawn_fetch();
-        setup.hosts.entered.acquire().await.unwrap().forget();
+        setup.hosts.entered.arrived().await;
         let second = spawn_fetch();
         for _ in 0..100 {
             tokio::task::yield_now().await;
@@ -1527,7 +1543,7 @@ mod tests {
             "theme-fetch-unreachable"
         );
         // the second request downloads now; a third arrives while it runs
-        setup.hosts.entered.acquire().await.unwrap().forget();
+        setup.hosts.entered.arrived().await;
         let third = spawn_fetch();
         for _ in 0..100 {
             tokio::task::yield_now().await;
@@ -1568,7 +1584,7 @@ mod tests {
             })
             .collect();
         for _ in 0..MAX_PARALLEL_ARCHIVES {
-            gated.entered.acquire().await.unwrap().forget();
+            gated.entered.arrived().await;
         }
         for _ in 0..100 {
             tokio::task::yield_now().await;
@@ -1614,7 +1630,7 @@ mod tests {
             })
             .collect();
         for _ in 0..MAX_PARALLEL_ARCHIVES {
-            cache.entered.acquire().await.unwrap().forget();
+            cache.entered.arrived().await;
         }
         for _ in 0..100 {
             tokio::task::yield_now().await;
@@ -1649,7 +1665,7 @@ mod tests {
             })
             .collect();
         // one request downloads, the other three wait for it
-        setup.hosts.entered.acquire().await.unwrap().forget();
+        setup.hosts.entered.arrived().await;
         for _ in 0..100 {
             tokio::task::yield_now().await;
         }
@@ -1699,7 +1715,7 @@ mod tests {
             .collect();
         // all three reads are under way at once, none waits for another
         for _ in 0..3 {
-            cache.entered.acquire().await.unwrap().forget();
+            cache.entered.arrived().await;
         }
         assert_eq!(cache.inflight.load(Ordering::SeqCst), 3);
         cache.release.add_permits(3);
@@ -1727,7 +1743,7 @@ mod tests {
             tokio::spawn(async move { assets.fetch(entry_of(jar, name)).await })
         };
         let first = fetch("a.png");
-        setup.hosts.entered.acquire().await.unwrap().forget();
+        setup.hosts.entered.arrived().await;
         // the second waits for the download of the first
         let second = fetch("b.png");
         for _ in 0..100 {
@@ -1737,7 +1753,7 @@ mod tests {
         let fetching = [first, second];
         // one downloads and cuts; the other reads the cached archive and cuts too
         for _ in 0..2 {
-            gated.entered.acquire().await.unwrap().forget();
+            gated.entered.arrived().await;
         }
         assert_eq!(gated.inflight.load(Ordering::SeqCst), 2);
         gated.release.add_permits(2);
@@ -1746,6 +1762,60 @@ mod tests {
         }
         assert_eq!(setup.hosts.asked(), [jar]);
         assert!(assets.flights.slots.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_request_that_waited_for_a_place_takes_the_file_cut_meanwhile() {
+        let setup = setup(true).await;
+        let jar = "https://cdn.example.com/client.jar";
+        setup.hosts.body(jar, b"a.png=1\n");
+        let busy: Vec<String> = (0..MAX_PARALLEL_ARCHIVES - 1)
+            .map(|n| format!("https://cdn.example.com/{n}.jar"))
+            .collect();
+        for other in &busy {
+            setup.cache.kept.lock().insert(
+                ("night-blue".to_owned(), archive_key(other)),
+                b"a.png=DATA\n".to_vec(),
+            );
+        }
+        let gated = Arc::new(Gated::default());
+        let assets = Arc::new(ThemeAssets::new(
+            setup.fixture.service.clone(),
+            setup.hosts.clone(),
+            gated.clone(),
+            setup.cache.clone(),
+        ));
+        let fetch = |url: String| {
+            let assets = assets.clone();
+            tokio::spawn(async move { assets.fetch(entry_of(&url, "a.png")).await })
+        };
+        *setup.hosts.gate.lock() = true;
+        let first = fetch(jar.to_owned());
+        setup.hosts.entered.arrived().await;
+        // the second waits for the download of the first, without a place of its own
+        let second = fetch(jar.to_owned());
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        let cutting: Vec<_> = busy.iter().cloned().map(fetch).collect();
+        for _ in 0..busy.len() {
+            gated.entered.arrived().await;
+        }
+        setup.hosts.release.add_permits(1);
+        // the first cuts now and all places are taken, so the second waits for one
+        gated.entered.arrived().await;
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        gated.release.add_permits(MAX_PARALLEL_ARCHIVES + 1);
+        assert_eq!(first.await.unwrap().unwrap().data, b"1");
+        assert_eq!(second.await.unwrap().unwrap().data, b"1");
+        for task in cutting {
+            assert_eq!(task.await.unwrap().unwrap().data, b"DATA");
+        }
+        // the file was cut once for both
+        assert_eq!(gated.calls.load(Ordering::SeqCst), MAX_PARALLEL_ARCHIVES);
+        assert_eq!(setup.hosts.asked(), [jar]);
     }
 
     #[tokio::test]
