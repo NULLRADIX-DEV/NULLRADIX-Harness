@@ -2,6 +2,7 @@
 
 mod accounts;
 mod auth;
+mod autostart;
 mod boards;
 mod body_guard;
 mod claude_theme;
@@ -49,6 +50,7 @@ use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
+use nullradix_app::autostart::AutostartService;
 use nullradix_app::boards::BoardService;
 use nullradix_app::claude_theme::ClaudeThemeService;
 use nullradix_app::comments::CommentService;
@@ -90,6 +92,7 @@ use utoipa_axum::routes;
 
 pub use accounts::{AccountDto, AccountList, CreateAccount, SetRunToken, UpdateAccount};
 pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
+pub use autostart::{AutostartDto, SetAutostart};
 pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
 pub use claude_theme::{ClaudeThemeDto, ClaudeThemeStateDto, ClaudeThemeTargetDto, SetClaudeTheme};
 pub use comments::{ActorKindDto, AddComment, CommentDto, CommentList, SystemMarkerDto};
@@ -260,6 +263,7 @@ pub struct ApiState {
     pub themes: Arc<ThemeService>,
     pub catalog: Arc<CatalogService>,
     pub claude_theme: Arc<ClaudeThemeService>,
+    pub autostart: Arc<AutostartService>,
     pub customizations: Arc<CustomizationService>,
     pub changes: Arc<dyn ChangeFeed>,
     pub signal: ChangeSignal,
@@ -302,6 +306,7 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
             claude_theme::claude_theme,
             claude_theme::set_claude_theme
         ))
+        .routes(routes!(autostart::autostart, autostart::set_autostart))
         .routes(routes!(
             theme_catalog::list_catalog_sources,
             theme_catalog::add_catalog_source
@@ -1022,6 +1027,9 @@ pub(crate) mod tests {
                 Arc::new(SystemClock),
                 signal.clone(),
             )),
+            autostart: Arc::new(nullradix_app::autostart::AutostartService::new(Arc::new(
+                crate::autostart::fake::Entry::default(),
+            ))),
             catalog,
             customizations,
             changes: changes.clone(),

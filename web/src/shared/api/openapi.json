@@ -6248,6 +6248,110 @@
         }
       }
     },
+    "/api/v1/settings/autostart": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "autostart",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutostartDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`autostart-failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "set_autostart",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAutostart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The login entry now matches the switch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutostartDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`autostart-failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`autostart-unavailable`: this host has no login",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/settings/claude-theme": {
       "get": {
         "tags": [
@@ -9884,6 +9988,23 @@
           }
         },
         "additionalProperties": false
+      },
+      "AutostartDto": {
+        "type": "object",
+        "required": [
+          "available",
+          "enabled"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether this host can start NULLRADIX at login; a container cannot."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the login entry exists now."
+          }
+        }
       },
       "BaseStateDto": {
         "type": "string",
@@ -15424,6 +15545,19 @@
             "type": "string"
           }
         }
+      },
+      "SetAutostart": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Start NULLRADIX at login, or stop doing so."
+          }
+        },
+        "additionalProperties": false
       },
       "SetBoardRepository": {
         "type": "object",

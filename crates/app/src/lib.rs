@@ -3,6 +3,7 @@
 pub mod accounts;
 pub mod auth;
 mod authors;
+pub mod autostart;
 pub mod boards;
 mod changes;
 pub mod claude_theme;

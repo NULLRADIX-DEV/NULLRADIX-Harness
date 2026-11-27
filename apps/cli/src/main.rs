@@ -8,6 +8,7 @@ mod config;
 mod connect;
 mod customize;
 mod daemon;
+mod desktop;
 mod dispatcher;
 mod dispatcher_prompt;
 mod hook;

@@ -1,5 +1,6 @@
 import { THEME_LABELS, THEME_MODES, isThemeChoice } from '../../shared/lib/theme';
 import { useTheme } from '../../shared/ui/ThemeProvider';
+import { AutostartSection } from './AutostartSection';
 import { AccountsSection } from '../accounts/AccountsSection';
 import { DispatcherSection } from '../dispatcher/DispatcherSection';
 import { ProjectsSection } from '../projects/ProjectsSection';
@@ -40,6 +41,7 @@ export function SettingsPage() {
           </select>
         </label>
       </section>
+      <AutostartSection />
       <ThemesSection />
       <CatalogSection />
       <ThemeSettingsPanel />

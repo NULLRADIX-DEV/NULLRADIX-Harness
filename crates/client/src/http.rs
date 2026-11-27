@@ -1877,6 +1877,9 @@ mod tests {
                 Arc::new(SystemClock),
                 signal.clone(),
             )),
+            autostart: Arc::new(nullradix_app::autostart::AutostartService::new(Arc::new(
+                nullradix_app::autostart::NoAutostart,
+            ))),
             customizations: customization_service(&store, &signal),
             changes: store,
             signal,

@@ -1,0 +1,25 @@
+{
+  "title": "The login switch reports a host without a login and refuses to change",
+  "steps": [
+    {
+      "name": "an isolated daemon has no login",
+      "http": { "method": "GET", "path": "/api/v1/settings/autostart" }
+    },
+    {
+      "name": "turning it on is refused",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/autostart",
+        "body": { "enabled": true }
+      }
+    },
+    {
+      "name": "a body that is not the switch is refused",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/autostart",
+        "body": { "enabled": "yes" }
+      }
+    }
+  ]
+}

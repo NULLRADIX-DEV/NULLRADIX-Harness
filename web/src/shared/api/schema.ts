@@ -1157,6 +1157,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/autostart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["autostart"];
+        put: operations["set_autostart"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/claude-theme": {
         parameters: {
             query?: never;
@@ -1873,6 +1889,12 @@ export interface components {
              * @description Merge sessions per conflict from 1 to 5.
              */
             maxMergeSessions: number;
+        };
+        AutostartDto: {
+            /** @description Whether this host can start NULLRADIX at login; a container cannot. */
+            available: boolean;
+            /** @description Whether the login entry exists now. */
+            enabled: boolean;
         };
         /**
          * @description How the starting point of a replacement compares with the shipped file today.
@@ -3590,6 +3612,10 @@ export interface components {
             key: string;
             status: components["schemas"]["TicketStatusDto"];
             title: string;
+        };
+        SetAutostart: {
+            /** @description Start NULLRADIX at login, or stop doing so. */
+            enabled: boolean;
         };
         /** @description Points a board to the repository checked out at a folder on a runner. */
         SetBoardRepository: {
@@ -8975,6 +9001,100 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    autostart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutostartDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `autostart-failed` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_autostart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAutostart"];
+            };
+        };
+        responses: {
+            /** @description The login entry now matches the switch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutostartDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `autostart-failed` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `autostart-unavailable`: this host has no login */
             503: {
                 headers: {
                     [name: string]: unknown;

@@ -24,8 +24,7 @@ tauri-build = { version = "2.7.6", features = [] }
 [dependencies]
 nullradix-client = { path = "../../crates/client" }
 nullradix-os = { path = "../../crates/os" }
-tauri = { version = "2.12.7", features = ["tray-icon"] }
-tauri-plugin-autostart = "2.7.0"
+tauri = { version = "2.12.7", features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance = "2.5.5"
 thiserror = "2.0.21"
 url = "2.5.7"

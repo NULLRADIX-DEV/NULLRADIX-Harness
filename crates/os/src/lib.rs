@@ -1,6 +1,7 @@
 //! Operating system integration for Windows, Linux and macOS.
 
 mod archive;
+mod autostart;
 mod browser;
 #[cfg(target_os = "macos")]
 mod claude_keychain;
@@ -11,12 +12,17 @@ mod local_time;
 mod paths;
 mod process;
 mod secrets;
+mod toast;
 #[cfg(windows)]
 mod windows;
 
 pub use archive::{
     ArchiveError, Entry, Limits, pack_zip, read_tree, read_within, remove_dir, replace_dir,
     unpack_zip,
+};
+pub use autostart::{
+    AutostartEntry, AutostartState, autostart_disable, autostart_enable, autostart_reenable,
+    autostart_retarget, autostart_state,
 };
 pub use browser::open_url;
 #[cfg(target_os = "macos")]
@@ -31,3 +37,4 @@ pub use local_time::{LocalZone, local_utc_offset_minutes};
 pub use paths::{Paths, PathsError, claude_config_dirs, home_dir};
 pub use process::{ProcessTree, process_alive, spawn_detached};
 pub use secrets::{FileSecrets, SecretBackend, SecretError, system_secrets};
+pub use toast::show_toast;

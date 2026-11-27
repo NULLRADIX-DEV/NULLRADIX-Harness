@@ -64,6 +64,12 @@ pub trait Notifier: Send + Sync {
     async fn notify(&self, notice: &Notice) -> Result<(), AppError>;
 }
 
+/// A toast that the system did not show; it never stops the work behind it.
+#[must_use]
+pub fn toast_failed(reason: &str) -> AppError {
+    AppError::unavailable("toast-failed", format!("cannot show the toast: {reason}"))
+}
+
 /// Shows nothing, until a shell with a toast is attached.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoNotifier;
@@ -88,5 +94,12 @@ mod tests {
         assert_eq!(blocked.kind, NoticeKind::Blocked);
         assert_eq!(blocked.text, "no access");
         assert_eq!(NoticeKind::MergeWaiting.as_str(), "merge-waiting");
+    }
+
+    #[test]
+    fn a_failed_toast_has_its_own_code() {
+        let error = toast_failed("no helper");
+        assert_eq!(error.code(), "toast-failed");
+        assert!(error.message().contains("no helper"));
     }
 }

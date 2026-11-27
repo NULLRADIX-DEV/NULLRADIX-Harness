@@ -1,0 +1,56 @@
+[
+  {
+    "name": "an isolated daemon has no login",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/settings/autostart"
+    },
+    "response": {
+      "json": {
+        "available": false,
+        "enabled": false
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "turning it on is refused",
+    "request": {
+      "body": {
+        "enabled": true
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/autostart"
+    },
+    "response": {
+      "json": {
+        "code": "autostart-unavailable",
+        "detail": "this host cannot start NULLRADIX at login",
+        "status": 503,
+        "title": "Service Unavailable",
+        "type": "urn:nullradix:problem:autostart-unavailable"
+      },
+      "status": 503
+    }
+  },
+  {
+    "name": "a body that is not the switch is refused",
+    "request": {
+      "body": {
+        "enabled": "yes"
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/autostart"
+    },
+    "response": {
+      "json": {
+        "code": "input-invalid",
+        "detail": "Failed to deserialize the JSON body into the target type: enabled: invalid type: string \"yes\", expected a boolean at line 2 column 18",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:input-invalid"
+      },
+      "status": 422
+    }
+  }
+]
