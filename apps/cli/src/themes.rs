@@ -18,7 +18,7 @@ pub(crate) const LIMITS: Limits = Limits {
 /// Themes below one folder, one subfolder per theme id.
 pub(crate) struct FolderThemes {
     dir: PathBuf,
-    /// Cached resources of themes; replacing or removing a package empties its part.
+    /// Cached resources of themes; a theme whose row changed has its part emptied.
     cache: Option<PathBuf>,
 }
 
@@ -92,9 +92,7 @@ impl ThemeFiles for FolderThemes {
                 .collect();
             nullradix_os::replace_dir(&dir, &name, &entries).map_err(refused)
         })
-        .await?;
-        self.clear_cache(id).await;
-        Ok(())
+        .await
     }
 
     async fn remove(&self, id: &ThemeId) -> Result<(), AppError> {
@@ -104,9 +102,7 @@ impl ThemeFiles for FolderThemes {
                 .map(|_| ())
                 .map_err(refused)
         })
-        .await?;
-        self.clear_cache(id).await;
-        Ok(())
+        .await
     }
 
     async fn read(&self, id: &ThemeId, path: &[String]) -> Result<Option<Vec<u8>>, AppError> {
@@ -115,6 +111,10 @@ impl ThemeFiles for FolderThemes {
             nullradix_os::read_within(&root, &path, MAX_FILE_BYTES).map_err(files_failed)
         })
         .await
+    }
+
+    async fn settled(&self, id: &ThemeId) {
+        self.clear_cache(id).await;
     }
 
     async fn paths(&self, id: &ThemeId) -> Option<Vec<String>> {
@@ -199,25 +199,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn replacing_or_removing_a_theme_empties_its_cache() {
+    async fn a_theme_whose_row_changed_has_its_cache_emptied() {
         let dir = tempfile::tempdir().unwrap();
         let cache = dir.path().join("cache");
         let files = FolderThemes::new(dir.path().join("themes")).with_cache(cache.clone());
         let id = ThemeId::parse("night-blue").unwrap();
         let kept = |theme: &str| cache.join(theme).join("ab12.bin");
-        for theme in ["night-blue", "other-theme"] {
-            nullradix_os::cache_write(&cache, theme, "ab12", b"x", 100).unwrap();
-        }
-        let package = || {
-            vec![PackageFile {
-                path: String::from("theme.css"),
-                data: b"a{}".to_vec(),
-            }]
+        let budget = nullradix_os::CacheBudget {
+            bytes: 1 << 20,
+            files: 10,
         };
-        files.store(&id, package()).await.unwrap();
-        assert!(!kept("night-blue").exists() && kept("other-theme").exists());
-        nullradix_os::cache_write(&cache, "night-blue", "ab12", b"x", 100).unwrap();
-        files.remove(&id).await.unwrap();
+        for theme in ["night-blue", "other-theme"] {
+            nullradix_os::cache_write(&cache, theme, "ab12", b"x", budget).unwrap();
+        }
+        // changing the files alone leaves the cache; the row decides
+        let package = vec![PackageFile {
+            path: String::from("theme.css"),
+            data: b"a{}".to_vec(),
+        }];
+        files.store(&id, package).await.unwrap();
+        assert!(kept("night-blue").exists());
+        files.settled(&id).await;
         assert!(!kept("night-blue").exists() && kept("other-theme").exists());
     }
 

@@ -225,6 +225,8 @@ pub trait ThemeFiles: Send + Sync {
     async fn read(&self, id: &ThemeId, path: &[String]) -> Result<Option<Vec<u8>>, AppError>;
     /// The paths of the files of the theme, empty without a folder; `None` when they are unknown.
     async fn paths(&self, id: &ThemeId) -> Option<Vec<String>>;
+    /// The row of the theme changed after its files did; whatever was kept for the old one goes.
+    async fn settled(&self, _id: &ThemeId) {}
 }
 
 #[must_use]
@@ -434,6 +436,8 @@ impl ThemeService {
         let enabled = write.code_enabled(theme.id()).await?;
         write.commit().await?;
         self.signal.notify(&change);
+        // a download that began under the old version may have been kept after the files changed
+        self.files.settled(theme.id()).await;
         Ok(Installed {
             theme,
             added,
@@ -581,6 +585,7 @@ impl ThemeService {
         if let Err(error) = self.files.remove(&theme).await {
             tracing::warn!(%error, theme = id, "cannot remove the files of the theme");
         }
+        self.files.settled(&theme).await;
         Ok(())
     }
 
@@ -991,6 +996,8 @@ pub(crate) mod tests {
     pub(crate) struct MemoryFiles {
         stored: Mutex<HashMap<String, Vec<PackageFile>>>,
         removals: Mutex<Vec<String>>,
+        /// The themes `settled` was called for, in order.
+        settlements: Mutex<Vec<String>>,
         fail_remove: Mutex<bool>,
         /// When set, the list of files is unknown.
         unknown_paths: Mutex<bool>,
@@ -1058,6 +1065,10 @@ pub(crate) mod tests {
                 .get(id.as_str())
                 .and_then(|files| files.iter().find(|file| file.path == joined))
                 .map(|file| file.data.clone()))
+        }
+
+        async fn settled(&self, id: &ThemeId) {
+            self.settlements.lock().push(id.to_string());
         }
 
         async fn paths(&self, id: &ThemeId) -> Option<Vec<String>> {
@@ -2129,6 +2140,37 @@ pub(crate) mod tests {
         // the version the person saw is gone once the install is done
         let error = switch.await.unwrap().unwrap_err();
         assert_eq!(error.code(), "version-conflict");
+    }
+
+    #[tokio::test]
+    async fn the_files_are_told_when_the_row_of_the_theme_has_changed() {
+        let fixture = fixture();
+        let settled = || fixture.files.settlements.lock().clone();
+        fixture
+            .service
+            .install(with_code("1.0.0"), true, true)
+            .await
+            .unwrap();
+        assert_eq!(settled(), ["night-blue"]);
+        // a refused install changes nothing, so nothing is settled
+        let error = fixture
+            .service
+            .install(archive(&[file("manifest.json", "{}")]), true, true)
+            .await;
+        assert!(error.is_err());
+        assert_eq!(settled(), ["night-blue"]);
+        fixture
+            .service
+            .install(with_code("1.0.1"), true, true)
+            .await
+            .unwrap();
+        assert_eq!(settled(), ["night-blue", "night-blue"]);
+        fixture
+            .service
+            .remove("night-blue", Version::from_stored(2))
+            .await
+            .unwrap();
+        assert_eq!(settled().len(), 3);
     }
 
     #[tokio::test]

@@ -14,6 +14,8 @@ pub const MAX_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_REDIRECTS: usize = 5;
 /// Cached bytes kept per theme.
 pub const MAX_CACHE_BYTES: u64 = 256 * 1024 * 1024;
+/// Cached files kept per theme.
+pub const MAX_CACHE_FILES: usize = 4096;
 
 const OPAQUE_TYPE: &str = "application/octet-stream";
 
@@ -124,6 +126,9 @@ mod tests {
             "https://cdn.example.com.evil.test/a.png",
             "https://assets.test/a.png",
             "https://evil-assets.test/a.png",
+            // a Cyrillic a or c in place of the Latin letter is another host
+            "https://cdn.ex\u{430}mple.com/a.png",
+            "https://\u{441}dn.example.com/a.png",
         ] {
             assert!(
                 matches!(refused(raw), AssetUrlError::NotDeclared { .. }),

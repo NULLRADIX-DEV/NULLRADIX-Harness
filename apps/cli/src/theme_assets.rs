@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use nullradix_app::AppError;
-use nullradix_app::theme_fetch::{AssetCache, EntryError, ZipEntries};
+use nullradix_app::theme_fetch::{AssetCache, EntryError, Stored, ZipEntries};
 use nullradix_app::themes::files_failed;
-use nullradix_domain::{MAX_ARCHIVE_BYTES, MAX_CACHE_BYTES, ThemeId};
-use nullradix_os::ArchiveError;
+use nullradix_domain::{MAX_ARCHIVE_BYTES, MAX_CACHE_BYTES, MAX_CACHE_FILES, ThemeId};
+use nullradix_os::{ArchiveError, CacheBudget};
 
 /// Reads files out of zip archives held in memory.
 pub(crate) struct ZipFiles;
@@ -62,19 +62,23 @@ impl AssetCache for FolderAssets {
         .ok()?
     }
 
-    async fn put(&self, theme: &ThemeId, key: &str, bytes: &[u8]) -> Result<(), AppError> {
-        let (dir, theme, key, bytes) = (
-            self.dir.clone(),
-            theme.to_string(),
-            key.to_owned(),
-            bytes.to_vec(),
-        );
-        tokio::task::spawn_blocking(move || {
-            nullradix_os::cache_write(&dir, &theme, &key, &bytes, MAX_CACHE_BYTES)
+    async fn put(&self, theme: &ThemeId, key: &str, bytes: Vec<u8>) -> Result<Stored, AppError> {
+        let (dir, theme, key) = (self.dir.clone(), theme.to_string(), key.to_owned());
+        let budget = CacheBudget {
+            bytes: MAX_CACHE_BYTES,
+            files: MAX_CACHE_FILES,
+        };
+        // the bytes go to the thread and come back, so they are not copied
+        let (bytes, written) = tokio::task::spawn_blocking(move || {
+            let written = nullradix_os::cache_write(&dir, &theme, &key, &bytes, budget);
+            (bytes, written)
         })
         .await
-        .map_err(files_failed)?
-        .map_err(files_failed)
+        .map_err(files_failed)?;
+        Ok(Stored {
+            bytes,
+            error: written.err().map(files_failed),
+        })
     }
 }
 
@@ -111,11 +115,18 @@ mod tests {
         let cache = FolderAssets::new(dir.path().to_path_buf());
         let key = "ab12";
         assert_eq!(cache.get(&theme(), key).await, None);
-        cache.put(&theme(), key, b"PNG").await.unwrap();
+        cache.put(&theme(), key, b"PNG".to_vec()).await.unwrap();
         assert_eq!(cache.get(&theme(), key).await, Some(b"PNG".to_vec()));
         let other = ThemeId::parse("other-theme").unwrap();
         assert_eq!(cache.get(&other, key).await, None);
-        assert!(cache.put(&theme(), "../x", b"PNG").await.is_err());
+        assert!(
+            cache
+                .put(&theme(), "../x", b"PNG".to_vec())
+                .await
+                .unwrap()
+                .error
+                .is_some()
+        );
         assert_eq!(cache.get(&theme(), "../x").await, None);
     }
 }

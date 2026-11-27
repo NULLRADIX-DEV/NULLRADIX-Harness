@@ -154,8 +154,8 @@ pub use theme_catalog::{
     MAX_URL_CHARS, MAX_VERSION_CHARS, Reach, SourceId, is_public_address,
 };
 pub use theme_fetch::{
-    AssetUrl, AssetUrlError, MAX_ARCHIVE_BYTES, MAX_ASSET_BYTES, MAX_CACHE_BYTES, MAX_REDIRECTS,
-    check_asset_entry, foreign_content_type, parse_sha256,
+    AssetUrl, AssetUrlError, MAX_ARCHIVE_BYTES, MAX_ASSET_BYTES, MAX_CACHE_BYTES, MAX_CACHE_FILES,
+    MAX_REDIRECTS, check_asset_entry, foreign_content_type, parse_sha256,
 };
 pub use theme_risk::{RiskAdded, ThemeRisk, inspect_package};
 pub use theme_settings::{SETTING_VALUE_MAX, SettingValue, ThemeSettingValues};

@@ -1,4 +1,4 @@
-//! Cached files per owner below one folder, kept under a size budget.
+//! Cached files per owner below one folder, kept under a budget of bytes and files.
 
 use std::fs;
 use std::io::{self, Read};
@@ -52,16 +52,30 @@ pub fn cache_read(dir: &Path, owner: &str, key: &str, max: u64) -> io::Result<Op
     Ok((data.len() as u64 <= max).then_some(data))
 }
 
+/// What an owner may keep; a small file counts for at least [`FILE_COST`] bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CacheBudget {
+    pub bytes: u64,
+    pub files: usize,
+}
+
+/// Least a file counts for, so tiny bodies under many addresses cannot pile up.
+pub const FILE_COST: u64 = 4096;
+
+fn cost(len: u64) -> u64 {
+    len.max(FILE_COST)
+}
+
 /// Keeps `bytes` under `key` and drops the oldest files of the owner until `budget` holds.
 pub fn cache_write(
     dir: &Path,
     owner: &str,
     key: &str,
     bytes: &[u8],
-    budget: u64,
+    budget: CacheBudget,
 ) -> io::Result<()> {
     let path = location(dir, owner, key)?;
-    if bytes.len() as u64 > budget {
+    if cost(bytes.len() as u64) > budget.bytes || budget.files == 0 {
         return Ok(());
     }
     let folder = dir.join(owner);
@@ -81,23 +95,32 @@ pub fn cache_clear(dir: &Path, owner: &str) -> io::Result<()> {
     }
 }
 
-/// Removes the oldest files, but never `keep`, until the files of the folder fit `budget`.
-fn evict(folder: &Path, keep: &Path, budget: u64) -> io::Result<()> {
+/// Removes the oldest files, but never `keep`, until the kept files fit `budget`.
+fn evict(folder: &Path, keep: &Path, budget: CacheBudget) -> io::Result<()> {
     let mut files: Vec<(SystemTime, PathBuf, u64)> = Vec::new();
     for child in fs::read_dir(folder)? {
         let child = child?;
+        // staging files of writers that are not done are not kept files yet
+        if child
+            .path()
+            .extension()
+            .is_none_or(|suffix| suffix != SUFFIX)
+        {
+            continue;
+        }
         let Ok(metadata) = child.metadata() else {
             continue;
         };
         if metadata.is_file() {
             let written = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-            files.push((written, child.path(), metadata.len()));
+            files.push((written, child.path(), cost(metadata.len())));
         }
     }
-    let mut total: u64 = files.iter().map(|(_, _, len)| len).sum();
+    let mut total: u64 = files.iter().map(|(_, _, cost)| cost).sum();
+    let mut count = files.len();
     files.sort();
-    for (_, path, len) in files {
-        if total <= budget {
+    for (_, path, cost) in files {
+        if total <= budget.bytes && count <= budget.files {
             break;
         }
         if path == keep {
@@ -105,7 +128,8 @@ fn evict(folder: &Path, keep: &Path, budget: u64) -> io::Result<()> {
         }
         // a concurrent writer may have removed it already
         if fs::remove_file(&path).is_ok() {
-            total -= len;
+            total -= cost;
+            count -= 1;
         }
     }
     Ok(())
@@ -116,65 +140,142 @@ mod tests {
     use super::*;
 
     const KEY: &str = "0123456789abcdef";
+    const BIG: usize = 4096;
+
+    fn budget(bytes: u64, files: usize) -> CacheBudget {
+        CacheBudget { bytes, files }
+    }
+
+    #[test]
+    fn the_test_size_is_the_cost_of_a_file() {
+        assert_eq!(BIG as u64, FILE_COST);
+    }
+
+    const ROOMY: CacheBudget = CacheBudget {
+        bytes: 1 << 30,
+        files: 1000,
+    };
+
+    fn write(dir: &Path, owner: &str, key: &str, len: usize, budget: CacheBudget) {
+        cache_write(dir, owner, key, &vec![b'x'; len], budget).unwrap();
+    }
+
+    fn kept(dir: &Path, owner: &str) -> Vec<String> {
+        let Ok(children) = fs::read_dir(dir.join(owner)) else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = children
+            .map(|child| child.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn age(dir: &Path, owner: &str, key: &str, seconds: u64) {
+        let written = SystemTime::now() - std::time::Duration::from_secs(seconds);
+        let file = fs::File::options()
+            .write(true)
+            .open(dir.join(owner).join(format!("{key}.bin")))
+            .unwrap();
+        file.set_modified(written).unwrap();
+    }
 
     #[test]
     fn what_was_written_is_read_back_and_only_within_the_limit() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(cache_read(dir.path(), "night", KEY, 8).unwrap(), None);
-        cache_write(dir.path(), "night", KEY, b"12345678", 100).unwrap();
+        cache_write(dir.path(), "night", KEY, b"12345678", ROOMY).unwrap();
         assert_eq!(
             cache_read(dir.path(), "night", KEY, 8).unwrap(),
             Some(b"12345678".to_vec())
         );
         assert_eq!(cache_read(dir.path(), "night", KEY, 7).unwrap(), None);
         assert_eq!(cache_read(dir.path(), "other", KEY, 8).unwrap(), None);
-        cache_write(dir.path(), "night", KEY, b"new", 100).unwrap();
+        cache_write(dir.path(), "night", KEY, b"new", ROOMY).unwrap();
         assert_eq!(
             cache_read(dir.path(), "night", KEY, 8).unwrap(),
             Some(b"new".to_vec())
         );
-        let names: Vec<_> = fs::read_dir(dir.path().join("night"))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        assert_eq!(names.len(), 1, "{names:?}");
+        assert_eq!(kept(dir.path(), "night").len(), 1);
     }
 
     #[test]
-    fn the_oldest_files_go_first_when_the_budget_is_exceeded() {
+    fn the_oldest_files_go_first_when_the_byte_budget_is_exceeded() {
+        let dir = tempfile::tempdir().unwrap();
+        let three = budget(3 * FILE_COST, 100);
+        for (key, seconds) in [("a", 30), ("b", 20), ("c", 10)] {
+            write(dir.path(), "night", key, BIG, three);
+            age(dir.path(), "night", key, seconds);
+        }
+        write(dir.path(), "night", "d", BIG, three);
+        assert_eq!(kept(dir.path(), "night"), ["b.bin", "c.bin", "d.bin"]);
+        // the budget is per owner
+        write(dir.path(), "other", "a", BIG, three);
+        assert_eq!(kept(dir.path(), "night").len(), 3);
+    }
+
+    #[test]
+    fn a_small_file_counts_for_at_least_four_kib() {
+        let dir = tempfile::tempdir().unwrap();
+        let two = budget(2 * FILE_COST + 10, 100);
+        for (key, seconds) in [("a", 30), ("b", 20)] {
+            write(dir.path(), "night", key, 1, two);
+            age(dir.path(), "night", key, seconds);
+        }
+        write(dir.path(), "night", "c", 1, two);
+        assert_eq!(kept(dir.path(), "night"), ["b.bin", "c.bin"]);
+    }
+
+    #[test]
+    fn the_oldest_files_go_first_when_the_file_cap_is_exceeded() {
+        let dir = tempfile::tempdir().unwrap();
+        let cap = 4;
+        let few = budget(1 << 30, cap);
+        for n in 0..cap {
+            write(dir.path(), "night", &format!("k{n}"), 1, few);
+            age(dir.path(), "night", &format!("k{n}"), 100 - n as u64);
+        }
+        assert_eq!(kept(dir.path(), "night").len(), cap);
+        // one above the cap drops exactly the oldest
+        write(dir.path(), "night", "new", 1, few);
+        assert_eq!(
+            kept(dir.path(), "night"),
+            ["k1.bin", "k2.bin", "k3.bin", "new.bin"]
+        );
+        // a cap of nothing keeps nothing
+        write(dir.path(), "empty", "a", 1, budget(1 << 30, 0));
+        assert_eq!(kept(dir.path(), "empty"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn staging_files_of_other_writers_are_not_counted_or_removed() {
         let dir = tempfile::tempdir().unwrap();
         let folder = dir.path().join("night");
-        for (key, age) in [("a", 30), ("b", 20), ("c", 10)] {
-            cache_write(dir.path(), "night", key, b"1234", 100).unwrap();
-            let written = SystemTime::now() - std::time::Duration::from_secs(age);
-            let file = fs::File::options()
-                .write(true)
-                .open(folder.join(format!("{key}.bin")))
-                .unwrap();
-            file.set_modified(written).unwrap();
-        }
-        // 12 bytes are kept; a fourth of 4 bytes under a budget of 12 drops the oldest
-        cache_write(dir.path(), "night", "d", b"1234", 12).unwrap();
-        let mut left: Vec<String> = fs::read_dir(&folder)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        left.sort();
-        assert_eq!(left, ["b.bin", "c.bin", "d.bin"]);
-        // the budget is per owner
-        cache_write(dir.path(), "other", "a", b"1234", 12).unwrap();
-        assert_eq!(fs::read_dir(&folder).unwrap().count(), 3);
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("a.1234-0.tmp"), vec![b'x'; 3 * BIG]).unwrap();
+        let two = budget(2 * FILE_COST, 2);
+        write(dir.path(), "night", "a", 1, two);
+        write(dir.path(), "night", "b", 1, two);
+        assert_eq!(
+            kept(dir.path(), "night"),
+            ["a.1234-0.tmp", "a.bin", "b.bin"]
+        );
     }
 
     #[test]
     fn a_file_above_the_budget_is_not_kept_and_the_new_file_is_never_evicted() {
         let dir = tempfile::tempdir().unwrap();
-        cache_write(dir.path(), "night", "a", b"12345", 4).unwrap();
-        assert_eq!(cache_read(dir.path(), "night", "a", 100).unwrap(), None);
-        cache_write(dir.path(), "night", "b", b"1234", 4).unwrap();
-        cache_write(dir.path(), "night", "c", b"1234", 4).unwrap();
-        assert_eq!(cache_read(dir.path(), "night", "b", 100).unwrap(), None);
-        assert!(cache_read(dir.path(), "night", "c", 100).unwrap().is_some());
+        let one = budget(FILE_COST, 100);
+        write(dir.path(), "night", "a", BIG + 1, one);
+        assert_eq!(cache_read(dir.path(), "night", "a", 1 << 20).unwrap(), None);
+        write(dir.path(), "night", "b", BIG, one);
+        write(dir.path(), "night", "c", BIG, one);
+        assert_eq!(cache_read(dir.path(), "night", "b", 1 << 20).unwrap(), None);
+        assert!(
+            cache_read(dir.path(), "night", "c", 1 << 20)
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]
@@ -196,7 +297,7 @@ mod tests {
                 "{owner} {key}"
             );
             assert!(
-                cache_write(dir.path(), owner, key, b"x", 8).is_err(),
+                cache_write(dir.path(), owner, key, b"x", ROOMY).is_err(),
                 "{owner} {key}"
             );
         }
@@ -207,8 +308,8 @@ mod tests {
     #[test]
     fn clearing_drops_one_owner_and_a_missing_one_is_fine() {
         let dir = tempfile::tempdir().unwrap();
-        cache_write(dir.path(), "night", KEY, b"x", 8).unwrap();
-        cache_write(dir.path(), "other", KEY, b"y", 8).unwrap();
+        write(dir.path(), "night", KEY, 1, ROOMY);
+        write(dir.path(), "other", KEY, 1, ROOMY);
         cache_clear(dir.path(), "night").unwrap();
         cache_clear(dir.path(), "night").unwrap();
         assert_eq!(cache_read(dir.path(), "night", KEY, 8).unwrap(), None);

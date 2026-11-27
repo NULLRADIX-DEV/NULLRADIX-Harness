@@ -56,7 +56,8 @@ pub(crate) async fn fetch_theme_asset(
             entry: query.entry.as_deref(),
         })
         .await?;
-    Ok((
+    let opaque = asset.content_type == "application/octet-stream";
+    let mut response = (
         [
             (header::CONTENT_TYPE, asset.content_type),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
@@ -67,7 +68,15 @@ pub(crate) async fn fetch_theme_asset(
         ],
         asset.data,
     )
-        .into_response())
+        .into_response();
+    if opaque {
+        // bytes of no known kind are downloaded, never shown, if a page is pointed at them
+        response.headers_mut().insert(
+            header::CONTENT_DISPOSITION,
+            header::HeaderValue::from_static("attachment"),
+        );
+    }
+    Ok(response)
 }
 
 #[cfg(test)]
@@ -284,6 +293,8 @@ mod tests {
         assert!(csp.starts_with("sandbox; default-src 'none'"), "{csp}");
         assert!(!csp.contains("script-src"), "{csp}");
         assert!(reply.headers.get("set-cookie").is_none());
+        // a known type is shown as it is
+        assert!(reply.headers.get("content-disposition").is_none());
     }
 
     #[tokio::test]
@@ -300,6 +311,7 @@ mod tests {
                 "{name}"
             );
             assert_eq!(reply.header("x-content-type-options"), Some("nosniff"));
+            assert_eq!(reply.header("content-disposition"), Some("attachment"));
         }
     }
 
@@ -419,6 +431,8 @@ mod tests {
             "https://other.example.com/a.png",
             "https://cdn.example.com.evil.test/a.png",
             "https://assets.test/a.png",
+            // a Cyrillic a in place of the Latin one is another host
+            "https://cdn.ex\u{430}mple.com/a.png",
         ] {
             let reply = get(&api, &url(address)).await;
             assert_eq!(

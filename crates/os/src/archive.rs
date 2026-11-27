@@ -569,6 +569,36 @@ mod tests {
         ));
     }
 
+    /// Writes `size` over the stated uncompressed size of every entry header.
+    fn state_size(archive: &mut [u8], size: u32) {
+        // the size sits 24 bytes into a central header and 22 into a local one
+        for (signature, offset) in [
+            ([0x50, 0x4b, 0x01, 0x02], 24),
+            ([0x50, 0x4b, 0x03, 0x04], 22),
+        ] {
+            let at = archive
+                .windows(4)
+                .position(|window| window == signature)
+                .unwrap();
+            archive[at + offset..at + offset + 4].copy_from_slice(&size.to_le_bytes());
+        }
+    }
+
+    #[test]
+    fn a_stated_size_below_the_real_one_does_not_let_a_file_through() {
+        let mut bomb = pack_zip(&[entry("bomb.bin", &"a".repeat(100_000))]).unwrap();
+        state_size(&mut bomb, 10);
+        // the size check passes on the lie; the zip reader itself stops at the stated size
+        let result = read_zip_entry(&bomb, "bomb.bin", 1024);
+        assert!(
+            matches!(
+                result,
+                Err(ArchiveError::NotArchive(_) | ArchiveError::FileTooLarge { .. })
+            ),
+            "{result:?}"
+        );
+    }
+
     #[test]
     fn a_linked_file_is_not_read_out_of_an_archive() {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));

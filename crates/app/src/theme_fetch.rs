@@ -1,5 +1,6 @@
 //! The asset proxy: a theme with its code on loads resources only from the domains it declares.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -81,12 +82,20 @@ impl ZipEntries for NoZipEntries {
     }
 }
 
+/// The bytes handed to a cache come back, so they are served without a copy.
+#[derive(Debug)]
+pub struct Stored {
+    pub bytes: Vec<u8>,
+    /// Why the cache could not keep them.
+    pub error: Option<AppError>,
+}
+
 /// Bytes kept per theme under a key; adapters keep the total below a budget.
 #[async_trait]
 pub trait AssetCache: Send + Sync {
     /// A miss and an unreadable entry both give `None`.
     async fn get(&self, theme: &ThemeId, key: &str) -> Option<Vec<u8>>;
-    async fn put(&self, theme: &ThemeId, key: &str, bytes: &[u8]) -> Result<(), AppError>;
+    async fn put(&self, theme: &ThemeId, key: &str, bytes: Vec<u8>) -> Result<Stored, AppError>;
 }
 
 /// A cache that keeps nothing.
@@ -99,8 +108,51 @@ impl AssetCache for NoAssetCache {
         None
     }
 
-    async fn put(&self, _theme: &ThemeId, _key: &str, _bytes: &[u8]) -> Result<(), AppError> {
-        Ok(())
+    async fn put(&self, _theme: &ThemeId, _key: &str, bytes: Vec<u8>) -> Result<Stored, AppError> {
+        Ok(Stored { bytes, error: None })
+    }
+}
+
+/// Downloads that run at the same time, all themes together.
+pub const MAX_PARALLEL_DOWNLOADS: usize = 4;
+
+type FlightKey = (ThemeId, String);
+
+/// One download per resource at a time: the others wait and then find it cached.
+#[derive(Default)]
+struct Flights {
+    slots: parking_lot::Mutex<HashMap<FlightKey, Arc<tokio::sync::Mutex<()>>>>,
+}
+
+struct Flight<'a> {
+    flights: &'a Flights,
+    key: FlightKey,
+    slot: Arc<tokio::sync::Mutex<()>>,
+    guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+}
+
+impl Flights {
+    async fn enter(&self, theme: &ThemeId, key: &str) -> Flight<'_> {
+        let key = (theme.clone(), key.to_owned());
+        let slot = self.slots.lock().entry(key.clone()).or_default().clone();
+        let guard = slot.clone().lock_owned().await;
+        Flight {
+            flights: self,
+            key,
+            slot,
+            guard: Some(guard),
+        }
+    }
+}
+
+impl Drop for Flight<'_> {
+    fn drop(&mut self) {
+        self.guard.take();
+        let mut slots = self.flights.slots.lock();
+        // the map and this flight hold the slot; anyone else is waiting for it
+        if Arc::strong_count(&self.slot) == 2 {
+            slots.remove(&self.key);
+        }
     }
 }
 
@@ -209,6 +261,8 @@ pub struct ThemeAssets {
     fetcher: Arc<dyn AssetFetcher>,
     entries: Arc<dyn ZipEntries>,
     cache: Arc<dyn AssetCache>,
+    flights: Flights,
+    downloads: tokio::sync::Semaphore,
 }
 
 impl std::fmt::Debug for ThemeAssets {
@@ -230,6 +284,8 @@ impl ThemeAssets {
             fetcher,
             entries,
             cache,
+            flights: Flights::default(),
+            downloads: tokio::sync::Semaphore::new(MAX_PARALLEL_DOWNLOADS),
         }
     }
 
@@ -292,8 +348,29 @@ impl ThemeAssets {
         if bytes.len() as u64 > MAX_ASSET_BYTES {
             return Err(too_large(MAX_ASSET_BYTES));
         }
-        self.keep(grant, &key, &bytes).await;
-        Ok(bytes)
+        self.keep(grant, &key, bytes).await
+    }
+
+    /// The cached resource, if it fits `max` and has the checksum.
+    async fn cached(
+        &self,
+        grant: &AssetGrant,
+        key: &str,
+        sum: Option<&str>,
+        max: u64,
+    ) -> Result<Option<Vec<u8>>, AppError> {
+        let Some(cached) = self.cache.get(&grant.id, key).await else {
+            return Ok(None);
+        };
+        if cached.len() as u64 > max {
+            return Ok(None);
+        }
+        let Some(sum) = sum else {
+            return Ok(Some(cached));
+        };
+        let (found, cached) = checksum(cached).await?;
+        // a stale entry is replaced by what the host serves now
+        Ok((found == sum).then_some(cached))
     }
 
     async fn resource(
@@ -304,19 +381,18 @@ impl ThemeAssets {
         max: u64,
     ) -> Result<Vec<u8>, AppError> {
         let key = cache_key(&[url.as_str()]);
-        if let Some(cached) = self.cache.get(&grant.id, &key).await
-            && cached.len() as u64 <= max
-        {
-            let Some(sum) = sum else {
-                return Ok(cached);
-            };
-            let (found, cached) = checksum(cached).await?;
-            if found == sum {
-                return Ok(cached);
-            }
-            // a stale entry is replaced by what the host serves now
+        if let Some(bytes) = self.cached(grant, &key, sum, max).await? {
+            return Ok(bytes);
         }
-        let mut bytes = self.download(grant, url, max).await?;
+        // whoever was ahead may have loaded it meanwhile
+        let _flight = self.flights.enter(&grant.id, &key).await;
+        if let Some(bytes) = self.cached(grant, &key, sum, max).await? {
+            return Ok(bytes);
+        }
+        let mut bytes = {
+            let _permit = self.downloads.acquire().await.map_err(AppError::internal)?;
+            self.download(grant, url, max).await?
+        };
         if let Some(sum) = sum {
             let (found, hashed) = checksum(bytes).await?;
             if found != sum {
@@ -327,8 +403,7 @@ impl ThemeAssets {
             }
             bytes = hashed;
         }
-        self.keep(grant, &key, &bytes).await;
-        Ok(bytes)
+        self.keep(grant, &key, bytes).await
     }
 
     /// Follows redirects, each one checked against the domains of the theme.
@@ -369,16 +444,25 @@ impl ThemeAssets {
         Ok(bytes)
     }
 
-    async fn keep(&self, grant: &AssetGrant, key: &str, bytes: &[u8]) {
-        if let Err(error) = self.cache.put(&grant.id, key, bytes).await {
+    /// Hands the bytes to the cache and takes them back; a cache that cannot write is only logged.
+    async fn keep(
+        &self,
+        grant: &AssetGrant,
+        key: &str,
+        bytes: Vec<u8>,
+    ) -> Result<Vec<u8>, AppError> {
+        let stored = self.cache.put(&grant.id, key, bytes).await?;
+        if let Some(error) = stored.error {
             tracing::warn!(%error, theme = %grant.id, "cannot cache a theme asset");
         }
+        Ok(stored.bytes)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, HashMap};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use parking_lot::Mutex;
 
@@ -389,6 +473,23 @@ mod tests {
     const NETWORK: &str = r#""network": ["cdn.example.com", "*.assets.test"]"#;
     const ICON: &str = "https://cdn.example.com/icon.png";
 
+    /// A semaphore that starts without permits.
+    struct Permits(tokio::sync::Semaphore);
+
+    impl Default for Permits {
+        fn default() -> Self {
+            Self(tokio::sync::Semaphore::new(0))
+        }
+    }
+
+    impl std::ops::Deref for Permits {
+        type Target = tokio::sync::Semaphore;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
     /// Answers a url with its scripted hops in turn and records every request.
     #[derive(Default)]
     struct Hosts {
@@ -396,8 +497,12 @@ mod tests {
         asked: Mutex<Vec<(String, u64)>>,
         /// When set, a request waits to be released before it answers.
         gate: Mutex<bool>,
-        entered: tokio::sync::Notify,
-        release: tokio::sync::Notify,
+        /// One permit per request that arrived at the gate.
+        entered: Permits,
+        /// One permit lets one request through.
+        release: Permits,
+        inflight: AtomicUsize,
+        peak: AtomicUsize,
         silent: Mutex<bool>,
     }
 
@@ -426,11 +531,14 @@ mod tests {
             if *self.silent.lock() {
                 std::future::pending::<()>().await;
             }
+            let now = self.inflight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
             let held = *self.gate.lock();
             if held {
-                self.entered.notify_one();
-                self.release.notified().await;
+                self.entered.add_permits(1);
+                self.release.acquire().await.unwrap().forget();
             }
+            self.inflight.fetch_sub(1, Ordering::SeqCst);
             let mut answers = self.answers.lock();
             match answers.get_mut(url.as_str()) {
                 Some(hops) if !hops.is_empty() => hops.remove(0),
@@ -492,14 +600,23 @@ mod tests {
                 .cloned()
         }
 
-        async fn put(&self, theme: &ThemeId, key: &str, bytes: &[u8]) -> Result<(), AppError> {
+        async fn put(
+            &self,
+            theme: &ThemeId,
+            key: &str,
+            bytes: Vec<u8>,
+        ) -> Result<Stored, AppError> {
             if *self.fail_put.lock() {
-                return Err(AppError::unavailable("cache-failed", "disk"));
+                let error = AppError::unavailable("cache-failed", "disk");
+                return Ok(Stored {
+                    bytes,
+                    error: Some(error),
+                });
             }
             self.kept
                 .lock()
-                .insert((theme.to_string(), key.to_owned()), bytes.to_vec());
-            Ok(())
+                .insert((theme.to_string(), key.to_owned()), bytes.clone());
+            Ok(Stored { bytes, error: None })
         }
     }
 
@@ -647,6 +764,8 @@ mod tests {
             "https://other.example.com/a.png",
             "https://cdn.example.com.evil.test/a.png",
             "https://assets.test/a.png",
+            "https://cdn.ex\u{430}mple.com/a.png",
+            "https://\u{441}dn.example.com/a.png",
         ] {
             assert_eq!(
                 code_of(&setup, request(url)).await,
@@ -721,6 +840,19 @@ mod tests {
             ),
             ("https://127.0.0.1/x.png", "theme-fetch-redirect-refused"),
             ("https://[::1]/x.png", "theme-fetch-redirect-refused"),
+            (
+                "https://cdn.example.com:8443/x.png",
+                "theme-fetch-redirect-refused",
+            ),
+            (
+                "https://user:pw@cdn.example.com/x.png",
+                "theme-fetch-redirect-refused",
+            ),
+            // a Cyrillic a in place of the Latin one is another host
+            (
+                "https://cdn.ex\u{430}mple.com/x.png",
+                "theme-fetch-forbidden",
+            ),
         ] {
             setup.hosts.serve(evil, moved(target));
             setup.hosts.body(target, b"secret");
@@ -1025,14 +1157,14 @@ mod tests {
             let assets = setup.assets.clone();
             tokio::spawn(async move { assets.fetch(request(ICON)).await })
         };
-        setup.hosts.entered.notified().await;
+        setup.hosts.entered.acquire().await.unwrap().forget();
         setup
             .fixture
             .service
             .set_code("night-blue", false, None)
             .await
             .unwrap();
-        setup.hosts.release.notify_one();
+        setup.hosts.release.add_permits(1);
         let error = fetching.await.unwrap().unwrap_err();
         assert_eq!(error.code(), "theme-fetch-forbidden");
         assert!(setup.cache.kept.lock().is_empty());
@@ -1047,7 +1179,7 @@ mod tests {
             let assets = setup.assets.clone();
             tokio::spawn(async move { assets.fetch(request(ICON)).await })
         };
-        setup.hosts.entered.notified().await;
+        setup.hosts.entered.acquire().await.unwrap().forget();
         // the person's update keeps the code on but replaces the theme
         setup
             .fixture
@@ -1055,7 +1187,7 @@ mod tests {
             .install(code_package("1.0.1", NETWORK), true, true)
             .await
             .unwrap();
-        setup.hosts.release.notify_one();
+        setup.hosts.release.add_permits(1);
         let error = fetching.await.unwrap().unwrap_err();
         assert_eq!(error.code(), "theme-fetch-forbidden");
         assert!(setup.cache.kept.lock().is_empty());
@@ -1083,17 +1215,127 @@ mod tests {
     #[tokio::test]
     async fn the_cache_of_one_theme_is_not_read_for_another() {
         let setup = setup(true).await;
+        let manifest = MANIFEST
+            .replace("night-blue", "other-theme")
+            .replace(r#""network": []"#, NETWORK);
+        let package = archive(&[
+            file("manifest.json", &manifest),
+            file("theme.css", "a { color: red }"),
+            file("main.js", "run()"),
+        ]);
+        setup
+            .fixture
+            .service
+            .install(package, true, true)
+            .await
+            .unwrap();
+        setup
+            .fixture
+            .service
+            .set_code(
+                "other-theme",
+                true,
+                Some(nullradix_domain::Version::INITIAL),
+            )
+            .await
+            .unwrap();
+        let from = |theme| AssetRequest {
+            theme,
+            ..request(ICON)
+        };
+        for theme in ["night-blue", "other-theme"] {
+            setup.hosts.body(ICON, b"PNG");
+            setup.assets.fetch(from(theme)).await.unwrap();
+        }
+        // the same address, two themes: two downloads and two entries
+        assert_eq!(setup.hosts.asked().len(), 2);
+        assert_eq!(setup.cache.kept.lock().len(), 2);
+        for theme in ["night-blue", "other-theme"] {
+            setup.assets.fetch(from(theme)).await.unwrap();
+        }
+        assert_eq!(setup.hosts.asked().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn parallel_requests_for_files_of_one_archive_download_it_once() {
+        let setup = setup(true).await;
+        let jar = "https://cdn.example.com/client.jar";
+        setup.hosts.body(jar, b"a.png=ROCK\nb.png=SAND\n");
+        *setup.hosts.gate.lock() = true;
+        let fetching: Vec<_> = ["a.png", "b.png", "a.png"]
+            .into_iter()
+            .map(|entry| {
+                let assets = setup.assets.clone();
+                tokio::spawn(async move { assets.fetch(entry_of(jar, entry)).await })
+            })
+            .collect();
+        setup.hosts.entered.acquire().await.unwrap().forget();
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(setup.hosts.asked(), [jar]);
+        setup.hosts.release.add_permits(1);
+        let mut data = Vec::new();
+        for task in fetching {
+            data.push(task.await.unwrap().unwrap().data);
+        }
+        assert_eq!(data, [b"ROCK".to_vec(), b"SAND".to_vec(), b"ROCK".to_vec()]);
+        assert_eq!(setup.hosts.asked(), [jar]);
+        // nothing is left of the waiting lists
+        assert!(setup.assets.flights.slots.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_failed_download_lets_the_next_request_try_again() {
+        let setup = setup(true).await;
+        setup.hosts.serve(ICON, vec![Err(FetchError::Unreachable)]);
+        assert_eq!(
+            code_of(&setup, request(ICON)).await,
+            "theme-fetch-unreachable"
+        );
         setup.hosts.body(ICON, b"PNG");
-        setup.assets.fetch(request(ICON)).await.unwrap();
-        let other = ThemeId::parse("other-theme").unwrap();
-        let key = cache_key(&[ICON]);
-        assert!(setup.cache.get(&other, &key).await.is_none());
-        assert!(
-            setup
-                .cache
-                .get(&ThemeId::parse("night-blue").unwrap(), &key)
-                .await
-                .is_some()
+        assert_eq!(
+            setup.assets.fetch(request(ICON)).await.unwrap().data,
+            b"PNG"
+        );
+        assert!(setup.assets.flights.slots.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_more_than_four_downloads_run_at_the_same_time() {
+        let setup = setup(true).await;
+        let urls: Vec<String> = (0..=MAX_PARALLEL_DOWNLOADS)
+            .map(|n| format!("https://cdn.example.com/{n}.png"))
+            .collect();
+        for url in &urls {
+            setup.hosts.body(url, b"PNG");
+        }
+        *setup.hosts.gate.lock() = true;
+        let fetching: Vec<_> = urls
+            .iter()
+            .map(|url| {
+                let (assets, url) = (setup.assets.clone(), url.clone());
+                tokio::spawn(async move { assets.fetch(request(&url)).await })
+            })
+            .collect();
+        for _ in 0..MAX_PARALLEL_DOWNLOADS {
+            setup.hosts.entered.acquire().await.unwrap().forget();
+        }
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        // the fifth waits for a free place
+        assert_eq!(setup.hosts.asked().len(), MAX_PARALLEL_DOWNLOADS);
+        setup.hosts.release.add_permits(1);
+        setup.hosts.entered.acquire().await.unwrap().forget();
+        assert_eq!(setup.hosts.asked().len(), MAX_PARALLEL_DOWNLOADS + 1);
+        setup.hosts.release.add_permits(MAX_PARALLEL_DOWNLOADS);
+        for task in fetching {
+            assert!(task.await.unwrap().is_ok());
+        }
+        assert_eq!(
+            setup.hosts.peak.load(Ordering::SeqCst),
+            MAX_PARALLEL_DOWNLOADS
         );
     }
 

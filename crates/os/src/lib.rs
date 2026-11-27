@@ -27,7 +27,7 @@ pub use autostart::{
     autostart_retarget, autostart_state,
 };
 pub use browser::open_url;
-pub use cache::{cache_clear, cache_read, cache_write};
+pub use cache::{CacheBudget, FILE_COST, cache_clear, cache_read, cache_write};
 #[cfg(target_os = "macos")]
 pub use claude_keychain::claude_keychain_password;
 pub use claude_slot::{
