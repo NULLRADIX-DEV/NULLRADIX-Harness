@@ -301,12 +301,12 @@ fn now_seconds() -> u64 {
         .map_or(0, |elapsed| elapsed.as_secs())
 }
 
-/// The folders to install into: every account's through the daemon, else the default one.
-/// The home the daemon uses for `~` and the default Claude folder: its data folder when isolated.
+/// The daemon's home for `~` and the default folder: its data folder when isolated.
 fn claude_base<'a>(home: Option<&Path>, paths: &'a Paths) -> Option<&'a Path> {
     home.map(|_| paths.data.as_path())
 }
 
+/// The folders to install into: every account's through the daemon, else the default one.
 fn collect_targets(
     profile: Profile,
     home: Option<&Path>,

@@ -35,7 +35,7 @@ pub(crate) trait ClaudeCli {
     fn run(&self, config_dir: Option<&Path>, args: &[&str]) -> Answer;
 }
 
-/// The program that `claude` names in the absolute folders of `path`; the current folder never counts.
+/// The program `claude` names in the absolute folders of `path`.
 pub(crate) fn resolve(path: Option<&OsStr>, extensions: &[String]) -> Option<PathBuf> {
     let path = path?;
     for dir in env::split_paths(path).filter(|dir| dir.is_absolute()) {
