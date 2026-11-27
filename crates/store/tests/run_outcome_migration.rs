@@ -162,5 +162,21 @@ async fn the_rebuild_stops_on_a_dangling_reference() {
         .await
         .unwrap();
     let applied = sqlx::migrate!("./migrations").run(&pool).await;
-    assert!(applied.is_err(), "a dangling reference aborts the rebuild");
+    let message = applied.unwrap_err().to_string();
+    assert!(message.contains("integer overflow"), "{message}");
+    // the migration stops inside its transaction; the rebuild must leave nothing behind
+    sqlx::query("ROLLBACK").execute(&pool).await.unwrap();
+    let new_table: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM sqlite_master WHERE name = 'runs_new'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(new_table, 0);
+    let definition: String =
+        sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'runs'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    // the old list ends on 'planned'; the rebuilt one continues with 'start-failed'
+    assert!(definition.contains("'planned'))"), "{definition}");
 }
