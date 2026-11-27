@@ -164,6 +164,28 @@ fn use_board(client: &Client, choice: &BoardChoice, id: Option<Uuid>) -> anyhow:
     Ok(())
 }
 
+/// Points the board to the repository around `path` on this machine.
+pub(crate) fn bind_repository(
+    client: &Client,
+    board: &BoardDto,
+    local: &RunnerDto,
+    path: &Path,
+) -> anyhow::Result<BoardDto> {
+    let absolute =
+        std::path::absolute(path).with_context(|| format!("cannot resolve {}", path.display()))?;
+    let Some(text) = absolute.to_str() else {
+        bail!("{} is not valid UTF-8", absolute.display());
+    };
+    let input = SetBoardRepository {
+        runner_id: local.id,
+        path: text.to_owned(),
+        version: board.version,
+    };
+    client
+        .set_board_repository(board.project_id, board.id, &input)
+        .with_context(|| format!("cannot set the repository of board {}", board.id))
+}
+
 /// Shows, sets or clears the board's repository, as legacy `board boards repo`.
 fn repo(client: &Client, id: Uuid, path: Option<&Path>, clear: bool) -> anyhow::Result<()> {
     let Some(board) = client
@@ -180,19 +202,7 @@ fn repo(client: &Client, id: Uuid, path: Option<&Path>, clear: bool) -> anyhow::
             .clear_board_repository(board.project_id, id, board.version)
             .with_context(|| format!("cannot clear the repository of board {id}"))?
     } else if let Some(path) = path {
-        let absolute = std::path::absolute(path)
-            .with_context(|| format!("cannot resolve {}", path.display()))?;
-        let Some(text) = absolute.to_str() else {
-            bail!("{} is not valid UTF-8", absolute.display());
-        };
-        let input = SetBoardRepository {
-            runner_id: local.id,
-            path: text.to_owned(),
-            version: board.version,
-        };
-        client
-            .set_board_repository(board.project_id, id, &input)
-            .with_context(|| format!("cannot set the repository of board {id}"))?
+        bind_repository(client, &board, &local, path)?
     } else {
         board
     };
