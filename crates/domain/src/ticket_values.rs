@@ -20,6 +20,8 @@ pub enum TicketError {
     Assignee(TextError),
     #[error("the reason for blocked {0}")]
     BlockedReason(TextError),
+    #[error("a blocked reason belongs to a ticket that is blocked; set the status to blocked too")]
+    BlockedReasonNotBlocked,
     #[error("the target branch has more than {0} characters")]
     TargetBranchTooLong(usize),
     #[error("{0} is no valid branch name")]

@@ -566,5 +566,88 @@
       },
       "status": 422
     }
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "By an agent",
+      "--board",
+      "<ID-2>",
+      "--author",
+      "claude"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 0,
+    "name": "an agent creates a ticket under its name",
+    "stderr": "",
+    "stdout": "ARC-0005 created: By an agent\n"
+  },
+  {
+    "name": "who created it",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-5"
+    },
+    "response": {
+      "json": {
+        "comments": [],
+        "history": [
+          {
+            "actorId": "<ID-7>",
+            "actorName": "claude",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "",
+          "assignee": null,
+          "blockedReason": null,
+          "boardId": "<ID-2>",
+          "branch": null,
+          "column": "backlog",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-7>",
+          "createdByName": "claude",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "",
+          "id": "<ID-8>",
+          "key": "ARC-0005",
+          "labels": [],
+          "needsPlanning": true,
+          "number": 5,
+          "openQuestions": [],
+          "plan": "",
+          "plannedAt": null,
+          "plannedBy": null,
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "backlog",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "By an agent",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 1,
+          "waiting": false,
+          "worktree": null
+        }
+      },
+      "status": 200
+    }
   }
 ]

@@ -365,7 +365,13 @@ impl EvaluateRuns {
             let actor = self.starter.actor().await?;
             match self
                 .tickets
-                .release(&key, Some("planned"), actor, Some(version), false)
+                .release(
+                    &key,
+                    Some("planned"),
+                    actor,
+                    Some(version),
+                    WriteOptions::default(),
+                )
                 .await
             {
                 Ok(view) => version = view.ticket.record().version,
@@ -496,7 +502,7 @@ impl EvaluateRuns {
                 Some("planned"),
                 actor,
                 Some(version),
-                false,
+                WriteOptions::default(),
             )
             .await
         {

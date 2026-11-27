@@ -60,6 +60,35 @@
         "body": { "ticketKeys": ["ARC-1"] }
       }
     },
-    { "name": "boards after", "http": { "method": "GET", "path": "/api/v1/boards" } }
+    { "name": "boards after", "http": { "method": "GET", "path": "/api/v1/boards" } },
+    {
+      "name": "another ticket",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{source}}/tickets",
+        "body": {
+          "title": "Move me too"
+        }
+      }
+    },
+    {
+      "name": "an agent moves it",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards/{{target}}/ticket-imports",
+        "body": {
+          "ticketKeys": ["ARC-2"],
+          "author": "claude",
+          "session": "session-1"
+        }
+      }
+    },
+    {
+      "name": "who moved it",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-2"
+      }
+    }
   ]
 }

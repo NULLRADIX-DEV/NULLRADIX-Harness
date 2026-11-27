@@ -1183,6 +1183,8 @@ impl Client {
         step: Uuid,
         version: Option<i64>,
         expect_text: Option<&str>,
+        author: Option<&str>,
+        session: Option<&str>,
     ) -> Result<TicketDetailDto, ClientError> {
         let mut request = self
             .agent
@@ -1193,6 +1195,12 @@ impl Client {
         }
         if let Some(text) = expect_text {
             request = request.query("expectText", text);
+        }
+        if let Some(author) = author {
+            request = request.query("author", author);
+        }
+        if let Some(session) = session {
+            request = request.query("session", session);
         }
         let mut response = request.call().map_err(|source| self.unreachable(source))?;
         decode(&mut response, 200)
@@ -1298,14 +1306,21 @@ impl Client {
         self.ticket_action(key, "planning-claim", input)
     }
 
-    pub fn release_planning(&self, key: &str, agent: &str) -> Result<(), ClientError> {
-        let mut response = self
+    pub fn release_planning(
+        &self,
+        key: &str,
+        agent: &str,
+        session: Option<&str>,
+    ) -> Result<(), ClientError> {
+        let mut request = self
             .agent
             .delete(&self.url(&format!("/tickets/{key}/planning-claim")))
             .header("Authorization", &self.authorization()?)
-            .query("agent", agent)
-            .call()
-            .map_err(|source| self.unreachable(source))?;
+            .query("agent", agent);
+        if let Some(session) = session {
+            request = request.query("session", session);
+        }
+        let mut response = request.call().map_err(|source| self.unreachable(source))?;
         expect_empty(&mut response, 204)
     }
 

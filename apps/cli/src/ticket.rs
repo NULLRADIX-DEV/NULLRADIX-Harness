@@ -89,6 +89,9 @@ pub(crate) enum TicketCommand {
         /// Lift the dependency and question locks
         #[arg(long)]
         force: bool,
+        /// Who starts it, such as claude; the person the daemon acts for when left out
+        #[arg(long)]
+        author: Option<String>,
     },
     /// Finish a ticket: done, its worktree ready to merge and cleaned up; nothing is merged
     Done {
@@ -107,11 +110,14 @@ pub(crate) enum TicketCommand {
         #[arg(long)]
         author: Option<String>,
     },
-    /// Give a ticket back; a given status applies without locks
+    /// Give a ticket back; a given status runs the locks of any status change
     Release {
         key: String,
         #[arg(long)]
         status: Option<String>,
+        /// Who gives it back, such as claude; the person the daemon acts for when left out
+        #[arg(long)]
+        author: Option<String>,
     },
     /// Finish a ticket that waits for a person
     Accept {
@@ -184,7 +190,7 @@ pub(crate) struct SetArgs {
     /// Replaces the labels; one flag may hold several split by commas
     #[arg(long = "label")]
     labels: Vec<String>,
-    /// Why the ticket is blocked; empty clears it
+    /// Why the ticket is blocked, with --status blocked or on a blocked ticket; empty clears it
     #[arg(long)]
     blocked_reason: Option<String>,
     #[arg(long, conflicts_with = "acceptance_file")]
@@ -295,6 +301,9 @@ pub(crate) struct CreateArgs {
     /// Print JSON instead of text
     #[arg(long)]
     json: bool,
+    /// Who creates it, such as claude; the person the daemon acts for when left out
+    #[arg(long)]
+    author: Option<String>,
 }
 
 /// The value, or none for a literal `none` as legacy read it.
@@ -407,6 +416,7 @@ pub(crate) fn run(
                 status,
                 version,
                 force,
+                session: comment::agent_session(),
             };
             let ticket = client.claim_ticket(&canonical(&key)?, &input)?;
             // best effort as legacy: a session the hooks never reported has nothing to link
@@ -421,7 +431,8 @@ pub(crate) fn run(
             join_ticket,
             join,
             force,
-        } => start(client, &key, join_ticket.as_deref(), join, force)?,
+            author,
+        } => start(client, &key, join_ticket.as_deref(), join, force, author)?,
         TicketCommand::Done {
             key,
             acceptance,
@@ -432,8 +443,17 @@ pub(crate) fn run(
             let acceptance = text(acceptance, acceptance_file.as_deref())?;
             done(client, &key, acceptance, force, author)?;
         }
-        TicketCommand::Release { key, status } => {
-            let ticket = client.release_ticket(&canonical(&key)?, &ReleaseTicket { status })?;
+        TicketCommand::Release {
+            key,
+            status,
+            author,
+        } => {
+            let input = ReleaseTicket {
+                status,
+                author,
+                session: comment::agent_session(),
+            };
+            let ticket = client.release_ticket(&canonical(&key)?, &input)?;
             report(&ticket, "released");
         }
         TicketCommand::Accept { key, version } => {
@@ -472,6 +492,7 @@ fn start(
     join_ticket: Option<&str>,
     join: bool,
     force: bool,
+    author: Option<String>,
 ) -> anyhow::Result<()> {
     let folder = std::env::current_dir().context("cannot read the current folder")?;
     let input = StartTicket {
@@ -480,6 +501,8 @@ fn start(
         join_ticket: join_ticket.map(canonical).transpose()?,
         join,
         force,
+        author,
+        session: comment::agent_session(),
     };
     let started = client.start_ticket(&canonical(key)?, &input)?;
     for warning in &started.warnings {
@@ -685,6 +708,8 @@ fn create(args: CreateArgs, client: &Client, choice: &BoardChoice) -> anyhow::Re
         force: args.force,
         allow_duplicate: args.force,
         steps: args.steps,
+        author: args.author,
+        session: comment::agent_session(),
     };
     let ticket = client.create_ticket(board.project_id, board.id, &input)?;
     if args.json {

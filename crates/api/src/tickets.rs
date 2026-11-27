@@ -330,6 +330,12 @@ pub struct CreateTicket {
     /// Texts of work steps, none done.
     #[serde(default)]
     pub steps: Vec<String>,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -476,6 +482,12 @@ pub struct AddStep {
     pub version: Option<i64>,
     /// The text the step at `at` had when it was read.
     pub expect_text: Option<String>,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 /// A change of one step; left out fields stay, a `null` detail removes the guidance.
@@ -498,6 +510,12 @@ pub struct ChangeStep {
     /// The text the step had when it was read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expect_text: Option<String>,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 /// A move of one step to another number.
@@ -507,6 +525,12 @@ pub struct MoveStep {
     pub to: i64,
     pub version: Option<i64>,
     pub expect_text: Option<String>,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -526,6 +550,10 @@ pub(crate) struct RemoveStepQuery {
     version: Option<i64>,
     /// The text the step had when it was read.
     expect_text: Option<String>,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    session: Option<String>,
 }
 
 fn guard(version: Option<i64>, expect_text: Option<String>) -> Result<StepGuard, AppError> {
@@ -541,6 +569,12 @@ fn guard(version: Option<i64>, expect_text: Option<String>) -> Result<StepGuard,
 pub struct ImportTickets {
     /// 1 to 200 ticket keys; all move or none.
     pub ticket_keys: Vec<String>,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -560,14 +594,23 @@ pub struct ClaimTicket {
     /// Takes the ticket from another assignee and lifts the locks.
     #[serde(default)]
     pub force: bool,
+    /// Agent session of the caller; the agent then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReleaseTicket {
-    /// Applied without any lock.
+    /// A new status runs the locks of any status change.
     #[schema(value_type = Option<TicketStatusDto>)]
     pub status: Option<String>,
+    /// Name to write under, such as `claude`; the acting person when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Agent session of the caller; a name then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -600,6 +643,9 @@ pub struct WritePlan {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClaimPlanning {
     pub agent: String,
+    /// Agent session of the caller; the agent then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 /// The next ticket that needs planning, claimed for an agent when one is named.
@@ -609,6 +655,9 @@ pub struct NextPlanningClaim {
     pub agent: String,
     pub project_id: Option<Uuid>,
     pub board_id: Option<Uuid>,
+    /// Agent session of the caller; the agent then writes as a session of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -630,6 +679,8 @@ pub(crate) struct PlanningScope {
 pub(crate) struct AgentQuery {
     /// Name of the agent that holds the claim.
     agent: String,
+    /// Agent session of the caller; the agent then writes as a session of that name.
+    session: Option<String>,
 }
 
 fn scope(project: Option<Uuid>, board: Option<Uuid>) -> TicketScope {
@@ -745,6 +796,14 @@ pub(crate) async fn create_ticket(
         allow_duplicate: input.allow_duplicate,
         from_agent: context.is_agent(),
     };
+    let actor = author_without_ticket(
+        &state,
+        &principal,
+        context,
+        input.author.as_deref(),
+        input.session.as_deref(),
+    )
+    .await?;
     let ticket = NewTicket {
         title: input.title,
         description: input.description,
@@ -764,7 +823,7 @@ pub(crate) async fn create_ticket(
                 Id::from_uuid(path.project_id),
                 Id::from_uuid(path.board_id),
                 &ticket,
-                &state.person,
+                &actor,
                 options,
             )
             .await?,
@@ -807,6 +866,17 @@ pub(crate) fn writer(principal: &Principal, context: AgentContext, force: bool) 
 /// Longest session text a caller may send; it only tells that the write comes from a run.
 const SESSION_MAX: usize = 200;
 
+fn check_session(session: Option<&str>) -> Result<(), AppError> {
+    if session.is_some_and(|text| text.chars().count() > SESSION_MAX) {
+        return Err(AppError::text(
+            nullradix_domain::TextError::TooLong(SESSION_MAX),
+            "session-empty",
+            String::from("the session is too long"),
+        ));
+    }
+    Ok(())
+}
+
 /// The actor of a write; a named author is made only for a valid request on a ticket.
 pub(crate) async fn author_of(
     state: &ApiState,
@@ -816,21 +886,27 @@ pub(crate) async fn author_of(
     session: Option<&str>,
     ticket_key: &str,
 ) -> Result<nullradix_domain::Actor, AppError> {
-    if session.is_some_and(|text| text.chars().count() > SESSION_MAX) {
-        return Err(AppError::text(
-            nullradix_domain::TextError::TooLong(SESSION_MAX),
-            "session-empty",
-            String::from("the session is too long"),
-        ));
+    check_session(session)?;
+    if !is_person(principal, context) {
+        state.tickets.get(ticket_key).await?;
     }
+    author_without_ticket(state, principal, context, name, session).await
+}
+
+/// The actor of a write without a ticket yet; made before the request is checked.
+pub(crate) async fn author_without_ticket(
+    state: &ApiState,
+    principal: &Principal,
+    context: AgentContext,
+    name: Option<&str>,
+    session: Option<&str>,
+) -> Result<nullradix_domain::Actor, AppError> {
+    check_session(session)?;
     let author = Author {
         by_person: is_person(principal, context),
         name,
         session,
     };
-    if !author.by_person {
-        state.tickets.get(ticket_key).await?;
-    }
     state.comments.author(author, &state.person).await
 }
 
@@ -1029,9 +1105,20 @@ pub(crate) async fn delete_ticket(
 )]
 pub(crate) async fn add_step(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<AddStep>,
 ) -> Result<(StatusCode, Json<TicketDetailDto>), ApiError> {
+    let actor = author_of(
+        &state,
+        &principal,
+        context,
+        input.author.as_deref(),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let detail = state
         .tickets
         .add_step(
@@ -1040,7 +1127,7 @@ pub(crate) async fn add_step(
             input.detail.as_deref(),
             input.at,
             &guard(input.version, input.expect_text)?,
-            &state.person,
+            &actor,
         )
         .await?;
     Ok((StatusCode::CREATED, Json(detail.into())))
@@ -1062,9 +1149,20 @@ pub(crate) async fn add_step(
 )]
 pub(crate) async fn change_step(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<StepPath>,
     ApiJson(input): ApiJson<ChangeStep>,
 ) -> Result<Json<TicketDetailDto>, ApiError> {
+    let actor = author_of(
+        &state,
+        &principal,
+        context,
+        input.author.as_deref(),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let step = StepPatch {
         text: input.text,
         detail: input.detail,
@@ -1077,7 +1175,7 @@ pub(crate) async fn change_step(
             Id::from_uuid(path.step_id),
             &step,
             &guard(input.version, input.expect_text)?,
-            &state.person,
+            &actor,
         )
         .await?;
     Ok(Json(detail.into()))
@@ -1098,16 +1196,27 @@ pub(crate) async fn change_step(
 )]
 pub(crate) async fn remove_step(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<StepPath>,
     ApiQuery(query): ApiQuery<RemoveStepQuery>,
 ) -> Result<Json<TicketDetailDto>, ApiError> {
+    let actor = author_of(
+        &state,
+        &principal,
+        context,
+        query.author.as_deref(),
+        query.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let detail = state
         .tickets
         .remove_step(
             &path.ticket_key,
             Id::from_uuid(path.step_id),
             &guard(query.version, query.expect_text)?,
-            &state.person,
+            &actor,
         )
         .await?;
     Ok(Json(detail.into()))
@@ -1129,9 +1238,20 @@ pub(crate) async fn remove_step(
 )]
 pub(crate) async fn move_step(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<StepPath>,
     ApiJson(input): ApiJson<MoveStep>,
 ) -> Result<Json<TicketDetailDto>, ApiError> {
+    let actor = author_of(
+        &state,
+        &principal,
+        context,
+        input.author.as_deref(),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let detail = state
         .tickets
         .move_step(
@@ -1139,7 +1259,7 @@ pub(crate) async fn move_step(
             Id::from_uuid(path.step_id),
             input.to,
             &guard(input.version, input.expect_text)?,
-            &state.person,
+            &actor,
         )
         .await?;
     Ok(Json(detail.into()))
@@ -1162,17 +1282,27 @@ pub(crate) async fn move_step(
 )]
 pub(crate) async fn claim_ticket(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<ClaimTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
+    let actor = author_of(
+        &state,
+        &principal,
+        context,
+        Some(&input.agent),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let view = state
         .tickets
         .claim(
             &path.ticket_key,
             &input.agent,
             input.status.as_deref(),
-            &state.person,
+            &actor,
             version(input.version)?,
             input.force,
             context.is_agent(),
@@ -1197,18 +1327,28 @@ pub(crate) async fn claim_ticket(
 )]
 pub(crate) async fn release_ticket(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<ReleaseTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
+    let actor = author_of(
+        &state,
+        &principal,
+        context,
+        input.author.as_deref(),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let view = state
         .tickets
         .release(
             &path.ticket_key,
             input.status.as_deref(),
-            &state.person,
+            &actor,
             None,
-            context.is_agent(),
+            writer(&principal, context, false),
         )
         .await?;
     Ok(Json(view.into()))
@@ -1295,7 +1435,12 @@ pub(crate) async fn write_plan(
     .await?;
     let view = state
         .tickets
-        .plan(&path.ticket_key, &plan, &actor, context.is_agent())
+        .plan(
+            &path.ticket_key,
+            &plan,
+            &actor,
+            writer(&principal, context, false),
+        )
         .await?;
     Ok(Json(view.into()))
 }
@@ -1316,18 +1461,23 @@ pub(crate) async fn write_plan(
 )]
 pub(crate) async fn claim_planning(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<ClaimPlanning>,
 ) -> Result<Json<TicketDto>, ApiError> {
+    let actor = author_of(
+        &state,
+        &principal,
+        context,
+        Some(&input.agent),
+        input.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     let view = state
         .tickets
-        .claim_planning(
-            &path.ticket_key,
-            &input.agent,
-            &state.person,
-            context.is_agent(),
-        )
+        .claim_planning(&path.ticket_key, &input.agent, &actor, context.is_agent())
         .await?;
     Ok(Json(view.into()))
 }
@@ -1346,18 +1496,23 @@ pub(crate) async fn claim_planning(
 )]
 pub(crate) async fn release_planning(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiQuery(query): ApiQuery<AgentQuery>,
 ) -> Result<StatusCode, ApiError> {
+    let actor = author_of(
+        &state,
+        &principal,
+        context,
+        Some(&query.agent),
+        query.session.as_deref(),
+        &path.ticket_key,
+    )
+    .await?;
     state
         .tickets
-        .release_planning(
-            &path.ticket_key,
-            &query.agent,
-            &state.person,
-            context.is_agent(),
-        )
+        .release_planning(&path.ticket_key, &query.agent, &actor, context.is_agent())
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1407,15 +1562,24 @@ pub(crate) async fn next_planning(
 )]
 pub(crate) async fn claim_next_planning(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     Extension(context): Extension<AgentContext>,
     ApiJson(input): ApiJson<NextPlanningClaim>,
 ) -> Result<Json<NextPlanning>, ApiError> {
+    let actor = author_without_ticket(
+        &state,
+        &principal,
+        context,
+        Some(&input.agent),
+        input.session.as_deref(),
+    )
+    .await?;
     let ticket = state
         .tickets
         .next_planning(
             scope(input.project_id, input.board_id),
             Some(&input.agent),
-            &state.person,
+            &actor,
             context.is_agent(),
         )
         .await?;
@@ -1439,16 +1603,26 @@ pub(crate) async fn claim_next_planning(
 )]
 pub(crate) async fn import_tickets(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<BoardTicketsPath>,
     ApiJson(input): ApiJson<ImportTickets>,
 ) -> Result<Json<ImportedTickets>, ApiError> {
+    let actor = author_without_ticket(
+        &state,
+        &principal,
+        context,
+        input.author.as_deref(),
+        input.session.as_deref(),
+    )
+    .await?;
     let moved = state
         .tickets
         .move_to_board(
             Id::from_uuid(path.project_id),
             Id::from_uuid(path.board_id),
             &input.ticket_keys,
-            &state.person,
+            &actor,
         )
         .await?;
     Ok(Json(ImportedTickets {
@@ -2003,23 +2177,233 @@ mod tests {
         let (_, _, ticket) = send(&api.router, request).await;
         assert_eq!(ticket["ticket"]["dependsOn"], json!(["ARC-0001"]));
         assert_eq!(ticket["ticket"]["version"], 1);
-        // adding one, or the status lock itself, is not the refusal
+        // adding one, or the status lock itself, is not the refusal; here it changes nothing
         let add = json!({ "dependsOnAdd": ["ARC-1"], "version": 1 });
         assert_eq!(
             token_call(&api, Some(in_run), "PATCH", uri, add).await.0,
             200
         );
         // a person at a terminal may drop it, and an agent may drop one that is done
-        let drop = json!({ "dependsOnRemove": ["ARC-1"], "version": 2 });
+        let drop = json!({ "dependsOnRemove": ["ARC-1"], "version": 1 });
         assert_eq!(token_call(&api, None, "PATCH", uri, drop).await.0, 200);
-        let add = json!({ "dependsOnAdd": ["ARC-1"], "version": 3 });
+        let add = json!({ "dependsOnAdd": ["ARC-1"], "version": 2 });
         assert_eq!(token_call(&api, None, "PATCH", uri, add).await.0, 200);
         let done = json!({ "status": "done" });
         let first = "/api/v1/tickets/ARC-1/move";
         assert_eq!(token_call(&api, None, "POST", first, done).await.0, 200);
-        let drop = json!({ "dependsOnRemove": ["ARC-1"], "version": 4 });
+        let drop = json!({ "dependsOnRemove": ["ARC-1"], "version": 3 });
         let (status, problem) = token_call(&api, Some(in_run), "PATCH", uri, drop).await;
         assert_eq!(status, 200, "{problem}");
+    }
+
+    /// Who wrote the newest history line of the ticket, and what it changed.
+    async fn newest(api: &TestApi, key: &str) -> (String, String, Option<String>) {
+        let request = bearer(Request::get(format!("/api/v1/tickets/{key}")), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (_, _, detail) = send(&api.router, request).await;
+        let line = detail["history"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone();
+        (
+            line["actorName"].as_str().unwrap().to_owned(),
+            line["field"].as_str().unwrap().to_owned(),
+            line["to"].as_str().map(str::to_owned),
+        )
+    }
+
+    #[tokio::test]
+    async fn every_ticket_write_names_its_author_in_the_history() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        let (status, ticket) = token_call(
+            &api,
+            Some(in_session),
+            "POST",
+            &board,
+            json!({
+                "title": "Fix it", "acceptance": "works", "steps": ["a", "b"],
+                "author": "creator", "session": "s-1"
+            }),
+        )
+        .await;
+        assert_eq!(status, 201, "{ticket}");
+        assert_eq!(ticket["createdByName"], "creator");
+        assert_eq!(newest(&api, "ARC-1").await.0, "creator");
+
+        let steps = "/api/v1/tickets/ARC-1/steps";
+        let (status, detail) = token_call(
+            &api,
+            Some(in_session),
+            "POST",
+            steps,
+            json!({ "text": "c", "author": "step-adder", "session": "s-1" }),
+        )
+        .await;
+        assert_eq!(status, 201, "{detail}");
+        assert_eq!(newest(&api, "ARC-1").await.0, "step-adder");
+        let first = detail["steps"][0]["id"].as_str().unwrap().to_owned();
+        let step = format!("{steps}/{first}");
+        let change = json!({ "done": true, "author": "step-changer", "session": "s-1" });
+        let (status, _) = token_call(&api, Some(in_session), "PATCH", &step, change).await;
+        assert_eq!(status, 200);
+        assert_eq!(newest(&api, "ARC-1").await.0, "step-changer");
+        let move_to = json!({ "to": 2, "author": "step-mover", "session": "s-1" });
+        let (status, _) = token_call(
+            &api,
+            Some(in_session),
+            "POST",
+            &format!("{step}/move"),
+            move_to,
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(newest(&api, "ARC-1").await.0, "step-mover");
+        let remove = format!("{step}?author=step-remover&session=s-1");
+        let (status, _) = token_call(&api, Some(in_session), "DELETE", &remove, json!({})).await;
+        assert_eq!(status, 200);
+        assert_eq!(newest(&api, "ARC-1").await.0, "step-remover");
+    }
+
+    #[tokio::test]
+    async fn claims_planning_claims_and_imports_name_their_author_in_the_history() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        let created = json!({ "title": "Fix it", "acceptance": "works" });
+        assert_eq!(token_call(&api, None, "POST", &board, created).await.0, 201);
+
+        let claim = json!({ "agent": "claimer", "status": "planned", "session": "s-1" });
+        let uri = "/api/v1/tickets/ARC-1/claim";
+        let (status, _) = token_call(&api, Some(in_session), "POST", uri, claim).await;
+        assert_eq!(status, 200);
+        assert_eq!(newest(&api, "ARC-1").await.0, "claimer");
+        let release = json!({ "status": "backlog", "author": "releaser", "session": "s-1" });
+        let uri = "/api/v1/tickets/ARC-1/release";
+        let (status, _) = token_call(&api, Some(in_session), "POST", uri, release).await;
+        assert_eq!(status, 200);
+        assert_eq!(newest(&api, "ARC-1").await.0, "releaser");
+
+        let planning = "/api/v1/tickets/ARC-1/planning-claim";
+        let claim = json!({ "agent": "planner-one", "session": "s-1" });
+        let (status, _) = token_call(&api, Some(in_session), "POST", planning, claim).await;
+        assert_eq!(status, 200);
+        assert_eq!(
+            newest(&api, "ARC-1").await,
+            (
+                String::from("planner-one"),
+                String::from("planningClaimBy"),
+                Some(String::from("planner-one"))
+            )
+        );
+        let give_up = format!("{planning}?agent=planner-one&session=s-1");
+        let (status, _) = token_call(&api, Some(in_session), "DELETE", &give_up, json!({})).await;
+        assert_eq!(status, 204);
+        assert_eq!(
+            newest(&api, "ARC-1").await,
+            (
+                String::from("planner-one"),
+                String::from("planningClaimBy"),
+                None
+            )
+        );
+        let queue = json!({ "agent": "queue-agent", "session": "s-1" });
+        let uri = "/api/v1/planning-queue/claim";
+        let (status, claimed) = token_call(&api, Some(in_session), "POST", uri, queue).await;
+        assert_eq!(status, 200, "{claimed}");
+        assert_eq!(newest(&api, "ARC-1").await.0, "queue-agent");
+
+        let project = board.split('/').nth(4).unwrap().to_owned();
+        let second = api
+            .boards
+            .create(
+                nullradix_domain::Id::from_uuid(project.parse().unwrap()),
+                "Other",
+                &api.person,
+            )
+            .await
+            .unwrap()
+            .board;
+        let import = format!(
+            "/api/v1/projects/{project}/boards/{}/ticket-imports",
+            second.id().as_uuid()
+        );
+        let body = json!({ "ticketKeys": ["ARC-1"], "author": "importer", "session": "s-1" });
+        let (status, moved) = token_call(&api, Some(in_session), "POST", &import, body).await;
+        assert_eq!(status, 200, "{moved}");
+        assert_eq!(newest(&api, "ARC-1").await.0, "importer");
+    }
+
+    #[tokio::test]
+    async fn a_named_author_outside_a_session_does_not_bypass_the_plan_gate() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        let created = json!({ "title": "Fix it", "acceptance": "works" });
+        assert_eq!(token_call(&api, None, "POST", &board, created).await.0, 201);
+        let uri = "/api/v1/tickets/ARC-1/plan";
+        let body = json!({ "plan": "Do it", "status": "done", "author": "planner-ARC-0001" });
+        for mark in [in_run, in_session] {
+            let (status, problem) = token_call(&api, Some(mark), "PUT", uri, body.clone()).await;
+            assert_eq!(status, 422, "{problem}");
+            assert_eq!(problem["code"], "plan-status-denied");
+        }
+        let (status, problem) = token_call(&api, None, "PUT", uri, body).await;
+        assert_eq!(status, 200, "{problem}");
+        assert_eq!(problem["status"], "done");
+        let planned = json!({ "plan": "Again", "author": "planner-ARC-0001" });
+        let (status, problem) = token_call(&api, Some(in_run), "PUT", uri, planned).await;
+        assert_eq!(status, 200, "{problem}");
+    }
+
+    #[tokio::test]
+    async fn release_and_plan_keep_the_locks_of_a_move_and_the_person_may_still_drop_a_ticket() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        for title in ["One", "Two"] {
+            let (status, _) =
+                token_call(&api, None, "POST", &board, json!({ "title": title })).await;
+            assert_eq!(status, 201);
+        }
+        let claim = json!({ "agent": "claude", "status": "planned" });
+        let (status, _) =
+            token_call(&api, None, "POST", "/api/v1/tickets/ARC-1/claim", claim).await;
+        assert_eq!(status, 200);
+        let release = "/api/v1/tickets/ARC-1/release";
+        for (status, code) in [
+            ("done", "acceptance-missing"),
+            ("not-needed", "not-needed-human-only"),
+        ] {
+            let (answer, problem) =
+                token_call(&api, None, "POST", release, json!({ "status": status })).await;
+            assert_eq!((answer, problem["code"].as_str()), (422, Some(code)));
+        }
+        let plan = "/api/v1/tickets/ARC-2/plan";
+        let done = json!({ "plan": "Do it", "status": "done" });
+        let (answer, problem) = token_call(&api, None, "PUT", plan, done).await;
+        assert_eq!(
+            (answer, problem["code"].as_str()),
+            (422, Some("acceptance-missing"))
+        );
+
+        let cookie = open_session(&api).await;
+        let as_the_person = |method: &'static str, uri: &str, body: serde_json::Value| {
+            as_person(Request::builder().method(method).uri(uri), &cookie)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let unneeded = json!({ "status": "not-needed" });
+        let (answer, _, released) =
+            send(&api.router, as_the_person("POST", release, unneeded)).await;
+        assert_eq!(answer.as_u16(), 200, "{released}");
+        assert_eq!(released["status"], "not-needed");
+        assert_eq!(released["assignee"], serde_json::Value::Null);
+        let unneeded = json!({ "plan": "Not now", "status": "not-needed" });
+        let (answer, _, planned) = send(&api.router, as_the_person("PUT", plan, unneeded)).await;
+        assert_eq!(answer.as_u16(), 200, "{planned}");
+        assert_eq!(planned["status"], "not-needed");
     }
 
     #[tokio::test]

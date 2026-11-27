@@ -336,9 +336,9 @@ async fn clearing_ends_the_link_with_history_and_keeps_the_list() {
     assert_eq!(links(&entry), [(String::from("ARC-0001"), 0, false)]);
     assert!(fx.store.of_ticket(owner.id()).await.unwrap().is_none());
 
-    // clearing again finds nothing to end but still bumps the version, as in legacy
+    // clearing again finds nothing to end and writes nothing
     let again = fx.update("ARC-1", clear()).await.unwrap();
-    assert_eq!(again.version, Version::INITIAL.next().next());
+    assert_eq!(again.version, Version::INITIAL.next());
     assert_eq!(fx.tickets.get("ARC-1").await.unwrap().history.len(), 3);
 }
 

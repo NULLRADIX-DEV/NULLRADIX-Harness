@@ -105,15 +105,17 @@ export function TicketProperties({
           onConflict={actions.conflict}
           onSave={(text) => void actions.save({ targetBranch: orNull(text) })}
         />
-        <InlineField
-          label="Blocked reason"
-          value={ticket.blockedReason ?? ''}
-          placeholder="Not blocked"
-          busy={busy}
-          wide
-          onConflict={actions.conflict}
-          onSave={(text) => void actions.save({ blockedReason: orNull(text) })}
-        />
+        {ticket.status === 'blocked' && (
+          <InlineField
+            label="Blocked reason"
+            value={ticket.blockedReason ?? ''}
+            placeholder="Why it is blocked"
+            busy={busy}
+            wide
+            onConflict={actions.conflict}
+            onSave={(text) => void actions.save({ blockedReason: orNull(text) })}
+          />
+        )}
       </div>
     </section>
   );

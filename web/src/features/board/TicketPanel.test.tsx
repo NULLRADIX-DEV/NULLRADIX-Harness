@@ -155,6 +155,41 @@ describe('TicketPanel', () => {
     expect(within(work).getByText('release/2')).toBeInTheDocument();
   });
 
+  it('has no blocked reason field on a ticket that is not blocked', async () => {
+    server();
+    renderApp('/board');
+    const panel = await openTicket();
+    expect(panel.queryByRole('textbox', { name: 'Blocked reason' })).not.toBeInTheDocument();
+  });
+
+  it('edits the blocked reason while blocked and drops the field when it moves on', async () => {
+    const { api } = boardServer({
+      entries: [
+        entry(
+          ticket({ status: 'blocked', column: 'blocked', blockedReason: 'Waiting for the API' }),
+        ),
+      ],
+    });
+    renderApp('/board');
+    const blocked = await screen.findByRole('region', { name: 'Blocked' });
+    await userEvent.click(await within(blocked).findByRole('button', { name: /ARC-0001/ }));
+    const panel = within(await screen.findByRole('dialog', { name: `Ticket ${KEY}` }));
+    const reason = await panel.findByRole('textbox', { name: 'Blocked reason' });
+    expect(reason).toHaveValue('Waiting for the API');
+    await userEvent.clear(reason);
+    await userEvent.type(reason, 'Waiting for a key{Enter}');
+    await panel.findByText(/Version 2/);
+    expect(await lastBody(api.requests(`PATCH ${BASE}`))).toEqual({
+      blockedReason: 'Waiting for a key',
+      version: 1,
+    });
+
+    await userEvent.selectOptions(panel.getByRole('combobox', { name: 'Status' }), 'Planned');
+    await waitFor(() => {
+      expect(panel.queryByRole('textbox', { name: 'Blocked reason' })).not.toBeInTheDocument();
+    });
+  });
+
   it('lists the branch and worktree of a started ticket', async () => {
     boardServer({
       entries: [

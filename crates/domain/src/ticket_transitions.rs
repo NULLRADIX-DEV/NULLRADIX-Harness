@@ -1,8 +1,8 @@
 //! State rules of a ticket: each takes the current state and a request and returns the next state.
 
 use crate::{
-    BLOCKED_REASON_MAX, Board, HUMAN_INTERACTION, Id, StatusFacts, StatusLock, Ticket, TicketError,
-    TicketKey, TicketRecord, TicketStatus, Timestamp, optional_text, strip_fence,
+    BLOCKED_REASON_MAX, Board, HUMAN_INTERACTION, Id, StatusLock, Ticket, TicketError, TicketKey,
+    TicketRecord, TicketStatus, Timestamp, optional_text, strip_fence,
 };
 
 /// Why a claim for an agent is refused.
@@ -57,22 +57,35 @@ impl TicketRecord {
         after.status != self.status || after.board != self.board
     }
 
-    /// The block reason after a change; leaving blocked drops it unless a new one is given.
+    /// The block reason after a change: it lives only in blocked, and a new one needs blocked.
     pub fn blocked_reason_after(
         &self,
         status: TicketStatus,
         given: Option<Option<&str>>,
     ) -> Result<Option<String>, TicketError> {
         match given {
-            Some(Some(text)) => optional_text(text, BLOCKED_REASON_MAX)
-                .map(|text| text.map(str::to_owned))
-                .map_err(TicketError::BlockedReason),
-            Some(None) => Ok(None),
-            None if self.status == TicketStatus::Blocked && status != TicketStatus::Blocked => {
-                Ok(None)
+            Some(Some(text)) => {
+                let reason = optional_text(text, BLOCKED_REASON_MAX)
+                    .map(|text| text.map(str::to_owned))
+                    .map_err(TicketError::BlockedReason)?;
+                if reason.is_some() && status != TicketStatus::Blocked {
+                    return Err(TicketError::BlockedReasonNotBlocked);
+                }
+                Ok(reason)
             }
-            None => Ok(self.blocked_reason.clone()),
+            None if status == TicketStatus::Blocked && self.status == TicketStatus::Blocked => {
+                Ok(self.blocked_reason.clone())
+            }
+            Some(None) | None => Ok(None),
         }
+    }
+
+    /// Keeps a block reason only from blocked to blocked.
+    fn reason_kept(mut self, before: TicketStatus) -> Self {
+        if self.status != TicketStatus::Blocked || before != TicketStatus::Blocked {
+            self.blocked_reason = None;
+        }
+        self
     }
 
     /// The state on `target`, which must be another board of the same project.
@@ -102,10 +115,7 @@ impl Ticket {
         if let Some(acceptance) = acceptance {
             acceptance.clone_into(&mut after.acceptance);
         }
-        if status != TicketStatus::Blocked {
-            after.blocked_reason = None;
-        }
-        after
+        after.reason_kept(self.record().status)
     }
 
     /// The claim checks that need no reads: taken already, and not needed for agents.
@@ -127,36 +137,22 @@ impl Ticket {
         Ok(())
     }
 
-    /// Hands the ticket to an agent; `facts` come into play unless the claim is forced.
-    pub fn claimed(
-        &self,
-        assignee: String,
-        status: TicketStatus,
-        force: bool,
-        facts: &StatusFacts,
-    ) -> Result<TicketRecord, ClaimError> {
-        self.claim_precheck(status, force)?;
-        if !force {
-            if !facts.open_dependencies.is_empty() {
-                return Err(StatusLock::DependencyOpen(facts.open_dependencies.clone()).into());
-            }
-            if !facts.open_questions.is_empty() {
-                return Err(StatusLock::QuestionOpen(facts.open_questions.clone()).into());
-            }
-        }
+    /// Hands the ticket to an agent; the locks of the new status are checked by the caller.
+    #[must_use]
+    pub fn claimed(&self, assignee: String, status: TicketStatus) -> TicketRecord {
         let mut after = self.record().clone();
         after.assignee = Some(assignee);
         after.status = status;
-        Ok(after)
+        after.reason_kept(self.record().status)
     }
 
-    /// Clears the assignee; a given status applies without any lock.
+    /// Clears the assignee and applies a given status; the caller checks its locks.
     #[must_use]
     pub fn released(&self, status: Option<TicketStatus>) -> TicketRecord {
         let mut after = self.record().clone();
         after.assignee = None;
         after.status = status.unwrap_or(after.status);
-        after
+        after.reason_kept(self.record().status)
     }
 
     /// Finishes a ticket that is blocked on a person.
@@ -193,7 +189,7 @@ impl Ticket {
         after.needs_planning = false;
         after.planning_claim = None;
         after.planned = Some((change.by.to_owned(), change.at));
-        after
+        after.reason_kept(self.record().status)
     }
 
     /// Starts a planning claim for `agent`; another agent's live claim refuses it.
@@ -325,7 +321,7 @@ mod tests {
             Ok(Some(String::from("Merge: conflict")))
         );
         assert_eq!(
-            leave(TicketStatus::Planned, Some(Some("  later "))),
+            leave(TicketStatus::Blocked, Some(Some("  later "))),
             Ok(Some(String::from("later")))
         );
         assert_eq!(leave(TicketStatus::Blocked, Some(None)), Ok(None));
@@ -333,13 +329,42 @@ mod tests {
     }
 
     #[test]
-    fn a_reason_stays_on_a_ticket_that_was_not_blocked() {
+    fn a_reason_outside_blocked_is_refused_and_a_stale_one_goes() {
         let mut record = ticket(TicketStatus::Planned).record().clone();
         record.blocked_reason = Some(String::from("odd"));
+        for status in [TicketStatus::Planned, TicketStatus::Done] {
+            assert_eq!(record.blocked_reason_after(status, None), Ok(None));
+            assert_eq!(
+                record.blocked_reason_after(status, Some(Some("new"))),
+                Err(TicketError::BlockedReasonNotBlocked)
+            );
+            assert_eq!(record.blocked_reason_after(status, Some(None)), Ok(None));
+            assert_eq!(
+                record.blocked_reason_after(status, Some(Some(" "))),
+                Ok(None)
+            );
+        }
+    }
+
+    #[test]
+    fn a_stale_reason_does_not_come_back_on_the_way_into_blocked() {
+        let mut record = ticket(TicketStatus::Planned).record().clone();
+        record.blocked_reason = Some(String::from("Human Interaction: old"));
         assert_eq!(
-            record.blocked_reason_after(TicketStatus::Done, None),
-            Ok(Some(String::from("odd")))
+            record.blocked_reason_after(TicketStatus::Blocked, None),
+            Ok(None)
         );
+        let stale = Ticket::restore(record);
+        for after in [
+            stale.moved(TicketStatus::Blocked, None),
+            stale.claimed(String::from("max"), TicketStatus::Blocked),
+            stale.released(Some(TicketStatus::Blocked)),
+        ] {
+            assert_eq!(after.blocked_reason, None);
+            assert!(!after.awaits_a_person());
+        }
+        let kept = blocked("Merge: conflict").moved(TicketStatus::Blocked, None);
+        assert_eq!(kept.blocked_reason.as_deref(), Some("Merge: conflict"));
     }
 
     #[test]
@@ -388,15 +413,8 @@ mod tests {
 
     #[test]
     fn a_claim_sets_the_assignee_and_status() {
-        let ticket = ticket(TicketStatus::Planned);
-        let after = ticket
-            .claimed(
-                String::from("claude"),
-                TicketStatus::InProgress,
-                false,
-                &StatusFacts::default(),
-            )
-            .unwrap();
+        let after =
+            ticket(TicketStatus::Planned).claimed(String::from("claude"), TicketStatus::InProgress);
         assert_eq!(after.assignee.as_deref(), Some("claude"));
         assert_eq!(after.status, TicketStatus::InProgress);
     }
@@ -406,58 +424,28 @@ mod tests {
         let mut record = ticket(TicketStatus::Planned).record().clone();
         record.assignee = Some(String::from("claude"));
         let ticket = Ticket::restore(record);
-        let facts = StatusFacts::default();
-        for force in [false, true] {
-            let result = ticket.claimed(
-                String::from("claude"),
-                TicketStatus::InProgress,
-                force,
-                &facts,
-            );
-            if force {
-                assert!(result.is_ok());
-            } else {
-                assert_eq!(
-                    result,
-                    Err(ClaimError::Assigned {
-                        key: key("ARC-7"),
-                        assignee: String::from("claude"),
-                    })
-                );
-            }
-        }
+        assert_eq!(
+            ticket.claim_precheck(TicketStatus::InProgress, false),
+            Err(ClaimError::Assigned {
+                key: key("ARC-7"),
+                assignee: String::from("claude"),
+            })
+        );
+        assert_eq!(
+            ticket.claim_precheck(TicketStatus::InProgress, true),
+            Ok(())
+        );
     }
 
     #[test]
-    fn a_claim_checks_not_needed_dependencies_and_questions_in_order() {
+    fn a_claim_refuses_not_needed_unless_forced() {
         let ticket = ticket(TicketStatus::Planned);
-        let facts = StatusFacts {
-            acceptance_blank: true,
-            open_dependencies: vec![key("ARC-1")],
-            open_questions: vec![String::from("Q-1")],
-        };
-        let claim = |status, force, facts: &StatusFacts| {
-            ticket.claimed(String::from("claude"), status, force, facts)
-        };
         assert_eq!(
-            claim(TicketStatus::NotNeeded, false, &facts),
+            ticket.claim_precheck(TicketStatus::NotNeeded, false),
             Err(StatusLock::NotNeededByPeople.into())
         );
-        assert_eq!(
-            claim(TicketStatus::InProgress, false, &facts),
-            Err(StatusLock::DependencyOpen(vec![key("ARC-1")]).into())
-        );
-        let questions = StatusFacts {
-            open_dependencies: Vec::new(),
-            ..facts.clone()
-        };
-        assert_eq!(
-            claim(TicketStatus::Planned, false, &questions),
-            Err(StatusLock::QuestionOpen(vec![String::from("Q-1")]).into())
-        );
-        // a forced claim skips every lock, and the acceptance never counts
-        assert!(claim(TicketStatus::NotNeeded, true, &facts).is_ok());
-        assert!(claim(TicketStatus::Done, false, &StatusFacts::default()).is_ok());
+        assert_eq!(ticket.claim_precheck(TicketStatus::NotNeeded, true), Ok(()));
+        assert_eq!(ticket.claim_precheck(TicketStatus::Done, false), Ok(()));
     }
 
     #[test]
@@ -465,46 +453,23 @@ mod tests {
         let mut record = ticket(TicketStatus::Planned).record().clone();
         record.assignee = Some(String::from("claude"));
         let assigned = Ticket::restore(record);
-        let free = ticket(TicketStatus::Planned);
-        let both = StatusFacts {
-            acceptance_blank: false,
-            open_dependencies: vec![key("ARC-1")],
-            open_questions: vec![String::from("Q-1")],
-        };
-        let name = || String::from("claude");
         assert_eq!(
-            assigned.claimed(name(), TicketStatus::NotNeeded, false, &both),
+            assigned.claim_precheck(TicketStatus::NotNeeded, false),
             Err(ClaimError::Assigned {
                 key: key("ARC-7"),
                 assignee: String::from("claude"),
             })
         );
-        assert_eq!(
-            free.claimed(name(), TicketStatus::NotNeeded, false, &both),
-            Err(StatusLock::NotNeededByPeople.into())
-        );
-        assert_eq!(
-            free.claimed(name(), TicketStatus::InProgress, false, &both),
-            Err(StatusLock::DependencyOpen(vec![key("ARC-1")]).into())
-        );
-        assert_eq!(
-            assigned.claim_precheck(TicketStatus::InProgress, true),
-            Ok(())
-        );
-        assert!(free.claim_precheck(TicketStatus::InProgress, false).is_ok());
     }
 
     #[test]
-    fn a_claim_keeps_the_block_reason() {
-        let after = blocked("Merge: conflict")
-            .claimed(
-                String::from("claude"),
-                TicketStatus::InProgress,
-                false,
-                &StatusFacts::default(),
-            )
-            .unwrap();
-        assert_eq!(after.blocked_reason.as_deref(), Some("Merge: conflict"));
+    fn a_claim_out_of_blocked_drops_the_reason() {
+        let claim = |status| blocked("Merge: conflict").claimed(String::from("claude"), status);
+        assert_eq!(claim(TicketStatus::InProgress).blocked_reason, None);
+        assert_eq!(
+            claim(TicketStatus::Blocked).blocked_reason.as_deref(),
+            Some("Merge: conflict")
+        );
     }
 
     #[test]
@@ -522,6 +487,17 @@ mod tests {
             (moved.assignee, moved.status),
             (None, TicketStatus::Planned)
         );
+    }
+
+    #[test]
+    fn a_release_out_of_blocked_drops_the_reason() {
+        let ticket = blocked("Merge: conflict");
+        assert_eq!(
+            ticket.released(None).blocked_reason.as_deref(),
+            Some("Merge: conflict")
+        );
+        let planned = ticket.released(Some(TicketStatus::Planned));
+        assert_eq!(planned.blocked_reason, None);
     }
 
     #[test]
@@ -577,6 +553,29 @@ mod tests {
             ..change
         });
         assert_eq!(with_acceptance.acceptance, "done when green");
+    }
+
+    #[test]
+    fn a_plan_out_of_blocked_drops_the_reason() {
+        let change = PlanChange {
+            plan: Some("plan"),
+            handbook: None,
+            diagram: None,
+            acceptance: None,
+            status: TicketStatus::Planned,
+            by: "tristan",
+            at: Timestamp::from_millis(50),
+        };
+        let ticket = blocked("Merge: conflict");
+        assert_eq!(ticket.planned(&change).blocked_reason, None);
+        let stays = PlanChange {
+            status: TicketStatus::Blocked,
+            ..change
+        };
+        assert_eq!(
+            ticket.planned(&stays).blocked_reason.as_deref(),
+            Some("Merge: conflict")
+        );
     }
 
     #[test]

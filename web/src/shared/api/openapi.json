@@ -9142,6 +9142,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "session",
+            "in": "query",
+            "description": "Agent session of the caller; the agent then writes as a session of that name.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10015,6 +10024,24 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "author",
+            "in": "query",
+            "description": "Name to write under, such as `claude`; the acting person when left out.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "query",
+            "description": "Agent session of the caller; a name then writes as a session of that name.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10602,6 +10629,13 @@
             "format": "int64",
             "description": "Position from 1; without one the step goes last."
           },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
           "detail": {
             "type": [
               "string",
@@ -10615,6 +10649,13 @@
               "null"
             ],
             "description": "The text the step at `at` had when it was read."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
           },
           "text": {
             "type": "string"
@@ -11087,6 +11128,13 @@
         "type": "object",
         "description": "A change of one step; left out fields stay, a `null` detail removes the guidance.",
         "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
           "detail": {
             "type": [
               "string",
@@ -11105,6 +11153,13 @@
               "null"
             ],
             "description": "The text the step had when it was read."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
           },
           "text": {
             "type": [
@@ -11187,6 +11242,13 @@
         "properties": {
           "agent": {
             "type": "string"
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; the agent then writes as a session of that name."
           }
         },
         "additionalProperties": false
@@ -11216,6 +11278,13 @@
           "force": {
             "type": "boolean",
             "description": "Takes the ticket from another assignee and lifts the locks."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; the agent then writes as a session of that name."
           },
           "status": {
             "oneOf": [
@@ -11820,6 +11889,13 @@
             "type": "boolean",
             "description": "Allows an open ticket with the same title on the board."
           },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
           "dependsOn": {
             "type": "array",
             "items": {
@@ -11860,6 +11936,13 @@
                 "type": "null"
               }
             ]
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
           },
           "status": {
             "oneOf": [
@@ -13182,6 +13265,20 @@
           "ticketKeys"
         ],
         "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
+          },
           "ticketKeys": {
             "type": "array",
             "items": {
@@ -13728,11 +13825,25 @@
           "to"
         ],
         "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
           "expectText": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
           },
           "to": {
             "type": "integer",
@@ -13870,6 +13981,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; the agent then writes as a session of that name."
           }
         },
         "additionalProperties": false
@@ -15057,11 +15175,25 @@
       "ReleaseTicket": {
         "type": "object",
         "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
+          },
           "status": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/TicketStatusDto",
-                "description": "Applied without any lock."
+                "description": "A new status runs the locks of any status change."
               },
               {
                 "type": "null"
@@ -16705,6 +16837,13 @@
           "cwd"
         ],
         "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name to write under, such as `claude`; the acting person when left out."
+          },
           "cwd": {
             "type": "string",
             "description": "Absolute folder in the board's repository; without a target the branch starts at its HEAD."
@@ -16727,6 +16866,13 @@
           "runnerId": {
             "type": "string",
             "format": "uuid"
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent session of the caller; a name then writes as a session of that name."
           }
         },
         "additionalProperties": false

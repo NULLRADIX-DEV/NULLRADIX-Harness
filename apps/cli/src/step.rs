@@ -7,6 +7,7 @@ use nullradix_api::{AddStep, ChangeStep, MoveStep, TicketDetailDto};
 use nullradix_client::Client;
 use uuid::Uuid;
 
+use crate::comment::agent_session;
 use crate::ticket::{canonical, text};
 
 #[derive(Subcommand)]
@@ -76,6 +77,9 @@ pub(crate) struct Guard {
     /// Text the step had when it was read
     #[arg(long)]
     expect: Option<String>,
+    /// Who changes it, such as claude; the person the daemon acts for when left out
+    #[arg(long)]
+    author: Option<String>,
 }
 
 pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitCode> {
@@ -91,6 +95,8 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
                 done: Some(!undo),
                 version: guard.version,
                 expect_text: guard.expect,
+                author: guard.author,
+                session: agent_session(),
                 ..ChangeStep::default()
             };
             let detail = client.change_step(&key, step_id(client, &key, number)?, &input)?;
@@ -114,6 +120,8 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
                 at,
                 version: guard.version,
                 expect_text: guard.expect,
+                author: guard.author,
+                session: agent_session(),
             };
             let detail = client.add_step(&key, &input)?;
             let number = at.map_or(detail.ticket.steps_total.to_string(), |at| at.to_string());
@@ -135,6 +143,8 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
                 detail,
                 version: guard.version,
                 expect_text: guard.expect,
+                author: guard.author,
+                session: agent_session(),
                 ..ChangeStep::default()
             };
             let detail = client.change_step(&key, step_id(client, &key, number)?, &input)?;
@@ -147,6 +157,8 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
                 step_id(client, &key, number)?,
                 guard.version,
                 guard.expect.as_deref(),
+                guard.author.as_deref(),
+                agent_session().as_deref(),
             )?;
             print(&detail, &format!("step {number} removed"));
         }
@@ -161,6 +173,8 @@ pub(crate) fn run(command: StepCommand, client: &Client) -> anyhow::Result<ExitC
                 to: i64::from(to),
                 version: guard.version,
                 expect_text: guard.expect,
+                author: guard.author,
+                session: agent_session(),
             };
             let detail = client.move_step(&key, step_id(client, &key, from)?, &input)?;
             print(&detail, &format!("step {from} -> {to}"));
