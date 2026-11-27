@@ -195,9 +195,73 @@
       "NULLRADIX_RUN": "run-1"
     },
     "exitCode": 1,
+    "name": "a run cannot replace the reason",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-1",
+      "--blocked-reason",
+      ""
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
     "name": "a run cannot clear the reason",
     "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
     "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "return",
+      "ARC-1",
+      "--feedback",
+      "more tests"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot return it to the agent",
+    "stderr": "error: the daemon refused the request: returning a review stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-1",
+      "--plan",
+      "Do it"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 1,
+    "name": "a session cannot plan it into planned",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "plan",
+      "claim",
+      "ARC-1",
+      "--agent",
+      "planner"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 0,
+    "name": "a run claims planning but the ticket still waits",
+    "stderr": "",
+    "stdout": "ARC-0001 claimed for planning (blocked)\n"
   },
   {
     "name": "the ticket still waits",

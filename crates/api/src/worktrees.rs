@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::auth::AgentContext;
 use crate::tickets::{TicketDto, TicketPath, writer};
 use crate::{ApiError, ApiJson, ApiPath, ApiState, Problem};
 
@@ -198,6 +199,7 @@ pub struct ResumedTicket {
 )]
 pub(crate) async fn start_ticket(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<StartTicket>,
 ) -> Result<Json<StartedTicket>, ApiError> {
@@ -210,6 +212,7 @@ pub(crate) async fn start_ticket(
             &input.cwd,
             mode,
             input.force,
+            context.is_agent(),
             &state.person,
         )
         .await?;
@@ -234,6 +237,7 @@ pub(crate) async fn start_ticket(
 pub(crate) async fn finish_ticket(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<FinishTicket>,
 ) -> Result<Json<FinishedTicket>, ApiError> {
@@ -248,7 +252,7 @@ pub(crate) async fn finish_ticket(
     let request = DoneRequest {
         acceptance: input.acceptance.as_deref(),
         expected: input.version.map(AppError::client_version).transpose()?,
-        options: writer(&principal, input.force),
+        options: writer(&principal, context, input.force),
     };
     let finished = state
         .worktrees

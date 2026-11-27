@@ -309,6 +309,7 @@ pub(crate) async fn accept_review(
     responses(
         (status = 200, description = "Back to planned, also when it was before", body = TicketDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent", body = Problem),
         (status = 404, description = "Unknown ticket", body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, description = "No feedback, too long, or the ticket waits for no review", body = Problem),
@@ -316,9 +317,11 @@ pub(crate) async fn accept_review(
 )]
 pub(crate) async fn return_review(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<ReturnReview>,
 ) -> Result<Json<TicketDto>, ApiError> {
+    refuse_agent(context, || decision_needs_person("returning a review"))?;
     let view = state
         .decisions
         .return_to_agent(
@@ -557,6 +560,40 @@ mod tests {
         let (status, _, ticket) = send(&api.router, request).await;
         assert_eq!(status, StatusCode::OK, "{ticket}");
         assert_eq!(ticket["status"], "done");
+    }
+
+    #[tokio::test]
+    async fn a_review_is_returned_by_the_person_and_not_by_a_run_or_session_of_an_agent() {
+        let api = test_api().await;
+        let (_dir, version) = held(&api).await;
+        let cookie = open_session(&api).await;
+        let path = "/api/v1/tickets/arc-1/review/return";
+        let body = json!({ "feedback": "Add a test", "version": version }).to_string();
+        for mark in [in_run, in_session] {
+            for as_session in [false, true] {
+                let builder = if as_session {
+                    as_person(Request::post(path), &cookie)
+                } else {
+                    bearer(Request::post(path), &api.token)
+                };
+                let request = mark(builder)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.clone()))
+                    .unwrap();
+                let (status, _, problem) = send(&api.router, request).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+                assert_eq!(problem["code"], "decision-needs-person");
+            }
+        }
+        let (_, held) = get(&api, "/api/v1/tickets/arc-1").await;
+        assert_eq!(held["ticket"]["status"], "blocked");
+        let request = as_person(Request::post(path), &cookie)
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let (status, _, ticket) = send(&api.router, request).await;
+        assert_eq!(status, StatusCode::OK, "{ticket}");
+        assert_eq!(ticket["status"], "planned");
     }
 
     #[tokio::test]

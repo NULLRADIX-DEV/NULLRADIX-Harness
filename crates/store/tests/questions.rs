@@ -314,13 +314,13 @@ async fn an_open_question_holds_its_tickets_back_until_a_person_answers() {
     );
     let claimed = f
         .tickets
-        .claim(&ticket, "claude", None, &f.person, None, false)
+        .claim(&ticket, "claude", None, &f.person, None, false, false)
         .await
         .unwrap_err();
     assert_eq!(claimed.code(), "question-open");
     let planning = f
         .tickets
-        .next_planning(TicketScope::default(), None, &f.person)
+        .next_planning(TicketScope::default(), None, &f.person, false)
         .await
         .unwrap();
     assert!(planning.is_none());

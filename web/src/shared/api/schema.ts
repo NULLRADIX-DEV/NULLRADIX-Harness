@@ -11836,6 +11836,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Unknown ticket */
             404: {
                 headers: {

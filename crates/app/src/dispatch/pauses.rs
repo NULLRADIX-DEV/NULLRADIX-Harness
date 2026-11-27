@@ -520,7 +520,7 @@ impl PauseHook for DispatchPauses {
         if ours {
             match self
                 .tickets
-                .release(&text, Some("planned"), actor, Some(current.version))
+                .release(&text, Some("planned"), actor, Some(current.version), false)
                 .await
             {
                 Ok(_) => {}

@@ -160,10 +160,11 @@ pub use theme_fetch::{
 pub use theme_risk::{RiskAdded, ThemeRisk, inspect_package};
 pub use theme_settings::{SETTING_VALUE_MAX, SettingValue, ThemeSettingValues};
 pub use ticket::{
-    ASSIGNEE_MAX, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange, HUMAN_INTERACTION, HistoryEntry,
-    PLANNING_CLAIM_TTL, TITLE_MAX, TargetBranch, Ticket, TicketDraft, TicketRecord, TicketTitle,
-    Tombstone, changes, check_target_lock, planning_candidate, planning_claim_alive, strip_fence,
-    waits_for_a_person,
+    ASSIGNEE_MAX, AgentWriteRefusal, BLOCKED_REASON_MAX, BRANCH_MAX, FieldChange,
+    HUMAN_INTERACTION, HistoryEntry, PLANNING_CLAIM_TTL, TITLE_MAX, TargetBranch, Ticket,
+    TicketDraft, TicketRecord, TicketTitle, Tombstone, changes, check_agent_write,
+    check_target_lock, planning_candidate, planning_claim_alive, strip_fence, waits_for_a_person,
+    waits_on_a_person,
 };
 pub use ticket_transitions::{
     AcceptError, BoardMoveError, ClaimError, PlanChange, PlanningClaimed,

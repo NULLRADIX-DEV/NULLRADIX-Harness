@@ -169,6 +169,10 @@ impl WorktreeService {
     }
 
     /// Starts the ticket from `cwd` on `runner`, checking in the legacy order.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the route fields and who is asking"
+    )]
     pub async fn start(
         &self,
         key: &str,
@@ -176,8 +180,11 @@ impl WorktreeService {
         cwd: &str,
         mode: StartMode,
         force: bool,
+        from_agent: bool,
         actor: &Actor,
     ) -> Result<Started, AppError> {
+        // an agent's force never lifts the locks
+        let force = force && !from_agent;
         let view = self.tickets.get(key).await?.view;
         let ticket = view.ticket;
         let place = self.place(&ticket, runner, cwd).await?;
@@ -198,8 +205,14 @@ impl WorktreeService {
             },
         };
         let started = match link {
-            Link::Join(entry) => self.join(&ticket, entry, force, actor).await?,
-            Link::New { warning } => self.create(&ticket, &place, warning, force, actor).await?,
+            Link::Join(entry) => {
+                self.join(&ticket, entry, (force, from_agent), actor)
+                    .await?
+            }
+            Link::New { warning } => {
+                self.create(&ticket, &place, warning, (force, from_agent), actor)
+                    .await?
+            }
         };
         Ok(Started { cleanup, ..started })
     }
@@ -307,7 +320,7 @@ impl WorktreeService {
         &self,
         ticket: &Ticket,
         entry: WorktreeEntry,
-        force: bool,
+        (force, from_agent): (bool, bool),
         actor: &Actor,
     ) -> Result<Started, AppError> {
         let mut write = self.tickets.repository().begin().await?;
@@ -315,7 +328,7 @@ impl WorktreeService {
         write
             .join_worktree(entry.worktree.id(), before.id(), self.clock.now())
             .await?;
-        self.link(write, &before, &entry.worktree, actor, "joined")
+        self.link(write, &before, &entry.worktree, actor, "joined", from_agent)
             .await?;
         self.started(ticket.key(), &entry.worktree, true, Vec::new(), None)
             .await
@@ -327,7 +340,7 @@ impl WorktreeService {
         ticket: &Ticket,
         place: &Place,
         warning: Option<String>,
-        force: bool,
+        (force, from_agent): (bool, bool),
         actor: &Actor,
     ) -> Result<Started, AppError> {
         let record = ticket.record();
@@ -370,7 +383,7 @@ impl WorktreeService {
             .retire_branch(place.repository, place.runner, worktree.branch(), now)
             .await?;
         write.insert_worktree(&worktree, before.id()).await?;
-        self.link(write, &before, &worktree, actor, "started")
+        self.link(write, &before, &worktree, actor, "started", from_agent)
             .await?;
         let mut warnings: Vec<String> = warning.into_iter().collect();
         if created.long_paths_enabled {
@@ -391,6 +404,7 @@ impl WorktreeService {
         worktree: &Worktree,
         actor: &Actor,
         note: &str,
+        from_agent: bool,
     ) -> Result<(), AppError> {
         let record = before.record();
         let mut after = record.clone();
@@ -403,6 +417,7 @@ impl WorktreeService {
                 .next_sort_order(record.board, TicketStatus::InProgress)
                 .await?;
         }
+        crate::tickets::guard_agent_write(from_agent, before, &after, None)?;
         let now = self.clock.now();
         let revised = before.revised(after, now);
         let history = self

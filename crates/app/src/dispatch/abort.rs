@@ -208,7 +208,7 @@ impl AbortAttempts {
                 .map(|_| ())
         } else if request.standing == Standing::Claimed {
             self.tickets
-                .release(&text, Some("planned"), actor, Some(record.version))
+                .release(&text, Some("planned"), actor, Some(record.version), false)
                 .await
                 .map(|_| ())
         } else {

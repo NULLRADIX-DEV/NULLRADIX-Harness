@@ -9656,6 +9656,16 @@
               }
             }
           },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Unknown ticket",
             "content": {

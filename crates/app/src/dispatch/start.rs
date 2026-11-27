@@ -367,6 +367,7 @@ impl TicketStarter {
                 actor,
                 Some(record.version),
                 false,
+                false,
             )
             .await;
         let version = match claimed {
@@ -516,7 +517,15 @@ impl TicketStarter {
             };
             let started = self
                 .worktrees
-                .start(&text, self.runners.local().id(), root, mode, false, actor)
+                .start(
+                    &text,
+                    self.runners.local().id(),
+                    root,
+                    mode,
+                    false,
+                    false,
+                    actor,
+                )
                 .await?;
             *version = started.ticket.ticket.record().version;
             notes.extend(started.warnings);
@@ -884,7 +893,7 @@ Account: {} ({}).",
         }
         let released = self
             .tickets
-            .release(&text, Some("planned"), actor, Some(version))
+            .release(&text, Some("planned"), actor, Some(version), false)
             .await;
         if let Err(error) = released
             && error.kind() != ErrorKind::Conflict

@@ -1431,7 +1431,7 @@ async fn a_ticket_that_changed_during_setup_does_not_get_a_run() {
     f.setup.entered.notified().await;
     // a person takes the ticket back while the setup runs
     f.tickets
-        .release(&key, Some("planned"), &f.person, None)
+        .release(&key, Some("planned"), &f.person, None, false)
         .await
         .unwrap();
     gate.notify_one();
@@ -1466,7 +1466,7 @@ async fn a_failed_start_never_undoes_a_manual_start_that_came_in_between() {
     f.machine.create_entered.notified().await;
     // a person starts the claimed ticket by hand while git works for the dispatcher
     f.worktrees
-        .start(&key, f.local, ROOT, StartMode::New, false, &f.person)
+        .start(&key, f.local, ROOT, StartMode::New, false, false, &f.person)
         .await
         .unwrap();
     let before = f.record(&key).await;
@@ -1766,7 +1766,7 @@ async fn a_setup_that_fails_after_the_ticket_changed_does_not_block_it() {
     assert_eq!(f.dispatcher.pass.run().await.started, [key.clone()]);
     f.setup.entered.notified().await;
     f.tickets
-        .release(&key, Some("planned"), &f.person, None)
+        .release(&key, Some("planned"), &f.person, None, false)
         .await
         .unwrap();
     gate.notify_one();
@@ -1790,7 +1790,7 @@ async fn a_run_for_a_ticket_that_changed_while_it_started_is_stopped() {
     });
     f.machine.start_entered.notified().await;
     f.tickets
-        .release(&key, Some("planned"), &f.person, None)
+        .release(&key, Some("planned"), &f.person, None, false)
         .await
         .unwrap();
     gate.notify_one();
@@ -1826,12 +1826,13 @@ async fn a_ticket_whose_worktree_is_being_set_up_is_not_claimed() {
             ROOT,
             StartMode::AutoJoin,
             false,
+            false,
             &f.person,
         )
         .await
         .unwrap();
     f.tickets
-        .release(&second, Some("planned"), &f.person, None)
+        .release(&second, Some("planned"), &f.person, None, false)
         .await
         .unwrap();
     let before = f.record(&second).await;
@@ -5890,7 +5891,7 @@ impl Fixture {
             handbook: Some(String::from("cargo test")),
             ..nullradix_app::tickets::PlanInput::default()
         };
-        self.tickets.plan(key, &input, &actor).await.unwrap();
+        self.tickets.plan(key, &input, &actor, false).await.unwrap();
     }
 
     async fn plan_tracked(&self, key: &str) -> Option<nullradix_app::dispatch::tracking::Tracked> {
@@ -6909,7 +6910,15 @@ async fn a_ticket_that_is_open_holds_the_merge_back_and_says_so_once() {
     let first = f.ready("First", &["auto"]).await;
     let second = f.ready("Second", &["auto"]).await;
     f.worktrees
-        .start(&first, f.local, ROOT, StartMode::New, false, &f.person)
+        .start(
+            &first,
+            f.local,
+            ROOT,
+            StartMode::New,
+            false,
+            false,
+            &f.person,
+        )
         .await
         .unwrap();
     f.worktrees
@@ -6918,6 +6927,7 @@ async fn a_ticket_that_is_open_holds_the_merge_back_and_says_so_once() {
             f.local,
             ROOT,
             StartMode::JoinTicket(first.clone()),
+            false,
             false,
             &f.person,
         )
@@ -7038,7 +7048,15 @@ async fn a_ticket_reopened_during_the_merge_keeps_its_branch_and_status() {
     let first = f.ready("First", &["auto"]).await;
     let second = f.ready("Second", &["auto"]).await;
     f.worktrees
-        .start(&first, f.local, ROOT, StartMode::New, false, &f.person)
+        .start(
+            &first,
+            f.local,
+            ROOT,
+            StartMode::New,
+            false,
+            false,
+            &f.person,
+        )
         .await
         .unwrap();
     f.worktrees
@@ -7047,6 +7065,7 @@ async fn a_ticket_reopened_during_the_merge_keeps_its_branch_and_status() {
             f.local,
             ROOT,
             StartMode::JoinTicket(first.clone()),
+            false,
             false,
             &f.person,
         )
@@ -7198,7 +7217,7 @@ async fn a_planning_is_refused_for_the_reasons_legacy_gave() {
     // another agent holds the planning claim
     let claimed = f.unplanned("Claimed", None).await;
     f.tickets
-        .claim_planning(&claimed, "someone-else", &f.person)
+        .claim_planning(&claimed, "someone-else", &f.person, false)
         .await
         .unwrap();
     assert_eq!(f.plan_error(&claimed).await, "plan-claimed");
@@ -7600,7 +7619,7 @@ async fn the_planning_automation_marks_ticket_faults_and_waits_after_machine_fau
     // a live claim of another agent keeps a ticket out of the candidates
     let claimed = f.unplanned("Claimed", None).await;
     f.tickets
-        .claim_planning(&claimed, "someone-else", &f.person)
+        .claim_planning(&claimed, "someone-else", &f.person, false)
         .await
         .unwrap();
     let report = f.dispatcher.pass.run().await;
@@ -8061,6 +8080,7 @@ async fn a_retry_is_refused_while_a_merge_session_runs_for_a_sibling() {
             ROOT,
             StartMode::AutoJoin,
             false,
+            false,
             &f.person,
         )
         .await
@@ -8286,7 +8306,15 @@ async fn a_hold_is_forgotten_while_a_ticket_of_the_branch_is_open_again() {
     let first = f.ready("First", &["auto"]).await;
     let second = f.ready("Second", &["auto"]).await;
     f.worktrees
-        .start(&first, f.local, ROOT, StartMode::New, false, &f.person)
+        .start(
+            &first,
+            f.local,
+            ROOT,
+            StartMode::New,
+            false,
+            false,
+            &f.person,
+        )
         .await
         .unwrap();
     f.worktrees
@@ -8295,6 +8323,7 @@ async fn a_hold_is_forgotten_while_a_ticket_of_the_branch_is_open_again() {
             f.local,
             ROOT,
             StartMode::JoinTicket(first.clone()),
+            false,
             false,
             &f.person,
         )

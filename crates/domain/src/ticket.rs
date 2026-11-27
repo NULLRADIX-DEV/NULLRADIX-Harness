@@ -413,6 +413,44 @@ pub fn waits_for_a_person(reason: Option<&str>) -> bool {
     text.starts_with(HUMAN_INTERACTION) || Some(text) == HUMAN_INTERACTION.strip_suffix(':')
 }
 
+/// Blocked on a person, such as a review before the merge.
+#[must_use]
+pub fn waits_on_a_person(record: &TicketRecord) -> bool {
+    record.status == TicketStatus::Blocked && waits_for_a_person(record.blocked_reason.as_deref())
+}
+
+/// What a write made by an agent may not do: end a wait for the person or bypass one.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AgentWriteRefusal {
+    #[error("moving a ticket that waits for a person")]
+    EndsWait,
+    #[error("removing the label {0}")]
+    DropsLabel(String),
+}
+
+/// The one rule for every write an agent makes; `keep_label` is the label that keeps a person in.
+pub fn check_agent_write(
+    before: &TicketRecord,
+    after: &TicketRecord,
+    keep_label: Option<&str>,
+) -> Result<(), AgentWriteRefusal> {
+    if waits_on_a_person(before) && !waits_on_a_person(after) {
+        return Err(AgentWriteRefusal::EndsWait);
+    }
+    let has = |record: &TicketRecord, label: &str| {
+        record
+            .labels
+            .iter()
+            .any(|own| own.eq_ignore_ascii_case(label))
+    };
+    match keep_label {
+        Some(label) if has(before, label) && !has(after, label) => {
+            Err(AgentWriteRefusal::DropsLabel(label.to_owned()))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// A diagram without the Markdown fence around it, as legacy stored plans.
 #[must_use]
 pub fn strip_fence(diagram: &str) -> String {
@@ -777,6 +815,55 @@ mod tests {
         let later = |minutes: u64| start.checked_add(Duration::from_mins(minutes)).unwrap();
         assert!(planning_claim_alive(&record, later(14)));
         assert!(!planning_claim_alive(&record, later(15)));
+    }
+
+    #[test]
+    fn an_agent_may_neither_end_a_wait_for_a_person_nor_drop_the_label_that_keeps_one() {
+        let open = sample().record().clone();
+        let mut waiting = open.clone();
+        waiting.status = TicketStatus::Blocked;
+        waiting.blocked_reason = Some(String::from("Human Interaction: review"));
+        // entering a wait, staying in it and ordinary changes are fine
+        assert_eq!(check_agent_write(&open, &waiting, None), Ok(()));
+        assert_eq!(check_agent_write(&waiting, &waiting, None), Ok(()));
+        assert_eq!(check_agent_write(&open, &open, None), Ok(()));
+        // leaving it is not, whatever the next state is
+        for status in [
+            TicketStatus::Done,
+            TicketStatus::Planned,
+            TicketStatus::InProgress,
+        ] {
+            let mut after = waiting.clone();
+            after.status = status;
+            assert_eq!(
+                check_agent_write(&waiting, &after, None),
+                Err(AgentWriteRefusal::EndsWait),
+                "{status:?}"
+            );
+        }
+        let mut other_reason = waiting.clone();
+        other_reason.blocked_reason = Some(String::from("waiting for a key"));
+        assert_eq!(
+            check_agent_write(&waiting, &other_reason, None),
+            Err(AgentWriteRefusal::EndsWait)
+        );
+        let mut tagged = open.clone();
+        tagged.labels = vec![String::from("Interactive"), String::from("ui")];
+        let mut dropped = tagged.clone();
+        dropped.labels = vec![String::from("ui")];
+        assert_eq!(
+            check_agent_write(&tagged, &dropped, Some("interactive")),
+            Err(AgentWriteRefusal::DropsLabel(String::from("interactive")))
+        );
+        assert_eq!(check_agent_write(&tagged, &dropped, None), Ok(()));
+        assert_eq!(
+            check_agent_write(&dropped, &tagged, Some("interactive")),
+            Ok(())
+        );
+        assert_eq!(
+            check_agent_write(&dropped, &dropped, Some("interactive")),
+            Ok(())
+        );
     }
 
     #[test]

@@ -115,7 +115,7 @@ impl PassStep for ReleaseStale {
             }
             match self
                 .tickets
-                .release(&key, Some("planned"), actor, Some(record.version))
+                .release(&key, Some("planned"), actor, Some(record.version), false)
                 .await
             {
                 Ok(_) => report.released.push(key.clone()),

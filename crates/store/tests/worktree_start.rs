@@ -306,7 +306,7 @@ impl Fixture {
 
     async fn start(&self, key: &str, cwd: &str, mode: StartMode) -> Result<Started, AppError> {
         self.worktrees
-            .start(key, self.runner, cwd, mode, false, &self.person)
+            .start(key, self.runner, cwd, mode, false, false, &self.person)
             .await
     }
 
@@ -455,6 +455,7 @@ async fn open_dependencies_lock_the_start_unless_forced_or_already_in_progress()
             "/work/arches",
             StartMode::New,
             true,
+            false,
             &fixture.person,
         )
         .await

@@ -735,6 +735,7 @@ pub(crate) async fn list_tickets(
 pub(crate) async fn create_ticket(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<BoardTicketsPath>,
     ApiJson(input): ApiJson<CreateTicket>,
 ) -> Result<(StatusCode, HeaderMap, Json<TicketDto>), ApiError> {
@@ -742,7 +743,7 @@ pub(crate) async fn create_ticket(
         by_person: matches!(principal, Principal::Session { .. }),
         force: input.force,
         allow_duplicate: input.allow_duplicate,
-        from_agent: false,
+        from_agent: context.is_agent(),
     };
     let ticket = NewTicket {
         title: input.title,
@@ -794,36 +795,12 @@ pub(crate) async fn get_ticket(
     Ok(Json(state.tickets.get(&path.ticket_key).await?.into()))
 }
 
-/// An agent may not move a ticket out of blocked while it waits for a person.
-async fn refuse_agent_ending_a_wait(
-    state: &ApiState,
-    context: AgentContext,
-    key: &str,
-    status: Option<&str>,
-) -> Result<(), ApiError> {
-    let moves_on = status.is_some_and(|text| {
-        nullradix_domain::TicketStatus::parse(text)
-            .is_ok_and(|status| status != nullradix_domain::TicketStatus::Blocked)
-    });
-    if !context.is_agent() || !moves_on {
-        return Ok(());
-    }
-    let detail = state.tickets.get(key).await?;
-    let record = detail.view.ticket.record();
-    if record.status == nullradix_domain::TicketStatus::Blocked
-        && nullradix_domain::waits_for_a_person(record.blocked_reason.as_deref())
-    {
-        return Err(decision_needs_person("moving a ticket that waits for a person").into());
-    }
-    Ok(())
-}
-
-pub(crate) fn writer(principal: &Principal, force: bool) -> WriteOptions {
+pub(crate) fn writer(principal: &Principal, context: AgentContext, force: bool) -> WriteOptions {
     WriteOptions {
         by_person: matches!(principal, Principal::Session { .. }),
         force,
         allow_duplicate: false,
-        from_agent: false,
+        from_agent: context.is_agent(),
     }
 }
 
@@ -921,9 +898,18 @@ pub(crate) async fn update_ticket(
     }
     let clear_link = link.iter().any(|given| given.is_some());
     let expected = AppError::client_version(input.version)?;
-    let options = WriteOptions {
-        from_agent: context.is_agent(),
-        ..writer(&principal, input.force)
+    let options = writer(&principal, context, input.force);
+    // an agent may not take off the label that keeps a person in the loop
+    let keep_label = if context.is_agent() {
+        state
+            .dispatcher_config
+            .get()
+            .await?
+            .config
+            .autopilot
+            .except_label
+    } else {
+        None
     };
     let actor = author_of(
         &state,
@@ -952,6 +938,7 @@ pub(crate) async fn update_ticket(
         board: input.board_id.map(Id::from_uuid),
         target_branch: input.target_branch,
         clear_link,
+        keep_label,
     };
     let detail = state
         .tickets
@@ -998,10 +985,7 @@ pub(crate) async fn move_ticket(
             input.acceptance.as_deref(),
             &actor,
             version(input.version)?,
-            WriteOptions {
-                from_agent: context.is_agent(),
-                ..writer(&principal, input.force)
-            },
+            writer(&principal, context, input.force),
         )
         .await?;
     Ok(Json(view.into()))
@@ -1185,9 +1169,6 @@ pub(crate) async fn claim_ticket(
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<ClaimTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
-    // a claim moves to in progress unless told, which ends a wait for a person
-    let status = input.status.as_deref().or(Some("in-progress"));
-    refuse_agent_ending_a_wait(&state, context, &path.ticket_key, status).await?;
     let view = state
         .tickets
         .claim(
@@ -1197,6 +1178,7 @@ pub(crate) async fn claim_ticket(
             &state.person,
             version(input.version)?,
             input.force,
+            context.is_agent(),
         )
         .await?;
     Ok(Json(view.into()))
@@ -1222,7 +1204,6 @@ pub(crate) async fn release_ticket(
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<ReleaseTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
-    refuse_agent_ending_a_wait(&state, context, &path.ticket_key, input.status.as_deref()).await?;
     let view = state
         .tickets
         .release(
@@ -1230,6 +1211,7 @@ pub(crate) async fn release_ticket(
             input.status.as_deref(),
             &state.person,
             None,
+            context.is_agent(),
         )
         .await?;
     Ok(Json(view.into()))
@@ -1286,6 +1268,7 @@ pub(crate) async fn accept_ticket(
 pub(crate) async fn write_plan(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<WritePlan>,
 ) -> Result<Json<TicketDto>, ApiError> {
@@ -1311,7 +1294,10 @@ pub(crate) async fn write_plan(
         &path.ticket_key,
     )
     .await?;
-    let view = state.tickets.plan(&path.ticket_key, &plan, &actor).await?;
+    let view = state
+        .tickets
+        .plan(&path.ticket_key, &plan, &actor, context.is_agent())
+        .await?;
     Ok(Json(view.into()))
 }
 
@@ -1331,12 +1317,18 @@ pub(crate) async fn write_plan(
 )]
 pub(crate) async fn claim_planning(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<ClaimPlanning>,
 ) -> Result<Json<TicketDto>, ApiError> {
     let view = state
         .tickets
-        .claim_planning(&path.ticket_key, &input.agent, &state.person)
+        .claim_planning(
+            &path.ticket_key,
+            &input.agent,
+            &state.person,
+            context.is_agent(),
+        )
         .await?;
     Ok(Json(view.into()))
 }
@@ -1355,12 +1347,18 @@ pub(crate) async fn claim_planning(
 )]
 pub(crate) async fn release_planning(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiQuery(query): ApiQuery<AgentQuery>,
 ) -> Result<StatusCode, ApiError> {
     state
         .tickets
-        .release_planning(&path.ticket_key, &query.agent, &state.person)
+        .release_planning(
+            &path.ticket_key,
+            &query.agent,
+            &state.person,
+            context.is_agent(),
+        )
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1379,11 +1377,17 @@ pub(crate) async fn release_planning(
 )]
 pub(crate) async fn next_planning(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiQuery(query): ApiQuery<PlanningScope>,
 ) -> Result<Json<NextPlanning>, ApiError> {
     let ticket = state
         .tickets
-        .next_planning(scope(query.project_id, query.board_id), None, &state.person)
+        .next_planning(
+            scope(query.project_id, query.board_id),
+            None,
+            &state.person,
+            context.is_agent(),
+        )
         .await?;
     Ok(Json(NextPlanning {
         ticket: ticket.map(TicketDto::from),
@@ -1404,6 +1408,7 @@ pub(crate) async fn next_planning(
 )]
 pub(crate) async fn claim_next_planning(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiJson(input): ApiJson<NextPlanningClaim>,
 ) -> Result<Json<NextPlanning>, ApiError> {
     let ticket = state
@@ -1412,6 +1417,7 @@ pub(crate) async fn claim_next_planning(
             scope(input.project_id, input.board_id),
             Some(&input.agent),
             &state.person,
+            context.is_agent(),
         )
         .await?;
     Ok(Json(NextPlanning {
@@ -1771,6 +1777,22 @@ mod tests {
                 format!("{path}/release"),
                 json!({ "status": "done" }),
             ),
+            ("PUT", format!("{path}/plan"), json!({ "plan": "Do it" })),
+            (
+                "PUT",
+                format!("{path}/plan"),
+                json!({ "plan": "Do it", "status": "planned" }),
+            ),
+            (
+                "POST",
+                format!("{path}/move"),
+                json!({ "status": "done", "force": true }),
+            ),
+            (
+                "PATCH",
+                path.clone(),
+                json!({ "status": "done", "force": true, "version": 2 }),
+            ),
         ];
         for (method, uri, body) in &attempts {
             for mark in [in_run, in_session] {
@@ -1840,5 +1862,92 @@ mod tests {
             let (status, _, problem) = send(&api.router, request).await;
             assert_eq!(status, 200, "{body} {problem}");
         }
+    }
+
+    type Mark = fn(axum::http::request::Builder) -> axum::http::request::Builder;
+
+    /// A token request, naming a run or session when `mark` is given.
+    async fn token_call(
+        api: &TestApi,
+        mark: Option<Mark>,
+        method: &str,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> (u16, serde_json::Value) {
+        let builder = bearer(Request::builder().method(method).uri(uri), &api.token);
+        let builder = match mark {
+            Some(mark) => mark(builder),
+            None => builder,
+        };
+        let request = builder
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        (status.as_u16(), json)
+    }
+
+    #[tokio::test]
+    async fn an_agents_force_never_lifts_the_locks() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        for body in [
+            json!({ "title": "First", "acceptance": "works" }),
+            json!({ "title": "Second", "acceptance": "works", "dependsOn": ["ARC-1"] }),
+        ] {
+            assert_eq!(token_call(&api, None, "POST", &board, body).await.0, 201);
+        }
+        let to_progress = json!({ "status": "in-progress", "force": true });
+        let move_path = "/api/v1/tickets/ARC-2/move";
+        let (status, problem) =
+            token_call(&api, Some(in_run), "POST", move_path, to_progress.clone()).await;
+        assert_eq!(status, 422, "{problem}");
+        let claim = json!({ "agent": "claude", "force": true });
+        let (status, problem) = token_call(
+            &api,
+            Some(in_session),
+            "POST",
+            "/api/v1/tickets/ARC-2/claim",
+            claim,
+        )
+        .await;
+        assert_eq!(status, 422, "{problem}");
+        let not_needed = json!({ "status": "not-needed", "force": true });
+        let (status, problem) = token_call(&api, Some(in_run), "POST", move_path, not_needed).await;
+        assert_eq!(status, 422, "{problem}");
+        // the person at a terminal may force it
+        let (status, problem) = token_call(&api, None, "POST", move_path, to_progress).await;
+        assert_eq!(status, 200, "{problem}");
+    }
+
+    #[tokio::test]
+    async fn an_agent_cannot_take_off_the_label_that_keeps_a_person_in() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        let created =
+            json!({ "title": "Mine", "acceptance": "works", "labels": ["Interactive", "ui"] });
+        assert_eq!(token_call(&api, None, "POST", &board, created).await.0, 201);
+        let uri = "/api/v1/tickets/ARC-1";
+        for (labels, expected) in [
+            (json!(["ui"]), 403),
+            (json!([]), 403),
+            (json!(["interactive", "docs"]), 200),
+        ] {
+            let version = 1;
+            let body = json!({ "labels": labels, "version": version });
+            let (status, problem) = token_call(&api, Some(in_run), "PATCH", uri, body).await;
+            assert_eq!(status, expected, "{labels} {problem}");
+            if expected == 403 {
+                assert_eq!(problem["code"], "decision-needs-person");
+                assert!(problem["detail"].as_str().unwrap().contains("interactive"));
+            }
+        }
+        // a token without a run takes it off, and a ticket without it may change labels
+        let body = json!({ "labels": ["ui"], "version": 2 });
+        let (status, problem) = token_call(&api, None, "PATCH", uri, body).await;
+        assert_eq!(status, 200, "{problem}");
+        let body = json!({ "labels": ["docs"], "version": 3 });
+        let (status, problem) = token_call(&api, Some(in_run), "PATCH", uri, body).await;
+        assert_eq!(status, 200, "{problem}");
     }
 }
