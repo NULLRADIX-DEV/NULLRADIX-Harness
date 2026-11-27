@@ -574,7 +574,6 @@ fn start_extensions(
     (themes, catalog, customizations)
 }
 
-/// The Claude part of themes goes into the default Claude folder and every account's folder.
 /// Toasts for notices; a home override, as tests use, shows none.
 fn start_notifier(config: &Config) -> Arc<dyn Notifier> {
     if config.isolated {
@@ -593,6 +592,7 @@ fn start_autostart(config: &Config) -> Arc<AutostartService> {
     Arc::new(AutostartService::new(port))
 }
 
+/// The Claude part of themes goes into the default Claude folder and every account's folder.
 fn start_claude_theme(
     config: &Config,
     store: &Store,

@@ -1,4 +1,4 @@
-//! Starting a program when the person logs in: the Run key on Windows, an XDG autostart file on Linux.
+//! Starting a program at login: the Run key on Windows, an XDG autostart file on Linux.
 
 use std::ffi::OsString;
 use std::io;

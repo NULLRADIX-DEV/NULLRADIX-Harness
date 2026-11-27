@@ -73,7 +73,7 @@ fn xml_escape(text: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-/// The PowerShell that shows the toast; escaping turns every quote of the texts into an entity, so a single-quoted string holds them.
+/// The PowerShell that shows the toast; escaped texts hold no quote, so single quotes are safe.
 #[cfg(any(windows, test))]
 fn windows_script(title: &str, body: &str) -> String {
     let xml = format!(
