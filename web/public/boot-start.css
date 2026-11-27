@@ -1,0 +1,68 @@
+#start-anim {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  background: #f7f7f8;
+  color: #111114;
+  transition: opacity 0.3s ease;
+}
+[data-theme='dark'] #start-anim {
+  background: #0c0c0e;
+  color: #f4f4f5;
+}
+[data-theme-mode='nullradix'] #start-anim {
+  background: #08080a;
+  color: #e4e4e7;
+}
+[data-start-bg] #start-anim {
+  background: var(--start-bg);
+}
+#start-anim svg {
+  display: block;
+  fill: currentColor;
+}
+#start-anim .nr-mark {
+  width: min(132px, 26vw);
+  height: auto;
+  animation: nr-wipe 0.7s cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+#start-anim .nr-word {
+  width: min(380px, 70vw);
+  height: auto;
+  animation: nr-wipe 0.8s cubic-bezier(0.7, 0, 0.2, 1) 0.45s both;
+}
+#start-anim .nr-rule {
+  width: min(380px, 70vw);
+  height: 2px;
+  background: currentColor;
+  opacity: 0.25;
+  transform-origin: left;
+  animation: nr-rule 1.1s cubic-bezier(0.7, 0, 0.2, 1) 0.2s both;
+}
+@keyframes nr-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+    transform: translateY(6px);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    transform: none;
+  }
+}
+@keyframes nr-rule {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+#start-anim.is-done {
+  opacity: 0;
+  pointer-events: none;
+}

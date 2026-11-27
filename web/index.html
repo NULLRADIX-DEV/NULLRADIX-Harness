@@ -5,112 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="../assets/brand/nullradix-favicon.svg" />
     <title>NULLRADIX</title>
-    <script>
-      (function () {
-        var modes = ['nullradix', 'light', 'dark', 'system'];
-        var mode = 'nullradix';
-        try {
-          mode = localStorage.getItem('nullradix-theme') || mode;
-        } catch (e) {}
-        var look = null;
-        if (modes.indexOf(mode) < 0) {
-          try {
-            look = JSON.parse(localStorage.getItem('nullradix-theme-installed') || 'null');
-          } catch (e) {}
-          if (!look || look.id !== mode || typeof look.styleUrl !== 'string') {
-            look = null;
-            mode = 'nullradix';
-          }
-        }
-        var prefersDark =
-          window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        var dark = mode === 'nullradix' || mode === 'dark' || (mode === 'system' && prefersDark);
-        if (look) dark = look.scheme === 'dark';
-        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-        document.documentElement.dataset.themeMode = mode;
-        if (look) {
-          var link = document.createElement('link');
-          link.id = 'nullradix-theme-css';
-          link.rel = 'stylesheet';
-          link.href = look.styleUrl;
-          document.head.appendChild(link);
-          if (look.startColor) {
-            document.documentElement.dataset.startBg = '';
-            document.documentElement.style.setProperty('--start-bg', look.startColor);
-          }
-        }
-      })();
-    </script>
-    <style>
-      #start-anim {
-        position: fixed;
-        inset: 0;
-        z-index: 2147483647;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 28px;
-        background: #f7f7f8;
-        color: #111114;
-        transition: opacity 0.3s ease;
-      }
-      [data-theme='dark'] #start-anim {
-        background: #0c0c0e;
-        color: #f4f4f5;
-      }
-      [data-theme-mode='nullradix'] #start-anim {
-        background: #08080a;
-        color: #e4e4e7;
-      }
-      [data-start-bg] #start-anim {
-        background: var(--start-bg);
-      }
-      #start-anim svg {
-        display: block;
-        fill: currentColor;
-      }
-      #start-anim .nr-mark {
-        width: min(132px, 26vw);
-        height: auto;
-        animation: nr-wipe 0.7s cubic-bezier(0.7, 0, 0.2, 1) both;
-      }
-      #start-anim .nr-word {
-        width: min(380px, 70vw);
-        height: auto;
-        animation: nr-wipe 0.8s cubic-bezier(0.7, 0, 0.2, 1) 0.45s both;
-      }
-      #start-anim .nr-rule {
-        width: min(380px, 70vw);
-        height: 2px;
-        background: currentColor;
-        opacity: 0.25;
-        transform-origin: left;
-        animation: nr-rule 1.1s cubic-bezier(0.7, 0, 0.2, 1) 0.2s both;
-      }
-      @keyframes nr-wipe {
-        from {
-          clip-path: inset(0 100% 0 0);
-          transform: translateY(6px);
-        }
-        to {
-          clip-path: inset(0 0 0 0);
-          transform: none;
-        }
-      }
-      @keyframes nr-rule {
-        from {
-          transform: scaleX(0);
-        }
-        to {
-          transform: scaleX(1);
-        }
-      }
-      #start-anim.is-done {
-        opacity: 0;
-        pointer-events: none;
-      }
-    </style>
+    <script src="/boot-theme.js"></script>
+    <link rel="stylesheet" href="/boot-start.css" />
   </head>
   <body>
     <div id="start-anim" aria-hidden="true">
@@ -128,29 +24,7 @@
       </svg>
     </div>
     <div id="root"></div>
-    <script>
-      (function () {
-        var box = document.getElementById('start-anim');
-        var root = document.getElementById('root');
-        if (!box || !root) return;
-        var seen = false;
-        try {
-          seen = sessionStorage.getItem('nullradix-started') === '1';
-          sessionStorage.setItem('nullradix-started', '1');
-        } catch (e) {}
-        var still =
-          window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (seen || still) {
-          box.remove();
-          return;
-        }
-        root.inert = true;
-        setTimeout(function () {
-          root.inert = false;
-          if (box.isConnected) box.remove();
-        }, 5000);
-      })();
-    </script>
+    <script src="/boot-start.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
