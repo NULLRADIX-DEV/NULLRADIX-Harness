@@ -358,20 +358,31 @@ impl ThemeAssets {
         if let Some(cached) = self.cached_entry(&grant.id, &key).await {
             return Ok(cached);
         }
-        // the flight comes first: a request waiting for a slow download holds no archive permit
         let archive_key = cache_key(&[url.as_str()]);
-        let flight = self.flights.enter(&grant.id, &archive_key).await;
         // an archive is read whole, so only a few are read, downloaded or cut open at once
-        let _permit = self.archives.acquire().await.map_err(AppError::internal)?;
+        let permit = self.archives.acquire().await.map_err(AppError::internal)?;
         // whoever was ahead may have cut the file out meanwhile
         if let Some(cached) = self.cached_entry(&grant.id, &key).await {
             return Ok(cached);
         }
-        let archive = self
-            .load(grant, url, sum, MAX_ARCHIVE_BYTES, &archive_key)
+        // a cached archive needs no flight, so cold reads of its files run side by side
+        let cached = self
+            .cached(grant, &archive_key, sum, MAX_ARCHIVE_BYTES)
             .await?;
-        // the bytes are in hand, so the next request for this archive may read while this one cuts
-        drop(flight);
+        let (archive, _permit) = if let Some(archive) = cached {
+            (archive, permit)
+        } else {
+            // never wait for a flight while holding a permit: a slow download would block all
+            drop(permit);
+            let flight = self.flights.enter(&grant.id, &archive_key).await;
+            let permit = self.archives.acquire().await.map_err(AppError::internal)?;
+            let archive = self
+                .load(grant, url, sum, MAX_ARCHIVE_BYTES, &archive_key)
+                .await?;
+            // the bytes are in hand, so the next request may read the archive while this one cuts
+            drop(flight);
+            (archive, permit)
+        };
         let bytes = self
             .entries
             .entry(archive, entry, MAX_ASSET_BYTES)
@@ -1660,6 +1671,81 @@ mod tests {
         }
         assert_eq!(setup.hosts.asked(), [slow]);
         assert!(setup.assets.flights.slots.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cold_reads_of_files_of_one_cached_archive_run_side_by_side() {
+        let setup = setup(true).await;
+        let jar = "https://cdn.example.com/client.jar";
+        let cache = Arc::new(SlowReads::default());
+        let key = archive_key(jar);
+        cache.slow.lock().push(key.clone());
+        cache.memory.kept.lock().insert(
+            ("night-blue".to_owned(), key),
+            b"a.png=1\nb.png=2\nc.png=3\n".to_vec(),
+        );
+        let assets = Arc::new(ThemeAssets::new(
+            setup.fixture.service.clone(),
+            setup.hosts.clone(),
+            Arc::new(Lines),
+            cache.clone(),
+        ));
+        let fetching: Vec<_> = ["a.png", "b.png", "c.png"]
+            .into_iter()
+            .map(|name| {
+                let assets = assets.clone();
+                tokio::spawn(async move { assets.fetch(entry_of(jar, name)).await })
+            })
+            .collect();
+        // all three reads are under way at once, none waits for another
+        for _ in 0..3 {
+            cache.entered.acquire().await.unwrap().forget();
+        }
+        assert_eq!(cache.inflight.load(Ordering::SeqCst), 3);
+        cache.release.add_permits(3);
+        for (task, expected) in fetching.into_iter().zip(["1", "2", "3"]) {
+            assert_eq!(task.await.unwrap().unwrap().data, expected.as_bytes());
+        }
+        assert_eq!(setup.hosts.asked(), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn the_next_request_reads_the_archive_while_the_first_cuts_its_file() {
+        let setup = setup(true).await;
+        let jar = "https://cdn.example.com/client.jar";
+        setup.hosts.body(jar, b"a.png=1\nb.png=2\n");
+        let gated = Arc::new(Gated::default());
+        let assets = Arc::new(ThemeAssets::new(
+            setup.fixture.service.clone(),
+            setup.hosts.clone(),
+            gated.clone(),
+            setup.cache.clone(),
+        ));
+        *setup.hosts.gate.lock() = true;
+        let fetch = |name: &'static str| {
+            let assets = assets.clone();
+            tokio::spawn(async move { assets.fetch(entry_of(jar, name)).await })
+        };
+        let first = fetch("a.png");
+        setup.hosts.entered.acquire().await.unwrap().forget();
+        // the second waits for the download of the first
+        let second = fetch("b.png");
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        setup.hosts.release.add_permits(1);
+        let fetching = [first, second];
+        // one downloads and cuts; the other reads the cached archive and cuts too
+        for _ in 0..2 {
+            gated.entered.acquire().await.unwrap().forget();
+        }
+        assert_eq!(gated.inflight.load(Ordering::SeqCst), 2);
+        gated.release.add_permits(2);
+        for (task, expected) in fetching.into_iter().zip(["1", "2"]) {
+            assert_eq!(task.await.unwrap().unwrap().data, expected.as_bytes());
+        }
+        assert_eq!(setup.hosts.asked(), [jar]);
+        assert!(assets.flights.slots.lock().is_empty());
     }
 
     #[tokio::test]
