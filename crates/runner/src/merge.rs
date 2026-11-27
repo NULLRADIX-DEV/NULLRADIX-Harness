@@ -412,7 +412,7 @@ const CHECK_OUTPUT_MAX: u64 = 64 * 1024;
 /// Files with leftover conflict markers that are named.
 const MARKER_FILES_MAX: usize = 20;
 
-/// The files with marker lines that are new in `after` against both parents, so the session wrote them.
+/// The files with marker lines new in `after` against both parents: the session wrote them.
 async fn marker_files(
     root: &Path,
     before: &str,
