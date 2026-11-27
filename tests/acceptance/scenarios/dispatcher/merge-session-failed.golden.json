@@ -1,0 +1,1085 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "name": "init a repository",
+    "request": {
+      "body": {
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
+        "cwd": "<WORK>",
+        "label": "git init",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-4>",
+        "label": "git init",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-4>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "initialized",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-4>"
+  },
+  {
+    "file": "<WORK>/arches/README.md",
+    "lines": 0,
+    "name": "the readme"
+  },
+  {
+    "file": "<WORK>/arches/src/price.ts",
+    "lines": 0,
+    "name": "the price module"
+  },
+  {
+    "file": "<WORK>/arches/src/old.ts",
+    "lines": 0,
+    "name": "a module that goes away"
+  },
+  {
+    "file": "<WORK>/arches/docs/note.md",
+    "lines": 0,
+    "name": "a note that moves"
+  },
+  {
+    "name": "stage the files",
+    "request": {
+      "body": {
+        "args": [
+          "add",
+          "-A"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git add",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-5>",
+        "label": "git add",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-5>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "staged",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-5>"
+  },
+  {
+    "name": "first commit",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "-q",
+          "-m",
+          "init"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git commit",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-6>",
+        "label": "git commit",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-6>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "committed",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-6>"
+  },
+  {
+    "name": "long paths on already, so every platform prints the same",
+    "request": {
+      "body": {
+        "args": [
+          "config",
+          "core.longpaths",
+          "true"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git config",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-7>",
+        "label": "git config",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-7>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "configured",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-7>"
+  },
+  {
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
+    "exitCode": 0,
+    "name": "bind the board",
+    "stderr": "",
+    "stdout": "board <ID-2> works in arches at <WORK>/arches\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Build the discount",
+      "--board",
+      "<ID-2>",
+      "--label",
+      "auto",
+      "--acceptance",
+      "The price drops by the discount",
+      "--planned"
+    ],
+    "exitCode": 0,
+    "name": "a ready ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Build the discount\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Check the shipping",
+      "--board",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "a ticket the dispatcher never takes",
+    "stderr": "",
+    "stdout": "ARC-0002 created: Check the shipping\n"
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-1",
+      "--plan",
+      "Apply it",
+      "--handbook",
+      "npx vitest run"
+    ],
+    "exitCode": 0,
+    "name": "plan the first",
+    "stderr": "",
+    "stdout": "ARC-0001 planned (planned)\n"
+  },
+  {
+    "file": "<WORK>/config.json",
+    "lines": 1,
+    "name": "the configuration"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "config",
+      "set",
+      "--file",
+      "<WORK>/config.json"
+    ],
+    "exitCode": 0,
+    "name": "save the configuration",
+    "stderr": "",
+    "stdout": "saved dispatcher configuration, version 2 (2981d588b0094599)\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "enable"
+    ],
+    "exitCode": 0,
+    "name": "switch on",
+    "stderr": "",
+    "stdout": "idle: Idle\n0 of 1 places in use, 0 planning\n  ARC-0001 Build the discount: ready\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a pass starts the ticket",
+    "stderr": "",
+    "stdout": "started: ARC-0001\n"
+  },
+  {
+    "field": "items.0.status",
+    "name": "the run ended",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=work"
+  },
+  {
+    "cli": [
+      "ticket",
+      "move",
+      "ARC-1",
+      "done",
+      "--acceptance",
+      "The price drops by the discount",
+      "--author",
+      "worker-ARC-0001"
+    ],
+    "exitCode": 0,
+    "name": "the agent finishes its ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 -> done\n"
+  },
+  {
+    "file": "<WORK>/arches/src/price.ts",
+    "lines": 0,
+    "name": "main changes the price too"
+  },
+  {
+    "name": "stage the change on main",
+    "request": {
+      "body": {
+        "args": [
+          "add",
+          "-A"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git add",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-8>",
+        "label": "git add",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-8>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "stage the change on main finished",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-8>"
+  },
+  {
+    "name": "commit the change on main",
+    "request": {
+      "body": {
+        "args": [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.com",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "-q",
+          "-m",
+          "Double the price on main"
+        ],
+        "cwd": "<WORK>/arches",
+        "label": "git -c",
+        "program": "git",
+        "timeoutSeconds": 30
+      },
+      "method": "POST",
+      "path": "/api/v1/runs"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatch": null,
+        "error": null,
+        "exitCode": null,
+        "finishedAt": null,
+        "id": "<ID-9>",
+        "label": "git -c",
+        "result": null,
+        "startedAt": "<TIME>",
+        "status": "running",
+        "version": 2
+      },
+      "location": "/api/v1/runs/<ID-9>",
+      "status": 201
+    }
+  },
+  {
+    "field": "status",
+    "name": "commit the change on main finished",
+    "reached": "succeeded",
+    "wait": "/api/v1/runs/<ID-9>"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "the next pass meets the conflict and starts the first session",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "name": "the first session",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0001&kind=merge"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "2981d588b0094599",
+              "kind": "merge",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-11>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": null,
+            "finishedAt": null,
+            "id": "<ID-12>",
+            "label": "merge ARC-0001",
+            "result": null,
+            "startedAt": "<TIME>",
+            "status": "running",
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "field": "items.0.status",
+    "name": "the first session failed",
+    "reached": "failed",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=merge"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "the next pass counts the failure and starts the second session one step higher",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "name": "both sessions",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0001&kind=merge"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "2981d588b0094599",
+              "kind": "merge",
+              "profile": {
+                "effort": "max",
+                "id": "<ID-13>",
+                "maxTurns": 150,
+                "model": "opus",
+                "name": "large",
+                "timeoutMinutes": 120
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": null,
+            "finishedAt": null,
+            "id": "<ID-14>",
+            "label": "merge ARC-0001",
+            "result": null,
+            "startedAt": "<TIME>",
+            "status": "running",
+            "version": 2
+          },
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "2981d588b0094599",
+              "kind": "merge",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-11>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": 3,
+            "finishedAt": "<TIME>",
+            "id": "<ID-12>",
+            "label": "merge ARC-0001",
+            "result": {
+              "abort": {
+                "category": "exit-code",
+                "reason": "claude exited with code 3"
+              },
+              "claudeSessionId": null,
+              "deniedCount": null,
+              "outcome": "merge-session",
+              "usage": null
+            },
+            "startedAt": "<TIME>",
+            "status": "failed",
+            "version": 4
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the merge waits for the second session",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/merges"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "branch": "ticket/ARC-0001-build-the-discount",
+            "conflictSeen": false,
+            "conflictSessions": 2,
+            "finishedAt": null,
+            "id": "<ID-15>",
+            "mergedCommit": null,
+            "mergedInto": null,
+            "phase": "conflict-session",
+            "problem": "merge conflict in src/price.ts",
+            "queuedAt": "<TIME>",
+            "strategy": "merge",
+            "targetBranch": null,
+            "version": 4
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "field": "items.0.status",
+    "name": "the second session failed",
+    "reached": "failed",
+    "wait": "/api/v1/runs?ticketKey=ARC-0001&kind=merge"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "the next pass reaches the limit and blocks the ticket",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "name": "the ticket is blocked by the merge",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "comments": [
+          {
+            "authorId": "<ID-16>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] start: handed to worker-ARC-0001. Branch ticket/ARC-0001-build-the-discount, profile medium (model opus, effort high, max 80 turns, 90 min). Reason: default profile medium.\nAccount: default (all accounts -> default; reserve 5 h 10 %, week 2 % (buffer)).",
+            "createdAt": "<TIME>",
+            "id": "<ID-17>",
+            "systemMarker": "start",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-16>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge-conflict in src/price.ts on merge into main - merge session 1/2 started (profile medium).",
+            "createdAt": "<TIME>",
+            "id": "<ID-18>",
+            "systemMarker": "merge-conflict",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-16>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge-conflict - merge session 1/2 without solution (exit code 3, run <ID-12>), next attempt.",
+            "createdAt": "<TIME>",
+            "id": "<ID-19>",
+            "systemMarker": "merge-conflict",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-16>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge-conflict in src/price.ts on merge into main - merge session 2/2 started (profile large).",
+            "createdAt": "<TIME>",
+            "id": "<ID-20>",
+            "systemMarker": "merge-conflict",
+            "ticketKey": "ARC-0001"
+          },
+          {
+            "authorId": "<ID-16>",
+            "authorKind": "dispatcher",
+            "authorName": "dispatcher",
+            "body": "[dispatch] merge: not possible: autopilot - 2 merge sessions without solution (exit code 3, run <ID-14>).",
+            "createdAt": "<TIME>",
+            "id": "<ID-21>",
+            "systemMarker": "merge",
+            "ticketKey": "ARC-0001"
+          }
+        ],
+        "history": [
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": null,
+            "note": "created",
+            "to": "backlog"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "backlog",
+            "note": "planned",
+            "to": "planned"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plannedBy",
+            "from": null,
+            "note": "planned",
+            "to": "tester"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "plan",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "8 characters"
+          },
+          {
+            "actorId": "<ID-3>",
+            "actorName": "tester",
+            "at": "<TIME>",
+            "field": "handbook",
+            "from": "0 characters",
+            "note": "planned",
+            "to": "14 characters"
+          },
+          {
+            "actorId": "<ID-16>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "assignee",
+            "from": null,
+            "note": "claimed",
+            "to": "worker-ARC-0001"
+          },
+          {
+            "actorId": "<ID-16>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "planned",
+            "note": "started",
+            "to": "in-progress"
+          },
+          {
+            "actorId": "<ID-16>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "branch",
+            "from": null,
+            "note": "started",
+            "to": "ticket/ARC-0001-build-the-discount"
+          },
+          {
+            "actorId": "<ID-16>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "worktree",
+            "from": null,
+            "note": "started",
+            "to": "<WORK>/arches-worktrees/ARC-0001"
+          },
+          {
+            "actorId": "<ID-22>",
+            "actorName": "worker-ARC-0001",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "in-progress",
+            "note": "moved",
+            "to": "done"
+          },
+          {
+            "actorId": "<ID-16>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "status",
+            "from": "done",
+            "note": null,
+            "to": "blocked"
+          },
+          {
+            "actorId": "<ID-16>",
+            "actorName": "dispatcher",
+            "at": "<TIME>",
+            "field": "blockedReason",
+            "from": null,
+            "note": null,
+            "to": "Merge: autopilot - 2 merge sessions without solution (exit code 3, run <ID-14>)."
+          }
+        ],
+        "steps": [],
+        "ticket": {
+          "acceptance": "The price drops by the discount",
+          "assignee": "worker-ARC-0001",
+          "blockedReason": "Merge: autopilot - 2 merge sessions without solution (exit code 3, run <ID-14>).",
+          "boardId": "<ID-2>",
+          "branch": "ticket/ARC-0001-build-the-discount",
+          "column": "blocked",
+          "createdAt": "<TIME>",
+          "createdById": "<ID-3>",
+          "createdByName": "tester",
+          "dependents": [],
+          "dependsOn": [],
+          "dependsOpen": [],
+          "description": "",
+          "diagram": "",
+          "handbook": "npx vitest run",
+          "id": "<ID-23>",
+          "key": "ARC-0001",
+          "labels": [
+            "auto"
+          ],
+          "needsPlanning": false,
+          "number": 1,
+          "openQuestions": [],
+          "plan": "Apply it",
+          "plannedAt": "<TIME>",
+          "plannedBy": "tester",
+          "planningClaimAt": null,
+          "planningClaimBy": null,
+          "priority": "normal",
+          "projectId": "<ID-1>",
+          "status": "blocked",
+          "stepsDone": 0,
+          "stepsTotal": 0,
+          "targetBranch": null,
+          "title": "Build the discount",
+          "unlocks": [],
+          "updatedAt": "<TIME>",
+          "version": 11,
+          "waiting": false,
+          "worktree": "<WORK>/arches-worktrees/ARC-0001"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the merge failed",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1/merges"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "branch": "ticket/ARC-0001-build-the-discount",
+            "conflictSeen": false,
+            "conflictSessions": 2,
+            "finishedAt": "<TIME>",
+            "id": "<ID-15>",
+            "mergedCommit": null,
+            "mergedInto": null,
+            "phase": "failed",
+            "problem": "autopilot - 2 merge sessions without solution (exit code 3, run <ID-14>).",
+            "queuedAt": "<TIME>",
+            "strategy": "merge",
+            "targetBranch": null,
+            "version": 5
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "both sessions are settled",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0001&kind=merge"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "2981d588b0094599",
+              "kind": "merge",
+              "profile": {
+                "effort": "max",
+                "id": "<ID-13>",
+                "maxTurns": 150,
+                "model": "opus",
+                "name": "large",
+                "timeoutMinutes": 120
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": 3,
+            "finishedAt": "<TIME>",
+            "id": "<ID-14>",
+            "label": "merge ARC-0001",
+            "result": {
+              "abort": {
+                "category": "exit-code",
+                "reason": "claude exited with code 3"
+              },
+              "claudeSessionId": null,
+              "deniedCount": null,
+              "outcome": "merge-session",
+              "usage": null
+            },
+            "startedAt": "<TIME>",
+            "status": "failed",
+            "version": 4
+          },
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "2981d588b0094599",
+              "kind": "merge",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-11>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": 3,
+            "finishedAt": "<TIME>",
+            "id": "<ID-12>",
+            "label": "merge ARC-0001",
+            "result": {
+              "abort": {
+                "category": "exit-code",
+                "reason": "claude exited with code 3"
+              },
+              "claudeSessionId": null,
+              "deniedCount": null,
+              "outcome": "merge-session",
+              "usage": null
+            },
+            "startedAt": "<TIME>",
+            "status": "failed",
+            "version": 4
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "inbox",
+      "--kind",
+      "merge"
+    ],
+    "exitCode": 0,
+    "name": "the inbox shows the merge problem",
+    "stderr": "",
+    "stdout": "1. [Merge failed] ARC-0001  Build the discount  (ARC / Main)\n   Merge: autopilot - 2 merge sessions without solution (exit code 3, run <ID-14>).\n   -> nullradix ticket show ARC-0001\n"
+  },
+  {
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
+    "exitCode": 0,
+    "name": "a failed merge starts nothing again",
+    "stderr": "",
+    "stdout": "nothing to do\n"
+  },
+  {
+    "name": "still two sessions",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/runs?ticketKey=ARC-0001&kind=merge"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "2981d588b0094599",
+              "kind": "merge",
+              "profile": {
+                "effort": "max",
+                "id": "<ID-13>",
+                "maxTurns": 150,
+                "model": "opus",
+                "name": "large",
+                "timeoutMinutes": 120
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": 3,
+            "finishedAt": "<TIME>",
+            "id": "<ID-14>",
+            "label": "merge ARC-0001",
+            "result": {
+              "abort": {
+                "category": "exit-code",
+                "reason": "claude exited with code 3"
+              },
+              "claudeSessionId": null,
+              "deniedCount": null,
+              "outcome": "merge-session",
+              "usage": null
+            },
+            "startedAt": "<TIME>",
+            "status": "failed",
+            "version": 4
+          },
+          {
+            "createdAt": "<TIME>",
+            "dispatch": {
+              "accountId": "<ID-10>",
+              "configHash": "2981d588b0094599",
+              "kind": "merge",
+              "profile": {
+                "effort": "high",
+                "id": "<ID-11>",
+                "maxTurns": 80,
+                "model": "opus",
+                "name": "medium",
+                "timeoutMinutes": 90
+              },
+              "subjectKey": "ARC-0001",
+              "trigger": "dispatcher"
+            },
+            "error": null,
+            "exitCode": 3,
+            "finishedAt": "<TIME>",
+            "id": "<ID-12>",
+            "label": "merge ARC-0001",
+            "result": {
+              "abort": {
+                "category": "exit-code",
+                "reason": "claude exited with code 3"
+              },
+              "claudeSessionId": null,
+              "deniedCount": null,
+              "outcome": "merge-session",
+              "usage": null
+            },
+            "startedAt": "<TIME>",
+            "status": "failed",
+            "version": 4
+          }
+        ]
+      },
+      "status": 200
+    }
+  }
+]

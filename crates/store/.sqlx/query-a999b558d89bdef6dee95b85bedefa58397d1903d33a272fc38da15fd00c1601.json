@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id: Uuid\", worktree_id AS \"worktree_id: Uuid\", phase, target_branch,\n                      target_head, strategy, conflict_sessions, session_used, conflict_seen,\n                      wait_noted, held_by, hold_noticed, problem, merged_into, merged_commit,\n                      since, finished_at, version\n               FROM merge_jobs\n               WHERE phase IN ('pending', 'waiting', 'conflict_session')\n               ORDER BY since, id LIMIT ?",
+  "query": "SELECT id AS \"id: Uuid\", worktree_id AS \"worktree_id: Uuid\", phase, target_branch,\n                      target_head, session_branch_head, strategy, conflict_sessions,\n                      session_used, conflict_seen, wait_noted, held_by, hold_noticed, problem, merged_into, merged_commit,\n                      since, finished_at, version\n               FROM merge_jobs\n               WHERE phase IN ('pending', 'waiting', 'conflict_session')\n               ORDER BY since, id LIMIT ?",
   "describe": {
     "columns": [
       {
@@ -59,8 +59,19 @@
         }
       },
       {
-        "name": "strategy",
+        "name": "session_branch_head",
         "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "merge_jobs",
+            "name": "session_branch_head"
+          }
+        }
+      },
+      {
+        "name": "strategy",
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,7 +82,7 @@
       },
       {
         "name": "conflict_sessions",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "session_used",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "conflict_seen",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "wait_noted",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       },
       {
         "name": "held_by",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "hold_noticed",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "problem",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -148,7 +159,7 @@
       },
       {
         "name": "merged_into",
-        "ordinal": 13,
+        "ordinal": 14,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -159,7 +170,7 @@
       },
       {
         "name": "merged_commit",
-        "ordinal": 14,
+        "ordinal": 15,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -170,7 +181,7 @@
       },
       {
         "name": "since",
-        "ordinal": 15,
+        "ordinal": 16,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -181,7 +192,7 @@
       },
       {
         "name": "finished_at",
-        "ordinal": 16,
+        "ordinal": 17,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -192,7 +203,7 @@
       },
       {
         "name": "version",
-        "ordinal": 17,
+        "ordinal": 18,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -211,6 +222,7 @@
       false,
       true,
       true,
+      true,
       false,
       false,
       false,
@@ -226,5 +238,5 @@
       false
     ]
   },
-  "hash": "90ef06dfc536d2744d395f4d489c60e51e716e71166823901d477668137de1f3"
+  "hash": "a999b558d89bdef6dee95b85bedefa58397d1903d33a272fc38da15fd00c1601"
 }

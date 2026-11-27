@@ -18,6 +18,9 @@ fn main() -> ExitCode {
     }
     let mut prompt = String::new();
     let _ = io::stdin().read_to_string(&mut prompt);
+    if is_merge_session(&prompt) {
+        return merge_session(&prompt);
+    }
     let mode = marker(&prompt)
         .or_else(|| env::var("FAKE_CLAUDE_MODE").ok())
         .unwrap_or_else(|| String::from("ok"));
@@ -72,6 +75,55 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
     }
+}
+
+/// The instruction of a merge session names the branch of the target to merge.
+fn is_merge_session(prompt: &str) -> bool {
+    prompt.contains(" cannot be merged into ") && prompt.contains("git merge ")
+}
+
+/// Merges the target and resolves every conflict; `FAKE_CLAUDE_MERGE=fail` gives up.
+fn merge_session(prompt: &str) -> ExitCode {
+    use std::process::Command;
+    if env::var("FAKE_CLAUDE_MERGE").is_ok_and(|mode| mode == "fail") {
+        let _ = io::stderr().write_all(b"cannot resolve the conflict");
+        return ExitCode::from(3);
+    }
+    let Some(target) = prompt
+        .split("git merge ")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+    else {
+        return ExitCode::FAILURE;
+    };
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(["-c", "user.name=fake", "-c", "user.email=fake@example.com"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+    };
+    // the merge stops on the conflicts, which are written over below
+    if git(&["merge", "--no-edit", target]).is_err() {
+        return ExitCode::FAILURE;
+    }
+    let Ok(listed) = git(&["diff", "--name-only", "--diff-filter=U"]) else {
+        return ExitCode::FAILURE;
+    };
+    for file in String::from_utf8_lossy(&listed.stdout).lines() {
+        if std::fs::write(file.trim(), "resolved\n").is_err() {
+            return ExitCode::FAILURE;
+        }
+    }
+    let committed = git(&["add", "-A"]).is_ok_and(|output| output.status.success())
+        && git(&["commit", "-q", "--no-edit"]).is_ok_and(|output| output.status.success());
+    if !committed {
+        return ExitCode::FAILURE;
+    }
+    let mut events = working_events(&ticket());
+    events.push(usage_result("success", false, &json!([])));
+    write(lines(&events).as_bytes());
+    ExitCode::SUCCESS
 }
 
 /// `[fake-claude:mode]` in the prompt picks the behaviour of one run over the environment.

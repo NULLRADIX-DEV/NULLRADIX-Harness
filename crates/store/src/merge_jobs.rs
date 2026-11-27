@@ -21,6 +21,7 @@ struct Row {
     phase: String,
     target_branch: Option<String>,
     target_head: Option<String>,
+    session_branch_head: Option<String>,
     strategy: String,
     conflict_sessions: i64,
     session_used: i64,
@@ -47,6 +48,7 @@ impl Row {
                 .map_err(|_| corrupt("phase"))?,
             target_branch: self.target_branch,
             target_head: self.target_head,
+            session_branch_head: self.session_branch_head,
             strategy: self
                 .strategy
                 .parse::<MergeStrategy>()
@@ -121,8 +123,8 @@ impl MergeJobRepository for Store {
         let rows = sqlx::query_as!(
             Row,
             r#"SELECT id AS "id: Uuid", worktree_id AS "worktree_id: Uuid", phase, target_branch,
-                      target_head, strategy, conflict_sessions, session_used, conflict_seen,
-                      wait_noted, held_by, hold_noticed, problem, merged_into, merged_commit,
+                      target_head, session_branch_head, strategy, conflict_sessions,
+                      session_used, conflict_seen, wait_noted, held_by, hold_noticed, problem, merged_into, merged_commit,
                       since, finished_at, version
                FROM merge_jobs
                WHERE phase IN ('pending', 'waiting', 'conflict_session')
@@ -159,7 +161,7 @@ impl MergeJobRepository for Store {
         let mut tx = self.begin().await?;
         let updated = sqlx::query!(
             "UPDATE merge_jobs
-             SET phase = ?, target_branch = ?, target_head = ?, strategy = ?,
+             SET phase = ?, target_branch = ?, target_head = ?, session_branch_head = ?, strategy = ?,
                  conflict_sessions = ?, session_used = ?, conflict_seen = ?, wait_noted = ?,
                  held_by = ?, hold_noticed = ?, problem = ?, merged_into = ?, merged_commit = ?,
                  finished_at = ?, version = version + 1
@@ -167,6 +169,7 @@ impl MergeJobRepository for Store {
             phase,
             record.target_branch,
             record.target_head,
+            record.session_branch_head,
             strategy,
             sessions,
             session_used,
@@ -198,8 +201,8 @@ impl MergeJobRepository for Store {
         let limit = i64::from(MAX_TICKET_JOBS);
         let rows = sqlx::query!(
             r#"SELECT j.id AS "id: Uuid", j.worktree_id AS "worktree_id: Uuid", j.phase,
-                      j.target_branch, j.target_head, j.strategy, j.conflict_sessions,
-                      j.session_used, j.conflict_seen, j.wait_noted, j.held_by, j.hold_noticed,
+                      j.target_branch, j.target_head, j.session_branch_head, j.strategy,
+                      j.conflict_sessions, j.session_used, j.conflict_seen, j.wait_noted, j.held_by, j.hold_noticed,
                       j.problem, j.merged_into, j.merged_commit, j.since, j.finished_at,
                       j.version, w.branch AS "branch!"
                FROM merge_jobs j
@@ -220,6 +223,7 @@ impl MergeJobRepository for Store {
                 phase: row.phase,
                 target_branch: row.target_branch,
                 target_head: row.target_head,
+                session_branch_head: row.session_branch_head,
                 strategy: row.strategy,
                 conflict_sessions: row.conflict_sessions,
                 session_used: row.session_used,
@@ -248,8 +252,8 @@ impl MergeJobRepository for Store {
         let row = sqlx::query_as!(
             Row,
             r#"SELECT id AS "id: Uuid", worktree_id AS "worktree_id: Uuid", phase, target_branch,
-                      target_head, strategy, conflict_sessions, session_used, conflict_seen,
-                      wait_noted, held_by, hold_noticed, problem, merged_into, merged_commit,
+                      target_head, session_branch_head, strategy, conflict_sessions,
+                      session_used, conflict_seen, wait_noted, held_by, hold_noticed, problem, merged_into, merged_commit,
                       since, finished_at, version
                FROM merge_jobs
                WHERE worktree_id = ? AND phase IN ('pending', 'waiting', 'conflict_session')"#,

@@ -219,6 +219,26 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
         log: log.clone(),
         clock: deps.clock.clone(),
     });
+    let merge_all = Arc::new(
+        MergeAll::new(MergeParts {
+            queue: merges.clone(),
+            worktrees: deps.worktree_repository.clone(),
+            worktree_service: deps.worktrees.clone(),
+            tickets: deps.tickets.clone(),
+            comments: deps.comments.clone(),
+            runners: deps.runners.clone(),
+            git: deps.merge_git.clone(),
+            starter: starter.clone(),
+            log: log.clone(),
+            clock: deps.clock.clone(),
+            signal: deps.signal.clone(),
+            runs: deps.runs.clone(),
+            dispatch: deps.dispatch.clone(),
+            prompts: deps.prompts.clone(),
+            accounts: accounts.clone(),
+        })
+        .with_notifier(deps.notifier.clone()),
+    );
     let evaluate = Arc::new(
         EvaluateRuns::new(
             deps.tickets.clone(),
@@ -244,7 +264,8 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
             merges.clone(),
         )))
         .with_research(research.clone())
-        .with_planning(planning.clone()),
+        .with_planning(planning.clone())
+        .with_merge(merge_all.clone()),
     );
     evaluate.set_pause_hook(Arc::new(DispatchPauses::new(PauseParts {
         tickets: deps.tickets.clone(),
@@ -301,25 +322,7 @@ pub fn assemble(deps: DispatcherDeps) -> Dispatcher {
             deps.merge_git.clone(),
         )),
     );
-    pass.set_step(
-        PassPhase::MergeAll,
-        Arc::new(
-            MergeAll::new(MergeParts {
-                queue: merges.clone(),
-                worktrees: deps.worktree_repository.clone(),
-                worktree_service: deps.worktrees.clone(),
-                tickets: deps.tickets.clone(),
-                comments: deps.comments.clone(),
-                runners: deps.runners.clone(),
-                git: deps.merge_git,
-                starter: starter.clone(),
-                log: log.clone(),
-                clock: deps.clock.clone(),
-                signal: deps.signal.clone(),
-            })
-            .with_notifier(deps.notifier.clone()),
-        ),
-    );
+    pass.set_step(PassPhase::MergeAll, merge_all);
     pass.set_step(
         PassPhase::StartPlanning,
         Arc::new(StartPlanning(planning.clone())),

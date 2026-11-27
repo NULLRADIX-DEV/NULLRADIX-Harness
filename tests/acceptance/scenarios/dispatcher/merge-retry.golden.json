@@ -55,7 +55,13 @@
     "name": "init a repository",
     "request": {
       "body": {
-        "args": ["init", "-q", "-b", "main", "arches"],
+        "args": [
+          "init",
+          "-q",
+          "-b",
+          "main",
+          "arches"
+        ],
         "cwd": "<WORK>",
         "label": "git init",
         "program": "git",
@@ -112,7 +118,10 @@
     "name": "stage the files",
     "request": {
       "body": {
-        "args": ["add", "-A"],
+        "args": [
+          "add",
+          "-A"
+        ],
         "cwd": "<WORK>/arches",
         "label": "git add",
         "program": "git",
@@ -197,7 +206,11 @@
     "name": "long paths on already, so every platform prints the same",
     "request": {
       "body": {
-        "args": ["config", "core.longpaths", "true"],
+        "args": [
+          "config",
+          "core.longpaths",
+          "true"
+        ],
         "cwd": "<WORK>/arches",
         "label": "git config",
         "program": "git",
@@ -231,7 +244,12 @@
     "wait": "/api/v1/runs/<ID-7>"
   },
   {
-    "cli": ["board", "repo", "<ID-2>", "<WORK>/arches"],
+    "cli": [
+      "board",
+      "repo",
+      "<ID-2>",
+      "<WORK>/arches"
+    ],
     "exitCode": 0,
     "name": "bind the board",
     "stderr": "",
@@ -256,28 +274,48 @@
     "stdout": "ARC-0001 created: Build the discount\n"
   },
   {
-    "cli": ["ticket", "create", "Check the shipping", "--board", "<ID-2>"],
+    "cli": [
+      "ticket",
+      "create",
+      "Check the shipping",
+      "--board",
+      "<ID-2>"
+    ],
     "exitCode": 0,
     "name": "a ticket the dispatcher never takes",
     "stderr": "",
     "stdout": "ARC-0002 created: Check the shipping\n"
   },
   {
-    "cli": ["plan", "write", "ARC-1", "--plan", "Apply it", "--handbook", "npx vitest run"],
+    "cli": [
+      "plan",
+      "write",
+      "ARC-1",
+      "--plan",
+      "Apply it",
+      "--handbook",
+      "npx vitest run"
+    ],
     "exitCode": 0,
     "name": "plan the first",
     "stderr": "",
     "stdout": "ARC-0001 planned (planned)\n"
   },
   {
-    "cli": ["dispatcher", "enable"],
+    "cli": [
+      "dispatcher",
+      "enable"
+    ],
     "exitCode": 0,
     "name": "switch on",
     "stderr": "",
     "stdout": "idle: Idle\n0 of 1 places in use, 0 planning\n  ARC-0001 Build the discount: ready\n"
   },
   {
-    "cli": ["dispatcher", "run"],
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
     "exitCode": 0,
     "name": "a pass starts the ticket",
     "stderr": "",
@@ -306,7 +344,10 @@
     "stdout": "ARC-0001 -> done\n"
   },
   {
-    "cli": ["dispatcher", "run"],
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
     "exitCode": 0,
     "name": "the next pass holds the finished ticket for review",
     "stderr": "",
@@ -480,7 +521,9 @@
           "handbook": "npx vitest run",
           "id": "<ID-12>",
           "key": "ARC-0001",
-          "labels": ["auto"],
+          "labels": [
+            "auto"
+          ],
           "needsPlanning": false,
           "number": 1,
           "openQuestions": [],
@@ -507,14 +550,21 @@
     }
   },
   {
-    "cli": ["dispatcher", "run"],
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
     "exitCode": 0,
     "name": "a pass merges nothing yet",
     "stderr": "",
     "stdout": "nothing to do\n"
   },
   {
-    "cli": ["ticket", "accept", "ARC-1"],
+    "cli": [
+      "ticket",
+      "accept",
+      "ARC-1"
+    ],
     "exitCode": 0,
     "name": "accept the held ticket",
     "stderr": "",
@@ -524,7 +574,11 @@
     "name": "detach the main checkout",
     "request": {
       "body": {
-        "args": ["checkout", "-q", "--detach"],
+        "args": [
+          "checkout",
+          "-q",
+          "--detach"
+        ],
         "cwd": "<WORK>/arches",
         "label": "git checkout",
         "program": "git",
@@ -558,7 +612,10 @@
     "wait": "/api/v1/runs/<ID-13>"
   },
   {
-    "cli": ["dispatcher", "run"],
+    "cli": [
+      "dispatcher",
+      "run"
+    ],
     "exitCode": 0,
     "name": "the next pass cannot merge",
     "stderr": "",
@@ -778,7 +835,9 @@
           "handbook": "npx vitest run",
           "id": "<ID-12>",
           "key": "ARC-0001",
-          "labels": ["auto"],
+          "labels": [
+            "auto"
+          ],
           "needsPlanning": false,
           "number": 1,
           "openQuestions": [],
@@ -805,7 +864,11 @@
     }
   },
   {
-    "cli": ["inbox", "--kind", "merge"],
+    "cli": [
+      "inbox",
+      "--kind",
+      "merge"
+    ],
     "exitCode": 0,
     "name": "the inbox has a merge entry with the problem",
     "stderr": "",
@@ -823,6 +886,7 @@
           {
             "branch": "ticket/ARC-0001-build-the-discount",
             "conflictSeen": false,
+            "conflictSessions": 0,
             "finishedAt": "<TIME>",
             "id": "<ID-15>",
             "mergedCommit": null,
@@ -840,7 +904,11 @@
     }
   },
   {
-    "cli": ["ticket", "merge", "ARC-1"],
+    "cli": [
+      "ticket",
+      "merge",
+      "ARC-1"
+    ],
     "exitCode": 0,
     "name": "a retry while the checkout is still detached",
     "stderr": "",
@@ -1116,7 +1184,9 @@
           "handbook": "npx vitest run",
           "id": "<ID-12>",
           "key": "ARC-0001",
-          "labels": ["auto"],
+          "labels": [
+            "auto"
+          ],
           "needsPlanning": false,
           "number": 1,
           "openQuestions": [],
@@ -1146,7 +1216,11 @@
     "name": "fix the checkout",
     "request": {
       "body": {
-        "args": ["checkout", "-q", "main"],
+        "args": [
+          "checkout",
+          "-q",
+          "main"
+        ],
         "cwd": "<WORK>/arches",
         "label": "git checkout",
         "program": "git",
@@ -1180,7 +1254,11 @@
     "wait": "/api/v1/runs/<ID-18>"
   },
   {
-    "cli": ["ticket", "merge", "ARC-1"],
+    "cli": [
+      "ticket",
+      "merge",
+      "ARC-1"
+    ],
     "exitCode": 0,
     "name": "a retry merges the branch",
     "stderr": "",
@@ -1512,7 +1590,9 @@
           "handbook": "npx vitest run",
           "id": "<ID-12>",
           "key": "ARC-0001",
-          "labels": ["auto"],
+          "labels": [
+            "auto"
+          ],
           "needsPlanning": false,
           "number": 1,
           "openQuestions": [],
@@ -1550,6 +1630,7 @@
           {
             "branch": "ticket/ARC-0001-build-the-discount",
             "conflictSeen": false,
+            "conflictSessions": 0,
             "finishedAt": "<TIME>",
             "id": "<ID-21>",
             "mergedCommit": "<COMMIT>",
@@ -1564,6 +1645,7 @@
           {
             "branch": "ticket/ARC-0001-build-the-discount",
             "conflictSeen": false,
+            "conflictSessions": 0,
             "finishedAt": "<TIME>",
             "id": "<ID-22>",
             "mergedCommit": null,
@@ -1578,6 +1660,7 @@
           {
             "branch": "ticket/ARC-0001-build-the-discount",
             "conflictSeen": false,
+            "conflictSessions": 0,
             "finishedAt": "<TIME>",
             "id": "<ID-15>",
             "mergedCommit": null,
@@ -1595,14 +1678,20 @@
     }
   },
   {
-    "cli": ["inbox"],
+    "cli": [
+      "inbox"
+    ],
     "exitCode": 0,
     "name": "the inbox is empty again",
     "stderr": "",
     "stdout": "Nothing waits for you.\n"
   },
   {
-    "cli": ["ticket", "merge", "ARC-1"],
+    "cli": [
+      "ticket",
+      "merge",
+      "ARC-1"
+    ],
     "exitCode": 1,
     "name": "a ticket that waits for no merge is refused",
     "stderr": "error: the daemon refused the request: ARC-0001 cannot be merged again: it waits for no merge (only done with a branch, or blocked with \"Merge: ...\") (merge-not-possible)\n",
@@ -1648,7 +1737,12 @@
     "name": "the main commit",
     "request": {
       "body": {
-        "args": ["log", "-1", "--format=%s", "--first-parent"],
+        "args": [
+          "log",
+          "-1",
+          "--format=%s",
+          "--first-parent"
+        ],
         "cwd": "<WORK>/arches",
         "label": "git log",
         "program": "git",

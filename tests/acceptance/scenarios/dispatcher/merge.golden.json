@@ -612,6 +612,7 @@
           {
             "branch": "ticket/ARC-0001-build-the-discount",
             "conflictSeen": false,
+            "conflictSessions": 0,
             "finishedAt": null,
             "id": "<ID-13>",
             "mergedCommit": null,
@@ -892,6 +893,7 @@
           {
             "branch": "ticket/ARC-0001-build-the-discount",
             "conflictSeen": false,
+            "conflictSessions": 0,
             "finishedAt": "<TIME>",
             "id": "<ID-13>",
             "mergedCommit": "<COMMIT>",

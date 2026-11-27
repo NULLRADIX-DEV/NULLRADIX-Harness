@@ -12592,6 +12592,7 @@
           "phase",
           "strategy",
           "conflictSeen",
+          "conflictSessions",
           "queuedAt",
           "version"
         ],
@@ -12602,6 +12603,12 @@
           "conflictSeen": {
             "type": "boolean",
             "description": "A merge conflict was found and undone."
+          },
+          "conflictSessions": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Merge sessions started for the conflict; autopilot starts up to its limit.",
+            "minimum": 0
           },
           "finishedAt": {
             "type": [

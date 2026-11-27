@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 use nullradix_domain::{
-    Actor, Id, MERGE_REASON, MergeJob, MergePhase, RunKind, SystemMarker, TicketRecord,
-    TicketStatus, Version, Worktree,
+    Actor, Id, MERGE_REASON, MergeJob, MergePhase, SystemMarker, TicketRecord, TicketStatus,
+    Version, Worktree,
 };
 
-use super::merge_jobs::MergeQueue;
+use super::merge_jobs::{MergeQueue, merge_session_open};
 use super::pass::{DispatchPass, PassPhase};
 use super::start::TicketStarter;
 use crate::comments::CommentService;
@@ -131,14 +131,9 @@ impl MergeRetry {
             .filter(|link| link.live())
             .map(|link| link.key.to_string())
             .collect();
-        let session = self.parts.runs.active().await?.iter().any(|run| {
-            run.dispatch().is_some_and(|dispatch| {
-                dispatch.kind == RunKind::Merge
-                    && dispatch.subject_key.as_deref().is_some_and(|subject| {
-                        subject == text || live.iter().any(|key| key == subject)
-                    })
-            })
-        });
+        // a session that ended but is not settled yet still owns the job
+        let subjects = live.iter().cloned().chain(std::iter::once(text.clone()));
+        let session = merge_session_open(&self.parts.runs, subjects).await?;
         if session {
             return Err(merge_not_possible(
                 &text,

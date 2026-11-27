@@ -5,17 +5,20 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Actor, HOLD_NOTICE_MINUTES, HoldKind, MERGE_REASON, MergeJob, MergeStrategy, SystemMarker,
-    Ticket, TicketRecord, TicketStatus, Timestamp, WorktreePurpose, finished_for_merge,
-    merge_block_reason, merge_message, ready_to_merge,
+    Actor, HOLD_NOTICE_MINUTES, HoldKind, MERGE_REASON, MergeJob, MergePhase, MergeStrategy,
+    SystemMarker, Ticket, TicketRecord, TicketStatus, Timestamp, WorktreePurpose,
+    finished_for_merge, merge_block_reason, merge_message, ready_to_merge,
 };
 
+use super::accounts::AccountPicker;
 use super::log::{DispatchLog, LogLevel};
 use super::merge_git::{BranchDeletion, DeleteBranch, MergeGit, MergeOutcome, MergeRequest};
 use super::merge_jobs::MergeQueue;
 use super::pass::{PassContext, PassReport, PassStep};
+use super::runs::DispatchRuns;
 use super::start::TicketStarter;
 use crate::comments::CommentService;
+use crate::dispatcher_prompts::DispatcherPromptService;
 use crate::notifier::{NoNotifier, Notice, NoticeKind, Notifier};
 use crate::repositories::{RunnerService, runner_unreachable};
 use crate::runs::RunService;
@@ -23,6 +26,8 @@ use crate::tickets::{TicketDetail, TicketFilter, TicketPatch, TicketService, Wri
 use crate::worktrees::{WorktreeEntry, WorktreeRepository, WorktreeService};
 use crate::{AppError, ChangeSignal, Clock, ErrorKind};
 use nullradix_domain::Column;
+
+mod session;
 
 /// What the merge needs to put a branch into its target.
 pub struct MergeParts {
@@ -37,6 +42,10 @@ pub struct MergeParts {
     pub log: Arc<DispatchLog>,
     pub clock: Arc<dyn Clock>,
     pub signal: ChangeSignal,
+    pub runs: Arc<RunService>,
+    pub dispatch: Arc<DispatchRuns>,
+    pub prompts: Arc<DispatcherPromptService>,
+    pub accounts: Arc<AccountPicker>,
 }
 
 /// Milliseconds in a minute.
@@ -168,6 +177,10 @@ impl MergeAll {
         if entry.worktree.record().purpose != WorktreePurpose::Work {
             return self.cancel(job).await;
         }
+        // a merge run of the worktree's tickets owns the folder until its run is settled
+        if self.session_open(&entry).await? {
+            return Ok(());
+        }
         let branch = self.branch(entry).await?;
         let done = branch.done();
         if done.is_empty() {
@@ -180,8 +193,13 @@ impl MergeAll {
         if !ready_to_merge(tickets.iter().copied()) {
             return self.wait(job, &branch).await;
         }
-        // a conflict was seen and no merge session exists yet: the job stands still
-        if record.conflict_seen {
+        // the session ended and nothing settled it: it counts as not resolved
+        if record.phase == MergePhase::ConflictSession {
+            let text = "the merge session ended without an evaluation";
+            return self.session_failed(job, &branch, context, text, text).await;
+        }
+        // a conflict was seen and no merge session may start now: the job stands still
+        if record.conflict_seen && context.idle.is_some() {
             return Ok(());
         }
         let worktree = branch.entry.worktree.record();
@@ -235,6 +253,16 @@ impl MergeAll {
                 Err(error) => return Err(error),
             }
         }
+        // the conflict was solved for another branch than the one checked out now
+        if job.record().session_used {
+            let now = self.parts.git.target_tip(root, target.as_deref()).await?;
+            let head = job.record().target_head.as_deref();
+            if self.target_switched(root, head, now.as_ref()).await? {
+                return self
+                    .block(job, branch, context, session::TARGET_SWITCHED)
+                    .await;
+            }
+        }
         // the merge is in the target and the branch is gone: finish instead of merging again
         if let Some(earlier) = self
             .parts
@@ -280,7 +308,9 @@ impl MergeAll {
                 self.finish(job, branch, root, landed, context, report)
                     .await
             }
-            Ok(MergeOutcome::Conflict { files }) => self.conflict(job, branch, &files).await,
+            Ok(MergeOutcome::Conflict { files }) => {
+                self.conflict(job, branch, root, &files, context).await
+            }
             Ok(MergeOutcome::Held { kind, place, text }) => {
                 self.hold(job, branch, (kind, &place, &text)).await
             }
@@ -386,32 +416,6 @@ impl MergeAll {
             self.toast(&notice).await;
         }
         Ok(())
-    }
-
-    /// The merge was undone; the job keeps the files for a merge session and stands still.
-    async fn conflict(
-        &self,
-        job: MergeJob,
-        branch: &Branch,
-        files: &[String],
-    ) -> Result<(), AppError> {
-        let version = job.record().version;
-        let job = job.waiting(false).conflicted(files);
-        let problem = job.record().problem.clone().unwrap_or_default();
-        let body = format!("[dispatch] merge-conflict: {problem}; the branch is not merged.");
-        self.note(&branch.done(), &body, SystemMarker::MergeConflict)
-            .await?;
-        let key = branch.done().first().map(|record| record.key.to_string());
-        self.parts
-            .log
-            .write(
-                LogLevel::Info,
-                &format!("{problem} on {}", branch.name),
-                key.as_deref(),
-                None,
-            )
-            .await;
-        self.save(job, version).await
     }
 
     /// Marks every done ticket of the branch blocked with `Merge: <problem>` and ends the job.

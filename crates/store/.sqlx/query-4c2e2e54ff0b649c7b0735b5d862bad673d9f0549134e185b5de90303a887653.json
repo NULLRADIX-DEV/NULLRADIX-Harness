@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id: Uuid\", label, status, pid, exit_code, error, created_at,\n                      started_at, finished_at, version, kind, triggered_by, subject_key,\n                      profile_id AS \"profile_id: Uuid\", profile_name, model, effort, max_turns,\n                      timeout_minutes, account_id AS \"account_id: Uuid\", config_hash, cwd,\n                      command_args, prompt, claude_session_id, abort_category, abort_reason,\n                      num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,\n                      cache_write_tokens, model_usage, denied_count, outcome, agent\n               FROM runs\n               WHERE kind IN ('work', 'research', 'plan') AND subject_key IS NOT NULL AND outcome IS NULL\n                 AND status NOT IN ('starting', 'running')\n               ORDER BY finished_at, id LIMIT ?",
+  "query": "SELECT id AS \"id: Uuid\", label, status, pid, exit_code, error, created_at,\n                      started_at, finished_at, version, kind, triggered_by, subject_key,\n                      profile_id AS \"profile_id: Uuid\", profile_name, model, effort, max_turns,\n                      timeout_minutes, account_id AS \"account_id: Uuid\", config_hash, cwd,\n                      command_args, prompt, claude_session_id, abort_category, abort_reason,\n                      num_turns, cost_usd, input_tokens, output_tokens, cache_read_tokens,\n                      cache_write_tokens, model_usage, denied_count, outcome, agent\n               FROM runs\n               WHERE kind IN ('work', 'merge', 'research', 'plan') AND subject_key IS NOT NULL\n                 AND outcome IS NULL\n                 AND status NOT IN ('starting', 'running')\n               ORDER BY finished_at, id LIMIT ?",
   "describe": {
     "columns": [
       {
@@ -454,5 +454,5 @@
       true
     ]
   },
-  "hash": "81542e6c9fc255ce53b5d04cfabd13b2a38ec78c70e4d970f3ad7ba1ef9579ba"
+  "hash": "4c2e2e54ff0b649c7b0735b5d862bad673d9f0549134e185b5de90303a887653"
 }

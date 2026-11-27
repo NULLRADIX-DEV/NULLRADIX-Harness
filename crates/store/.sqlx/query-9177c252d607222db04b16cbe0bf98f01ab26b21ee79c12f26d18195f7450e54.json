@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE merge_jobs\n             SET phase = ?, target_branch = ?, target_head = ?, session_branch_head = ?, strategy = ?,\n                 conflict_sessions = ?, session_used = ?, conflict_seen = ?, wait_noted = ?,\n                 held_by = ?, hold_noticed = ?, problem = ?, merged_into = ?, merged_commit = ?,\n                 finished_at = ?, version = version + 1\n             WHERE id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 17
+    },
+    "nullable": []
+  },
+  "hash": "9177c252d607222db04b16cbe0bf98f01ab26b21ee79c12f26d18195f7450e54"
+}

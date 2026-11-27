@@ -88,6 +88,7 @@ pub struct MergeJobRecord {
     pub phase: MergePhase,
     pub target_branch: Option<String>,
     pub target_head: Option<String>,
+    pub session_branch_head: Option<String>,
     pub strategy: MergeStrategy,
     pub conflict_sessions: u32,
     pub session_used: bool,
@@ -122,6 +123,7 @@ impl MergeJob {
             phase: MergePhase::Pending,
             target_branch,
             target_head: None,
+            session_branch_head: None,
             strategy,
             conflict_sessions: 0,
             session_used: false,
@@ -208,6 +210,48 @@ impl MergeJob {
         self
     }
 
+    /// Session `sessions` runs for the conflict; the target stood at `head`, the branch at `tip`.
+    #[must_use]
+    pub fn session_started(
+        mut self,
+        sessions: u32,
+        head: &str,
+        tip: &str,
+        files: &[String],
+    ) -> Self {
+        self.0.phase = MergePhase::ConflictSession;
+        self.0.session_used = true;
+        self.0.conflict_sessions = sessions;
+        self.0.target_head = Some(head.to_owned());
+        self.0.session_branch_head = Some(tip.to_owned());
+        self.0.problem = Some(conflict_problem(files));
+        self
+    }
+
+    /// The session merged the target into the branch; a target that moved on starts afresh.
+    #[must_use]
+    pub fn session_resolved(mut self, target_moved: bool) -> Self {
+        self.0.phase = MergePhase::Pending;
+        self.0.problem = None;
+        if target_moved {
+            self.0.session_used = false;
+            self.0.conflict_sessions = 0;
+            self.0.target_head = None;
+            self.0.session_branch_head = None;
+        }
+        self
+    }
+
+    /// The session failed and autopilot allows another: the next pass merges and starts it.
+    #[must_use]
+    pub fn next_session(mut self) -> Self {
+        self.0.phase = MergePhase::Pending;
+        self.0.session_used = false;
+        self.0.target_head = None;
+        self.0.session_branch_head = None;
+        self
+    }
+
     /// The branch is in the target.
     #[must_use]
     pub fn merged(
@@ -246,6 +290,7 @@ impl MergeJob {
             && !record.hold_noticed
             && record.conflict_sessions == 0
             && record.target_head.is_none()
+            && record.session_branch_head.is_none()
             && record.held_by.is_none()
             && record.problem.is_none()
     }
@@ -260,6 +305,7 @@ impl MergeJob {
         self.0.wait_noted = false;
         self.0.hold_noticed = false;
         self.0.target_head = None;
+        self.0.session_branch_head = None;
         self.0.held_by = None;
         self.0.problem = None;
         self
@@ -403,6 +449,51 @@ mod tests {
         let long = merge_block_reason(&"x".repeat(900));
         assert_eq!(long.chars().count(), MERGE_REASON_MAX);
         assert!(long.starts_with("Merge: x"));
+    }
+
+    fn pending_job() -> MergeJob {
+        MergeJob::pending(
+            Id::from_uuid(uuid::Uuid::from_u128(1)),
+            Id::from_uuid(uuid::Uuid::from_u128(2)),
+            None,
+            MergeStrategy::Merge,
+            Timestamp::from_millis(1),
+        )
+    }
+
+    #[test]
+    fn a_session_marks_the_job_and_a_failed_one_makes_room_for_the_next() {
+        let files = [String::from("a.rs")];
+        let started = pending_job().session_started(2, "abc123", "def456", &files);
+        let record = started.record();
+        assert_eq!(record.phase, MergePhase::ConflictSession);
+        assert!(record.phase.active() && record.session_used);
+        assert_eq!(record.conflict_sessions, 2);
+        assert_eq!(record.target_head.as_deref(), Some("abc123"));
+        assert_eq!(record.session_branch_head.as_deref(), Some("def456"));
+        assert_eq!(record.problem.as_deref(), Some("merge conflict in a.rs"));
+        let next = started.clone().next_session();
+        let record = next.record();
+        assert_eq!(record.phase, MergePhase::Pending);
+        assert!(!record.session_used && record.target_head.is_none());
+        assert!(record.session_branch_head.is_none());
+        assert_eq!(record.conflict_sessions, 2);
+    }
+
+    #[test]
+    fn a_resolved_session_keeps_its_count_unless_the_target_moved() {
+        let started = pending_job().session_started(2, "abc123", "def456", &[]);
+        let kept = started.clone().session_resolved(false);
+        assert_eq!(kept.record().phase, MergePhase::Pending);
+        assert!(kept.record().session_used);
+        assert_eq!(kept.record().conflict_sessions, 2);
+        assert_eq!(kept.record().problem, None);
+        let moved = started.session_resolved(true);
+        assert!(!moved.record().session_used);
+        assert_eq!(moved.record().conflict_sessions, 0);
+        assert_eq!(moved.record().target_head, None);
+        assert_eq!(moved.record().session_branch_head, None);
+        assert!(moved.pristine());
     }
 
     #[test]

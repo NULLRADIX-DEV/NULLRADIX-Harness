@@ -14,6 +14,7 @@ mod hook;
 mod id;
 mod inbox;
 mod merge;
+mod merge_session;
 mod note;
 mod project;
 mod question;
@@ -92,6 +93,11 @@ pub use merge::{
     HOLD_FILES_MAX, HOLD_NOTICE_MINUTES, HoldKind, MERGE_PROBLEM_MAX, MERGE_REASON_MAX, MergeJob,
     MergeJobRecord, MergePhase, SQUASH_LIST_MAX, conflict_problem, hold_files, merge_block_reason,
     merge_message,
+};
+pub use merge_session::{
+    MERGE_CONFLICT_PREFIX, MERGE_SESSIONS_CAP, NEXT_SESSION, PREVIOUS_REPORT_MAX, ReportComment,
+    merge_session_choice, merge_session_limit, previous_attempts, session_failed_note,
+    session_started_note,
 };
 pub use note::{
     NOTE_LABELS_MAX, NOTE_REASON_MAX, NOTE_SEEN_IN_MAX, NOTE_TITLE_MAX, Note, NoteDraft, NoteError,
