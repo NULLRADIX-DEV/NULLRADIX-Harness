@@ -412,8 +412,33 @@ const CHECK_OUTPUT_MAX: u64 = 64 * 1024;
 /// Files with leftover conflict markers that are named.
 const MARKER_FILES_MAX: usize = 20;
 
-/// The files `after` added conflict markers to since `before`; only markers count, no whitespace.
-async fn marker_files(root: &Path, before: &str, after: &str) -> Result<Vec<String>, AppError> {
+/// The files with marker lines that are new in `after` against both parents, so the session wrote them.
+async fn marker_files(
+    root: &Path,
+    before: &str,
+    target: &str,
+    after: &str,
+) -> Result<Vec<String>, AppError> {
+    let from_branch = marker_lines(root, before, after).await?;
+    let from_target = marker_lines(root, target, after).await?;
+    let mut files: Vec<String> = Vec::new();
+    for (file, line) in from_branch {
+        let both = from_target
+            .iter()
+            .any(|(other, number)| *other == file && *number == line);
+        if both && files.len() < MARKER_FILES_MAX && !files.contains(&file) {
+            files.push(file);
+        }
+    }
+    Ok(files)
+}
+
+/// The file and line pairs of `after` with a marker that `before` lacks; whitespace does not count.
+async fn marker_lines(
+    root: &Path,
+    before: &str,
+    after: &str,
+) -> Result<Vec<(String, String)>, AppError> {
     let args = [
         "--no-optional-locks",
         "-c",
@@ -467,19 +492,16 @@ async fn marker_files(root: &Path, before: &str, after: &str) -> Result<Vec<Stri
         }
     }
     let text = String::from_utf8_lossy(&bytes);
-    let mut files: Vec<String> = Vec::new();
+    let mut found_lines: Vec<(String, String)> = Vec::new();
     for line in text.lines() {
         let Some(found) = line.strip_suffix(": leftover conflict marker") else {
             continue;
         };
-        let Some((file, _line)) = found.rsplit_once(':') else {
-            continue;
-        };
-        if files.len() < MARKER_FILES_MAX && !files.iter().any(|known| known == file) {
-            files.push(file.to_owned());
+        if let Some((file, number)) = found.rsplit_once(':') {
+            found_lines.push((file.to_owned(), number.to_owned()));
         }
     }
-    Ok(files)
+    Ok(found_lines)
 }
 
 /// Merge or squash in `cwd`; the folder is left as it was unless the merge went through.
@@ -943,7 +965,7 @@ impl MergeGit for LocalMergeGit {
         if let Some(before) = check.branch_tip
             && let Some(after) = tip_of(root, check.branch).await?
         {
-            let files = marker_files(root, before, &after).await?;
+            let files = marker_files(root, before, check.target_head, &after).await?;
             if !files.is_empty() {
                 return Ok(SessionVerdict::Markers(files));
             }
@@ -1311,6 +1333,44 @@ mod tests {
             found,
             SessionVerdict::Markers(vec![String::from("a.txt"), String::from("b.txt")])
         );
+    }
+
+    #[tokio::test]
+    async fn marker_like_lines_that_came_from_the_target_are_not_the_work_of_the_session() {
+        let (_dir, root) = repository();
+        conflicting(&root);
+        // a markdown heading on main looks like a marker to git
+        commit(
+            &root,
+            "doc.md",
+            "Install
+=======
+",
+            "a heading",
+        );
+        let at = slashed(&root);
+        let target = git_sync(&root, &["rev-parse", "refs/heads/main"]);
+        let before = git_sync(&root, &["rev-parse", "refs/heads/ticket/x"]);
+        merge_main_into_ticket(&root);
+        fs::write(
+            root.join("a.txt"),
+            "both
+",
+        )
+        .unwrap();
+        git_sync(&root, &["add", "-A"]);
+        git_sync(&root, &["commit", "-q", "--no-edit"]);
+        let found = verdict(&root, &target, Some(&before), &at).await;
+        assert_eq!(found, SessionVerdict::Resolved);
+        let markers = "<<<<<<< HEAD
+ours
+=======
+theirs
+>>>>>>> main
+";
+        commit(&root, "c.txt", markers, "left the markers");
+        let found = verdict(&root, &target, Some(&before), &at).await;
+        assert_eq!(found, SessionVerdict::Markers(vec![String::from("c.txt")]));
     }
 
     #[tokio::test]
