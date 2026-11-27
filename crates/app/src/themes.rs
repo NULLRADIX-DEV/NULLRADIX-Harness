@@ -29,8 +29,17 @@ pub struct Asset {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Installed {
     pub theme: InstalledTheme,
-    /// Code, domains and Claude part the replaced version lacked; the code switch turns off on any.
+    /// Code, domains and Claude part added to the replaced version.
     pub added: RiskAdded,
+}
+
+/// "a", "a and b" or "a, b and c".
+fn join_parts(parts: &[String]) -> String {
+    match parts {
+        [] => String::new(),
+        [only] => only.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// The package needs a confirmation: the facts go with the refusal.
@@ -52,12 +61,14 @@ fn confirmation_required(
     }
     AppError::conflict(
         "theme-confirmation-required",
-        format!("{} contains {}", manifest.id(), parts.join(" and ")),
+        format!("{} contains {}", manifest.id(), join_parts(&parts)),
     )
     .with_confirmation(ConfirmationFacts {
         risk,
         added,
         update,
+        id: manifest.id().to_string(),
+        name: manifest.record().name.clone(),
         version: manifest.record().version.clone(),
         sha256: None,
     })
@@ -183,8 +194,8 @@ pub trait ThemeFiles: Send + Sync {
     async fn remove(&self, id: &ThemeId) -> Result<(), AppError>;
     /// The file at `path` below the theme's folder; `None` unless it is a regular file inside it.
     async fn read(&self, id: &ThemeId, path: &[String]) -> Result<Option<Vec<u8>>, AppError>;
-    /// The paths of the files of the theme; empty when its folder is missing.
-    async fn paths(&self, id: &ThemeId) -> Result<Vec<String>, AppError>;
+    /// The paths of the files of the theme, empty without a folder; `None` when they are unknown.
+    async fn paths(&self, id: &ThemeId) -> Option<Vec<String>>;
 }
 
 #[must_use]
@@ -228,8 +239,8 @@ impl ThemeFiles for UnavailableFiles {
         Ok(None)
     }
 
-    async fn paths(&self, _id: &ThemeId) -> Result<Vec<String>, AppError> {
-        Ok(Vec::new())
+    async fn paths(&self, _id: &ThemeId) -> Option<Vec<String>> {
+        Some(Vec::new())
     }
 }
 
@@ -289,7 +300,7 @@ impl ThemeService {
         Ok(ThemeList { themes, active })
     }
 
-    /// Installs or replaces the theme; new code or domains need `confirmed`.
+    /// Installs or replaces the theme; code, network domains or a Claude part need `confirmed`.
     pub async fn install(&self, archive: Vec<u8>, confirmed: bool) -> Result<Installed, AppError> {
         self.install_expecting(archive, None, None, confirmed).await
     }
@@ -337,7 +348,7 @@ impl ThemeService {
             ));
         }
         let known = self.repository.get(manifest.id()).await?;
-        let (risk, added) = self.inspect(&manifest, &files, known.as_ref()).await?;
+        let (risk, added) = self.inspect(&manifest, &files, known.as_ref()).await;
         if !confirmed && risk.is_risky() {
             return Err(confirmation_required(
                 &manifest,
@@ -372,22 +383,23 @@ impl ThemeService {
         manifest: &ThemeManifest,
         files: &[PackageFile],
         known: Option<&InstalledTheme>,
-    ) -> Result<(ThemeRisk, RiskAdded), AppError> {
+    ) -> (ThemeRisk, RiskAdded) {
         let risk = inspect_package(
             manifest.record(),
             files.iter().map(|file| file.path.as_str()),
         );
-        let Some(known) = known else {
-            let added = risk.added_to(None);
-            return Ok((risk, added));
+        // unknown files count like a fresh install
+        let old = match known {
+            Some(known) => self.files.paths(known.id()).await.map(|paths| {
+                inspect_package(
+                    known.record().manifest.record(),
+                    paths.iter().map(String::as_str),
+                )
+            }),
+            None => None,
         };
-        let paths = self.files.paths(known.id()).await?;
-        let old = inspect_package(
-            known.record().manifest.record(),
-            paths.iter().map(String::as_str),
-        );
-        let added = risk.added_to(Some(&old));
-        Ok((risk, added))
+        let added = risk.added_to(old.as_ref());
+        (risk, added)
     }
 
     /// The catalog source of every theme installed from one.
@@ -833,10 +845,10 @@ pub(crate) mod tests {
                 .map(|file| file.data.clone()))
         }
 
-        async fn paths(&self, id: &ThemeId) -> Result<Vec<String>, AppError> {
+        async fn paths(&self, id: &ThemeId) -> Option<Vec<String>> {
             let stored = self.stored.lock();
             let files = stored.get(id.as_str()).map_or(&[][..], Vec::as_slice);
-            Ok(files.iter().map(|file| file.path.clone()).collect())
+            Some(files.iter().map(|file| file.path.clone()).collect())
         }
     }
 
@@ -1448,6 +1460,14 @@ pub(crate) mod tests {
         let facts = error.confirmation().unwrap();
         assert!(facts.risk.has_code && !facts.update && facts.added.code);
         assert_eq!(facts.risk.network, ["a.example.com"]);
+        assert_eq!(
+            (facts.id.as_str(), facts.name.as_str()),
+            ("night-blue", "Night Blue")
+        );
+        assert_eq!(
+            error.message(),
+            "night-blue contains code and network domains a.example.com"
+        );
         assert!(fixture.files.stored.lock().is_empty());
         assert_eq!(fixture.service.list().await.unwrap().themes.len(), 0);
         refused(&fixture, risky("1.0.0", r#""a.example.com""#, false)).await;
@@ -1498,9 +1518,14 @@ pub(crate) mod tests {
         let error = refused(&fixture, build(&[])).await;
         let facts = error.confirmation().unwrap();
         assert!(facts.risk.claude_theme && !facts.risk.has_code && facts.added.claude_theme);
+        assert_eq!(error.message(), "night-blue contains a Claude part");
         let script = [file("claude/hooks/run.ts", "run()")];
         let error = refused(&fixture, build(&script)).await;
         assert!(error.confirmation().unwrap().risk.has_code);
+        assert_eq!(
+            error.message(),
+            "night-blue contains code and a Claude part"
+        );
     }
 
     #[tokio::test]

@@ -1171,9 +1171,10 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-confirmation-required");
+        let upper = facts.sha256.as_deref().map(str::to_ascii_uppercase);
         let installed = world
             .service
-            .install(&source, "night-blue", false, facts.sha256.as_deref())
+            .install(&source, "night-blue", false, upper.as_deref())
             .await
             .unwrap();
         assert!(installed.added.code);

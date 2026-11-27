@@ -123,7 +123,6 @@ export function ThemesSection() {
         />
         {facts && asked && (
           <ThemeConfirmDialog
-            name={asked.file.name}
             facts={facts}
             busy={install.isPending}
             onConfirm={() => {

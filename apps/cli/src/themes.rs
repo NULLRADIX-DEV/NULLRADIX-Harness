@@ -93,16 +93,12 @@ impl ThemeFiles for FolderThemes {
         .await
     }
 
-    async fn paths(&self, id: &ThemeId) -> Result<Vec<String>, AppError> {
+    async fn paths(&self, id: &ThemeId) -> Option<Vec<String>> {
         let root = self.dir.join(id.as_str());
-        blocking(move || match nullradix_os::read_tree(&root, LIMITS) {
-            Ok(entries) => Ok(entries.into_iter().map(|entry| entry.path).collect()),
-            Err(ArchiveError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok(Vec::new())
-            }
-            Err(error) => Err(refused(error)),
-        })
-        .await
+        tokio::task::spawn_blocking(move || nullradix_os::list_files(&root, LIMITS.entries))
+            .await
+            .ok()
+            .flatten()
     }
 }
 
@@ -229,7 +225,7 @@ mod tests {
         let themes = service(dir.path().join("themes")).await;
         let files = FolderThemes::new(dir.path().join("themes"));
         let id = ThemeId::parse("night-blue").unwrap();
-        assert_eq!(files.paths(&id).await.unwrap(), Vec::<String>::new());
+        assert_eq!(files.paths(&id).await, Some(Vec::new()));
         themes.install(package(&[]), false).await.unwrap();
         assert_eq!(
             files.paths(&id).await.unwrap(),
@@ -245,10 +241,38 @@ mod tests {
             .await
             .unwrap();
         assert!(done.added.code);
-        let same = themes
+        let error = themes
             .install(package(&[entry("main.js", "run()")]), false)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "theme-confirmation-required");
+        let same = themes
+            .install(package(&[entry("main.js", "run()")]), true)
             .await
             .unwrap();
         assert!(same.added.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stray_files_in_the_installed_folder_never_block_a_reinstall() {
+        let dir = tempfile::tempdir().unwrap();
+        let themes = service(dir.path().join("themes")).await;
+        let folder = dir.path().join("themes/night-blue");
+        let code = package(&[entry("main.js", "run()")]);
+        themes.install(code.clone(), true).await.unwrap();
+        std::fs::write(folder.join(".DS_Store"), "x").unwrap();
+        let same = themes.install(code.clone(), true).await.unwrap();
+        assert!(same.added.is_empty());
+        let error = themes.install(code.clone(), false).await.unwrap_err();
+        assert_eq!(error.code(), "theme-confirmation-required");
+
+        // too many files: the old risk is unknown, so code counts as added
+        let crowd = folder.join("crowd");
+        std::fs::create_dir(&crowd).unwrap();
+        for n in 0..=MAX_ENTRIES {
+            std::fs::write(crowd.join(format!("{n}.css")), "").unwrap();
+        }
+        let repaired = themes.install(code, true).await.unwrap();
+        assert!(repaired.added.code);
     }
 }

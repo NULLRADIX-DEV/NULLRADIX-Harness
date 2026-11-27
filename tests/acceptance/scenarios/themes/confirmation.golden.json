@@ -35,7 +35,7 @@
     ],
     "exitCode": 1,
     "name": "installing without confirming names code and domains",
-    "stderr": "error: night-code contains code and network domains fonts.example.com; run it again with --yes to confirm\n",
+    "stderr": "error: night-code contains code and network domains fonts.example.com\n  theme: Night Code (night-code) 1.0.0, new install\n  code: yes\n  claude part: no\n  network domains: fonts.example.com\nrun it again with --yes to confirm\n",
     "stdout": ""
   },
   {
@@ -125,7 +125,7 @@
     ],
     "exitCode": 1,
     "name": "an update that adds nothing new still asks because the package has code",
-    "stderr": "error: night-code contains code and network domains fonts.example.com; run it again with --yes to confirm\n",
+    "stderr": "error: night-code contains code and network domains fonts.example.com\n  theme: Night Code (night-code) 1.1.0, update\n  code: yes\n  claude part: no\n  network domains: fonts.example.com\n  new in this update: nothing\nrun it again with --yes to confirm\n",
     "stdout": ""
   },
   {
@@ -166,7 +166,7 @@
     ],
     "exitCode": 1,
     "name": "an update that adds a domain asks too",
-    "stderr": "error: night-code contains code and network domains fonts.example.com, cdn.example.com; run it again with --yes to confirm\n",
+    "stderr": "error: night-code contains code and network domains fonts.example.com, cdn.example.com\n  theme: Night Code (night-code) 1.2.0, update\n  code: yes\n  claude part: no\n  network domains: fonts.example.com, cdn.example.com\n  new in this update: network domains cdn.example.com\nrun it again with --yes to confirm\n",
     "stdout": ""
   },
   {

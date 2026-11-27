@@ -48,13 +48,15 @@ export function fakeApi(handlers: Record<string, Handler> = {}) {
   };
 }
 
-// A 409 that asks for a confirmation before a theme with code or network domains is installed.
+// A 409 that asks for a confirmation before a risky theme package is installed.
 export function confirmation(overrides: Partial<Confirmation>): Response {
   const facts: Confirmation = {
     hasCode: false,
     domains: [],
     claudeTheme: false,
     update: false,
+    id: 'night-blue',
+    name: 'Night Blue',
     version: '1.0.0',
     sha256: null,
     added: { code: false, claudeTheme: false, domains: [] },

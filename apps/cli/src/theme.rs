@@ -4,10 +4,14 @@ use std::process::ExitCode;
 
 use anyhow::{Context, bail};
 use clap::Subcommand;
-use nullradix_api::{SaveThemeSettings, ThemeDto, ThemeSettingDto, ThemeSettingValueDto};
+use nullradix_api::{
+    AddedDto, ConfirmationDto, SaveThemeSettings, ThemeDto, ThemeSettingDto, ThemeSettingValueDto,
+};
 use nullradix_app::theme_package::{PackageFile, check_package};
 use nullradix_client::{Client, ClientError};
 use nullradix_domain::{BUILTIN_THEMES, MAX_PACKAGE_BYTES};
+
+use crate::theme_catalog::plain;
 
 #[derive(Subcommand)]
 pub(crate) enum ThemeCommand {
@@ -21,7 +25,7 @@ pub(crate) enum ThemeCommand {
     Install {
         /// The package file
         file: PathBuf,
-        /// Confirm that the package may bring code or network domains
+        /// Confirm that the package may hold code, network domains or a Claude part
         #[arg(long)]
         yes: bool,
     },
@@ -77,11 +81,96 @@ pub(crate) enum SettingsAction {
     Reset,
 }
 
-/// A refusal that asks for a confirmation names what to confirm and how to give it.
+/// The facts of a refused package, one per line.
+fn facts_text(detail: &str, facts: &ConfirmationDto) -> String {
+    let yes = |on: bool| if on { "yes" } else { "no" };
+    let domains = |list: &[String]| plain(&list.join(", "));
+    let kind = if facts.update {
+        "update"
+    } else {
+        "new install"
+    };
+    let mut lines = vec![
+        plain(detail),
+        format!(
+            "  theme: {} ({}) {}, {kind}",
+            plain(&facts.name),
+            plain(&facts.id),
+            plain(&facts.version)
+        ),
+        format!("  code: {}", yes(facts.has_code)),
+        format!("  claude part: {}", yes(facts.claude_theme)),
+        format!(
+            "  network domains: {}",
+            if facts.domains.is_empty() {
+                String::from("none")
+            } else {
+                domains(&facts.domains)
+            }
+        ),
+    ];
+    if facts.update {
+        lines.push(format!(
+            "  new in this update: {}",
+            added_text(&facts.added)
+        ));
+    }
+    lines.join(
+        "
+",
+    )
+}
+
+fn added_text(added: &AddedDto) -> String {
+    let mut parts = Vec::new();
+    if added.code {
+        parts.push(String::from("code"));
+    }
+    if added.claude_theme {
+        parts.push(String::from("a claude part"));
+    }
+    if !added.domains.is_empty() {
+        parts.push(format!(
+            "network domains {}",
+            plain(&added.domains.join(", "))
+        ));
+    }
+    if parts.is_empty() {
+        String::from("nothing")
+    } else {
+        parts.join("; ")
+    }
+}
+
+/// A refusal of an uploaded package shows the facts and how to confirm.
 pub(crate) fn ask_for_yes(error: ClientError) -> anyhow::Error {
     match error {
-        ClientError::Refused { code, detail, .. } if code == "theme-confirmation-required" => {
-            anyhow::anyhow!("{detail}; run it again with --yes to confirm")
+        ClientError::ConfirmationRequired { detail, facts } => anyhow::anyhow!(
+            "{}
+run it again with --yes to confirm",
+            facts_text(&detail, &facts)
+        ),
+        other => other.into(),
+    }
+}
+
+/// A refusal of a catalog package names the checksum to repeat.
+pub(crate) fn ask_for_checksum(error: ClientError) -> anyhow::Error {
+    match error {
+        ClientError::ConfirmationRequired { detail, facts } => {
+            let text = facts_text(&detail, &facts);
+            match facts.sha256.as_deref() {
+                Some(sha) => anyhow::anyhow!(
+                    "{text}
+  checksum: {sha}
+to install exactly this package run it again with --confirm {sha}",
+                    sha = plain(sha)
+                ),
+                None => anyhow::anyhow!(
+                    "{text}
+the daemon named no checksum to confirm"
+                ),
+            }
         }
         other => other.into(),
     }
@@ -334,26 +423,6 @@ pub(crate) fn pack(dir: &Path, out: Option<&Path>) -> anyhow::Result<ExitCode> {
 
 #[cfg(test)]
 mod tests {
-    use nullradix_client::ClientError;
-
-    #[test]
-    fn a_confirmation_refusal_asks_for_yes_and_others_stay_as_they_are() {
-        let asked = ask_for_yes(ClientError::Refused {
-            status: 409,
-            code: String::from("theme-confirmation-required"),
-            detail: String::from("night-blue contains code"),
-        });
-        assert_eq!(
-            asked.to_string(),
-            "night-blue contains code; run it again with --yes to confirm"
-        );
-        let other = ask_for_yes(ClientError::Refused {
-            status: 409,
-            code: String::from("version-conflict"),
-            detail: String::from("changed"),
-        });
-        assert!(other.to_string().contains("version-conflict"));
-    }
     use super::*;
 
     const MANIFEST: &str = r#"{
@@ -500,5 +569,74 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("id:"), "{error}");
         assert!(pack(Path::new("no-such-folder"), None).is_err());
+    }
+
+    fn refused(update: bool, sha256: Option<&str>) -> ClientError {
+        ClientError::ConfirmationRequired {
+            detail: String::from("night-blue contains code and network domains a.example.com"),
+            facts: Box::new(ConfirmationDto {
+                has_code: true,
+                domains: vec![String::from("a.example.com")],
+                claude_theme: false,
+                update,
+                added: AddedDto {
+                    code: false,
+                    domains: vec![String::from("a.example.com")],
+                    claude_theme: false,
+                },
+                id: String::from("night-blue"),
+                name: String::from("Night Blue"),
+                version: String::from("1.0.0"),
+                sha256: sha256.map(str::to_owned),
+            }),
+        }
+    }
+
+    #[test]
+    fn a_refused_upload_shows_the_facts_and_asks_for_yes() {
+        let text = ask_for_yes(refused(false, None)).to_string();
+        let lines = [
+            "night-blue contains code and network domains a.example.com",
+            "  theme: Night Blue (night-blue) 1.0.0, new install",
+            "  code: yes",
+            "  claude part: no",
+            "  network domains: a.example.com",
+            "run it again with --yes to confirm",
+        ];
+        assert_eq!(
+            text,
+            lines.join(
+                "
+"
+            )
+        );
+        let update = ask_for_yes(refused(true, None)).to_string();
+        assert!(update.contains("1.0.0, update"), "{update}");
+        assert!(
+            update.contains("new in this update: network domains a.example.com"),
+            "{update}"
+        );
+        let other = ask_for_yes(ClientError::Refused {
+            status: 409,
+            code: String::from("version-conflict"),
+            detail: String::from("changed"),
+        });
+        assert!(other.to_string().contains("version-conflict"));
+    }
+
+    #[test]
+    fn a_refused_catalog_package_names_the_checksum_to_confirm() {
+        let text = ask_for_checksum(refused(false, Some("ab12"))).to_string();
+        assert!(
+            text.contains(
+                "  checksum: ab12
+"
+            ),
+            "{text}"
+        );
+        assert!(text.ends_with("--confirm ab12"), "{text}");
+        assert!(!text.contains("--yes"), "{text}");
+        let none = ask_for_checksum(refused(false, None)).to_string();
+        assert!(none.contains("no checksum"), "{none}");
     }
 }

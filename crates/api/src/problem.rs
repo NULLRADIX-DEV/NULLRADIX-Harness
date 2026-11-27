@@ -32,7 +32,7 @@ pub struct Problem {
     pub confirmation: Option<ConfirmationDto>,
 }
 
-/// Code and domains of a theme package that a person confirms, and what an update adds.
+/// Code, domains and Claude part of a theme package to confirm, and what an update adds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfirmationDto {
@@ -46,13 +46,16 @@ pub struct ConfirmationDto {
     pub update: bool,
     /// What the package adds to the installed version; everything risky for a new install.
     pub added: AddedDto,
+    /// Id and name of the theme in the package.
+    pub id: String,
+    pub name: String,
     /// Version of the package.
     pub version: String,
     /// Checksum of a catalog package; send it back as `confirmedSha256` to confirm exactly it.
     pub sha256: Option<String>,
 }
 
-/// Code and domains a package brings that the installed version lacked.
+/// Code, domains and Claude part added to the installed version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AddedDto {
@@ -68,6 +71,8 @@ impl From<&ConfirmationFacts> for ConfirmationDto {
             domains: facts.risk.network.clone(),
             claude_theme: facts.risk.claude_theme,
             update: facts.update,
+            id: facts.id.clone(),
+            name: facts.name.clone(),
             version: facts.version.clone(),
             sha256: facts.sha256.clone(),
             added: AddedDto {

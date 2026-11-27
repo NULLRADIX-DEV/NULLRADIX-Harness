@@ -248,7 +248,7 @@ describe('CatalogSection', () => {
     });
     renderApp('/settings');
     await userEvent.click(await screen.findByRole('button', { name: 'Install Night Blue' }));
-    const dialog = await screen.findByRole('alertdialog', { name: 'Install Night Blue?' });
+    const dialog = await screen.findByRole('alertdialog', { name: 'Install Night Blue 1.0.0?' });
     expect(within(dialog).getByText(/This package contains code/)).toBeInTheDocument();
     expect(within(dialog).getByText('cdn.example.com')).toBeInTheDocument();
     expect(screen.queryByText('the package needs a confirmation')).not.toBeInTheDocument();
@@ -276,7 +276,7 @@ describe('CatalogSection', () => {
     );
     renderApp('/settings');
     await userEvent.click(await screen.findByRole('button', { name: 'Update Night Blue' }));
-    const dialog = await screen.findByRole('alertdialog', { name: 'Update Night Blue?' });
+    const dialog = await screen.findByRole('alertdialog', { name: 'Update Night Blue 1.0.0?' });
     expect(within(dialog).getByText(/new in this update/)).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();

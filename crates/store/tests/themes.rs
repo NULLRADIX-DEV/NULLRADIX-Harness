@@ -223,8 +223,8 @@ impl ThemeFiles for Files {
         Ok(None)
     }
 
-    async fn paths(&self, _id: &ThemeId) -> Result<Vec<String>, AppError> {
-        Ok(Vec::new())
+    async fn paths(&self, _id: &ThemeId) -> Option<Vec<String>> {
+        Some(Vec::new())
     }
 }
 
@@ -247,7 +247,7 @@ async fn the_service_installs_selects_and_removes_against_the_database() {
     service.select("night-blue").await.unwrap();
     assert_eq!(service.list().await.unwrap().active, "night-blue");
 
-    let again = service.install(archive, false).await.unwrap().theme;
+    let again = service.install(archive, true).await.unwrap().theme;
     assert_eq!(again.record().version, Version::from_stored(2));
     assert_eq!(again.record().installed_at, installed.record().installed_at);
 
@@ -450,7 +450,7 @@ async fn the_service_saves_and_drops_settings_with_the_theme() {
     assert_eq!(service.settings("night-blue").await.unwrap(), saved);
 
     // a reinstall keeps what was chosen
-    let again = service.install(archive(), false).await.unwrap().theme;
+    let again = service.install(archive(), true).await.unwrap().theme;
     assert_eq!(service.settings("night-blue").await.unwrap(), saved);
 
     // a refused removal leaves the values where they were

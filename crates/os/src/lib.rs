@@ -18,8 +18,8 @@ mod toast;
 mod windows;
 
 pub use archive::{
-    ArchiveError, Entry, Limits, pack_zip, read_tree, read_within, remove_dir, replace_dir,
-    unpack_zip,
+    ArchiveError, Entry, Limits, list_files, pack_zip, read_tree, read_within, remove_dir,
+    replace_dir, unpack_zip,
 };
 pub use autostart::{
     AutostartEntry, AutostartState, autostart_disable, autostart_enable, autostart_reenable,

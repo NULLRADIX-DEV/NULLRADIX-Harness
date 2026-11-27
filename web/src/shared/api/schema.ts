@@ -1910,7 +1910,7 @@ export interface components {
              */
             version?: number | null;
         };
-        /** @description Code and domains a package brings that the installed version lacked. */
+        /** @description Code, domains and Claude part added to the installed version. */
         AddedDto: {
             claudeTheme: boolean;
             code: boolean;
@@ -2183,7 +2183,7 @@ export interface components {
             /** @description Oldest first. */
             items: components["schemas"]["CommentDto"][];
         };
-        /** @description Code and domains of a theme package that a person confirms, and what an update adds. */
+        /** @description Code, domains and Claude part of a theme package to confirm, and what an update adds. */
         ConfirmationDto: {
             /** @description What the package adds to the installed version; everything risky for a new install. */
             added: components["schemas"]["AddedDto"];
@@ -2193,6 +2193,9 @@ export interface components {
             domains: string[];
             /** @description The package holds script files. */
             hasCode: boolean;
+            /** @description Id and name of the theme in the package. */
+            id: string;
+            name: string;
             /** @description Checksum of a catalog package; send it back as `confirmedSha256` to confirm exactly it. */
             sha256?: string | null;
             /** @description The package replaces an installed theme. */
@@ -9937,7 +9940,7 @@ export interface operations {
     install_theme: {
         parameters: {
             query?: {
-                /** @description Confirmed: the package may bring code or network domains. */
+                /** @description Confirmed: the package may hold code, network domains or a Claude part. */
                 confirmed?: boolean;
             };
             header?: never;
@@ -9979,7 +9982,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `theme-confirmation-required`: the package has code or network domains the installed version did not (retry with `confirmed=true` after the person confirmed them) */
+            /** @description `theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them) */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -177,6 +177,43 @@ pub fn read_tree(dir: &Path, limits: Limits) -> Result<Vec<Entry>, ArchiveError>
     Ok(entries)
 }
 
+/// Paths of the plain files below `dir`, skipping hidden names and links; `None` on any failure.
+#[must_use]
+pub fn list_files(dir: &Path, max: usize) -> Option<Vec<String>> {
+    let mut files = Vec::new();
+    let mut seen = 0;
+    let mut pending = vec![(dir.to_path_buf(), String::new())];
+    while let Some((folder, prefix)) = pending.pop() {
+        let children = match fs::read_dir(&folder) {
+            Ok(children) => children,
+            Err(error) if error.kind() == io::ErrorKind::NotFound && prefix.is_empty() => {
+                return Some(files);
+            }
+            Err(_) => return None,
+        };
+        for child in children {
+            let child = child.ok()?;
+            let name = child.file_name().to_string_lossy().into_owned();
+            let kind = child.file_type().ok()?;
+            if kind.is_symlink() || name.starts_with('.') || !plain_name(&name) {
+                continue;
+            }
+            seen += 1;
+            if seen > max {
+                return None;
+            }
+            let path = format!("{prefix}{name}");
+            if kind.is_dir() {
+                pending.push((child.path(), format!("{path}/")));
+            } else if kind.is_file() {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    Some(files)
+}
+
 fn collect(
     root: &Path,
     dir: &Path,
@@ -698,6 +735,22 @@ mod tests {
                 Err(ArchiveError::Link(_))
             ));
         }
+    }
+
+    #[test]
+    fn listing_a_folder_skips_hidden_files_and_stops_at_the_cap() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("pack");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::write(dir.join("manifest.json"), "{}").unwrap();
+        fs::write(dir.join("assets/a.png"), "p").unwrap();
+        fs::write(dir.join(".DS_Store"), "x").unwrap();
+        assert_eq!(
+            list_files(&dir, 8).unwrap(),
+            ["assets/a.png", "manifest.json"]
+        );
+        assert_eq!(list_files(&dir.join("gone"), 8), Some(Vec::new()));
+        assert_eq!(list_files(&dir, 2), None);
     }
 
     #[test]

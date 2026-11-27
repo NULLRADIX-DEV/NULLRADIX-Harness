@@ -218,6 +218,7 @@ describe('ThemesSection', () => {
       return confirmation({
         hasCode: true,
         claudeTheme: true,
+        version: '1.2.0',
         domains: ['fonts.example.com'],
       });
     });
@@ -228,7 +229,7 @@ describe('ThemesSection', () => {
       new File(['zip'], 'night-blue.nullradix'),
     );
     const dialog = await screen.findByRole('alertdialog', {
-      name: 'Install night-blue.nullradix?',
+      name: 'Install Night Blue 1.2.0?',
     });
     expect(within(dialog).getByText(/This package contains code/)).toBeInTheDocument();
     expect(within(dialog).getByText('fonts.example.com')).toBeInTheDocument();
@@ -259,7 +260,7 @@ describe('ThemesSection', () => {
       screen.getByLabelText('Install a theme package'),
       new File(['zip'], 'night-blue.nullradix'),
     );
-    const dialog = await screen.findByRole('alertdialog', { name: 'Update night-blue.nullradix?' });
+    const dialog = await screen.findByRole('alertdialog', { name: 'Update Night Blue 1.0.0?' });
     expect(within(dialog).getByText('a.b.com (new)')).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
@@ -277,7 +278,7 @@ describe('ThemesSection', () => {
       new File(['zip'], 'night-blue.nullradix'),
     );
     const dialog = await screen.findByRole('alertdialog', {
-      name: 'Install night-blue.nullradix?',
+      name: 'Install Night Blue 1.0.0?',
     });
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
     await userEvent.keyboard('{Enter}');

@@ -129,11 +129,13 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
       />
       {facts && asked && (
         <ThemeConfirmDialog
-          name={theme.name}
           facts={facts}
           busy={install.isPending}
           onConfirm={() => {
-            install.mutate({ ...asked, confirmedSha256: facts.sha256 ?? undefined });
+            install.mutate({
+              ...asked,
+              ...(facts.sha256 ? { confirmedSha256: facts.sha256 } : {}),
+            });
           }}
           onCancel={install.reset}
         />

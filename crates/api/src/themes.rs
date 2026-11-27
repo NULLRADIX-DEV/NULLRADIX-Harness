@@ -36,7 +36,7 @@ impl From<ColorScheme> for ColorSchemeDto {
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct InstallQuery {
-    /// Confirmed: the package may bring code or network domains.
+    /// Confirmed: the package may hold code, network domains or a Claude part.
     #[serde(default)]
     confirmed: bool,
 }
@@ -311,7 +311,7 @@ pub(crate) async fn list_themes(
             headers(("Location" = String, description = "URL of the stylesheet"))),
         (status = 200, description = "Replaced the installed theme with the same id", body = ThemeDto),
         (status = 401, body = Problem),
-        (status = 409, description = "`theme-confirmation-required`: the package has code or network domains the installed version did not (retry with `confirmed=true` after the person confirmed them)", body = Problem),
+        (status = 409, description = "`theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them)", body = Problem),
         (status = 422, description = "Not a valid package: `theme-package-invalid`, `theme-manifest-invalid` with the refused fields, or `theme-id-reserved`", body = Problem),
     )
 )]
@@ -553,10 +553,10 @@ pub(crate) mod fake {
                 .and_then(|files| files.iter().find(|file| file.path == joined))
                 .map(|file| file.data.clone()))
         }
-        async fn paths(&self, id: &ThemeId) -> Result<Vec<String>, AppError> {
+        async fn paths(&self, id: &ThemeId) -> Option<Vec<String>> {
             let files = self.0.lock();
             let stored = files.get(id.as_str()).map_or(&[][..], Vec::as_slice);
-            Ok(stored.iter().map(|file| file.path.clone()).collect())
+            Some(stored.iter().map(|file| file.path.clone()).collect())
         }
     }
 }
@@ -1012,7 +1012,8 @@ mod tests {
             problem["confirmation"],
             json!({
                 "hasCode": true, "domains": ["fonts.example.com"], "claudeTheme": false,
-                "update": false, "version": "1.2.0", "sha256": null,
+                "update": false, "id": "night-blue", "name": "Night Blue", "version": "1.2.0",
+                "sha256": null,
                 "added": { "code": true, "claudeTheme": false, "domains": ["fonts.example.com"] }
             })
         );

@@ -11,15 +11,13 @@ export function confirmationOf(error: unknown): Confirmation | null {
   return error.confirmation;
 }
 
-// Asks before a package with code or network domains is installed; cancel installs nothing.
+// Asks before a package with code, network domains or a Claude part is installed.
 export function ThemeConfirmDialog({
-  name,
   facts,
   busy,
   onConfirm,
   onCancel,
 }: {
-  name: string;
   facts: Confirmation;
   busy: boolean;
   onConfirm: () => void;
@@ -40,7 +38,9 @@ export function ThemeConfirmDialog({
         if (!busy) onConfirm();
       }}
     >
-      <strong id={titleId}>{update ? `Update ${name}?` : `Install ${name}?`}</strong>
+      <strong id={titleId}>
+        {update ? 'Update' : 'Install'} {facts.name} {facts.version}?
+      </strong>
       <div id={descriptionId} className="theme-confirm-facts">
         {facts.hasCode && (
           <p>
