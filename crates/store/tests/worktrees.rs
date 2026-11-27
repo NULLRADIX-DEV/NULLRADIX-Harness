@@ -26,6 +26,7 @@ const AGENT: WriteOptions = WriteOptions {
     by_person: false,
     force: false,
     allow_duplicate: false,
+    from_agent: false,
 };
 
 struct Fixture {

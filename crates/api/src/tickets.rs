@@ -742,6 +742,7 @@ pub(crate) async fn create_ticket(
         by_person: matches!(principal, Principal::Session { .. }),
         force: input.force,
         allow_duplicate: input.allow_duplicate,
+        from_agent: false,
     };
     let ticket = NewTicket {
         title: input.title,
@@ -793,11 +794,36 @@ pub(crate) async fn get_ticket(
     Ok(Json(state.tickets.get(&path.ticket_key).await?.into()))
 }
 
+/// An agent may not move a ticket out of blocked while it waits for a person.
+async fn refuse_agent_ending_a_wait(
+    state: &ApiState,
+    context: AgentContext,
+    key: &str,
+    status: Option<&str>,
+) -> Result<(), ApiError> {
+    let moves_on = status.is_some_and(|text| {
+        nullradix_domain::TicketStatus::parse(text)
+            .is_ok_and(|status| status != nullradix_domain::TicketStatus::Blocked)
+    });
+    if !context.is_agent() || !moves_on {
+        return Ok(());
+    }
+    let detail = state.tickets.get(key).await?;
+    let record = detail.view.ticket.record();
+    if record.status == nullradix_domain::TicketStatus::Blocked
+        && nullradix_domain::waits_for_a_person(record.blocked_reason.as_deref())
+    {
+        return Err(decision_needs_person("moving a ticket that waits for a person").into());
+    }
+    Ok(())
+}
+
 pub(crate) fn writer(principal: &Principal, force: bool) -> WriteOptions {
     WriteOptions {
         by_person: matches!(principal, Principal::Session { .. }),
         force,
         allow_duplicate: false,
+        from_agent: false,
     }
 }
 
@@ -876,6 +902,7 @@ fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
     responses(
         (status = 200, body = TicketDetailDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person", body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, body = Problem),
@@ -884,6 +911,7 @@ fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
 pub(crate) async fn update_ticket(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<UpdateTicket>,
 ) -> Result<Json<TicketDetailDto>, ApiError> {
@@ -893,7 +921,10 @@ pub(crate) async fn update_ticket(
     }
     let clear_link = link.iter().any(|given| given.is_some());
     let expected = AppError::client_version(input.version)?;
-    let options = writer(&principal, input.force);
+    let options = WriteOptions {
+        from_agent: context.is_agent(),
+        ..writer(&principal, input.force)
+    };
     let actor = author_of(
         &state,
         &principal,
@@ -938,6 +969,7 @@ pub(crate) async fn update_ticket(
     responses(
         (status = 200, body = TicketDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person", body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, body = Problem),
@@ -946,6 +978,7 @@ pub(crate) async fn update_ticket(
 pub(crate) async fn move_ticket(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<MoveTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
@@ -965,7 +998,10 @@ pub(crate) async fn move_ticket(
             input.acceptance.as_deref(),
             &actor,
             version(input.version)?,
-            writer(&principal, input.force),
+            WriteOptions {
+                from_agent: context.is_agent(),
+                ..writer(&principal, input.force)
+            },
         )
         .await?;
     Ok(Json(view.into()))
@@ -1137,6 +1173,7 @@ pub(crate) async fn move_step(
     responses(
         (status = 200, body = TicketDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person", body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Assigned already, or a stale version", body = Problem),
         (status = 422, body = Problem),
@@ -1144,9 +1181,13 @@ pub(crate) async fn move_step(
 )]
 pub(crate) async fn claim_ticket(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<ClaimTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
+    // a claim moves to in progress unless told, which ends a wait for a person
+    let status = input.status.as_deref().or(Some("in-progress"));
+    refuse_agent_ending_a_wait(&state, context, &path.ticket_key, status).await?;
     let view = state
         .tickets
         .claim(
@@ -1170,15 +1211,18 @@ pub(crate) async fn claim_ticket(
     responses(
         (status = 200, body = TicketDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person", body = Problem),
         (status = 404, body = Problem),
         (status = 422, body = Problem),
     )
 )]
 pub(crate) async fn release_ticket(
     State(state): State<ApiState>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<ReleaseTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
+    refuse_agent_ending_a_wait(&state, context, &path.ticket_key, input.status.as_deref()).await?;
     let view = state
         .tickets
         .release(
@@ -1413,7 +1457,9 @@ mod tests {
     use axum::http::Request;
     use serde_json::json;
 
-    use crate::tests::{TestApi, bearer, local, open_session, send, test_api};
+    use crate::tests::{
+        TestApi, as_person, bearer, in_run, in_session, local, open_session, send, test_api,
+    };
 
     async fn board_path(api: &TestApi) -> String {
         let project = api.projects.create("ARC", "Arches").await.unwrap();
@@ -1659,5 +1705,140 @@ mod tests {
             .unwrap();
         let (status, _, _) = send(&api.router, request).await;
         assert_eq!(status, 200);
+    }
+
+    /// A ticket that waits for a person, as a run leaves it for a review; returns its path.
+    async fn waiting_ticket(api: &TestApi) -> String {
+        let board = board_path(api).await;
+        let create = bearer(Request::post(board.as_str()), &api.token)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "title": "Fix it", "acceptance": "works" }).to_string(),
+            ))
+            .unwrap();
+        assert_eq!(send(&api.router, create).await.0, 201);
+        let path = String::from("/api/v1/tickets/ARC-1");
+        let hold = json!({ "status": "blocked", "blockedReason": "Human Interaction: look", "version": 1 });
+        // a run may put a ticket in this state itself
+        let request = in_run(bearer(Request::patch(path.as_str()), &api.token))
+            .header("content-type", "application/json")
+            .body(Body::from(hold.to_string()))
+            .unwrap();
+        let (status, _, ticket) = send(&api.router, request).await;
+        assert_eq!(status, 200, "{ticket}");
+        path
+    }
+
+    #[tokio::test]
+    async fn a_run_cannot_move_a_ticket_that_waits_for_a_person() {
+        let api = test_api().await;
+        let path = waiting_ticket(&api).await;
+        let cookie = open_session(&api).await;
+        let attempts = [
+            (
+                "PATCH",
+                path.clone(),
+                json!({ "status": "done", "version": 2 }),
+            ),
+            (
+                "PATCH",
+                path.clone(),
+                json!({ "status": "planned", "version": 2 }),
+            ),
+            (
+                "PATCH",
+                path.clone(),
+                json!({ "blockedReason": "waiting for a key", "version": 2 }),
+            ),
+            (
+                "PATCH",
+                path.clone(),
+                json!({ "blockedReason": null, "version": 2 }),
+            ),
+            ("POST", format!("{path}/move"), json!({ "status": "done" })),
+            (
+                "POST",
+                format!("{path}/claim"),
+                json!({ "agent": "claude" }),
+            ),
+            (
+                "POST",
+                format!("{path}/claim"),
+                json!({ "agent": "claude", "status": "done" }),
+            ),
+            (
+                "POST",
+                format!("{path}/release"),
+                json!({ "status": "done" }),
+            ),
+        ];
+        for (method, uri, body) in &attempts {
+            for mark in [in_run, in_session] {
+                for as_session in [false, true] {
+                    let builder = Request::builder().method(*method).uri(uri.as_str());
+                    let builder = if as_session {
+                        as_person(builder, &cookie)
+                    } else {
+                        bearer(builder, &api.token)
+                    };
+                    let request = mark(builder)
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap();
+                    let (status, _, problem) = send(&api.router, request).await;
+                    assert_eq!(status, 403, "{method} {uri} {body} {problem}");
+                    assert_eq!(problem["code"], "decision-needs-person", "{method} {uri}");
+                }
+            }
+        }
+        let request = bearer(Request::get(path.as_str()), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (_, _, ticket) = send(&api.router, request).await;
+        assert_eq!(ticket["ticket"]["status"], "blocked");
+        assert_eq!(ticket["ticket"]["version"], 2);
+
+        // a comment-like change that keeps the wait is fine for a run
+        let same = json!({ "priority": "high", "version": 2 });
+        let request = in_run(bearer(Request::patch(path.as_str()), &api.token))
+            .header("content-type", "application/json")
+            .body(Body::from(same.to_string()))
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, 200);
+        // the person at a terminal (no run or session) and in the app may move it
+        let request = bearer(Request::post(format!("{path}/move")), &api.token)
+            .header("content-type", "application/json")
+            .body(Body::from(json!({ "status": "planned" }).to_string()))
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, 200);
+    }
+
+    #[tokio::test]
+    async fn a_run_still_changes_the_status_of_a_ticket_that_waits_for_nobody() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        let create = bearer(Request::post(board.as_str()), &api.token)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "title": "Fix it", "acceptance": "works" }).to_string(),
+            ))
+            .unwrap();
+        assert_eq!(send(&api.router, create).await.0, 201);
+        for (body, uri) in [
+            (
+                json!({ "status": "in-progress" }),
+                "/api/v1/tickets/ARC-1/move",
+            ),
+            (json!({ "status": "blocked" }), "/api/v1/tickets/ARC-1/move"),
+            (json!({ "status": "planned" }), "/api/v1/tickets/ARC-1/move"),
+            (json!({ "status": "done" }), "/api/v1/tickets/ARC-1/move"),
+        ] {
+            let request = in_run(bearer(Request::post(uri), &api.token))
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap();
+            let (status, _, problem) = send(&api.router, request).await;
+            assert_eq!(status, 200, "{body} {problem}");
+        }
     }
 }

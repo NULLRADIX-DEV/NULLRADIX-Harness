@@ -41,11 +41,13 @@ const AGENT: WriteOptions = WriteOptions {
     by_person: false,
     force: false,
     allow_duplicate: false,
+    from_agent: false,
 };
 const PERSON: WriteOptions = WriteOptions {
     by_person: true,
     force: false,
     allow_duplicate: false,
+    from_agent: false,
 };
 
 async fn fixture() -> Fixture {
@@ -350,6 +352,7 @@ async fn open_tickets_with_the_same_title_are_refused_unless_allowed() {
     );
     let allowed = WriteOptions {
         allow_duplicate: true,
+        from_agent: false,
         ..AGENT
     };
     assert!(

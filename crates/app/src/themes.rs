@@ -553,16 +553,27 @@ impl ThemeService {
 
     /// Chooses a theme; a token choosing one with a Claude part turns that part's switch off.
     pub async fn select(&self, id: &str, by_person: bool) -> Result<String, AppError> {
-        let mut claude_part = false;
-        if !BUILTIN_THEMES.contains(&id) {
-            let theme = ThemeId::parse(id).map_err(|error| id_invalid(&error))?;
-            let Some(installed) = self.repository.get(&theme).await? else {
-                return Err(theme_not_found(id));
-            };
-            claude_part = installed.record().manifest.record().claude_theme;
-        }
+        let theme = if BUILTIN_THEMES.contains(&id) {
+            None
+        } else {
+            Some(ThemeId::parse(id).map_err(|error| id_invalid(&error))?)
+        };
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
+        // the Claude part is read in the write, so a reinstall cannot change it in between
+        let claude_part = match &theme {
+            Some(theme) => {
+                write
+                    .theme(theme)
+                    .await?
+                    .ok_or_else(|| theme_not_found(id))?
+                    .record()
+                    .manifest
+                    .record()
+                    .claude_theme
+            }
+            None => false,
+        };
         let change = write.select(id, now).await?;
         let off = if change.is_some() && claude_part && !by_person {
             write.claude_off(now).await?

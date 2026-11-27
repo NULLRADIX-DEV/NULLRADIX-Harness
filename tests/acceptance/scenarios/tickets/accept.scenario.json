@@ -97,6 +97,33 @@
       }
     },
     {
+      "name": "a run cannot set it to done instead",
+      "cli": {
+        "args": ["ticket", "set", "ARC-1", "--status", "done", "--author", "claude"],
+        "env": {
+          "NULLRADIX_RUN": "run-1"
+        }
+      }
+    },
+    {
+      "name": "a session cannot move it to done",
+      "cli": {
+        "args": ["ticket", "move", "ARC-1", "done"],
+        "env": {
+          "NULLRADIX_SESSION": "session-1"
+        }
+      }
+    },
+    {
+      "name": "a run cannot clear the reason",
+      "cli": {
+        "args": ["ticket", "set", "ARC-1", "--blocked-reason", "waiting for a key"],
+        "env": {
+          "NULLRADIX_RUN": "run-1"
+        }
+      }
+    },
+    {
       "name": "the ticket still waits",
       "http": {
         "method": "GET",

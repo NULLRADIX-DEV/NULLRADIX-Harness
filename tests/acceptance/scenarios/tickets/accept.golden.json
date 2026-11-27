@@ -151,6 +151,55 @@
     "stdout": ""
   },
   {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-1",
+      "--status",
+      "done",
+      "--author",
+      "claude"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot set it to done instead",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "move",
+      "ARC-1",
+      "done"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 1,
+    "name": "a session cannot move it to done",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-1",
+      "--blocked-reason",
+      "waiting for a key"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot clear the reason",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
     "name": "the ticket still waits",
     "request": {
       "method": "GET",

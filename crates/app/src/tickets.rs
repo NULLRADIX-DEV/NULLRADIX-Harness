@@ -271,6 +271,7 @@ pub struct PlanInput {
 }
 
 /// Who writes and which legacy locks the write lifts.
+#[allow(clippy::struct_excessive_bools, reason = "independent facts about one write")]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WriteOptions {
     /// A person in the board, rather than an agent through the CLI.
@@ -278,6 +279,8 @@ pub struct WriteOptions {
     /// Lifts the dependency, question and not-needed locks, never the acceptance lock.
     pub force: bool,
     pub allow_duplicate: bool,
+    /// The request says it comes from a run or session; it may not decide for the person.
+    pub from_agent: bool,
 }
 
 /// Filters of a ticket list, applied after the scope.
@@ -1414,8 +1417,19 @@ async fn check_change(
         by_person: options.by_person,
         force: options.force,
     };
+    if options.from_agent && waits_for_person(before.record()) && !waits_for_person(after) {
+        return Err(crate::auth::decision_needs_person(
+            "moving a ticket that waits for a person",
+        ));
+    }
     check_status_change(Some(before.status()), after.status, request, &facts)
         .map_err(|error| locked(&error))
+}
+
+/// Blocked on a person, such as a review before the merge.
+fn waits_for_person(record: &TicketRecord) -> bool {
+    record.status == TicketStatus::Blocked
+        && nullradix_domain::waits_for_a_person(record.blocked_reason.as_deref())
 }
 
 /// Deletes tickets as legacy did: dependents lose the edge, each ticket leaves a tombstone.

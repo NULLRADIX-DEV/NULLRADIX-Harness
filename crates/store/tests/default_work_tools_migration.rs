@@ -6,14 +6,16 @@
 
 use std::borrow::Cow;
 
-use nullradix_domain::DEFAULT_ALLOWED_TOOLS;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 
 const MIGRATION: i64 = 20_261_127_030_000;
 
+/// Frozen copies of the old and the new default; the live constant may change later.
 const OLD_DEFAULT: &str = r#"["Read","Edit","Write","Glob","Grep","Bash(harness:*)","Bash(nullradix:*)","Bash(node:*)","Bash(npm test:*)","Bash(npm run:*)","Bash(git status:*)","Bash(git diff:*)","Bash(git log:*)","Bash(git branch:*)","Bash(git add:*)","Bash(git commit:*)"]"#;
+
+const NEW_DEFAULT: &str = r#"["Read","Edit","Write","Glob","Grep","Bash(nullradix ticket show:*)","Bash(nullradix ticket list:*)","Bash(nullradix ticket comment:*)","Bash(nullradix ticket set:*)","Bash(nullradix ticket done:*)","Bash(nullradix step check:*)","Bash(nullradix step add:*)","Bash(nullradix step edit:*)","Bash(nullradix note add:*)","Bash(nullradix note list:*)","Bash(nullradix note seen:*)","Bash(nullradix note show:*)","Bash(nullradix question add:*)","Bash(nullradix question show:*)","Bash(nullradix question list:*)","Bash(nullradix question comment:*)","Bash(npm test:*)","Bash(npm run:*)","Bash(git status:*)","Bash(git diff:*)","Bash(git log:*)","Bash(git branch:*)","Bash(git add:*)","Bash(git commit:*)"]"#;
 
 async fn pool() -> SqlitePool {
     let options = SqliteConnectOptions::new()
@@ -57,8 +59,7 @@ async fn an_untouched_default_gets_the_explicit_nullradix_commands() {
     before_migration().run(&pool).await.unwrap();
     assert_eq!(tools(&pool).await, OLD_DEFAULT);
     sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    let now: Vec<String> = serde_json::from_str(&tools(&pool).await).unwrap();
-    assert_eq!(now, DEFAULT_ALLOWED_TOOLS);
+    assert_eq!(tools(&pool).await, NEW_DEFAULT);
 }
 
 #[tokio::test]

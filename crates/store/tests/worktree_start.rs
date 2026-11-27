@@ -204,6 +204,7 @@ const FORCE: WriteOptions = WriteOptions {
     by_person: false,
     force: true,
     allow_duplicate: true,
+    from_agent: false,
 };
 
 async fn fixture() -> Fixture {
