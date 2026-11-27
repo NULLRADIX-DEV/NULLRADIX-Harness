@@ -200,12 +200,12 @@ function Row({ item }: { item: Customization }) {
         )}
       </div>
       {item.problems.map((problem) => (
-        <p key={problem.code} className="form-error">
+        <p key={`${problem.code}:${problem.message}`} className="form-error">
           {problem.message}
         </p>
       ))}
       {item.warnings.map((warning) => (
-        <p key={warning.code} className="muted">
+        <p key={`${warning.code}:${warning.message}`} className="muted">
           {warning.message}
         </p>
       ))}
