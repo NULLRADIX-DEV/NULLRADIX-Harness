@@ -145,6 +145,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let account_services = start_accounts(config, &store, &signal).await?;
     let roots =
         start_transcript_roots(config, &account_services.accounts, &signal, &shutdown).await?;
+    nullradix_runner::set_worktree_plugin(Some(config.profile.plugin_id()));
     let (runner, runners) = start_runners(config, &store, &signal, roots).await?;
     let board = start_board(&store, &runners, &signal).await?;
     let (runs, dispatch_runs) = start_runs(

@@ -100,6 +100,7 @@ pub(crate) async fn create(request: &NewWorktree) -> Result<CreatedWorktree, App
         args.push(start);
     }
     git(cwd, &args).await?;
+    crate::plugin::enable(Path::new(&request.path)).await;
     Ok(CreatedWorktree {
         target_created_from,
         long_paths_enabled,
@@ -213,6 +214,17 @@ mod tests {
         assert_eq!(again.unwrap_err().code(), "worktree-exists");
         let taken = create(&request(&root, "ticket/ARC-0001-a", None)).await;
         assert_eq!(taken.unwrap_err().code(), "branch-exists");
+    }
+
+    #[tokio::test]
+    async fn a_created_worktree_has_the_plugin_and_stays_clean() {
+        crate::plugin::tests::configure();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("arches");
+        repository(&root);
+        let wanted = request(&root, "ticket/ARC-0001-a", None);
+        create(&wanted).await.unwrap();
+        crate::plugin::tests::assert_enabled(Path::new(&wanted.path));
     }
 
     #[tokio::test]

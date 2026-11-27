@@ -183,6 +183,7 @@ async fn open_merge_worktree(root: &Path, target: &str, path: &str) -> Result<Pl
             .await?
             .is_some_and(|at| same_folder(&at, path));
         if ours {
+            crate::plugin::enable(Path::new(path)).await;
             return Ok(place(true));
         }
         return Err(AppError::invalid(
@@ -197,6 +198,7 @@ async fn open_merge_worktree(root: &Path, target: &str, path: &str) -> Result<Pl
     let mut args: Vec<&str> = LONG_PATHS.to_vec();
     args.extend(["worktree", "add", path, target]);
     git(root, &args).await?;
+    crate::plugin::enable(Path::new(path)).await;
     Ok(place(true))
 }
 
@@ -1560,6 +1562,19 @@ exit 1
             .await
             .unwrap_err();
         assert_eq!(error.code(), "merge-worktree-foreign");
+    }
+
+    #[tokio::test]
+    async fn the_merge_worktree_gets_the_plugin_when_opened_and_when_reused() {
+        crate::plugin::tests::configure();
+        let (dir, root) = repository();
+        git_sync(&root, &["branch", "release", "main"]);
+        let path = slashed(&dir.path().join("arches-worktrees/_merge/release"));
+        open_merge_worktree(&root, "release", &path).await.unwrap();
+        crate::plugin::tests::assert_enabled(Path::new(&path));
+        fs::remove_file(Path::new(&path).join(".claude/settings.local.json")).unwrap();
+        open_merge_worktree(&root, "release", &path).await.unwrap();
+        crate::plugin::tests::assert_enabled(Path::new(&path));
     }
 
     #[tokio::test]

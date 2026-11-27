@@ -8,7 +8,7 @@ use clap::Args;
 use nullradix_api::{BoardDto, RunnerDto};
 use nullradix_client::Client;
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::board::{bind_repository, local_runner};
@@ -16,8 +16,8 @@ use crate::config::Profile;
 use crate::connect;
 use crate::plugin;
 
+const SETTINGS: &str = nullradix_os::LOCAL_SETTINGS;
 const RULE_MARKER: &str = "# Created by `nullradix init`, not versioned.";
-const SETTINGS: &str = ".claude/settings.local.json";
 
 #[derive(Args)]
 pub(crate) struct InitArgs {
@@ -140,53 +140,22 @@ fn apply_rule(root: &Path, rule: &Rule) -> anyhow::Result<State> {
 
 /// Keeps the rule files out of Git for every worktree of the repository.
 fn exclude_rules(common_dir: &Path) -> anyhow::Result<()> {
-    let file = common_dir.join("info").join("exclude");
-    let mut text = read_text(&file)?.unwrap_or_default();
-    let mut changed = false;
-    for rule in &RULES {
-        let line = format!("/{}", rule.path);
-        if !text.lines().any(|known| known == line) {
-            if !text.is_empty() && !text.ends_with('\n') {
-                text.push('\n');
-            }
-            text.push_str(&line);
-            text.push('\n');
-            changed = true;
-        }
-    }
-    if changed {
-        write(&file, &text)?;
-    }
+    let lines: Vec<String> = RULES.iter().map(|rule| format!("/{}", rule.path)).collect();
+    nullradix_os::add_git_excludes(common_dir, &lines)?;
     Ok(())
 }
 
 /// Turns the plugin on for the project; every other setting stays as it is.
 fn enable_plugin(root: &Path, id: &str) -> anyhow::Result<State> {
-    let file = root.join(SETTINGS);
-    let mut settings = match read_text(&file)? {
-        Some(text) if !text.trim().is_empty() => match serde_json::from_str::<Value>(&text) {
-            Ok(Value::Object(settings)) => settings,
-            _ => bail!(
-                "{} is not valid JSON; fix it and run init again, it was not changed",
-                file.display()
-            ),
-        },
-        _ => Map::new(),
-    };
-    let mut plugins = match settings.remove("enabledPlugins") {
-        Some(Value::Object(plugins)) => plugins,
-        _ => Map::new(),
-    };
-    if plugins.get(id) == Some(&Value::Bool(true)) {
-        return Ok(State::Unchanged);
+    match nullradix_os::enable_plugin(root, id) {
+        Ok(true) => Ok(State::Written),
+        Ok(false) => Ok(State::Unchanged),
+        Err(nullradix_os::SettingsError::Invalid(file)) => bail!(
+            "{} is not valid JSON; fix it and run init again, it was not changed",
+            file.display()
+        ),
+        Err(error) => Err(error.into()),
     }
-    plugins.insert(id.to_owned(), Value::Bool(true));
-    settings.insert("enabledPlugins".to_owned(), Value::Object(plugins));
-    write(
-        &file,
-        &(serde_json::to_string_pretty(&Value::Object(settings))? + "\n"),
-    )?;
-    Ok(State::Written)
 }
 
 /// Writes the rules, keeps them out of Git and enables the plugin for the project.
@@ -354,7 +323,7 @@ pub(crate) fn run(
 ) -> anyhow::Result<ExitCode> {
     let folder = std::env::current_dir().context("cannot read the current folder")?;
     let (root, common) = repository_of(&folder)?;
-    let id = format!("{}@{}", profile.plugin_name(), profile.marketplace_name());
+    let id = profile.plugin_id();
     let bind = args
         .board
         .map(|board| prepare_bind(profile, home, board))

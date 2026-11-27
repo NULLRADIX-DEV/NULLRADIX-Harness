@@ -20,6 +20,7 @@ pub(crate) async fn ensure(request: &EnsureWorktree) -> Result<EnsuredWorktree, 
     let mut moved_aside = None;
     if exists(path.clone()).await? {
         if holds(root, &path, &request.branch).await? {
+            crate::plugin::enable(&path).await;
             return Ok(EnsuredWorktree::Present);
         }
         moved_aside = clear_rest(root, request).await?;
@@ -29,6 +30,7 @@ pub(crate) async fn ensure(request: &EnsureWorktree) -> Result<EnsuredWorktree, 
     let mut args: Vec<&str> = LONG_PATHS.to_vec();
     args.extend(["worktree", "add", "--", &request.path, &request.branch]);
     git(root, &args).await?;
+    crate::plugin::enable(&path).await;
     Ok(EnsuredWorktree::Restored { moved_aside })
 }
 
@@ -158,6 +160,24 @@ mod tests {
         let error = result.unwrap_err();
         assert_eq!(error.code(), "worktree-mismatch");
         error.message().to_owned()
+    }
+
+    #[tokio::test]
+    async fn a_resumed_and_a_restored_worktree_have_the_plugin() {
+        crate::plugin::tests::configure();
+        let dir = tempfile::tempdir().unwrap();
+        let (root, path) = setup(dir.path());
+        assert_eq!(
+            ensure(&request(&root, &path)).await.unwrap(),
+            EnsuredWorktree::Present
+        );
+        crate::plugin::tests::assert_enabled(&path);
+        git_sync(&root, &["worktree", "remove", "--force", &text(&path)]);
+        assert!(matches!(
+            ensure(&request(&root, &path)).await.unwrap(),
+            EnsuredWorktree::Restored { .. }
+        ));
+        crate::plugin::tests::assert_enabled(&path);
     }
 
     #[tokio::test]

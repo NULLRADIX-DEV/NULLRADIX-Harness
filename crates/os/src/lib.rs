@@ -11,6 +11,7 @@ mod files;
 mod local_time;
 mod paths;
 mod process;
+mod project_settings;
 mod secrets;
 mod toast;
 #[cfg(windows)]
@@ -36,5 +37,6 @@ pub use files::{create_private_dir, write_atomic, write_private};
 pub use local_time::{LocalZone, local_utc_offset_minutes};
 pub use paths::{Paths, PathsError, claude_config_dirs, home_dir};
 pub use process::{ProcessTree, process_alive, spawn_detached};
+pub use project_settings::{LOCAL_SETTINGS, SettingsError, add_git_excludes, enable_plugin};
 pub use secrets::{FileSecrets, SecretBackend, SecretError, system_secrets};
 pub use toast::show_toast;

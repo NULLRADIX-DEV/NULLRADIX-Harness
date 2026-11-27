@@ -96,6 +96,7 @@ impl DetachedWorktreePort for LocalDetached {
         let mut args: Vec<&str> = LONG_PATHS.to_vec();
         args.extend(["worktree", "add", "--detach", &path, &request.at]);
         git(root, &args).await?;
+        crate::plugin::enable(Path::new(&path)).await;
         Ok(DetachedCreated::Created {
             path,
             long_paths_enabled,
@@ -180,6 +181,19 @@ mod tests {
             DetachedCreated::Created { path, .. } => path,
             DetachedCreated::Busy { path } => panic!("busy: {path}"),
         }
+    }
+
+    #[tokio::test]
+    async fn a_detached_worktree_has_the_plugin_and_stays_clean() {
+        crate::plugin::tests::configure();
+        let dir = tempfile::tempdir().unwrap();
+        let root = repository(dir.path());
+        let at = git_sync(&root, &["rev-parse", "HEAD"]);
+        let created = LocalDetached
+            .create(&create(&root, "ARC-Q0009", &at))
+            .await
+            .unwrap();
+        crate::plugin::tests::assert_enabled(Path::new(&created_path(created)));
     }
 
     #[tokio::test]
