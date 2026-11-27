@@ -46,8 +46,9 @@ pub struct ConfirmationFacts {
     pub added: nullradix_domain::RiskAdded,
     /// A theme with this id is installed and the package replaces it.
     pub update: bool,
-    /// Id and name of the theme in the package.
+    /// Id of the theme in the package.
     pub id: String,
+    /// Name of the theme in the package.
     pub name: String,
     /// Version of the package.
     pub version: String,

@@ -46,8 +46,9 @@ pub struct ConfirmationDto {
     pub update: bool,
     /// What the package adds to the installed version; everything risky for a new install.
     pub added: AddedDto,
-    /// Id and name of the theme in the package.
+    /// Id of the theme in the package.
     pub id: String,
+    /// Name of the theme in the package.
     pub name: String,
     /// Version of the package.
     pub version: String,

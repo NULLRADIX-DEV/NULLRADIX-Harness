@@ -275,4 +275,28 @@ mod tests {
         let repaired = themes.install(code, true).await.unwrap();
         assert!(repaired.added.code);
     }
+
+    #[tokio::test]
+    async fn a_package_at_the_file_cap_with_a_subfolder_reinstalls_without_adding_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let themes = service(dir.path().join("themes")).await;
+        // manifest, style and script plus the rest fill exactly the cap
+        let mut files = vec![entry("main.js", "run()")];
+        files.extend((0..MAX_ENTRIES - 3).map(|n| entry(&format!("assets/{n}.css"), "")));
+        let full = package(&files);
+        themes.install(full.clone(), true).await.unwrap();
+        let again = themes.install(full, true).await.unwrap();
+        assert!(again.added.is_empty());
+    }
+
+    #[tokio::test]
+    async fn code_in_a_hidden_path_is_not_added_again_by_an_update() {
+        let dir = tempfile::tempdir().unwrap();
+        let themes = service(dir.path().join("themes")).await;
+        let hidden = package(&[entry(".cache/run.js", "run()")]);
+        let first = themes.install(hidden.clone(), true).await.unwrap();
+        assert!(first.added.code);
+        let again = themes.install(hidden, true).await.unwrap();
+        assert!(again.added.is_empty());
+    }
 }
