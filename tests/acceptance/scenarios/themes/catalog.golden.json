@@ -226,6 +226,7 @@
   {
     "name": "the routes need a token",
     "request": {
+      "auth": "none",
       "method": "GET",
       "path": "/api/v1/theme-catalog/sources"
     },

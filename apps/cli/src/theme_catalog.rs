@@ -196,6 +196,7 @@ fn install(
         plain(&installed.id),
         plain(&installed.package_version)
     );
+    crate::theme::note_code_is_off(&installed);
     Ok(())
 }
 

@@ -249,6 +249,10 @@ impl Daemon {
             .post(&self.url("/api/v1/auth/handoffs"))
             .header("Authorization", format!("Bearer {}", self.token))
             .send_empty()?;
+        let status = made.status();
+        if status != 201 {
+            bail!("the handoff was refused with {status}");
+        }
         let handoff: Value = made.body_mut().read_json()?;
         let path = handoff["path"].as_str().context("handoff without path")?;
         let redeemed = agent.get(&self.url(path)).call()?;

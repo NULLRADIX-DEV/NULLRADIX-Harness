@@ -447,6 +447,7 @@
   {
     "name": "snippets need a login",
     "request": {
+      "auth": "none",
       "method": "GET",
       "path": "/api/v1/snippets/active.css"
     },

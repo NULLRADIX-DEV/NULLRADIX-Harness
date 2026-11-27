@@ -400,7 +400,7 @@ impl ThemeService {
         }
         let has_code = files.iter().any(|file| file.path == CODE_FILE);
         let now = self.clock.now();
-        // what the person allowed is not what this package brings; off before its files appear
+        // unless the person installs what they allowed, code turns off before its files appear
         if known.is_none() || !added.is_empty() || !has_code || !by_person {
             let mut off = self.repository.begin().await?;
             let change = off.set_code(manifest.id(), false, now).await?;
@@ -668,7 +668,7 @@ impl ThemeService {
             .read(&theme, &segments)
             .await?
             .ok_or_else(file_not_found)?;
-        // an install may have turned the switch off while the file was read
+        // the switch may have gone off while the file was read
         if script && !self.code_is_on(&theme).await? {
             return Err(file_not_found());
         }

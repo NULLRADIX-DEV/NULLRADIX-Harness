@@ -139,6 +139,13 @@ fn added_text(added: &AddedDto) -> String {
     }
 }
 
+/// Code that came with an install stays off until the person turns it on in the app.
+pub(crate) fn note_code_is_off(theme: &ThemeDto) {
+    if theme.has_code && !theme.code_enabled {
+        println!("its code is off; turn it on in the app");
+    }
+}
+
 /// A refusal of an uploaded package shows the facts and how to confirm.
 pub(crate) fn ask_for_yes(error: ClientError) -> anyhow::Error {
     match error {
@@ -203,6 +210,7 @@ pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<Exit
                 std::fs::read(&file).with_context(|| format!("cannot read {}", file.display()))?;
             let theme = client.install_theme(&bytes, yes).map_err(ask_for_yes)?;
             println!("installed {} {}", theme.id, theme.package_version);
+            note_code_is_off(&theme);
         }
         ThemeCommand::Use { id } => {
             let chosen = client.choose_theme(&id)?;
