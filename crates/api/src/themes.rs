@@ -92,7 +92,7 @@ pub struct ThemeDto {
     pub claude_theme: bool,
     /// The package has a `main.js` for the web UI.
     pub has_code: bool,
-    /// The person turned the code switch on; the web UI runs `main.js` of the chosen theme only then.
+    /// The person turned the code switch on; only then does the web UI run `main.js`.
     pub code_enabled: bool,
     /// URL of `main.js`, set when the package has one.
     pub code_url: Option<String>,

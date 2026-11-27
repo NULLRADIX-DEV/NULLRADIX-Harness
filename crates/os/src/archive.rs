@@ -177,9 +177,7 @@ pub fn read_tree(dir: &Path, limits: Limits) -> Result<Vec<Entry>, ArchiveError>
     Ok(entries)
 }
 
-/// Paths of the plain files below `dir`, hidden ones too; `None` on any failure.
-///
-/// At most `max` files, and at most `max` folders, links and odd names together.
+/// Paths of the files below `dir`, hidden ones too, at most `max` files and `max` other entries.
 #[must_use]
 pub fn list_files(dir: &Path, max: usize) -> Option<Vec<String>> {
     let mut files = Vec::new();

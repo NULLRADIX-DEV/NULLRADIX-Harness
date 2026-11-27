@@ -42,8 +42,7 @@ fn inline_script_hashes(html: &str) -> Vec<String> {
     hashes
 }
 
-/// The policy for the page: the base one, plus the hash of every inline script such as the
-/// import map that lets themes share the app's modules.
+/// The base policy plus the hash of every inline script, such as the import map.
 fn page_policy(html: &str) -> Option<HeaderValue> {
     let hashes = inline_script_hashes(html);
     if hashes.is_empty() {

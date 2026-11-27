@@ -489,7 +489,7 @@ fn routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
 }
 
-/// Pages load only same-origin scripts and the inline scripts they name by hash; nothing leaves the origin.
+/// Pages run same-origin scripts and inline scripts named by hash; nothing leaves the origin.
 pub(crate) const APP_CSP: &str = concat!(
     "default-src 'self'; script-src 'self'; worker-src 'self'; frame-src 'none'; ",
     "form-action 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; ",
