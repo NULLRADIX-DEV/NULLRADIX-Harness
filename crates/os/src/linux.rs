@@ -564,9 +564,24 @@ mod tests {
             .skip_while(|arg| arg != "--")
             .skip(1)
             .collect();
+        if let [mode, marker] = args.as_slice()
+            && mode == FAILING_MODE
+        {
+            std::process::exit(failing_reaper(Path::new(marker)));
+        }
         if !args.is_empty() {
             std::process::exit(run_reaper(&args));
         }
+    }
+
+    const FAILING_MODE: &str = "failing-reaper-with-marker";
+
+    /// Reports nothing, closes the report and only then writes the marker, as a slow exit would.
+    fn failing_reaper(marker: &Path) -> i32 {
+        let status = status_descriptor(std::env::var(STATUS_VAR).ok().as_deref());
+        drop(status);
+        thread::sleep(Duration::from_millis(400));
+        fs::write(marker, "done").map_or(1, |()| 0)
     }
 
     fn script(text: &str) -> Command {
@@ -623,6 +638,17 @@ mod tests {
         let mut child = staying.arg("60").spawn().unwrap();
         let status = end_failed(&mut child, Duration::from_millis(100)).unwrap();
         assert_eq!((status.code(), status.signal()), (None, Some(9)));
+    }
+
+    #[test]
+    fn a_reaper_that_reported_a_failure_finishes_its_exit_before_the_start_fails() {
+        ensure_reaper();
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("exit.marker");
+        let mut command = ProcessTree::command(FAILING_MODE);
+        command.arg(&marker);
+        let error = ProcessTree::spawn(&mut command).unwrap_err();
+        assert!(marker.exists(), "the reaper was killed: {error}");
     }
 
     #[test]

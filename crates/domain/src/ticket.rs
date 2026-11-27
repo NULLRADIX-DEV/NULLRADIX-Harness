@@ -872,6 +872,24 @@ mod tests {
     }
 
     #[test]
+    fn the_label_that_keeps_a_person_in_matches_in_unicode_lowercase() {
+        let mut tagged = sample().record().clone();
+        tagged.labels = vec![String::from("\u{c4}rger")];
+        let mut dropped = tagged.clone();
+        dropped.labels = Vec::new();
+        assert_eq!(
+            check_agent_write(&tagged, &dropped, Some("\u{e4}rger")),
+            Err(AgentWriteRefusal::DropsLabel(String::from("\u{e4}rger")))
+        );
+        let mut kept = tagged.clone();
+        kept.labels = vec![String::from("\u{e4}rger")];
+        assert_eq!(
+            check_agent_write(&tagged, &kept, Some("\u{c4}rger")),
+            Ok(())
+        );
+    }
+
+    #[test]
     fn only_human_interaction_reasons_wait_for_a_person() {
         assert!(waits_for_a_person(Some(" Human Interaction: review ")));
         assert!(waits_for_a_person(Some("Human Interaction")));

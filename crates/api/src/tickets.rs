@@ -1623,6 +1623,7 @@ pub(crate) async fn import_tickets(
             Id::from_uuid(path.board_id),
             &input.ticket_keys,
             &actor,
+            context.is_agent(),
         )
         .await?;
     Ok(Json(ImportedTickets {
@@ -2091,6 +2092,38 @@ mod tests {
         // the person at a terminal may force it
         let (status, problem) = token_call(&api, None, "POST", move_path, to_progress).await;
         assert_eq!(status, 200, "{problem}");
+    }
+
+    #[tokio::test]
+    async fn a_browser_session_that_names_an_agent_is_not_the_person() {
+        let api = test_api().await;
+        let board = board_path(&api).await;
+        for title in ["First", "Second"] {
+            let body = json!({ "title": title, "acceptance": "works" });
+            assert_eq!(token_call(&api, None, "POST", &board, body).await.0, 201);
+        }
+        let cookie = open_session(&api).await;
+        let move_to = |key: &str, mark: Option<Mark>| {
+            let builder = as_person(
+                Request::post(format!("/api/v1/tickets/{key}/move")),
+                &cookie,
+            );
+            let builder = match mark {
+                Some(mark) => mark(builder),
+                None => builder,
+            };
+            builder
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "status": "not-needed" }).to_string()))
+                .unwrap()
+        };
+        // the person may call it not needed, an agent may not, even through the person's session
+        assert_eq!(send(&api.router, move_to("ARC-1", None)).await.0, 200);
+        for mark in [in_run, in_session] {
+            let (status, _, problem) = send(&api.router, move_to("ARC-2", Some(mark))).await;
+            assert_eq!(status, 422, "{problem}");
+            assert_eq!(problem["code"], "not-needed-human-only");
+        }
     }
 
     /// The dispatcher configuration with this label as the one autopilot leaves alone.
