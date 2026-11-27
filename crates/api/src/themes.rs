@@ -2,12 +2,13 @@
 
 use std::collections::BTreeMap;
 
-use axum::Json;
 use axum::body::{Body, to_bytes};
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use axum::{Extension, Json};
 use nullradix_app::AppError;
+use nullradix_app::auth::Principal;
 use nullradix_app::themes::{ThemeCode, ThemeList, ThemeSettings};
 use nullradix_domain::{
     CODE_FILE, ColorScheme, InstalledTheme, MAX_PACKAGE_BYTES, STYLE_FILE, SettingSpec,
@@ -284,8 +285,9 @@ fn expected_version(value: i64) -> Result<Option<Version>, AppError> {
 pub struct SetThemeCode {
     /// Let the web UI run `main.js` of the theme while it is chosen, or stop it.
     pub enabled: bool,
-    /// Version of the theme the person saw, so a later update cannot slip in.
-    pub version: i64,
+    /// Version of the theme the person saw, so a later update cannot slip in; needed to turn on.
+    #[serde(default)]
+    pub version: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -432,22 +434,27 @@ pub(crate) async fn remove_theme(
     responses(
         (status = 200, description = "The switch is set", body = ThemeDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`theme-code-needs-person`: a token tried to turn the code on; only a browser session may, a token may turn it off", body = Problem),
         (status = 404, description = "The theme is not installed", body = Problem),
-        (status = 409, description = "Stale version: the theme was updated since the person saw it", body = Problem),
-        (status = 422, description = "`theme-has-no-code`: the theme has no `main.js` to turn on", body = Problem),
+        (status = 409, description = "Turning on with a stale version: the theme was updated since the person saw it", body = Problem),
+        (status = 422, description = "`theme-has-no-code`: no `main.js` to turn on; `theme-version-required`: turning on needs a version", body = Problem),
     )
 )]
 pub(crate) async fn set_theme_code(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
     ApiPath(path): ApiPath<ThemePath>,
     ApiJson(input): ApiJson<SetThemeCode>,
 ) -> Result<Json<ThemeDto>, ApiError> {
+    if input.enabled && !matches!(principal, Principal::Session { .. }) {
+        return Err(nullradix_app::themes::code_needs_person().into());
+    }
     let (theme, code) = state
         .themes
         .set_code(
             &path.id,
             input.enabled,
-            AppError::client_version(input.version)?,
+            input.version.map(AppError::client_version).transpose()?,
         )
         .await?;
     Ok(Json(ThemeDto::new(&theme, code)))
@@ -626,7 +633,7 @@ mod tests {
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
-    use crate::tests::{TestApi, bearer, local, send, test_api};
+    use crate::tests::{TestApi, bearer, local, open_session, send, test_api};
 
     const MANIFEST: &str = r##"{
         "id": "night-blue", "name": "Night Blue", "version": "1.2.0", "author": "Ada",
@@ -1098,6 +1105,19 @@ mod tests {
         );
     }
 
+    /// A write by the person in the browser: a session cookie from the same origin.
+    async fn person(api: &TestApi, path: &str, body: Value) -> (u16, Value) {
+        let cookie = open_session(api).await;
+        let request = local(Request::put(path))
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, "http://127.0.0.1:4711")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        (status.as_u16(), json)
+    }
+
     async fn first_theme(api: &TestApi) -> Value {
         let (_, list) = call(api, "GET", "/api/v1/themes", None).await;
         list["items"][0].clone()
@@ -1120,7 +1140,7 @@ mod tests {
 
         let path = "/api/v1/themes/night-blue/code";
         let stale = json!({ "enabled": true, "version": 7 });
-        let (status, problem) = call(&api, "PUT", path, Some(stale)).await;
+        let (status, problem) = person(&api, path, stale).await;
         assert_eq!(
             (status, &problem["code"]),
             (409, &json!("version-conflict"))
@@ -1128,7 +1148,7 @@ mod tests {
         assert_eq!(first_theme(&api).await["codeEnabled"], false);
 
         let on = json!({ "enabled": true, "version": 1 });
-        let (status, set) = call(&api, "PUT", path, Some(on)).await;
+        let (status, set) = person(&api, path, on).await;
         assert_eq!((status, &set["codeEnabled"]), (200, &json!(true)));
         assert_eq!(first_theme(&api).await["codeEnabled"], true);
 
@@ -1150,12 +1170,12 @@ mod tests {
         );
         let body = json!({ "enabled": true, "version": 1 });
         let path = "/api/v1/themes/night-blue/code";
-        let (status, problem) = call(&api, "PUT", path, Some(body.clone())).await;
+        let (status, problem) = person(&api, path, body.clone()).await;
         assert_eq!(
             (status, &problem["code"]),
             (422, &json!("theme-has-no-code"))
         );
-        let (status, problem) = call(&api, "PUT", "/api/v1/themes/other/code", Some(body)).await;
+        let (status, problem) = person(&api, "/api/v1/themes/other/code", body).await;
         assert_eq!((status, &problem["code"]), (404, &json!("theme-not-found")));
         let junk = json!({ "enabled": true, "version": 1, "extra": 1 });
         let (status, _) = call(&api, "PUT", path, Some(junk)).await;
@@ -1174,11 +1194,71 @@ mod tests {
         let confirmed = "/api/v1/themes?confirmed=true";
         upload_to(&api, confirmed, with_code(MANIFEST)).await;
         let on = json!({ "enabled": true, "version": 1 });
-        call(&api, "PUT", "/api/v1/themes/night-blue/code", Some(on)).await;
+        person(&api, "/api/v1/themes/night-blue/code", on).await;
         assert_eq!(first_theme(&api).await["codeEnabled"], true);
         let more = MANIFEST.replace(r#""network": []"#, r#""network": ["cdn.example.com"]"#);
         let (status, _, theme) = upload_to(&api, confirmed, with_code(&more)).await;
         assert_eq!((status, &theme["codeEnabled"]), (200, &json!(false)));
         assert_eq!(first_theme(&api).await["codeEnabled"], false);
+    }
+
+    #[tokio::test]
+    async fn main_js_is_served_only_while_the_code_switch_is_on() {
+        let api = test_api().await;
+        upload_to(&api, "/api/v1/themes?confirmed=true", with_code(MANIFEST)).await;
+        let url = "/api/v1/themes/night-blue/files/main.js?v=1";
+        let off = file(&api, url).await;
+        assert_eq!(off.status, 404);
+        let path = "/api/v1/themes/night-blue/code";
+        let on = json!({ "enabled": true, "version": 1 });
+        person(&api, path, on).await;
+        let served = file(&api, url).await;
+        assert_eq!(served.status, 200);
+        assert_eq!(served.body, b"run()");
+        assert_eq!(
+            served.kind.as_deref(),
+            Some("text/javascript; charset=utf-8")
+        );
+        // turning off needs no version, and no version is needed to ask for it either
+        let (status, set) = call(&api, "PUT", path, Some(json!({ "enabled": false }))).await;
+        assert_eq!((status, &set["codeEnabled"]), (200, &json!(false)));
+        assert_eq!(file(&api, url).await.status, 404);
+        let (status, problem) = person(&api, path, json!({ "enabled": true })).await;
+        assert_eq!(
+            (status, &problem["code"]),
+            (422, &json!("theme-version-required"))
+        );
+    }
+
+    #[tokio::test]
+    async fn only_the_person_in_the_browser_can_turn_the_code_on() {
+        let api = test_api().await;
+        upload_to(&api, "/api/v1/themes?confirmed=true", with_code(MANIFEST)).await;
+        let path = "/api/v1/themes/night-blue/code";
+        let on = json!({ "enabled": true, "version": 1 });
+        // a token is refused, also for a theme that does not exist
+        let (status, problem) = call(&api, "PUT", path, Some(on.clone())).await;
+        assert_eq!(
+            (status, &problem["code"]),
+            (403, &json!("theme-code-needs-person"))
+        );
+        let (status, _) = call(&api, "PUT", "/api/v1/themes/other/code", Some(on.clone())).await;
+        assert_eq!(status, 403);
+        assert_eq!(first_theme(&api).await["codeEnabled"], false);
+
+        let (status, set) = person(&api, path, on).await;
+        assert_eq!((status, &set["codeEnabled"]), (200, &json!(true)));
+        // a token may turn it off, with or without a version
+        let off = json!({ "enabled": false });
+        let (status, set) = call(&api, "PUT", path, Some(off)).await;
+        assert_eq!((status, &set["codeEnabled"]), (200, &json!(false)));
+        let (status, _) = call(
+            &api,
+            "PUT",
+            path,
+            Some(json!({ "enabled": false, "version": 9 })),
+        )
+        .await;
+        assert_eq!(status, 200);
     }
 }

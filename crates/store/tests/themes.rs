@@ -437,12 +437,12 @@ async fn the_code_switch_is_a_row_that_exists_only_while_it_is_on() {
         (Entity::Setting, ChangeOp::Update, feed)
     );
     assert!(write.code_enabled(&id).await.unwrap());
-    // already on, and a theme that is not installed, are no change
+    // already on is no change, and a theme that is not installed gets no row
     assert!(write.set_code(&id, true, at).await.unwrap().is_none());
     assert!(write.set_code(&other, true, at).await.unwrap().is_none());
     write.commit().await.unwrap();
     let switched = store.code_switches().await.unwrap();
-    assert_eq!(switched.len(), 2);
+    assert_eq!(switched.len(), 1);
     assert!(switched.contains(&id));
 
     let mut write = store.begin().await.unwrap();

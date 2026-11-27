@@ -455,13 +455,17 @@ impl ThemeWrite for Write {
         at: Timestamp,
     ) -> Result<Option<Change>, AppError> {
         let key = code_key(id);
+        let name = id.as_str();
         let changed = if enabled {
             let millis = at.as_millis();
             sqlx::query!(
-                "INSERT INTO settings (key, value, version, updated_at) VALUES (?, 'true', 1, ?)
+                "INSERT INTO settings (key, value, version, updated_at)
+                 SELECT ?, 'true', 1, ?
+                 WHERE EXISTS (SELECT 1 FROM installed_themes WHERE theme_id = ?)
                  ON CONFLICT (key) DO NOTHING",
                 key,
                 millis,
+                name,
             )
             .execute(&mut *self.0)
             .await

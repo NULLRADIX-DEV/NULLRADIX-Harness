@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO settings (key, value, version, updated_at)\n                 SELECT ?, 'true', 1, ?\n                 WHERE EXISTS (SELECT 1 FROM installed_themes WHERE theme_id = ?)\n                 ON CONFLICT (key) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "33d645d14a124aaf59a242a4faaf5ce7c2259a38aa60ab9014f1b4ff528b9e4f"
+}

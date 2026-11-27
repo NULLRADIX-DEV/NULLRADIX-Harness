@@ -269,6 +269,19 @@ fn unavailable() -> AppError {
     AppError::unavailable("theme-files-failed", "this host keeps no theme files")
 }
 
+/// A token tried to turn theme code on; only the person in the app may.
+#[must_use]
+pub fn code_needs_person() -> AppError {
+    AppError::forbidden(
+        "theme-code-needs-person",
+        "only the person in the app can turn theme code on; tokens may only turn it off",
+    )
+}
+
+fn is_script(path: &str) -> bool {
+    content_type(path) == content_type(CODE_FILE)
+}
+
 fn file_not_found() -> AppError {
     AppError::not_found("theme-file-not-found", "no such theme file")
 }
@@ -379,8 +392,17 @@ impl ThemeService {
             ));
         }
         let has_code = files.iter().any(|file| file.path == CODE_FILE);
-        self.files.store(manifest.id(), files).await?;
         let now = self.clock.now();
+        // what the person allowed is not what this package brings; off before its files appear
+        if known.is_none() || !added.is_empty() || !has_code {
+            let mut off = self.repository.begin().await?;
+            let change = off.set_code(manifest.id(), false, now).await?;
+            off.commit().await?;
+            if let Some(change) = &change {
+                self.signal.notify(change);
+            }
+        }
+        self.files.store(manifest.id(), files).await?;
         let mut write = self.repository.begin().await?;
         let (theme, change) = if let Some(known) = write.theme(manifest.id()).await? {
             let next = known.reinstalled(manifest, now);
@@ -394,16 +416,9 @@ impl ThemeService {
         write
             .set_origin(theme.id(), origin.map(|origin| origin.source), now)
             .await?;
-        let mut changes = vec![change];
-        // what the person allowed to run is not what this package brings
-        if known.is_none() || !added.is_empty() || !has_code {
-            changes.extend(write.set_code(theme.id(), false, now).await?);
-        }
         let enabled = write.code_enabled(theme.id()).await?;
         write.commit().await?;
-        for change in &changes {
-            self.signal.notify(change);
-        }
+        self.signal.notify(&change);
         Ok(Installed {
             theme,
             added,
@@ -465,12 +480,12 @@ impl ThemeService {
         Ok(codes)
     }
 
-    /// Turns the code of the theme on or off, for the version the person saw.
+    /// Turns the code of the theme on for the version the person saw, or off for any version.
     pub async fn set_code(
         &self,
         id: &str,
         enabled: bool,
-        expected: Version,
+        expected: Option<Version>,
     ) -> Result<(InstalledTheme, ThemeCode), AppError> {
         let theme_id = ThemeId::parse(id).map_err(|error| id_invalid(&error))?;
         // installs and removals wait, so the files and the row stay the ones checked here
@@ -480,8 +495,16 @@ impl ThemeService {
             .get(&theme_id)
             .await?
             .ok_or_else(|| theme_not_found(id))?;
-        if theme.record().version != expected {
-            return Err(AppError::version_conflict("theme", id));
+        if enabled {
+            let Some(expected) = expected else {
+                return Err(AppError::invalid(
+                    "theme-version-required",
+                    "turning the code on needs the version of the theme the person saw",
+                ));
+            };
+            if theme.record().version != expected {
+                return Err(AppError::version_conflict("theme", id));
+            }
         }
         let has_code = self.has_code(&theme_id).await;
         if enabled && !has_code {
@@ -624,6 +647,10 @@ impl ThemeService {
             .get(&theme)
             .await?
             .ok_or_else(file_not_found)?;
+        // script files are served only while the person's code switch is on
+        if is_script(path) && !self.repository.code_switches().await?.contains(&theme) {
+            return Err(file_not_found());
+        }
         let data = self
             .files
             .read(&theme, &segments)
@@ -1763,7 +1790,7 @@ pub(crate) mod tests {
 
         let (_, on) = fixture
             .service
-            .set_code("night-blue", true, version)
+            .set_code("night-blue", true, Some(version))
             .await
             .unwrap();
         assert!(on.enabled);
@@ -1772,7 +1799,7 @@ pub(crate) mod tests {
         assert_eq!(code_of(&fixture).await.0, version);
         let (_, off) = fixture
             .service
-            .set_code("night-blue", false, version)
+            .set_code("night-blue", false, Some(version))
             .await
             .unwrap();
         assert!(!off.enabled);
@@ -1784,13 +1811,13 @@ pub(crate) mod tests {
         let fixture = fixture();
         let missing = fixture
             .service
-            .set_code("night-blue", true, Version::INITIAL)
+            .set_code("night-blue", true, Some(Version::INITIAL))
             .await
             .unwrap_err();
         assert_eq!(missing.code(), "theme-not-found");
         let invalid = fixture
             .service
-            .set_code("Night", true, Version::INITIAL)
+            .set_code("Night", true, Some(Version::INITIAL))
             .await
             .unwrap_err();
         assert_eq!(invalid.code(), "theme-id-invalid");
@@ -1798,7 +1825,7 @@ pub(crate) mod tests {
         fixture.service.install(night_blue(), false).await.unwrap();
         let plain = fixture
             .service
-            .set_code("night-blue", true, Version::INITIAL)
+            .set_code("night-blue", true, Some(Version::INITIAL))
             .await
             .unwrap_err();
         assert_eq!(plain.code(), "theme-has-no-code");
@@ -1806,7 +1833,7 @@ pub(crate) mod tests {
         // turning it off needs no code
         fixture
             .service
-            .set_code("night-blue", false, Version::INITIAL)
+            .set_code("night-blue", false, None)
             .await
             .unwrap();
 
@@ -1817,7 +1844,7 @@ pub(crate) mod tests {
             .unwrap();
         let stale = fixture
             .service
-            .set_code("night-blue", true, Version::INITIAL)
+            .set_code("night-blue", true, Some(Version::INITIAL))
             .await
             .unwrap_err();
         assert_eq!(stale.code(), "version-conflict");
@@ -1835,7 +1862,7 @@ pub(crate) mod tests {
         let version = code_of(&fixture).await.0;
         fixture
             .service
-            .set_code("night-blue", true, version)
+            .set_code("night-blue", true, Some(version))
             .await
             .unwrap();
 
@@ -1868,7 +1895,7 @@ pub(crate) mod tests {
         let version = code_of(&fixture).await.0;
         fixture
             .service
-            .set_code("night-blue", true, version)
+            .set_code("night-blue", true, Some(version))
             .await
             .unwrap();
         *fixture.files.unknown_paths.lock() = true;
@@ -1904,7 +1931,7 @@ pub(crate) mod tests {
         let version = code_of(&fixture).await.0;
         fixture
             .service
-            .set_code("night-blue", true, version)
+            .set_code("night-blue", true, Some(version))
             .await
             .unwrap();
         // the library still counts as code, so nothing is added later
@@ -1941,7 +1968,7 @@ pub(crate) mod tests {
         let version = code_of(&fixture).await.0;
         fixture
             .service
-            .set_code("night-blue", true, version)
+            .set_code("night-blue", true, Some(version))
             .await
             .unwrap();
         assert_eq!(fixture.memory.code.lock().len(), 1);
@@ -1975,7 +2002,7 @@ pub(crate) mod tests {
             tokio::spawn(async move {
                 fixture
                     .service
-                    .set_code("night-blue", true, Version::INITIAL)
+                    .set_code("night-blue", true, Some(Version::INITIAL))
                     .await
             })
         };
@@ -1999,16 +2026,141 @@ pub(crate) mod tests {
         let before = fixture.memory.feed.lock().len();
         fixture
             .service
-            .set_code("night-blue", true, Version::INITIAL)
+            .set_code("night-blue", true, Some(Version::INITIAL))
             .await
             .unwrap();
         assert_eq!(fixture.memory.feed.lock().len(), before + 1);
         // the same state again is no change
         fixture
             .service
-            .set_code("night-blue", true, Version::INITIAL)
+            .set_code("night-blue", true, Some(Version::INITIAL))
             .await
             .unwrap();
         assert_eq!(fixture.memory.feed.lock().len(), before + 1);
+    }
+
+    #[tokio::test]
+    async fn the_switch_reads_off_while_the_files_of_an_update_are_stored() {
+        let fixture = Arc::new(fixture());
+        fixture
+            .service
+            .install(with_code("1.0.0"), true)
+            .await
+            .unwrap();
+        fixture
+            .service
+            .set_code("night-blue", true, Some(Version::INITIAL))
+            .await
+            .unwrap();
+        *fixture.files.hold_store.lock() = true;
+        let more = risky("1.1.0", r#""a.example.com", "b.example.com""#, true);
+        let install = {
+            let fixture = fixture.clone();
+            tokio::spawn(async move { fixture.service.install(more, true).await })
+        };
+        fixture.files.entered.notified().await;
+        // the new files are not stored yet, and no page may run them as allowed
+        assert!(!code_of(&fixture).await.1.enabled);
+        assert!(
+            fixture
+                .service
+                .asset("night-blue", "main.js")
+                .await
+                .is_err()
+        );
+        fixture.files.release.notify_one();
+        install.await.unwrap().unwrap();
+        assert!(!code_of(&fixture).await.1.enabled);
+    }
+
+    #[tokio::test]
+    async fn scripts_are_served_only_while_the_switch_is_on() {
+        let fixture = fixture();
+        let files = vec![
+            file("manifest.json", MANIFEST),
+            file("theme.css", "a { color: red }"),
+            file("main.js", "run()"),
+            file("lib/util.mjs", "export {}"),
+        ];
+        fixture
+            .service
+            .install(archive(&files), true)
+            .await
+            .unwrap();
+        for path in ["main.js", "lib/util.mjs"] {
+            let error = fixture.service.asset("night-blue", path).await.unwrap_err();
+            assert_eq!(error.code(), "theme-file-not-found", "{path}");
+        }
+        assert!(
+            fixture
+                .service
+                .asset("night-blue", "theme.css")
+                .await
+                .is_ok()
+        );
+        fixture
+            .service
+            .set_code("night-blue", true, Some(Version::INITIAL))
+            .await
+            .unwrap();
+        let main = fixture
+            .service
+            .asset("night-blue", "main.js")
+            .await
+            .unwrap();
+        assert_eq!(main.data, b"run()");
+        assert!(
+            fixture
+                .service
+                .asset("night-blue", "lib/util.mjs")
+                .await
+                .is_ok()
+        );
+        fixture
+            .service
+            .set_code("night-blue", false, None)
+            .await
+            .unwrap();
+        assert!(
+            fixture
+                .service
+                .asset("night-blue", "main.js")
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn turning_on_needs_a_version_and_turning_off_does_not() {
+        let fixture = fixture();
+        fixture
+            .service
+            .install(with_code("1.0.0"), true)
+            .await
+            .unwrap();
+        let error = fixture
+            .service
+            .set_code("night-blue", true, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "theme-version-required");
+        fixture
+            .service
+            .set_code("night-blue", true, Some(Version::INITIAL))
+            .await
+            .unwrap();
+        // a stale version does not hinder turning it off
+        let (_, off) = fixture
+            .service
+            .set_code("night-blue", false, Some(Version::INITIAL.next().next()))
+            .await
+            .unwrap();
+        assert!(!off.enabled);
+        let missing = fixture
+            .service
+            .set_code("other-theme", false, None)
+            .await
+            .unwrap_err();
+        assert_eq!(missing.code(), "theme-not-found");
     }
 }
