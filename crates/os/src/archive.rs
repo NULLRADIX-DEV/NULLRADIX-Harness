@@ -35,6 +35,8 @@ pub enum ArchiveError {
     Link(String),
     #[error("hidden files are not allowed: {0}")]
     Hidden(String),
+    #[error("the archive has no file {0}")]
+    Missing(String),
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -147,6 +149,39 @@ pub fn unpack_zip(archive: &[u8], limits: Limits) -> Result<Vec<Entry>, ArchiveE
         });
     }
     Ok(entries)
+}
+
+/// One file of a zip archive; a folder, a link or a file above `max` bytes is refused.
+pub fn read_zip_entry(archive: &[u8], path: &str, max: u64) -> Result<Vec<u8>, ArchiveError> {
+    let not_zip = |error: zip::result::ZipError| ArchiveError::NotArchive(error.to_string());
+    let mut zip = zip::ZipArchive::new(Cursor::new(archive)).map_err(not_zip)?;
+    let mut file = match zip.by_name(path) {
+        Ok(file) => file,
+        Err(zip::result::ZipError::FileNotFound) => {
+            return Err(ArchiveError::Missing(path.to_owned()));
+        }
+        Err(error) => return Err(not_zip(error)),
+    };
+    if file.is_dir() || file.is_symlink() || file.enclosed_name().is_none() {
+        return Err(unsafe_path(path));
+    }
+    let too_large = || ArchiveError::FileTooLarge {
+        path: path.to_owned(),
+        max,
+    };
+    if file.size() > max {
+        return Err(too_large());
+    }
+    // the stated size can lie, so read one byte more than allowed
+    let mut data = Vec::new();
+    (&mut file)
+        .take(max + 1)
+        .read_to_end(&mut data)
+        .map_err(|error| ArchiveError::NotArchive(error.to_string()))?;
+    if data.len() as u64 > max {
+        return Err(too_large());
+    }
+    Ok(data)
 }
 
 /// A zip archive of the files; the same files always give the same bytes.
@@ -493,6 +528,59 @@ mod tests {
                 "{name}: {result:?}"
             );
         }
+    }
+
+    #[test]
+    fn one_file_is_read_out_of_an_archive() {
+        let bytes = raw_zip(&[
+            ("assets/", b""),
+            ("assets/a.png", b"png"),
+            ("pack.mcmeta", b"{}"),
+        ]);
+        assert_eq!(read_zip_entry(&bytes, "assets/a.png", 16).unwrap(), b"png");
+        assert_eq!(read_zip_entry(&bytes, "pack.mcmeta", 2).unwrap(), b"{}");
+        assert!(matches!(
+            read_zip_entry(&bytes, "b.png", 16),
+            Err(ArchiveError::Missing(_))
+        ));
+        assert!(matches!(
+            read_zip_entry(&bytes, "assets/", 16),
+            Err(ArchiveError::UnsafePath(_))
+        ));
+        assert!(matches!(
+            read_zip_entry(b"not a zip", "a.png", 16),
+            Err(ArchiveError::NotArchive(_))
+        ));
+    }
+
+    #[test]
+    fn a_file_just_above_the_limit_is_refused_even_when_the_archive_lies() {
+        let bytes = raw_zip(&[("big.bin", &[7; 17])]);
+        assert!(matches!(
+            read_zip_entry(&bytes, "big.bin", 16),
+            Err(ArchiveError::FileTooLarge { max: 16, .. })
+        ));
+        assert_eq!(read_zip_entry(&bytes, "big.bin", 17).unwrap().len(), 17);
+        let bomb = pack_zip(&[entry("bomb.bin", &"a".repeat(100_000))]).unwrap();
+        assert!(bomb.len() < 1024);
+        assert!(matches!(
+            read_zip_entry(&bomb, "bomb.bin", 1024),
+            Err(ArchiveError::FileTooLarge { .. })
+        ));
+    }
+
+    #[test]
+    fn a_linked_file_is_not_read_out_of_an_archive() {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        writer
+            .add_symlink("link.png", "/etc/passwd", options)
+            .unwrap();
+        let bytes = writer.finish().unwrap().into_inner();
+        assert!(matches!(
+            read_zip_entry(&bytes, "link.png", 64),
+            Err(ArchiveError::UnsafePath(_))
+        ));
     }
 
     #[test]

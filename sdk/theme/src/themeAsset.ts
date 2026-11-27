@@ -5,7 +5,7 @@ import { useOptionalHost } from './hooks.js';
 export interface ThemeAssetOptions {
   /** Theme whose domain grant and cache apply; default is the active theme of the host */
   themeId?: string;
-  /** Expected sha256 checksum (hex) of the resource; on a mismatch the proxy answers 502 */
+  /** Expected sha256 (hex) of the resource, of the archive with `entry`; a mismatch is refused */
   sha256?: string;
   /** Path of an entry when the resource is a ZIP or JAR */
   entry?: string;

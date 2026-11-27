@@ -1,0 +1,300 @@
+[
+  {
+    "name": "an unknown theme has no proxy",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/ghost-theme/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "theme-not-found",
+        "detail": "the theme ghost-theme is not installed",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "file": "<WORK>/night-code/manifest.json",
+    "lines": 0,
+    "name": "manifest with a domain"
+  },
+  {
+    "file": "<WORK>/night-code/theme.css",
+    "lines": 0,
+    "name": "stylesheet"
+  },
+  {
+    "file": "<WORK>/night-code/main.js",
+    "lines": 0,
+    "name": "script"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-code",
+      "--out",
+      "<WORK>/v1.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the folder",
+    "stderr": "",
+    "stdout": "packed night-code 1.0.0 (3 files) into <WORK>/v1.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v1.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "install the confirmed package",
+    "stderr": "",
+    "stdout": "installed night-code 1.0.0\nits code is off; turn it on in the app\n"
+  },
+  {
+    "name": "the proxy is closed while the code switch is off",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-forbidden",
+        "detail": "the code switch of the theme is off",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:theme-fetch-forbidden"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "the person turns the code on",
+    "request": {
+      "auth": "session",
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": true,
+        "id": "night-code"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a host the theme does not declare is forbidden",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fother.example.com%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-forbidden",
+        "detail": "the theme does not declare the domain other.example.com",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:theme-fetch-forbidden"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a lookalike of a declared host is forbidden",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com.evil.test%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-forbidden",
+        "detail": "the theme does not declare the domain cdn.example.com.evil.test",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:theme-fetch-forbidden"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "plain http is refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=http%3A%2F%2Fcdn.example.com%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-url-invalid",
+        "detail": "the address must start with https://",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-fetch-url-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a local address is refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2F127.0.0.1%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-url-invalid",
+        "detail": "the address points to a local or private host",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-fetch-url-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the cloud metadata address is refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-url-invalid",
+        "detail": "the address points to a local or private host",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-fetch-url-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "credentials in the address are refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fuser%3Asecret%40cdn.example.com%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-url-invalid",
+        "detail": "the address holds credentials",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-fetch-url-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a checksum must be 64 hex digits",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png&sha256=abc"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-checksum-invalid",
+        "detail": "sha256 is 64 hexadecimal digits",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-fetch-checksum-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "an entry path may not leave the archive",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fc.jar&entry=..%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-entry-invalid",
+        "detail": "unsafe path in the package: ../a.png",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-fetch-entry-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the address is required",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch"
+    },
+    "response": {
+      "json": {
+        "code": "query-invalid",
+        "detail": "Failed to deserialize query string: missing field `url`",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:query-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the proxy needs a login",
+    "request": {
+      "auth": "none",
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "credentials-missing",
+        "detail": "this route needs a token or a session",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:credentials-missing"
+      },
+      "status": 401
+    }
+  },
+  {
+    "name": "a token turns the code off",
+    "request": {
+      "body": {
+        "enabled": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": false,
+        "id": "night-code"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the proxy is closed again",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png"
+    },
+    "response": {
+      "json": {
+        "code": "theme-fetch-forbidden",
+        "detail": "the code switch of the theme is off",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:theme-fetch-forbidden"
+      },
+      "status": 403
+    }
+  }
+]

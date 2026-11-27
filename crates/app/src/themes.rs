@@ -43,6 +43,14 @@ pub struct Installed {
     pub code: ThemeCode,
 }
 
+/// What an installed theme may load through the asset proxy, as of the version it was read for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetGrant {
+    pub id: ThemeId,
+    pub version: Version,
+    pub network: Vec<String>,
+}
+
 /// "a", "a and b" or "a, b and c".
 fn join_parts(parts: &[String]) -> String {
     match parts {
@@ -648,6 +656,36 @@ impl ThemeService {
         Ok(self.repository.code_switches().await?.contains(id))
     }
 
+    /// The domains an installed theme may load from; only while its code switch is on.
+    pub async fn asset_grant(&self, id: &str) -> Result<AssetGrant, AppError> {
+        let theme_id = ThemeId::parse(id).map_err(|_| theme_not_found(id))?;
+        let theme = self
+            .repository
+            .get(&theme_id)
+            .await?
+            .ok_or_else(|| theme_not_found(id))?;
+        // installs and the switch keep it off without a main.js, so the switch alone decides
+        if !self.code_is_on(&theme_id).await? {
+            return Err(crate::theme_fetch::code_is_off());
+        }
+        let record = theme.record();
+        Ok(AssetGrant {
+            id: theme_id,
+            version: record.version,
+            network: record.manifest.record().network.clone(),
+        })
+    }
+
+    /// Fails when the theme was replaced or its switch turned off since the grant was read.
+    pub async fn check_grant(&self, grant: &AssetGrant) -> Result<(), AppError> {
+        let now = self.asset_grant(grant.id.as_str()).await?;
+        if now.version == grant.version {
+            Ok(())
+        } else {
+            Err(crate::theme_fetch::code_is_off())
+        }
+    }
+
     /// A file of an installed theme; anything unsafe or missing is simply not found.
     pub async fn asset(&self, id: &str, path: &str) -> Result<Asset, AppError> {
         let theme = ThemeId::parse(id).map_err(|_| file_not_found())?;
@@ -1033,7 +1071,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) struct Fixture {
-        pub(crate) service: ThemeService,
+        pub(crate) service: Arc<ThemeService>,
         pub(crate) memory: Arc<Memory>,
         pub(crate) files: Arc<MemoryFiles>,
         pub(crate) signal: ChangeSignal,
@@ -1051,7 +1089,7 @@ pub(crate) mod tests {
             signal.clone(),
         );
         Fixture {
-            service,
+            service: Arc::new(service),
             memory,
             files,
             signal,

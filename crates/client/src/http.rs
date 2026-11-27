@@ -1900,6 +1900,12 @@ mod tests {
             sessions,
             favorites,
             themes: themes.clone(),
+            theme_assets: Arc::new(nullradix_app::theme_fetch::ThemeAssets::new(
+                themes.clone(),
+                Arc::new(nullradix_app::theme_fetch::NoAssetNetwork),
+                Arc::new(nullradix_app::theme_fetch::NoZipEntries),
+                Arc::new(nullradix_app::theme_fetch::NoAssetCache),
+            )),
             catalog: catalog_service(&store, &themes, &signal),
             claude_theme: Arc::new(nullradix_app::claude_theme::ClaudeThemeService::new(
                 store.clone(),

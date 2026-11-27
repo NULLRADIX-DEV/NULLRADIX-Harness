@@ -18,11 +18,31 @@ pub(crate) const LIMITS: Limits = Limits {
 /// Themes below one folder, one subfolder per theme id.
 pub(crate) struct FolderThemes {
     dir: PathBuf,
+    /// Cached resources of themes; replacing or removing a package empties its part.
+    cache: Option<PathBuf>,
 }
 
 impl FolderThemes {
     pub(crate) const fn new(dir: PathBuf) -> Self {
-        Self { dir }
+        Self { dir, cache: None }
+    }
+
+    pub(crate) fn with_cache(mut self, cache: PathBuf) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    /// The cache is only a copy, so a folder that cannot be emptied is logged and left.
+    async fn clear_cache(&self, id: &ThemeId) {
+        let Some(cache) = self.cache.clone() else {
+            return;
+        };
+        let name = id.to_string();
+        let cleared =
+            tokio::task::spawn_blocking(move || nullradix_os::cache_clear(&cache, &name)).await;
+        if let Ok(Err(error)) = cleared {
+            tracing::warn!(%error, theme = %id, "cannot empty the cache of the theme");
+        }
     }
 }
 
@@ -72,7 +92,9 @@ impl ThemeFiles for FolderThemes {
                 .collect();
             nullradix_os::replace_dir(&dir, &name, &entries).map_err(refused)
         })
-        .await
+        .await?;
+        self.clear_cache(id).await;
+        Ok(())
     }
 
     async fn remove(&self, id: &ThemeId) -> Result<(), AppError> {
@@ -82,7 +104,9 @@ impl ThemeFiles for FolderThemes {
                 .map(|_| ())
                 .map_err(refused)
         })
-        .await
+        .await?;
+        self.clear_cache(id).await;
+        Ok(())
     }
 
     async fn read(&self, id: &ThemeId, path: &[String]) -> Result<Option<Vec<u8>>, AppError> {
@@ -172,6 +196,29 @@ mod tests {
             .await
             .unwrap();
         assert!(!dir.path().join("themes/night-blue").exists());
+    }
+
+    #[tokio::test]
+    async fn replacing_or_removing_a_theme_empties_its_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        let files = FolderThemes::new(dir.path().join("themes")).with_cache(cache.clone());
+        let id = ThemeId::parse("night-blue").unwrap();
+        let kept = |theme: &str| cache.join(theme).join("ab12.bin");
+        for theme in ["night-blue", "other-theme"] {
+            nullradix_os::cache_write(&cache, theme, "ab12", b"x", 100).unwrap();
+        }
+        let package = || {
+            vec![PackageFile {
+                path: String::from("theme.css"),
+                data: b"a{}".to_vec(),
+            }]
+        };
+        files.store(&id, package()).await.unwrap();
+        assert!(!kept("night-blue").exists() && kept("other-theme").exists());
+        nullradix_os::cache_write(&cache, "night-blue", "ab12", b"x", 100).unwrap();
+        files.remove(&id).await.unwrap();
+        assert!(!kept("night-blue").exists() && kept("other-theme").exists());
     }
 
     #[tokio::test]

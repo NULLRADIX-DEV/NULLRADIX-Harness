@@ -28,6 +28,7 @@ pub mod step;
 mod text;
 mod theme;
 mod theme_catalog;
+mod theme_fetch;
 mod theme_risk;
 mod theme_settings;
 mod ticket;
@@ -151,6 +152,10 @@ pub use theme_catalog::{
     Availability, CatalogEntry, CatalogError, CatalogSource, CatalogUrl, Endpoint, EndpointHost,
     EntryDraft, MAX_DESCRIPTION_CHARS, MAX_INDEX_BYTES, MAX_INDEX_ENTRIES, MAX_SOURCES,
     MAX_URL_CHARS, MAX_VERSION_CHARS, Reach, SourceId, is_public_address,
+};
+pub use theme_fetch::{
+    AssetUrl, AssetUrlError, MAX_ARCHIVE_BYTES, MAX_ASSET_BYTES, MAX_CACHE_BYTES, MAX_REDIRECTS,
+    check_asset_entry, foreign_content_type, parse_sha256,
 };
 pub use theme_risk::{RiskAdded, ThemeRisk, inspect_package};
 pub use theme_settings::{SETTING_VALUE_MAX, SettingValue, ThemeSettingValues};

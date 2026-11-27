@@ -33,6 +33,7 @@ mod session_detail;
 mod sessions;
 mod snippets;
 mod theme_catalog;
+mod theme_fetch;
 mod themes;
 mod tickets;
 mod usage;
@@ -76,6 +77,7 @@ use nullradix_app::runs::RunService;
 use nullradix_app::sessions::SessionService;
 use nullradix_app::snippets::SnippetService;
 use nullradix_app::theme_catalog::CatalogService;
+use nullradix_app::theme_fetch::ThemeAssets;
 use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
@@ -264,6 +266,7 @@ pub struct ApiState {
     pub sessions: Arc<SessionService>,
     pub favorites: Arc<FavoriteService>,
     pub themes: Arc<ThemeService>,
+    pub theme_assets: Arc<ThemeAssets>,
     pub catalog: Arc<CatalogService>,
     pub claude_theme: Arc<ClaudeThemeService>,
     pub autostart: Arc<AutostartService>,
@@ -306,6 +309,7 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
             themes::reset_theme_settings
         ))
         .routes(routes!(themes::theme_file))
+        .routes(routes!(theme_fetch::fetch_theme_asset))
         .routes(routes!(themes::choose_theme))
         .routes(routes!(
             claude_theme::claude_theme,
@@ -606,6 +610,7 @@ pub(crate) mod tests {
         pub(crate) pauses: Arc<AccountPauses>,
         pub(crate) logins: Arc<LoginService>,
         pub(crate) fetcher: Arc<crate::theme_catalog::fake::Fetcher>,
+        pub(crate) assets: Arc<crate::theme_fetch::fake::Hosts>,
         pub(crate) store: Arc<Store>,
         pub(crate) slots: Arc<crate::claude_theme::fake::Slots>,
         pub(crate) _accounts_dir: tempfile::TempDir,
@@ -942,6 +947,13 @@ pub(crate) mod tests {
             signal.clone(),
         ));
         let fetcher = Arc::new(crate::theme_catalog::fake::Fetcher::default());
+        let assets = Arc::new(crate::theme_fetch::fake::Hosts::default());
+        let theme_assets = Arc::new(ThemeAssets::new(
+            themes.clone(),
+            assets.clone(),
+            Arc::new(crate::theme_fetch::fake::Lines),
+            Arc::new(nullradix_app::theme_fetch::NoAssetCache),
+        ));
         let slots = Arc::new(crate::claude_theme::fake::Slots::default());
         let catalog = Arc::new(CatalogService::new(
             store.clone(),
@@ -1039,6 +1051,7 @@ pub(crate) mod tests {
             sessions,
             favorites,
             themes: themes.clone(),
+            theme_assets,
             claude_theme: Arc::new(nullradix_app::claude_theme::ClaudeThemeService::new(
                 store.clone(),
                 themes.clone(),
@@ -1074,6 +1087,7 @@ pub(crate) mod tests {
             pauses,
             logins,
             fetcher,
+            assets,
             store: store.clone(),
             slots,
             _accounts_dir: accounts_dir,

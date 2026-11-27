@@ -1,0 +1,149 @@
+{
+  "title": "The asset proxy refuses a theme without its code on, hosts it does not declare and unsafe addresses, before any request",
+  "steps": [
+    {
+      "name": "an unknown theme has no proxy",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/ghost-theme/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png"
+      }
+    },
+    {
+      "name": "manifest with a domain",
+      "file": {
+        "path": "{{WORK}}/night-code/manifest.json",
+        "text": "{\"id\":\"night-code\",\"name\":\"Night Code\",\"version\":\"1.0.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[\"cdn.example.com\"]}}"
+      }
+    },
+    {
+      "name": "stylesheet",
+      "file": {
+        "path": "{{WORK}}/night-code/theme.css",
+        "text": "a { color: red }\n"
+      }
+    },
+    {
+      "name": "script",
+      "file": {
+        "path": "{{WORK}}/night-code/main.js",
+        "text": "export default { id: 'night-code', slots: {} };\n"
+      }
+    },
+    {
+      "name": "pack the folder",
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v1.nullradix"]
+      }
+    },
+    {
+      "name": "install the confirmed package",
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"]
+      }
+    },
+    {
+      "name": "the proxy is closed while the code switch is off",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png"
+      }
+    },
+    {
+      "name": "the person turns the code on",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": { "enabled": true, "version": 1 },
+        "auth": "session",
+        "keep": ["id", "codeEnabled"]
+      }
+    },
+    {
+      "name": "a host the theme does not declare is forbidden",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fother.example.com%2Fa.png"
+      }
+    },
+    {
+      "name": "a lookalike of a declared host is forbidden",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com.evil.test%2Fa.png"
+      }
+    },
+    {
+      "name": "plain http is refused",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=http%3A%2F%2Fcdn.example.com%2Fa.png"
+      }
+    },
+    {
+      "name": "a local address is refused",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2F127.0.0.1%2Fa.png"
+      }
+    },
+    {
+      "name": "the cloud metadata address is refused",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data"
+      }
+    },
+    {
+      "name": "credentials in the address are refused",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fuser%3Asecret%40cdn.example.com%2Fa.png"
+      }
+    },
+    {
+      "name": "a checksum must be 64 hex digits",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png&sha256=abc"
+      }
+    },
+    {
+      "name": "an entry path may not leave the archive",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fc.jar&entry=..%2Fa.png"
+      }
+    },
+    {
+      "name": "the address is required",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch"
+      }
+    },
+    {
+      "name": "the proxy needs a login",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png",
+        "auth": "none"
+      }
+    },
+    {
+      "name": "a token turns the code off",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": { "enabled": false },
+        "keep": ["id", "codeEnabled"]
+      }
+    },
+    {
+      "name": "the proxy is closed again",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/fetch?url=https%3A%2F%2Fcdn.example.com%2Fa.png"
+      }
+    }
+  ]
+}
