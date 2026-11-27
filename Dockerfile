@@ -35,9 +35,9 @@ RUN cargo build --release --locked -p nullradix-cli
 
 FROM debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0 AS runtime
 LABEL org.opencontainers.image.source="https://github.com/NULLRADIX-DEV/NULLRADIX-Harness"
-# Runs and merges call git; the claude CLI is not included, mount or install it for dispatch
+# Runs and merges call git, tini reaps what dead run trees leave; claude is not included, add it
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+    && apt-get install -y --no-install-recommends ca-certificates git tini \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /var/lib/nullradix --create-home --shell /usr/sbin/nologin nullradix
 COPY --from=build /src/target/release/nullradix /usr/local/bin/nullradix
@@ -49,5 +49,5 @@ USER nullradix
 WORKDIR /var/lib/nullradix
 # The daemon listens on loopback only, so reach it with host networking
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["nullradix", "status"]
-ENTRYPOINT ["nullradix"]
+ENTRYPOINT ["tini", "--", "nullradix"]
 CMD ["serve"]

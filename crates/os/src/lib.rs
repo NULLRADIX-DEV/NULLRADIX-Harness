@@ -9,6 +9,8 @@ mod claude_keychain;
 mod claude_slot;
 mod command;
 mod files;
+#[cfg(target_os = "linux")]
+mod linux;
 mod local_time;
 mod paths;
 mod process;
@@ -38,7 +40,9 @@ pub use claude_slot::{
 pub use files::{create_private_dir, write_atomic, write_private};
 pub use local_time::{LocalZone, local_utc_offset_minutes};
 pub use paths::{Paths, PathsError, claude_config_dirs, home_dir};
-pub use process::{ProcessTree, process_alive, spawn_detached};
+pub use process::{
+    ProcessTree, REAPER_COMMAND, process_alive, run_reaper, spawn_detached, use_own_reaper,
+};
 pub use project_settings::{LOCAL_SETTINGS, SettingsError, add_git_excludes, enable_plugin};
 pub use secrets::{FileSecrets, SecretBackend, SecretError, system_secrets};
 pub use toast::show_toast;

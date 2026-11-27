@@ -2,7 +2,7 @@ use std::env;
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -124,7 +124,7 @@ fn run_program(
     config_dir: Option<&Path>,
     args: &[&str],
 ) -> Answer {
-    let mut command = Command::new(program);
+    let mut command = ProcessTree::command(program);
     command
         .args(args)
         .stdin(Stdio::null())

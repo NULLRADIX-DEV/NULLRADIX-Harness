@@ -93,7 +93,7 @@ impl LocalLoginRunner {
     }
 
     fn build(&self, spec: &LoginSpec) -> Command {
-        let mut command = Command::new(&self.program);
+        let mut command = ProcessTree::command(&self.program);
         command
             .args(&self.prefix)
             .args(["auth", "login", "--claudeai"]);
