@@ -37,16 +37,20 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
 };
+use windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW;
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
     SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Registry::{
-    HKEY_CURRENT_USER, RRF_NOEXPAND, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ, RegGetValueW,
+    HKEY_CURRENT_USER, REG_EXPAND_SZ as EXPAND_TYPE, RRF_NOEXPAND, RRF_RT_REG_EXPAND_SZ,
+    RRF_RT_REG_SZ, RegGetValueW,
 };
 #[cfg(test)]
-use windows_sys::Win32::System::Registry::{REG_SZ, RegDeleteTreeW, RegSetKeyValueW};
+use windows_sys::Win32::System::Registry::{
+    REG_EXPAND_SZ, REG_SZ, RegDeleteTreeW, RegSetKeyValueW,
+};
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED,
     CreateProcessW, DETACHED_PROCESS, GetCurrentProcess, GetExitCodeProcess, OpenProcess,
@@ -318,6 +322,7 @@ pub(crate) fn registry_read_string(subkey: &str, name: &str) -> io::Result<Optio
     let flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND;
     let mut bytes: u32 = 0;
     loop {
+        let mut kind: u32 = 0;
         let mut buffer = vec![0u16; usize::try_from(bytes).unwrap_or(0).div_ceil(2) + 1];
         let mut size = u32::try_from(buffer.len() * 2).unwrap_or(u32::MAX);
         // SAFETY: both names are NUL-terminated and buffer holds `size` bytes.
@@ -327,7 +332,7 @@ pub(crate) fn registry_read_string(subkey: &str, name: &str) -> io::Result<Optio
                 subkey.as_ptr(),
                 name.as_ptr(),
                 flags,
-                ptr::null_mut(),
+                &raw mut kind,
                 buffer.as_mut_ptr().cast::<c_void>(),
                 &raw mut size,
             )
@@ -340,7 +345,12 @@ pub(crate) fn registry_read_string(subkey: &str, name: &str) -> io::Result<Optio
                     .iter()
                     .position(|unit| *unit == 0)
                     .unwrap_or(text.len());
-                return Ok(Some(String::from_utf16_lossy(&text[..end])));
+                let text = String::from_utf16_lossy(&text[..end]);
+                return Ok(Some(if kind == EXPAND_TYPE {
+                    expand_environment(&text)
+                } else {
+                    text
+                }));
             }
             ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => return Ok(None),
             ERROR_MORE_DATA => bytes = size,
@@ -353,9 +363,33 @@ pub(crate) fn registry_read_string(subkey: &str, name: &str) -> io::Result<Optio
     }
 }
 
+/// The text with its `%NAME%` references replaced; the text itself when that fails.
+fn expand_environment(text: &str) -> String {
+    let source = wide(text);
+    // SAFETY: source is NUL-terminated; a null buffer of size 0 asks for the needed length.
+    let needed = unsafe { ExpandEnvironmentStringsW(source.as_ptr(), ptr::null_mut(), 0) };
+    if needed == 0 {
+        return text.to_owned();
+    }
+    let mut buffer = vec![0u16; usize::try_from(needed).unwrap_or(0)];
+    // SAFETY: buffer holds `needed` units, which the call is told.
+    let written =
+        unsafe { ExpandEnvironmentStringsW(source.as_ptr(), buffer.as_mut_ptr(), needed) };
+    if written == 0 || written > needed {
+        return text.to_owned();
+    }
+    let units = usize::try_from(written).unwrap_or(0).saturating_sub(1);
+    String::from_utf16_lossy(&buffer[..units.min(buffer.len())])
+}
+
 /// Sets a text value below `HKCU`, creating the key; only tests write there, under their own key.
 #[cfg(test)]
-pub(crate) fn registry_write_string(subkey: &str, name: &str, value: &str) -> io::Result<()> {
+pub(crate) fn registry_write_string(
+    subkey: &str,
+    name: &str,
+    value: &str,
+    expandable: bool,
+) -> io::Result<()> {
     let (subkey, name, value) = (wide(subkey), wide(name), wide(value));
     let size = u32::try_from(value.len() * 2).unwrap_or(u32::MAX);
     // SAFETY: the names and the value are NUL-terminated and size counts the value's bytes.
@@ -364,7 +398,7 @@ pub(crate) fn registry_write_string(subkey: &str, name: &str, value: &str) -> io
             HKEY_CURRENT_USER,
             subkey.as_ptr(),
             name.as_ptr(),
-            REG_SZ,
+            if expandable { REG_EXPAND_SZ } else { REG_SZ },
             value.as_ptr().cast::<c_void>(),
             size,
         )
@@ -746,11 +780,11 @@ mod tests {
 
     #[test]
     fn a_registry_text_with_non_ascii_characters_comes_back_unchanged() {
-        let key = format!("Software\\NullradixTest\\{}", std::process::id());
+        let key = format!("Software\\NullradixTest-{}", std::process::id());
         let value = "\"C:\\Pf\u{e4}d \u{fc}\\\u{4e2d}\u{6587}\\nullradix-desktop.exe\" --hidden";
         registry_delete_tree(&key).unwrap();
         assert_eq!(registry_read_string(&key, "entry").unwrap(), None);
-        registry_write_string(&key, "entry", value).unwrap();
+        registry_write_string(&key, "entry", value, false).unwrap();
         let read = registry_read_string(&key, "entry");
         let missing = registry_read_string(&key, "other");
         registry_delete_tree(&key).unwrap();
@@ -760,11 +794,33 @@ mod tests {
 
     #[test]
     fn a_long_registry_text_is_read_whole() {
-        let key = format!("Software\\NullradixTest\\long{}", std::process::id());
+        let key = format!("Software\\NullradixTest-long-{}", std::process::id());
         let value = "x".repeat(5000);
-        registry_write_string(&key, "entry", &value).unwrap();
+        registry_write_string(&key, "entry", &value, false).unwrap();
         let read = registry_read_string(&key, "entry");
         registry_delete_tree(&key).unwrap();
         assert_eq!(read.unwrap().as_deref(), Some(value.as_str()));
+    }
+
+    #[test]
+    fn an_expandable_registry_text_has_its_variables_replaced() {
+        let key = format!("Software\\NullradixTest-expand-{}", std::process::id());
+        registry_write_string(&key, "entry", "%SystemRoot%\\x.exe", true).unwrap();
+        registry_write_string(&key, "plain", "%SystemRoot%\\x.exe", false).unwrap();
+        let expanded = registry_read_string(&key, "entry");
+        let plain = registry_read_string(&key, "plain");
+        registry_delete_tree(&key).unwrap();
+        let root = std::env::var("SystemRoot").unwrap();
+        assert_eq!(expanded.unwrap(), Some(format!("{root}\\x.exe")));
+        // a plain text keeps its percent signs
+        assert_eq!(plain.unwrap().as_deref(), Some("%SystemRoot%\\x.exe"));
+    }
+
+    #[test]
+    fn the_tests_leave_no_key_behind() {
+        let key = format!("Software\\NullradixTest-gone-{}", std::process::id());
+        registry_write_string(&key, "entry", "x", false).unwrap();
+        registry_delete_tree(&key).unwrap();
+        assert_eq!(registry_read_string(&key, "entry").unwrap(), None);
     }
 }

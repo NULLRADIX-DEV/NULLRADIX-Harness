@@ -2,6 +2,7 @@
 
 use std::env;
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -199,9 +200,29 @@ fn trusted_appimage(
 /// A refresh moves the entry only when its program is gone or the new one replaces it in place.
 fn refresh_wanted(current: Option<&Path>, new: &Path, exists: impl Fn(&Path) -> bool) -> bool {
     match current {
-        Some(old) if exists(old) => old.parent() == new.parent(),
+        Some(old) if exists(old) => match (old.parent(), new.parent()) {
+            (Some(old), Some(new)) => same_folder(old, new),
+            _ => false,
+        },
         _ => true,
     }
+}
+
+/// The same folder however it is spelled: resolved when both exist, else compared by text.
+fn same_folder(a: &Path, b: &Path) -> bool {
+    if let (Ok(a), Ok(b)) = (fs::canonicalize(a), fs::canonicalize(b)) {
+        return a == b;
+    }
+    let text = |path: &Path| {
+        let text = path.to_string_lossy().into_owned();
+        if cfg!(windows) {
+            let trimmed = text.strip_prefix(r"\\?\").unwrap_or(&text);
+            trimmed.to_lowercase()
+        } else {
+            text
+        }
+    };
+    text(a) == text(b)
 }
 
 #[async_trait]
@@ -425,5 +446,52 @@ mod tests {
             exists
         ));
         assert!(refresh_wanted(None, Path::new("/a/b"), exists));
+    }
+
+    #[test]
+    fn an_upgrade_in_place_is_found_through_another_spelling_of_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        let old = bin.join("nullradix-desktop");
+        let new = bin.join("..").join("bin").join("nullradix");
+        assert!(refresh_wanted(Some(&old), &new, |_| true));
+        let other = dir.path().join("other").join("nullradix");
+        assert!(!refresh_wanted(Some(&old), &other, |_| true));
+    }
+
+    #[test]
+    fn folders_are_the_same_however_they_are_spelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("bin");
+        fs::create_dir(&real).unwrap();
+        assert!(same_folder(&real, &real));
+        assert!(same_folder(&real, &real.join("..").join("bin")));
+        assert!(!same_folder(&real, dir.path()));
+        // folders that do not exist are compared by their text
+        assert!(same_folder(
+            Path::new("/no/such/bin"),
+            Path::new("/no/such/bin")
+        ));
+        assert!(!same_folder(
+            Path::new("/no/such/bin"),
+            Path::new("/no/such/other")
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_folders_ignore_case_and_the_verbatim_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("Bin");
+        fs::create_dir(&real).unwrap();
+        let shouted = PathBuf::from(real.to_string_lossy().to_uppercase());
+        assert!(same_folder(&real, &shouted));
+        let verbatim = fs::canonicalize(&real).unwrap();
+        assert!(same_folder(&verbatim, &real));
+        assert!(same_folder(
+            Path::new(r"\\?\C:\No\Such"),
+            Path::new(r"c:\no\such")
+        ));
     }
 }
