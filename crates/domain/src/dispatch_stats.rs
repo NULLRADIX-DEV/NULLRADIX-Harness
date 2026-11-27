@@ -872,7 +872,7 @@ mod tests {
         assert_eq!(stats.kpis.runs, 2);
         assert_eq!(stats.by_profile[0].done, 1);
         assert_eq!(stats.by_profile[0].other, 1);
-        assert!(stats.abort_reasons.is_empty());
+        assert_eq!(stats.abort_reasons, []);
         assert!(
             stats
                 .outcomes
