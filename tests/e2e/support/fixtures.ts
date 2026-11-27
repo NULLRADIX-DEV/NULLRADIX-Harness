@@ -7,11 +7,16 @@ interface Fixtures {
   daemon: Daemon;
 }
 
+interface Options {
+  // Environment variables the daemon of a test gets on top of the scrubbed ones.
+  daemonEnv: NodeJS.ProcessEnv;
+}
+
 // Every test gets its own daemon and home, and a browser that is signed in through a handoff.
-export const test = base.extend<Fixtures>({
-  // eslint-disable-next-line no-empty-pattern
-  daemon: async ({}, use) => {
-    const daemon = await Daemon.start();
+export const test = base.extend<Fixtures & Options>({
+  daemonEnv: [{}, { option: true }],
+  daemon: async ({ daemonEnv }, use) => {
+    const daemon = await Daemon.start('review', daemonEnv);
     try {
       await use(daemon);
     } finally {
