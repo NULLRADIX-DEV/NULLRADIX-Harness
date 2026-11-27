@@ -7,6 +7,7 @@ import { SessionDetailPage } from '../features/sessions/SessionDetailPage';
 import { SessionsPage } from '../features/sessions/SessionsPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { AppShell } from './AppShell';
+import { ThemePage } from './layout/ThemePage';
 
 export const routes: RouteObject[] = [
   {
@@ -16,7 +17,14 @@ export const routes: RouteObject[] = [
       { index: true, element: <Navigate to="/board" replace /> },
       { path: 'board', element: <BoardPage /> },
       { path: 'inbox', element: <InboxPage /> },
-      { path: 'dashboard', element: <DashboardPage /> },
+      {
+        path: 'dashboard',
+        element: (
+          <ThemePage name="dashboard">
+            <DashboardPage />
+          </ThemePage>
+        ),
+      },
       { path: 'questions', element: <QuestionsPage /> },
       { path: 'sessions', element: <SessionsPage /> },
       { path: 'sessions/:sessionId', element: <SessionDetailPage /> },

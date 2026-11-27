@@ -565,7 +565,7 @@ mod tests {
             id: Some(String::from("ocean")),
             name: Some(String::from("Ocean")),
             version: Some(String::from("1.2.0")),
-            sdk_version: Some(String::from("^1.3")),
+            sdk_version: Some(String::from("^2.0")),
             download_url: Some(String::from("https://example.com/ocean.nullradix")),
             sha256: Some("AB".repeat(32)),
             description: Some(String::from("Blue")),
@@ -605,7 +605,7 @@ mod tests {
     #[test]
     fn an_entry_for_another_sdk_stays_but_is_not_compatible() {
         let mut other = draft();
-        other.sdk_version = Some(String::from("^2.0"));
+        other.sdk_version = Some(String::from("^3.0"));
         assert!(!build(&other).unwrap().compatible);
     }
 

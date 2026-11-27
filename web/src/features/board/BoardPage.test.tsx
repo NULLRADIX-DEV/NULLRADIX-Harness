@@ -9,6 +9,7 @@ import { renderApp } from '../../test/renderApp';
 import { boardKeys } from '../boards/queries';
 import { ticketKeys } from '../tickets/queries';
 import { BOARD_STORAGE_KEY } from './boardChoice';
+import { chooseBoardId } from './useBoardChoice';
 
 const OTHER_BOARD = '0190a0b0-0000-7000-8000-0000000000b2';
 const OTHER_PROJECT = '0190a0b0-0000-7000-8000-000000000002';
@@ -38,6 +39,45 @@ describe('BoardPage', () => {
       );
     });
     expect(await screen.findByRole('button', { name: 'Dispatcher: Paused' })).toBeInTheDocument();
+  });
+
+  it('follows a board chosen elsewhere, like the switcher of a theme shell', async () => {
+    const other = board({
+      id: OTHER_BOARD,
+      projectId: OTHER_PROJECT,
+      projectKey: 'OPS',
+      name: 'Ops',
+    });
+    boardServer({ boards: [board(), other], entries: [entry(ticket())] });
+    renderApp('/board');
+    expect(await screen.findByRole('combobox', { name: 'Board' })).toHaveValue(BOARD_ID);
+    act(() => {
+      chooseBoardId(OTHER_BOARD);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Board' })).toHaveValue(OTHER_BOARD);
+    });
+  });
+
+  it('closes the dialog of the old board when another board is chosen', async () => {
+    const other = board({
+      id: OTHER_BOARD,
+      projectId: OTHER_PROJECT,
+      projectKey: 'OPS',
+      name: 'Ops',
+    });
+    boardServer({ boards: [board(), other], entries: [entry(ticket())] });
+    renderApp('/board?ticket=ARC-0001');
+    expect(await screen.findByRole('combobox', { name: 'Board' })).toHaveValue(BOARD_ID);
+    await userEvent.click(screen.getByRole('button', { name: 'New ticket' }));
+    expect(screen.getByRole('dialog', { name: /New ticket/ })).toBeInTheDocument();
+    act(() => {
+      chooseBoardId(OTHER_BOARD);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('combobox', { name: 'Board' })).toHaveValue(OTHER_BOARD);
   });
 
   it('shows the eight columns with the cards of each', async () => {

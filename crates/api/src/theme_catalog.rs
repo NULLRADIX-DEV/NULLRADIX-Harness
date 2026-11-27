@@ -416,7 +416,7 @@ mod tests {
 
     const MANIFEST: &str = r##"{
         "id": "night-blue", "name": "Night Blue", "version": "1.2.0", "author": "Ada",
-        "sdkVersion": "^1.3", "colorScheme": "dark", "startColor": "#101018",
+        "sdkVersion": "^2.0", "colorScheme": "dark", "startColor": "#101018",
         "slots": [], "permissions": { "network": [] }
     }"##;
     const SOURCE: &str = "https://themes.example.com/index.json";
@@ -433,7 +433,7 @@ mod tests {
             let _ = write!(sha, "{byte:02x}");
         }
         json!([
-            { "id": "night-blue", "name": "Night Blue", "version": "1.2.0", "sdkVersion": "^1.3",
+            { "id": "night-blue", "name": "Night Blue", "version": "1.2.0", "sdkVersion": "^2.0",
               "downloadUrl": PACKAGE, "sha256": sha, "description": "Dark" },
             { "id": "broken" }
         ])

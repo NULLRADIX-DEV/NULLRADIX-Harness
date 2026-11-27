@@ -9,6 +9,8 @@ import type {
   ThemeDefinition,
   ThemeSlots,
 } from '@nullradix/theme-sdk';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { useState } from 'react';
@@ -415,6 +417,25 @@ describe('StartAnimation', () => {
     renderThemed(<StartAnimation />, theme({ StartAnimation: () => <span>intro</span> }));
     await userEvent.keyboard('a');
     expect(screen.queryByText('intro')).not.toBeInTheDocument();
+  });
+
+  it('keeps the key press that ends it away from the app underneath', () => {
+    renderThemed(<StartAnimation />, theme({ StartAnimation: () => <span>intro</span> }));
+    const reached = vi.fn();
+    document.body.addEventListener('keydown', reached);
+    const press = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    act(() => {
+      document.body.dispatchEvent(press);
+    });
+    document.body.removeEventListener('keydown', reached);
+    expect(screen.queryByText('intro')).not.toBeInTheDocument();
+    expect(reached).not.toHaveBeenCalled();
+    expect(press.defaultPrevented).toBe(true);
+  });
+
+  it('covers the app with its background so an empty animation is no invisible click trap', () => {
+    const css = readFileSync(join(import.meta.dirname, 'startAnimation.css'), 'utf8');
+    expect(css).toMatch(/\.theme-start-anim\s*\{[^}]*background:\s*var\(--bg\)/);
   });
 
   it('ends after the limit when onDone never comes', () => {

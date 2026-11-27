@@ -2135,7 +2135,7 @@ mod tests {
             name: String::from("Night Blue"),
             package_version: String::from("1.0.0"),
             author: String::from("Ada"),
-            sdk_version: String::from("^1.3"),
+            sdk_version: String::from("^2.0"),
             color_scheme: nullradix_api::ColorSchemeDto::Dark,
             start_color: None,
             preview_url: None,

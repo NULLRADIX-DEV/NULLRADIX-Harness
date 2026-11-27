@@ -54,7 +54,7 @@ export interface ShellParts {
 
 /** Props of the slot Shell: the whole layout around the pages */
 export interface ShellProps {
-  /** Project id from the address */
+  /** Key of the project of the current board; empty while there is none */
   pid: string;
   /** Links of the main navigation (NavLinks with icon and label) */
   nav: ReactNode;
@@ -146,7 +146,7 @@ export type PageName = 'dashboard';
 
 /** Props of a page slot "page:<name>"; the theme page loads its data itself */
 export interface PageProps {
-  /** Project id from the address */
+  /** Key of the project of the current board; empty while there is none */
   pid: string;
 }
 

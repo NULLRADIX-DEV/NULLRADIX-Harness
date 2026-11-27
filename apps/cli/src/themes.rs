@@ -138,7 +138,7 @@ mod tests {
 
     const MANIFEST: &str = r#"{
         "id": "night-blue", "name": "Night Blue", "version": "1.0.0", "author": "Ada",
-        "sdkVersion": "^1.3", "colorScheme": "dark", "slots": [], "permissions": { "network": [] }
+        "sdkVersion": "^2.0", "colorScheme": "dark", "slots": [], "permissions": { "network": [] }
     }"#;
 
     fn entry(path: &str, data: &str) -> Entry {

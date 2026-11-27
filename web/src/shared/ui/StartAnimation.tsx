@@ -27,11 +27,16 @@ export function StartAnimation() {
   useEffect(() => {
     if (!start) return undefined;
     const timer = setTimeout(finish, START_ANIMATION_MAX_MS);
-    // the person can always skip it: a key press ends it, like a pointer down on the overlay
-    window.addEventListener('keydown', finish);
+    // a key press ends it like a pointer down on the overlay, and acts on nothing underneath
+    const skip = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      finish();
+    };
+    window.addEventListener('keydown', skip, true);
     return () => {
       clearTimeout(timer);
-      window.removeEventListener('keydown', finish);
+      window.removeEventListener('keydown', skip, true);
     };
   }, [start, finish]);
 

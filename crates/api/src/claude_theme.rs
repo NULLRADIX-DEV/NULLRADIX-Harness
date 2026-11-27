@@ -336,7 +336,7 @@ mod tests {
 
     const THEME: &str = r##"{
         "id": "night-blue", "name": "Night Blue", "version": "1.2.0", "author": "Ada",
-        "sdkVersion": "^1.3", "colorScheme": "dark", "startColor": "#101018",
+        "sdkVersion": "^2.0", "colorScheme": "dark", "startColor": "#101018",
         "slots": [], "claudeTheme": true, "permissions": { "network": [] },
         "settingsSchema": { "dim": { "type": "boolean", "label": "Dim", "default": true } }
     }"##;

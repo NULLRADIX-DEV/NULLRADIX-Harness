@@ -1,0 +1,12 @@
+.usage-meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.usage-meter progress {
+  flex: 1;
+  min-width: 60px;
+}

@@ -12,9 +12,9 @@ export function fakeHost(overrides: Partial<ThemeHost> = {}): ThemeHost {
       { id: 'inbox', label: 'My tasks', href: '/p/p1/inbox', active: false, badge: 2 },
     ],
     boards: {
-      current: { project: 'ARC', board: 1 },
+      current: { project: 'ARC', board: 'b1' },
       projects: [{ id: 'ARC', name: 'Arches' }],
-      boards: [{ id: 1, project: 'ARC', name: 'Sprint' }],
+      boards: [{ id: 'b1', project: 'ARC', name: 'Sprint' }],
       loading: false,
       choose: vi.fn(),
     },
@@ -26,7 +26,7 @@ export function fakeHost(overrides: Partial<ThemeHost> = {}): ThemeHost {
       sevenDay: null,
     },
     settings: {
-      values: { theme: 'dark', claudeUsage: true, compactCards: false, heroImages: true },
+      values: { theme: 'dark' },
       loading: false,
       update: vi.fn(() => Promise.resolve()),
     },

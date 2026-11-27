@@ -699,7 +699,7 @@ mod tests {
 
     fn entry(version: &str, bytes: &[u8]) -> Value {
         serde_json::json!({
-            "id": "night-blue", "name": "Night Blue", "version": version, "sdkVersion": "^1.3",
+            "id": "night-blue", "name": "Night Blue", "version": version, "sdkVersion": "^2.0",
             "downloadUrl": PACKAGE_URL, "sha256": sha256_hex(bytes)
         })
     }

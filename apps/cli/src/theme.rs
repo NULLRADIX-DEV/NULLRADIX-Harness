@@ -408,7 +408,7 @@ mod tests {
 
     const MANIFEST: &str = r#"{
         "id": "night-blue", "name": "Night Blue", "version": "1.0.0", "author": "Ada",
-        "sdkVersion": "^1.3", "colorScheme": "dark", "slots": [], "permissions": { "network": [] }
+        "sdkVersion": "^2.0", "colorScheme": "dark", "slots": [], "permissions": { "network": [] }
     }"#;
 
     fn folder(files: &[(&str, &str)]) -> tempfile::TempDir {
@@ -445,7 +445,7 @@ mod tests {
             name: String::from("Night Blue"),
             package_version: String::from("1.0.0"),
             author: String::from("Ada"),
-            sdk_version: String::from("^1.3"),
+            sdk_version: String::from("^2.0"),
             color_scheme: nullradix_api::ColorSchemeDto::Dark,
             start_color: None,
             preview_url: None,

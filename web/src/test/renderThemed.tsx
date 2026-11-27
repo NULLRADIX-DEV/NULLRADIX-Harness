@@ -18,7 +18,7 @@ export function themeEntry(id: string, overrides: Partial<Theme> = {}): Theme {
     name: id,
     packageVersion: '1.0.0',
     author: 'Ada',
-    sdkVersion: '^1.3',
+    sdkVersion: '^2.0',
     colorScheme: 'dark',
     startColor: null,
     previewUrl: null,
@@ -53,12 +53,18 @@ afterEach(() => {
 export function renderThemed(
   ui: ReactNode,
   definition: ThemeDefinition,
-  options: { codeEnabled?: boolean; routes?: Record<string, Handler> } = {},
+  options: {
+    codeEnabled?: boolean;
+    entry?: Partial<Theme>;
+    routes?: Record<string, Handler>;
+  } = {},
 ) {
   registerTheme(definition);
   registered.add(definition.id);
   const list: ThemeList = {
-    items: [themeEntry(definition.id, { codeEnabled: options.codeEnabled ?? true })],
+    items: [
+      themeEntry(definition.id, { codeEnabled: options.codeEnabled ?? true, ...options.entry }),
+    ],
     active: definition.id,
   };
   const state = { list };

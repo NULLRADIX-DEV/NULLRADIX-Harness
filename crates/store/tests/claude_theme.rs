@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 const CLAUDE_MANIFEST: &str = r#"{
     "id": "night-blue", "name": "Night Blue", "version": "1.0.0", "author": "Ada",
-    "sdkVersion": "^1.3", "colorScheme": "dark", "slots": [], "claudeTheme": true,
+    "sdkVersion": "^2.0", "colorScheme": "dark", "slots": [], "claudeTheme": true,
     "settingsSchema": {
         "dim": { "type": "boolean", "label": "Dim", "default": true },
         "mode": { "type": "select", "label": "Mode", "default": "a",

@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { boardsQuery } from '../boards/queries';
 import { DispatcherIndicator } from '../dispatcher/DispatcherIndicator';
 import { NotesDialog } from '../notes/NotesDialog';
 import { BoardColumns } from './BoardColumns';
 import { BoardPicker } from './BoardPicker';
-import { pickBoard, readBoardChoice, saveBoardChoice } from './boardChoice';
+import { pickBoard } from './boardChoice';
+import { chooseBoardId, useBoardChoice } from './useBoardChoice';
 import { NewTicketDialog } from './NewTicketDialog';
 import { TicketPanel } from './TicketPanel';
 import './board.css';
@@ -34,26 +35,40 @@ function NoBoard() {
 export function BoardPage() {
   const boards = useQuery(boardsQuery());
   const [searchParams, setSearchParams] = useSearchParams();
-  const [choice, setChoice] = useState(
-    () => searchParams.get(BOARD_PARAM) ?? readBoardChoice(window.localStorage),
-  );
+  const linkedBoard = searchParams.get(BOARD_PARAM);
+  // the choice is shared with the board switcher of a theme shell
+  const stored = useBoardChoice();
+  const choice = linkedBoard ?? stored;
   const [creating, setCreating] = useState(false);
   const [noting, setNoting] = useState(() => searchParams.get(NOTES_PARAM) === '1');
   const [notice, setNotice] = useState<string | null>(null);
   const board = boards.data ? pickBoard(boards.data, choice) : undefined;
   const openKey = searchParams.get(TICKET_PARAM);
-  const linkedBoard = searchParams.get(BOARD_PARAM);
   const linkedNotes = searchParams.has(NOTES_PARAM);
 
   // An inbox link chose the board and the dialog; keep the choice and clear the address.
   useEffect(() => {
     if (linkedBoard === null && !linkedNotes) return;
-    if (linkedBoard !== null) saveBoardChoice(window.localStorage, linkedBoard);
+    if (linkedBoard !== null) chooseBoardId(linkedBoard);
     const next = new URLSearchParams(searchParams);
     next.delete(BOARD_PARAM);
     next.delete(NOTES_PARAM);
     setSearchParams(next, { replace: true });
   }, [linkedBoard, linkedNotes, searchParams, setSearchParams]);
+
+  // Another board, chosen here or by a theme shell, ends what was open for the old one.
+  const boardId = board?.id;
+  const shownBoard = useRef(boardId);
+  const leaveBoard = useEffectEvent(() => {
+    setCreating(false);
+    setNoting(false);
+    if (openKey !== null) closeTicket();
+  });
+  useEffect(() => {
+    const before = shownBoard.current;
+    shownBoard.current = boardId;
+    if (before !== undefined && before !== boardId) leaveBoard();
+  }, [boardId]);
 
   useEffect(() => {
     if (notice === null) return;
@@ -73,18 +88,12 @@ export function BoardPage() {
     setSearchParams({});
   }
 
-  function chooseBoard(boardId: string) {
-    setChoice(boardId);
-    saveBoardChoice(window.localStorage, boardId);
-    if (openKey !== null) closeTicket();
-  }
-
   return (
     <div className="page db-board">
       <div className="db-board-head">
         <h1 className="page-title">Board</h1>
         {board && boards.data && (
-          <BoardPicker boards={boards.data} value={board.id} onChange={chooseBoard} />
+          <BoardPicker boards={boards.data} value={board.id} onChange={chooseBoardId} />
         )}
         <div className="db-board-dispatcher">
           <DispatcherIndicator />

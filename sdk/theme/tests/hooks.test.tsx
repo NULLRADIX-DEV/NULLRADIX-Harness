@@ -41,7 +41,7 @@ describe('SDK hooks', () => {
       return (
         <button
           onClick={() => {
-            boards.choose({ project: 'ARC', board: 1 });
+            boards.choose({ project: 'ARC', board: 'b1' });
           }}
         >
           {label}
@@ -50,7 +50,7 @@ describe('SDK hooks', () => {
     }
     renderWithHost(host, <Boards />);
     fireEvent.click(screen.getByRole('button', { name: 'ARC/Sprint' }));
-    expect(host.boards.choose).toHaveBeenCalledWith({ project: 'ARC', board: 1 });
+    expect(host.boards.choose).toHaveBeenCalledWith({ project: 'ARC', board: 'b1' });
   });
 
   it('useUsage returns the usage', () => {
@@ -67,14 +67,14 @@ describe('SDK hooks', () => {
     function Settings() {
       const settings = useSettings();
       return (
-        <button onClick={() => void settings.update({ compactCards: true })}>
-          {`compact:${String(settings.values?.compactCards)}`}
+        <button onClick={() => void settings.update({ theme: 'light' })}>
+          {`theme:${String(settings.values?.theme)}`}
         </button>
       );
     }
     renderWithHost(host, <Settings />);
-    fireEvent.click(screen.getByRole('button', { name: 'compact:false' }));
-    expect(host.settings.update).toHaveBeenCalledWith({ compactCards: true });
+    fireEvent.click(screen.getByRole('button', { name: 'theme:dark' }));
+    expect(host.settings.update).toHaveBeenCalledWith({ theme: 'light' });
   });
 
   it('useColorScheme returns the color scheme', () => {
