@@ -11343,7 +11343,8 @@
           "other",
           "merge-session",
           "research",
-          "planned"
+          "planned",
+          "start-failed"
         ]
       },
       "DispatchStatsDto": {

@@ -119,6 +119,7 @@ pub enum DispatchOutcomeDto {
     MergeSession,
     Research,
     Planned,
+    StartFailed,
 }
 
 impl From<DispatchOutcome> for DispatchOutcomeDto {
@@ -140,6 +141,7 @@ impl From<DispatchOutcome> for DispatchOutcomeDto {
             DispatchOutcome::MergeSession => Self::MergeSession,
             DispatchOutcome::Research => Self::Research,
             DispatchOutcome::Planned => Self::Planned,
+            DispatchOutcome::StartFailed => Self::StartFailed,
         }
     }
 }

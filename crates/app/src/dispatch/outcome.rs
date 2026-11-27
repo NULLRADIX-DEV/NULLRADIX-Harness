@@ -51,6 +51,16 @@ impl Decision {
     }
 }
 
+/// Whether the run failed before its process existed; Claude that was not found ran and exited.
+#[must_use]
+pub fn never_spawned(run: &Run) -> bool {
+    run.exit_code().is_none()
+        && run
+            .result()
+            .and_then(|result| result.abort.as_ref())
+            .is_some_and(|abort| abort.category == AbortCategory::StartFailed)
+}
+
 /// Decides from the ticket as it is now; `agent` is the name the run worked under.
 #[must_use]
 pub fn decide(

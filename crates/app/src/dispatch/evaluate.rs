@@ -334,16 +334,17 @@ impl EvaluateRuns {
         self.pauses.read().clone()
     }
 
-    /// A run that never spawned does not show that Claude is missing: no attempt, no pause, a wait.
+    /// A run that never spawned has its own outcome: no attempt, no pause, a wait.
     async fn start_failed(
         &self,
         run: &Run,
         record: &TicketRecord,
         config: &DispatcherConfig,
     ) -> Result<Settled, AppError> {
-        let kind = PauseKind::ClaudeMissing;
+        let outcome = DispatchOutcome::StartFailed;
         // its start gave the claim back already, and a newer one may be there now
-        self.wait_out(run, record, kind, config, false, true).await
+        self.wait_out(run, record, outcome, config, false, true)
+            .await
     }
 
     /// No hook takes the run: the ticket goes back uncounted and does not start for a while.
@@ -351,15 +352,11 @@ impl EvaluateRuns {
         &self,
         run: &Run,
         record: &TicketRecord,
-        kind: PauseKind,
+        outcome: DispatchOutcome,
         config: &DispatcherConfig,
         release: bool,
         hold: bool,
     ) -> Result<Settled, AppError> {
-        let outcome = match kind {
-            PauseKind::UsageLimit => DispatchOutcome::PauseLimit,
-            PauseKind::ClaudeMissing => DispatchOutcome::PauseClaudeMissing,
-        };
         let key = record.key.to_string();
         let mut version = record.version;
         let ours = record.status == TicketStatus::InProgress
@@ -429,7 +426,9 @@ impl EvaluateRuns {
                 return Ok(Settled::Yes(outcome));
             }
             let ours = !self.superseded(run, &key).await?;
-            return self.wait_out(run, record, kind, config, ours, ours).await;
+            return self
+                .wait_out(run, record, pause_outcome(kind), config, ours, ours)
+                .await;
         }
         let agent = agent_of(run, &key, config);
         let request = AbortRequest {
@@ -550,6 +549,14 @@ pub(super) fn agent_of(run: &Run, key: &str, config: &DispatcherConfig) -> Strin
     run.dispatch()
         .and_then(|dispatch| dispatch.agent.clone())
         .unwrap_or_else(|| config.work_agent(key))
+}
+
+/// The outcome a run paused for `kind` is settled with.
+const fn pause_outcome(kind: PauseKind) -> DispatchOutcome {
+    match kind {
+        PauseKind::UsageLimit => DispatchOutcome::PauseLimit,
+        PauseKind::ClaudeMissing => DispatchOutcome::PauseClaudeMissing,
+    }
 }
 
 /// Whether the abort comment of this run is on the ticket already.

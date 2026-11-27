@@ -20,6 +20,7 @@ use super::detached::{
 };
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, LogLevel};
+use super::outcome::never_spawned;
 use super::pass::{DispatchPass, PassContext, PassReport, PassStep, counts_for_wip};
 use super::pause::{PauseHook, PauseKind};
 use super::research::{BoardRoot, board_roots, same_folder};
@@ -456,6 +457,20 @@ impl PlanningRuns {
         outcome
     }
 
+    /// A run that never spawned leaves no comment, so the start is tried again by the next pass.
+    async fn log_never_spawned(&self, run: &Run, key: &str) -> DispatchOutcome {
+        self.parts
+            .log
+            .write(
+                LogLevel::Warn,
+                &format!("planning of {key} never started: {}", why_empty(run)),
+                Some(key),
+                Some(run.id()),
+            )
+            .await;
+        DispatchOutcome::StartFailed
+    }
+
     async fn outcome(
         &self,
         run: &Run,
@@ -500,6 +515,9 @@ impl PlanningRuns {
                 )
                 .await;
             return Ok(DispatchOutcome::Question);
+        }
+        if never_spawned(run) {
+            return Ok(self.log_never_spawned(run, key).await);
         }
         let kind = match run
             .result()

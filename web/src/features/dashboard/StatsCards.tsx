@@ -304,6 +304,7 @@ export const OUTCOME_LABELS: Readonly<Record<string, string>> = {
   'merge-session': 'Merge session',
   research: 'Researched',
   planned: 'Planned',
+  'start-failed': 'Never started',
 };
 
 // Cost, tokens and time of the runs counted, and how every run ended.

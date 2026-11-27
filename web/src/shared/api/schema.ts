@@ -2291,7 +2291,7 @@ export interface components {
          * @description How the dispatcher settled a finished run; none while it is open.
          * @enum {string}
          */
-        DispatchOutcomeDto: "done" | "review" | "human" | "abort" | "abort-final" | "blocked" | "question" | "pause-limit" | "pause-claude-missing" | "setup-failed" | "taken" | "gone" | "other" | "merge-session" | "research" | "planned";
+        DispatchOutcomeDto: "done" | "review" | "human" | "abort" | "abort-final" | "blocked" | "question" | "pause-limit" | "pause-claude-missing" | "setup-failed" | "taken" | "gone" | "other" | "merge-session" | "research" | "planned" | "start-failed";
         /** @description The dashboard numbers of the dispatcher over a range of days. */
         DispatchStatsDto: {
             /** @description Aborts by category, the most frequent first. */
