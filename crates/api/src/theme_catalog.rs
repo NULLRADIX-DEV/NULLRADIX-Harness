@@ -12,6 +12,7 @@ use nullradix_domain::{Availability, CatalogSource, MAX_VERSION_CHARS, THEME_ID_
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
+use crate::auth::{AgentContext, is_person};
 use crate::themes::ThemeDto;
 use crate::{ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
@@ -221,7 +222,7 @@ pub(crate) struct InstallQuery {
     /// Replace a theme of the same id that was installed from another source or by upload.
     #[serde(default)]
     replace: bool,
-    /// Checksum of the package the person confirmed, from the `confirmation` of the refusal.
+    /// Checksum of the package the person confirmed, from the refusal; only a person can confirm.
     #[serde(default, rename = "confirmedSha256")]
     confirmed_sha256: Option<String>,
 }
@@ -336,6 +337,7 @@ pub(crate) async fn browse_catalog(
 pub(crate) async fn install_catalog_theme(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<InstallPath>,
     ApiQuery(query): ApiQuery<InstallQuery>,
 ) -> Result<(StatusCode, HeaderMap, Json<ThemeDto>), ApiError> {
@@ -346,7 +348,7 @@ pub(crate) async fn install_catalog_theme(
             &path.theme,
             query.replace,
             query.confirmed_sha256.as_deref(),
-            matches!(principal, Principal::Session { .. }),
+            is_person(&principal, context),
         )
         .await?;
     crate::claude_theme::resync(&state).await;
@@ -403,12 +405,14 @@ mod tests {
     use std::fmt::Write as _;
 
     use axum::body::Body;
-    use axum::http::{Request, header};
+    use axum::http::{Request, StatusCode, header};
     use nullradix_app::theme_catalog::FetchError;
     use serde_json::{Value, json};
     use sha2::{Digest, Sha256};
 
-    use crate::tests::{TestApi, bearer, local, open_session, send, test_api};
+    use crate::tests::{
+        TestApi, as_person, bearer, in_run, in_session, local, open_session, send, test_api,
+    };
 
     const MANIFEST: &str = r##"{
         "id": "night-blue", "name": "Night Blue", "version": "1.2.0", "author": "Ada",
@@ -704,13 +708,43 @@ mod tests {
             (status, problem["code"].as_str()),
             (409, Some("theme-confirmation-required"))
         );
+        // the right checksum from a token or from a request of an agent does not confirm
         let right = format!("{path}?confirmedSha256={sha}");
-        let (status, theme) = call(&api, "POST", &right, None).await;
-        assert_eq!((status, theme["id"].as_str()), (201, Some("night-blue")));
+        let (status, problem) = call(&api, "POST", &right, None).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (409, Some("theme-confirmation-required"))
+        );
+        assert!(
+            problem["detail"]
+                .as_str()
+                .unwrap()
+                .contains("only the person can confirm it, in the app"),
+            "{problem}"
+        );
+        let cookie = open_session(&api).await;
+        for mark in [in_run, in_session] {
+            let request = mark(as_person(Request::post(&right), &cookie))
+                .body(Body::empty())
+                .unwrap();
+            let (status, _, problem) = send(&api.router, request).await;
+            assert_eq!(status, 409, "{problem}");
+        }
+        let (_, list) = call(&api, "GET", "/api/v1/themes", None).await;
+        assert_eq!(list["items"].as_array().unwrap().len(), 0);
+        // the person does
+        let request = as_person(Request::post(&right), &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, theme) = send(&api.router, request).await;
+        assert_eq!(
+            (status, theme["id"].as_str()),
+            (StatusCode::CREATED, Some("night-blue"))
+        );
     }
 
     #[tokio::test]
-    async fn only_the_person_keeps_the_code_switch_on_when_installing_again() {
+    async fn only_the_person_confirms_and_keeps_the_code_switch_on_when_installing_again() {
         let api = test_api().await;
         let mut bytes = package();
         bytes.extend_from_slice(
@@ -755,9 +789,12 @@ main.js=run()",
         assert_eq!(send(&api.router, request).await.0, 200);
         assert_eq!(enabled().await, json!(true));
 
-        // a token never does
-        let (status, theme) = call(&api, "POST", &install, None).await;
-        assert_eq!((status, &theme["codeEnabled"]), (200, &json!(false)));
-        assert_eq!(enabled().await, json!(false));
+        // a token cannot confirm the package again, so nothing changes
+        let (status, problem) = call(&api, "POST", &install, None).await;
+        assert_eq!(
+            (status, problem["code"].as_str()),
+            (409, Some("theme-confirmation-required"))
+        );
+        assert_eq!(enabled().await, json!(true));
     }
 }

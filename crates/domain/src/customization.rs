@@ -34,6 +34,15 @@ impl ExtensionPoint {
     pub fn as_str(self) -> &'static str {
         self.into()
     }
+
+    /// Keys the head of a file may have; others such as `allowed-tools` or `hooks` run code.
+    #[must_use]
+    pub const fn head_keys(self) -> &'static [&'static str] {
+        match self {
+            Self::Skill => &["name", "description"],
+            Self::OutputStyle => &["name", "description", "keep-coding-instructions"],
+        }
+    }
 }
 
 /// Replaces a shipped file or comes on top of the shipped ones.
@@ -227,20 +236,44 @@ impl Finding {
 pub struct FrontMatter {
     pub name: Option<String>,
     pub description: Option<String>,
+    /// Every top-level key of the head; a key that is not text shows as `?`.
+    pub keys: Vec<String>,
     /// First line of the reading error, when the head is there but unreadable.
     pub error: Option<String>,
 }
 
-/// Head readable, `description` set, and a `name` that agrees with the overlay's name.
+/// Keys of the head that `point` does not allow, in file order.
 #[must_use]
-pub fn check_front_matter(name: &OverlayName, head: &FrontMatter) -> Vec<Finding> {
+pub fn refused_keys(point: ExtensionPoint, head: &FrontMatter) -> Vec<&str> {
+    head.keys
+        .iter()
+        .map(String::as_str)
+        .filter(|key| !point.head_keys().contains(key))
+        .collect()
+}
+
+/// Head readable, only allowed keys, `description` set, and a `name` that agrees with the overlay.
+#[must_use]
+pub fn check_front_matter(
+    point: ExtensionPoint,
+    name: &OverlayName,
+    head: &FrontMatter,
+) -> Vec<Finding> {
     if let Some(error) = &head.error {
         return vec![Finding::new(
             "front-matter-invalid",
             format!("the head is no valid YAML: {error}"),
         )];
     }
-    let mut problems = Vec::new();
+    let mut problems: Vec<Finding> = refused_keys(point, head)
+        .into_iter()
+        .map(|key| {
+            Finding::new(
+                "front-matter-key-refused",
+                format!("the head key {key} is not allowed"),
+            )
+        })
+        .collect();
     if head.description.is_none() {
         problems.push(Finding::new(
             "description-missing",
@@ -401,16 +434,21 @@ mod tests {
         let good = FrontMatter {
             name: Some(String::from("review")),
             description: Some(String::from("Reviews")),
+            keys: vec![String::from("name"), String::from("description")],
             error: None,
         };
-        assert_eq!(check_front_matter(&name("review"), &good).len(), 0);
+        let skill = ExtensionPoint::Skill;
+        assert_eq!(check_front_matter(skill, &name("review"), &good).len(), 0);
         let no_name = FrontMatter {
             name: None,
             ..good.clone()
         };
-        assert_eq!(check_front_matter(&name("review"), &no_name).len(), 0);
+        assert_eq!(
+            check_front_matter(skill, &name("review"), &no_name).len(),
+            0
+        );
         let codes = |head: &FrontMatter| -> Vec<&'static str> {
-            check_front_matter(&name("review"), head)
+            check_front_matter(skill, &name("review"), head)
                 .iter()
                 .map(|problem| problem.code)
                 .collect()
@@ -419,6 +457,7 @@ mod tests {
             codes(&FrontMatter {
                 description: None,
                 name: Some(String::from("other")),
+                keys: Vec::new(),
                 error: None
             }),
             ["description-missing", "name-mismatch"]
@@ -429,6 +468,52 @@ mod tests {
                 ..good
             }),
             ["front-matter-invalid"]
+        );
+    }
+
+    #[test]
+    fn a_head_may_only_have_the_keys_of_its_point() {
+        let head = |keys: &[&str]| FrontMatter {
+            name: None,
+            description: Some(String::from("Reviews")),
+            keys: keys.iter().map(|key| (*key).to_owned()).collect(),
+            error: None,
+        };
+        let refused = |point, keys: &[&str]| {
+            refused_keys(point, &head(keys))
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        let skill = ExtensionPoint::Skill;
+        assert_eq!(
+            refused(skill, &["name", "description"]),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            refused(skill, &["description", "allowed-tools", "hooks", "?"]),
+            ["allowed-tools", "hooks", "?"]
+        );
+        assert_eq!(
+            refused(skill, &["keep-coding-instructions"]),
+            ["keep-coding-instructions"]
+        );
+        let style = ExtensionPoint::OutputStyle;
+        assert_eq!(
+            refused(style, &["name", "description", "keep-coding-instructions"]).len(),
+            0
+        );
+        assert_eq!(refused(style, &["hooks"]), ["hooks"]);
+        let problems = check_front_matter(skill, &name("review"), &head(&["allowed-tools"]));
+        assert_eq!(
+            problems
+                .iter()
+                .map(|problem| (problem.code, problem.message.as_str()))
+                .collect::<Vec<_>>(),
+            [(
+                "front-matter-key-refused",
+                "the head key allowed-tools is not allowed"
+            )]
         );
     }
 

@@ -1,16 +1,29 @@
 use strum::{EnumIter, EnumString, IntoStaticStr};
 use uuid::Uuid;
 
-/// Tools a work run may use without asking.
-pub const DEFAULT_ALLOWED_TOOLS: [&str; 16] = [
+/// Tools a work run may use without asking; `nullradix` only with the commands a run needs.
+pub const DEFAULT_ALLOWED_TOOLS: [&str; 29] = [
     "Read",
     "Edit",
     "Write",
     "Glob",
     "Grep",
-    "Bash(harness:*)",
-    "Bash(nullradix:*)",
-    "Bash(node:*)",
+    "Bash(nullradix ticket show:*)",
+    "Bash(nullradix ticket list:*)",
+    "Bash(nullradix ticket comment:*)",
+    "Bash(nullradix ticket set:*)",
+    "Bash(nullradix ticket done:*)",
+    "Bash(nullradix step check:*)",
+    "Bash(nullradix step add:*)",
+    "Bash(nullradix step edit:*)",
+    "Bash(nullradix note add:*)",
+    "Bash(nullradix note list:*)",
+    "Bash(nullradix note seen:*)",
+    "Bash(nullradix note show:*)",
+    "Bash(nullradix question add:*)",
+    "Bash(nullradix question show:*)",
+    "Bash(nullradix question list:*)",
+    "Bash(nullradix question comment:*)",
     "Bash(npm test:*)",
     "Bash(npm run:*)",
     "Bash(git status:*)",

@@ -162,9 +162,7 @@ impl Ticket {
     /// Finishes a ticket that is blocked on a person.
     pub fn accepted(&self) -> Result<TicketRecord, AcceptError> {
         let record = self.record();
-        if record.status != TicketStatus::Blocked
-            || !crate::waits_for_a_person(record.blocked_reason.as_deref())
-        {
+        if !record.awaits_a_person() {
             return Err(AcceptError {
                 key: record.key.clone(),
             });

@@ -73,6 +73,9 @@ pub(crate) struct Cli {
     /// Folder to run in; the scenario's work folder when left out.
     #[serde(default)]
     pub(crate) cwd: Option<String>,
+    /// Variables for this call only, such as `NULLRADIX_RUN` to act like an agent.
+    #[serde(default)]
+    pub(crate) env: BTreeMap<String, String>,
 }
 
 /// Writes `text` as it is, or a JSONL file with one value per line such as a transcript.

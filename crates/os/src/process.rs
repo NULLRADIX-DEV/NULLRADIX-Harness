@@ -129,12 +129,22 @@ impl ProcessTree {
             let mut child = spawned?;
             #[cfg(target_os = "linux")]
             {
-                let started = guard
-                    .watch(child.id())
-                    .and_then(|()| report.map_or(Ok(()), crate::linux::Report::outcome));
-                if let Err(error) = started {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                // the flag tells that the reaper itself reported, and is ending by itself
+                let started = match guard.watch(child.id()) {
+                    Err(error) => Err((error, false)),
+                    Ok(()) => report.map_or(Ok(()), |report| {
+                        report.outcome().map_err(|error| (error, true))
+                    }),
+                };
+                if let Err((error, reaper_ended)) = started {
+                    if reaper_ended {
+                        // a kill now could cut off what the reaper writes at its exit
+                        let _ =
+                            crate::linux::end_failed(&mut child, crate::linux::FAILED_REAPER_GRACE);
+                    } else {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
                     return Err(error);
                 }
             }

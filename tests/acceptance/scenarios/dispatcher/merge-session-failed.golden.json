@@ -317,7 +317,7 @@
     "exitCode": 0,
     "name": "save the configuration",
     "stderr": "",
-    "stdout": "saved dispatcher configuration, version 2 (2981d588b0094599)\n"
+    "stdout": "saved dispatcher configuration, version 2 (f9adb12e57054fd8)\n"
   },
   {
     "cli": [
@@ -477,7 +477,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "2981d588b0094599",
+              "configHash": "f9adb12e57054fd8",
               "kind": "merge",
               "profile": {
                 "effort": "high",
@@ -534,7 +534,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "2981d588b0094599",
+              "configHash": "f9adb12e57054fd8",
               "kind": "merge",
               "profile": {
                 "effort": "max",
@@ -561,7 +561,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "2981d588b0094599",
+              "configHash": "f9adb12e57054fd8",
               "kind": "merge",
               "profile": {
                 "effort": "high",
@@ -902,7 +902,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "2981d588b0094599",
+              "configHash": "f9adb12e57054fd8",
               "kind": "merge",
               "profile": {
                 "effort": "max",
@@ -938,7 +938,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "2981d588b0094599",
+              "configHash": "f9adb12e57054fd8",
               "kind": "merge",
               "profile": {
                 "effort": "high",
@@ -1009,7 +1009,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "2981d588b0094599",
+              "configHash": "f9adb12e57054fd8",
               "kind": "merge",
               "profile": {
                 "effort": "max",
@@ -1045,7 +1045,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "2981d588b0094599",
+              "configHash": "f9adb12e57054fd8",
               "kind": "merge",
               "profile": {
                 "effort": "high",

@@ -365,7 +365,7 @@ impl EvaluateRuns {
             let actor = self.starter.actor().await?;
             match self
                 .tickets
-                .release(&key, Some("planned"), actor, Some(version))
+                .release(&key, Some("planned"), actor, Some(version), false)
                 .await
             {
                 Ok(view) => version = view.ticket.record().version,
@@ -491,7 +491,13 @@ impl EvaluateRuns {
         let version = current.version;
         match self
             .tickets
-            .release(&key.to_string(), Some("planned"), actor, Some(version))
+            .release(
+                &key.to_string(),
+                Some("planned"),
+                actor,
+                Some(version),
+                false,
+            )
             .await
         {
             Ok(_) => Ok(true),

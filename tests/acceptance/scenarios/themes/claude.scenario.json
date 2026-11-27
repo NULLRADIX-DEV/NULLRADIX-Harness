@@ -3,7 +3,10 @@
   "steps": [
     {
       "name": "off and nothing chosen",
-      "http": { "method": "GET", "path": "/api/v1/settings/claude-theme" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/settings/claude-theme"
+      }
     },
     {
       "name": "manifest",
@@ -14,7 +17,10 @@
     },
     {
       "name": "stylesheet",
-      "file": { "path": "{{WORK}}/night-blue/theme.css", "text": ":root { --accent: #6c63ff; }\n" }
+      "file": {
+        "path": "{{WORK}}/night-blue/theme.css",
+        "text": ":root { --accent: #6c63ff; }\n"
+      }
     },
     {
       "name": "hooks",
@@ -25,7 +31,10 @@
     },
     {
       "name": "module",
-      "file": { "path": "{{WORK}}/night-blue/claude/hooks/look.ts", "text": "export {}\n" }
+      "file": {
+        "path": "{{WORK}}/night-blue/claude/hooks/look.ts",
+        "text": "export {}\n"
+      }
     },
     {
       "name": "pack the folder",
@@ -34,67 +43,143 @@
       }
     },
     {
-      "name": "install the package",
-      "cli": { "args": ["theme", "install", "{{WORK}}/night-blue.nullradix", "--yes"] }
+      "name": "the person installs the package",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/night-blue.nullradix",
+        "auth": "session",
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
+      }
     },
     {
       "name": "choose the installed theme",
-      "cli": { "args": ["theme", "use", "night-blue"] }
+      "cli": {
+        "args": ["theme", "use", "night-blue"]
+      }
     },
     {
       "name": "installing and choosing do not apply it",
-      "cli": { "args": ["theme", "claude"] }
+      "cli": {
+        "args": ["theme", "claude"]
+      }
     },
     {
       "name": "the switch takes a switch only",
       "http": {
         "method": "PUT",
         "path": "/api/v1/settings/claude-theme",
-        "body": { "enabled": "yes" }
+        "body": {
+          "enabled": "yes"
+        }
       }
     },
     {
-      "name": "turn it on over the cli",
-      "cli": { "args": ["theme", "claude", "on"] }
+      "name": "the cli cannot turn it on",
+      "cli": {
+        "args": ["theme", "claude", "on"]
+      }
+    },
+    {
+      "name": "a token cannot turn it on over http either",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/claude-theme",
+        "body": {
+          "enabled": true
+        }
+      }
+    },
+    {
+      "name": "the person turns it on in the app",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/claude-theme",
+        "body": {
+          "enabled": true
+        },
+        "auth": "session"
+      }
     },
     {
       "name": "the status names the folder",
-      "http": { "method": "GET", "path": "/api/v1/settings/claude-theme" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/settings/claude-theme"
+      }
     },
     {
       "name": "saving theme settings applies them again",
       "http": {
         "method": "PUT",
         "path": "/api/v1/themes/night-blue/settings",
-        "body": { "values": { "dim": false }, "version": 0 }
+        "body": {
+          "values": {
+            "dim": false
+          },
+          "version": 0
+        }
       }
     },
     {
       "name": "still active",
-      "cli": { "args": ["theme", "claude"] }
+      "cli": {
+        "args": ["theme", "claude"]
+      }
     },
     {
       "name": "a built-in theme brings no Claude part",
-      "http": { "method": "PUT", "path": "/api/v1/settings/theme", "body": { "theme": "light" } }
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/theme",
+        "body": {
+          "theme": "light"
+        }
+      }
     },
     {
       "name": "nothing is wanted now",
-      "cli": { "args": ["theme", "claude"] }
+      "cli": {
+        "args": ["theme", "claude"]
+      }
     },
     {
-      "name": "the installed theme again",
-      "cli": { "args": ["theme", "use", "night-blue"] }
+      "name": "a token choosing the theme with a Claude part turns the switch off",
+      "cli": {
+        "args": ["theme", "use", "night-blue"]
+      }
+    },
+    {
+      "name": "it is off now",
+      "cli": {
+        "args": ["theme", "claude"]
+      }
+    },
+    {
+      "name": "the person turns it on again",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/claude-theme",
+        "body": {
+          "enabled": true
+        },
+        "auth": "session"
+      }
     },
     {
       "name": "it is back",
-      "cli": { "args": ["theme", "claude"] }
+      "cli": {
+        "args": ["theme", "claude"]
+      }
     },
     {
       "name": "turn it off over http",
       "http": {
         "method": "PUT",
         "path": "/api/v1/settings/claude-theme",
-        "body": { "enabled": false }
+        "body": {
+          "enabled": false
+        }
       }
     },
     {
@@ -106,15 +191,28 @@
     },
     {
       "name": "it is refused and reported",
-      "cli": { "args": ["theme", "claude", "on"] }
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/claude-theme",
+        "body": {
+          "enabled": true
+        },
+        "auth": "session"
+      }
     },
     {
       "name": "off again leaves it alone without an error",
-      "cli": { "args": ["theme", "claude", "off"] }
+      "cli": {
+        "args": ["theme", "claude", "off"]
+      }
     },
     {
       "name": "without a login the status is refused",
-      "http": { "method": "GET", "path": "/api/v1/settings/claude-theme", "auth": "none" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/settings/claude-theme",
+        "auth": "none"
+      }
     }
   ]
 }

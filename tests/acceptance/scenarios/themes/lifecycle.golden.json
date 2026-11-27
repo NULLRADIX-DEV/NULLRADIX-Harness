@@ -48,7 +48,7 @@
       "<WORK>/night-blue.nullradix"
     ],
     "exitCode": 0,
-    "name": "install the package",
+    "name": "the person installs the package",
     "stderr": "",
     "stdout": "installed night-blue 1.2.0\n"
   },

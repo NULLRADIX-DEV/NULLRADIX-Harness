@@ -1,0 +1,338 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "board",
+      "use",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "the board to work on",
+    "stderr": "",
+    "stdout": "active board: <ID-2> Main\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Login page",
+      "--acceptance",
+      "Users can log in"
+    ],
+    "exitCode": 0,
+    "name": "first ticket",
+    "stderr": "",
+    "stdout": "ARC-0001 created: Login page\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "create",
+      "Logout page",
+      "--acceptance",
+      "Users can log out"
+    ],
+    "exitCode": 0,
+    "name": "second ticket",
+    "stderr": "",
+    "stdout": "ARC-0002 created: Logout page\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-1",
+      "--status",
+      "blocked",
+      "--blocked-reason",
+      "Human Interaction: look at it",
+      "--author",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "the first waits for a person",
+    "stderr": "",
+    "stdout": "ARC-0001 changed (version 2)\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-2",
+      "--status",
+      "blocked",
+      "--blocked-reason",
+      "Human Interaction: look at it",
+      "--author",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "the second waits for a person",
+    "stderr": "",
+    "stdout": "ARC-0002 changed (version 2)\n"
+  },
+  {
+    "cli": [
+      "ticket",
+      "accept",
+      "ARC-1"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot accept it",
+    "stderr": "error: the daemon refused the request: accepting a ticket stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "accept",
+      "ARC-1"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 1,
+    "name": "a session cannot accept it",
+    "stderr": "error: the daemon refused the request: accepting a ticket stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-1",
+      "--status",
+      "done",
+      "--author",
+      "claude"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot set it to done instead",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "move",
+      "ARC-1",
+      "done"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 1,
+    "name": "a session cannot move it to done",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-1",
+      "--blocked-reason",
+      "waiting for a key"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot replace the reason",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "set",
+      "ARC-1",
+      "--blocked-reason",
+      ""
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot clear the reason",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "return",
+      "ARC-1",
+      "--feedback",
+      "more tests"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot return it to the agent",
+    "stderr": "error: the daemon refused the request: returning a review stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "delete",
+      "ARC-1"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot delete it",
+    "stderr": "error: the daemon refused the request: deleting a ticket stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "ticket",
+      "delete",
+      "ARC-1"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 1,
+    "name": "a session cannot delete it",
+    "stderr": "error: the daemon refused the request: deleting a ticket stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "plan",
+      "write",
+      "ARC-1",
+      "--plan",
+      "Do it"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 1,
+    "name": "a session cannot plan it into planned",
+    "stderr": "error: the daemon refused the request: moving a ticket that waits for a person stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "plan",
+      "claim",
+      "ARC-1",
+      "--agent",
+      "planner"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 0,
+    "name": "a run claims planning but the ticket still waits",
+    "stderr": "",
+    "stdout": "ARC-0001 claimed for planning (blocked)\n"
+  },
+  {
+    "name": "the ticket still waits",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/tickets/ARC-1"
+    },
+    "response": {
+      "json": {
+        "ticket": {
+          "blockedReason": "Human Interaction: look at it",
+          "key": "ARC-0001",
+          "status": "blocked"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "ticket",
+      "accept",
+      "ARC-1"
+    ],
+    "exitCode": 0,
+    "name": "the person accepts at a terminal",
+    "stderr": "",
+    "stdout": "ARC-0001 accepted (done)\n"
+  },
+  {
+    "name": "the person accepts the second in the app",
+    "request": {
+      "auth": "session",
+      "body": {},
+      "method": "POST",
+      "path": "/api/v1/tickets/ARC-2/accept"
+    },
+    "response": {
+      "json": {
+        "key": "ARC-0002",
+        "status": "done"
+      },
+      "status": 200
+    }
+  }
+]

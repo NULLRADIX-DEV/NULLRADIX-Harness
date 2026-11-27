@@ -358,7 +358,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-7>",
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "work",
               "profile": {
                 "effort": "high",
@@ -405,7 +405,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-7>",
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "work",
               "profile": {
                 "effort": "high",

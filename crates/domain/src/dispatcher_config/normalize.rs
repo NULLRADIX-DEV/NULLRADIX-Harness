@@ -511,7 +511,7 @@ mod tests {
         assert_eq!(config.ladder, ["small", "medium", "large"]);
         assert_eq!(config.default_profile, "medium");
         assert_eq!(config.rules.len(), 4);
-        assert_eq!(config.claude.allowed_tools.len(), 16);
+        assert_eq!(config.claude.allowed_tools.len(), 29);
         assert_eq!(config.merge_strategy, MergeStrategy::Merge);
         assert_eq!(config.join_worktrees, JoinWorktrees::None);
         assert_eq!(config.account_strategy, AccountStrategy::MostFree);

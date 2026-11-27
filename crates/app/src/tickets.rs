@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    ASSIGNEE_MAX, Actor, ActorKind, Board, BoardMoveError, ClaimError, Column, DependencyIndex,
-    HistoryEntry, Id, PlanChange, Priority, Project, ProjectKey, RuleError, StatusFacts,
-    StatusLock, StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError, Ticket,
-    TicketDraft, TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle, Timestamp,
-    Tombstone, Version, changed_dependencies, changes, check_status_change, check_target_lock,
-    display_order, normalize_dependencies, normalize_labels, optional_text, planning_candidate,
-    step, validate_dependencies,
+    ASSIGNEE_MAX, Actor, ActorKind, AgentWriteRefusal, Board, BoardMoveError, ClaimError, Column,
+    DependencyIndex, HistoryEntry, Id, PlanChange, Priority, Project, ProjectKey, RuleError,
+    StatusFacts, StatusLock, StatusRequest, Step, StepEdit, StepError, TargetBranch, TextError,
+    Ticket, TicketDraft, TicketError, TicketKey, TicketRecord, TicketStatus, TicketTitle,
+    Timestamp, Tombstone, Version, changed_dependencies, changes, check_agent_write,
+    check_status_change, check_target_lock, display_order, normalize_dependencies,
+    normalize_labels, optional_text, planning_candidate, step, validate_dependencies,
 };
 
 use crate::comments::{CommentLine, CommentWrite};
@@ -99,6 +99,8 @@ pub trait TicketWrite: WorktreeWrite + CommentWrite + QuestionWrite + Send {
         board: Id<Board>,
     ) -> Result<Vec<(TicketKey, TicketTitle)>, AppError>;
     async fn dependency_index(&mut self) -> Result<DependencyIndex, AppError>;
+    /// The label that keeps a person in the loop of autopilot, if one is configured.
+    async fn autopilot_keep_label(&mut self) -> Result<Option<String>, AppError>;
     /// The next number of the project; numbers are never handed out twice.
     async fn take_number(&mut self, project: Id<Project>) -> Result<u32, AppError>;
     /// The place after the last ticket in this column of the board.
@@ -271,6 +273,10 @@ pub struct PlanInput {
 }
 
 /// Who writes and which legacy locks the write lifts.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent facts about one write"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WriteOptions {
     /// A person in the board, rather than an agent through the CLI.
@@ -278,6 +284,8 @@ pub struct WriteOptions {
     /// Lifts the dependency, question and not-needed locks, never the acceptance lock.
     pub force: bool,
     pub allow_duplicate: bool,
+    /// The request says it comes from a run or session; it may not decide for the person.
+    pub from_agent: bool,
 }
 
 /// Filters of a ticket list, applied after the scope.
@@ -621,7 +629,7 @@ impl TicketService {
         };
         let request = StatusRequest {
             by_person: options.by_person,
-            force: options.force,
+            force: options.force && !options.from_agent,
         };
         check_status_change(None, status, request, &facts).map_err(|error| locked(&error))?;
         let draft = TicketDraft {
@@ -708,6 +716,7 @@ impl TicketService {
         let before = load(write.as_mut(), &key, Some(expected)).await?;
         let index = write.dependency_index().await?;
         let after = apply(write.as_mut(), &before, patch, status, priority, &index).await?;
+        guard_agent_write(write.as_mut(), options.from_agent, &before, &after).await?;
         check_change(write.as_mut(), &before, &after, &index, options).await?;
         let now = self.clock.now();
         if patch.clear_link {
@@ -744,6 +753,7 @@ impl TicketService {
             return Ok(self.get(&key.to_string()).await?.view);
         }
         let index = write.dependency_index().await?;
+        guard_agent_write(write.as_mut(), options.from_agent, &before, &after).await?;
         check_change(write.as_mut(), &before, &after, &index, options).await?;
         let now = self.clock.now();
         let revised = before.revised(after, now);
@@ -762,7 +772,11 @@ impl TicketService {
         key: &str,
         actor: &Actor,
         expected: Option<Version>,
+        from_agent: bool,
     ) -> Result<(), AppError> {
+        if from_agent {
+            return Err(crate::auth::decision_needs_person("deleting a ticket"));
+        }
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
         let ticket = load(write.as_mut(), &key, expected).await?;
@@ -849,6 +863,10 @@ impl TicketService {
     }
 
     /// Takes the ticket for an agent, as legacy `claim` did; it moves to in progress unless told.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the route fields and who is asking"
+    )]
     pub async fn claim(
         &self,
         key: &str,
@@ -857,10 +875,13 @@ impl TicketService {
         actor: &Actor,
         expected: Option<Version>,
         force: bool,
+        from_agent: bool,
     ) -> Result<TicketView, AppError> {
         if agent.trim().is_empty() {
             return Err(agent_missing());
         }
+        // an agent's force never lifts the locks
+        let force = force && !from_agent;
         let status = optional_status(status)?.unwrap_or(TicketStatus::InProgress);
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
@@ -882,7 +903,7 @@ impl TicketService {
         if before.record().changes_column(&after) {
             after.sort_order = write.next_sort_order(after.board, status).await?;
         }
-        self.save(write, &before, after, actor, Some("claimed"))
+        self.save(write, &before, after, actor, Some("claimed"), from_agent)
             .await
     }
 
@@ -893,6 +914,7 @@ impl TicketService {
         status: Option<&str>,
         actor: &Actor,
         expected: Option<Version>,
+        from_agent: bool,
     ) -> Result<TicketView, AppError> {
         let status = optional_status(status)?;
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
@@ -902,7 +924,7 @@ impl TicketService {
         if before.record().changes_column(&after) {
             after.sort_order = write.next_sort_order(after.board, after.status).await?;
         }
-        self.save(write, &before, after, actor, Some("released"))
+        self.save(write, &before, after, actor, Some("released"), from_agent)
             .await
     }
 
@@ -929,7 +951,7 @@ impl TicketService {
             .await?;
         let index = write.dependency_index().await?;
         check_change(write.as_mut(), &before, &after, &index, options).await?;
-        self.save(write, &before, after, actor, Some("accepted"))
+        self.save(write, &before, after, actor, Some("accepted"), false)
             .await
     }
 
@@ -939,6 +961,7 @@ impl TicketService {
         key: &str,
         input: &PlanInput,
         actor: &Actor,
+        from_agent: bool,
     ) -> Result<TicketView, AppError> {
         if input.plan.is_none() && input.handbook.is_none() && input.diagram.is_none() {
             return Err(AppError::invalid(
@@ -999,7 +1022,8 @@ impl TicketService {
         } else {
             "planned"
         };
-        self.save(write, &before, after, actor, Some(note)).await
+        self.save(write, &before, after, actor, Some(note), from_agent)
+            .await
     }
 
     /// Claims planning for 15 minutes; another agent's live claim refuses it.
@@ -1008,6 +1032,7 @@ impl TicketService {
         key: &str,
         agent: &str,
         actor: &Actor,
+        from_agent: bool,
     ) -> Result<TicketView, AppError> {
         if agent.trim().is_empty() {
             return Err(agent_missing());
@@ -1019,7 +1044,8 @@ impl TicketService {
         let after = before
             .planning_claimed(name, self.clock.now())
             .map_err(|error| AppError::conflict("plan-claimed", error.to_string()))?;
-        self.save(write, &before, after, actor, None).await
+        self.save(write, &before, after, actor, None, from_agent)
+            .await
     }
 
     /// Gives up the planning claim; a claim of someone else stays without a word.
@@ -1028,6 +1054,7 @@ impl TicketService {
         key: &str,
         agent: &str,
         actor: &Actor,
+        from_agent: bool,
     ) -> Result<(), AppError> {
         let key = TicketKey::parse(key).map_err(|error| invalid(&error))?;
         let mut write = self.repository.begin().await?;
@@ -1035,7 +1062,8 @@ impl TicketService {
         let Some(after) = before.planning_released(agent) else {
             return Ok(());
         };
-        self.save(write, &before, after, actor, None).await?;
+        self.save(write, &before, after, actor, None, from_agent)
+            .await?;
         Ok(())
     }
 
@@ -1045,6 +1073,7 @@ impl TicketService {
         scope: TicketScope,
         agent: Option<&str>,
         actor: &Actor,
+        from_agent: bool,
     ) -> Result<Option<TicketView>, AppError> {
         if agent.is_some_and(|agent| agent.trim().is_empty()) {
             return Err(agent_missing());
@@ -1086,7 +1115,10 @@ impl TicketService {
             let Ok(after) = before.planning_claimed(name.clone(), now) else {
                 continue;
             };
-            return Ok(Some(self.save(write, &before, after, actor, None).await?));
+            return Ok(Some(
+                self.save(write, &before, after, actor, None, from_agent)
+                    .await?,
+            ));
         }
         Ok(None)
     }
@@ -1099,7 +1131,9 @@ impl TicketService {
         after: TicketRecord,
         actor: &Actor,
         note: Option<&str>,
+        from_agent: bool,
     ) -> Result<TicketView, AppError> {
+        guard_agent_write(write.as_mut(), from_agent, before, &after).await?;
         let now = self.clock.now();
         let revised = before.revised(after, now);
         let history = self.history(before, &revised, actor, now, note);
@@ -1412,10 +1446,43 @@ async fn check_change(
     };
     let request = StatusRequest {
         by_person: options.by_person,
-        force: options.force,
+        force: options.force && !options.from_agent,
     };
     check_status_change(Some(before.status()), after.status, request, &facts)
         .map_err(|error| locked(&error))
+}
+
+/// The rule for every write an agent makes: it may not end or bypass a wait for the person.
+pub(crate) async fn guard_agent_write(
+    write: &mut dyn TicketWrite,
+    from_agent: bool,
+    before: &Ticket,
+    after: &TicketRecord,
+) -> Result<(), AppError> {
+    if !from_agent {
+        return Ok(());
+    }
+    let refuse =
+        |refusal: AgentWriteRefusal| crate::auth::decision_needs_person(&refusal.to_string());
+    let label = write.autopilot_keep_label().await?;
+    check_agent_write(before.record(), after, label.as_deref()).map_err(refuse)?;
+    // a dependency that is still open locks the status; dropping it would lift the lock
+    let removed: Vec<TicketKey> = before
+        .record()
+        .depends_on
+        .iter()
+        .filter(|key| !after.depends_on.contains(key))
+        .cloned()
+        .collect();
+    if removed.is_empty() {
+        return Ok(());
+    }
+    let open = write.dependency_index().await?.open_dependencies(&removed);
+    if open.is_empty() {
+        return Ok(());
+    }
+    let keys: Vec<String> = open.iter().map(ToString::to_string).collect();
+    Err(refuse(AgentWriteRefusal::DropsDependency(keys.join(", "))))
 }
 
 /// Deletes tickets as legacy did: dependents lose the edge, each ticket leaves a tombstone.

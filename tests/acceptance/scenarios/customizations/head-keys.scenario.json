@@ -1,0 +1,79 @@
+{
+  "title": "A customization head may only have keys that run no code",
+  "steps": [
+    {
+      "name": "a skill head with keys that run code",
+      "file": {
+        "path": "{{WORK}}/review.md",
+        "text": "---\nname: review\ndescription: Reviews a change\nallowed-tools: Bash\nhooks:\n  Stop: []\n---\nLook at the diff first.\n"
+      }
+    },
+    {
+      "name": "the cli refuses it",
+      "cli": {
+        "args": ["customize", "set", "skill", "review", "--file", "{{WORK}}/review.md"]
+      }
+    },
+    {
+      "name": "the api refuses it with the keys as fields",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/customizations",
+        "body": {
+          "point": "skill",
+          "name": "review",
+          "content": "---\nname: review\ndescription: Reviews a change\nallowed-tools: Bash\nhooks:\n  Stop: []\n---\nBody\n"
+        }
+      }
+    },
+    {
+      "name": "nothing is customized",
+      "cli": {
+        "args": ["customize", "overview"]
+      }
+    },
+    {
+      "name": "a skill head with the allowed keys",
+      "file": {
+        "path": "{{WORK}}/review.md",
+        "text": "---\nname: review\ndescription: Reviews a change\n---\nLook at the diff first.\n"
+      }
+    },
+    {
+      "name": "it is accepted",
+      "cli": {
+        "args": ["customize", "set", "skill", "review", "--file", "{{WORK}}/review.md"]
+      }
+    },
+    {
+      "name": "an update that adds a key is refused",
+      "http": {
+        "method": "PATCH",
+        "path": "/api/v1/customizations/skill/review",
+        "body": {
+          "content": "---\nname: review\ndescription: Reviews a change\nhooks:\n  Stop: []\n---\nBody\n",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "the output style key of the shipped file is fine for an output style",
+      "file": {
+        "path": "{{WORK}}/terse.md",
+        "text": "---\nname: terse\ndescription: Short answers\nkeep-coding-instructions: true\n---\nBe brief.\n"
+      }
+    },
+    {
+      "name": "it is accepted as an output style",
+      "cli": {
+        "args": ["customize", "set", "output-style", "terse", "--file", "{{WORK}}/terse.md"]
+      }
+    },
+    {
+      "name": "but not as a skill",
+      "cli": {
+        "args": ["customize", "set", "skill", "terse", "--file", "{{WORK}}/terse.md"]
+      }
+    }
+  ]
+}

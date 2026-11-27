@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nullradix_domain::{
     Actor, REVIEW_FEEDBACK_MAX, ReviewState, SystemMarker, TicketRecord, TicketStatus, Version,
-    pending_feedback, required_text, returned_comment, waits_for_a_person,
+    pending_feedback, required_text, returned_comment,
 };
 
 use super::pass::DispatchPass;
@@ -75,10 +75,6 @@ pub struct DecisionParts {
     pub starter: Arc<TicketStarter>,
 }
 
-fn waiting(record: &TicketRecord) -> bool {
-    record.status == TicketStatus::Blocked && waits_for_a_person(record.blocked_reason.as_deref())
-}
-
 impl ReviewDecisions {
     #[must_use]
     pub fn new(parts: DecisionParts) -> Self {
@@ -124,7 +120,7 @@ impl ReviewDecisions {
         let detail = self.tickets.get(key).await?;
         let record = detail.view.ticket.record();
         let text = record.key.to_string();
-        if !waiting(record) && record.status == TicketStatus::Done {
+        if !record.awaits_a_person() && record.status == TicketStatus::Done {
             // a repeat, or an accept whose decision or hook was lost
             match self.reviews.state_of(&text).await? {
                 Some(ReviewState::Approved) => {
@@ -180,7 +176,7 @@ impl ReviewDecisions {
         let detail = self.tickets.get(key).await?;
         let record = detail.view.ticket.record();
         let text = record.key.to_string();
-        if !waiting(record) {
+        if !record.awaits_a_person() {
             // a repeat of a return that went through says the same again
             let repeat = record.status == TicketStatus::Planned
                 && self

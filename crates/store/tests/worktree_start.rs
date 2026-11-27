@@ -204,6 +204,7 @@ const FORCE: WriteOptions = WriteOptions {
     by_person: false,
     force: true,
     allow_duplicate: true,
+    from_agent: false,
 };
 
 async fn fixture() -> Fixture {
@@ -305,7 +306,7 @@ impl Fixture {
 
     async fn start(&self, key: &str, cwd: &str, mode: StartMode) -> Result<Started, AppError> {
         self.worktrees
-            .start(key, self.runner, cwd, mode, false, &self.person)
+            .start(key, self.runner, cwd, mode, false, false, &self.person)
             .await
     }
 
@@ -454,6 +455,7 @@ async fn open_dependencies_lock_the_start_unless_forced_or_already_in_progress()
             "/work/arches",
             StartMode::New,
             true,
+            false,
             &fixture.person,
         )
         .await
@@ -1301,4 +1303,122 @@ async fn a_claim_made_during_the_runner_ensure_is_never_undone() {
     assert_eq!(row.desired, DesiredState::Absent);
     let ticket = fixture.tickets.get(&key).await.unwrap().view.ticket;
     assert_eq!(ticket.record().branch, None);
+}
+
+#[tokio::test]
+async fn an_agents_force_never_lifts_the_start_locks_and_git_makes_nothing() {
+    let fixture = fixture().await;
+    let first = fixture.ticket("First").await;
+    let input = NewTicket {
+        title: String::from("Second"),
+        depends_on: vec![first],
+        ..NewTicket::default()
+    };
+    let second = fixture.ticket_on(&fixture.bound, input).await;
+    for force in [false, true] {
+        let refused = fixture
+            .worktrees
+            .start(
+                &second,
+                fixture.runner,
+                "/work/arches",
+                StartMode::New,
+                force,
+                true,
+                &fixture.person,
+            )
+            .await;
+        assert_eq!(refused.unwrap_err().code(), "dependency-open", "{force}");
+    }
+    assert_eq!(fixture.created(), 0);
+    // the person may force it
+    let forced = fixture
+        .worktrees
+        .start(
+            &second,
+            fixture.runner,
+            "/work/arches",
+            StartMode::New,
+            true,
+            false,
+            &fixture.person,
+        )
+        .await
+        .unwrap();
+    assert_eq!(forced.ticket.ticket.status(), TicketStatus::InProgress);
+}
+
+#[tokio::test]
+async fn an_agent_cannot_start_or_finish_a_ticket_that_waits_for_a_person() {
+    let fixture = fixture().await;
+    let key = fixture.ticket("Review me").await;
+    fixture.block(&key, "Human Interaction: review").await;
+    for (mode, force) in [
+        (StartMode::New, false),
+        (StartMode::New, true),
+        (StartMode::AutoJoin, false),
+    ] {
+        let refused = fixture
+            .worktrees
+            .start(
+                &key,
+                fixture.runner,
+                "/work/arches/src",
+                mode,
+                force,
+                true,
+                &fixture.person,
+            )
+            .await;
+        assert_eq!(refused.unwrap_err().code(), "decision-needs-person");
+    }
+    // nothing of git and no worktree record is left behind
+    assert_eq!(fixture.created(), 0);
+    let ticket = fixture.tickets.get(&key).await.unwrap().view.ticket;
+    assert!(ticket.record().awaits_a_person());
+    assert!(
+        fixture
+            .store
+            .of_ticket(ticket.id())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let agent = WriteOptions {
+        from_agent: true,
+        ..FORCE
+    };
+    let request = DoneRequest {
+        acceptance: Some("It works"),
+        expected: None,
+        options: agent,
+    };
+    let refused = fixture
+        .worktrees
+        .done(
+            &key,
+            fixture.runner,
+            "/work/arches/src",
+            request,
+            &fixture.person,
+        )
+        .await;
+    assert_eq!(refused.unwrap_err().code(), "decision-needs-person");
+    assert!(
+        fixture
+            .tickets
+            .get(&key)
+            .await
+            .unwrap()
+            .view
+            .ticket
+            .record()
+            .awaits_a_person()
+    );
+    // the person starts it
+    fixture
+        .start(&key, "/work/arches/src", StartMode::New)
+        .await
+        .unwrap();
+    assert_eq!(fixture.created(), 1);
 }

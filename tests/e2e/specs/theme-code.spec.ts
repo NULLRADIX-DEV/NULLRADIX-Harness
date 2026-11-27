@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Page } from '@playwright/test';
 import type { Daemon } from '../support/daemon';
 import { expect, test } from '../support/fixtures';
 
@@ -23,7 +24,18 @@ const Panel = ({ title, children }) =>
 export default { id: 'night-code', slots: { Panel } };
 `;
 
-async function installThemeWithCode(daemon: Daemon): Promise<void> {
+// Only the person can allow code, so the package goes in through the app and its confirm dialog.
+async function installAsPerson(page: Page, pack: string, title: string): Promise<void> {
+  await page.goto('/settings');
+  await page.getByLabel('Install a theme package').setInputFiles(pack);
+  const dialog = page.getByRole('alertdialog', { name: title });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('This package contains code');
+  await dialog.getByRole('button', { name: /^(Install|Update)$/ }).click();
+  await expect(dialog).toBeHidden();
+}
+
+async function installThemeWithCode(page: Page, daemon: Daemon): Promise<void> {
   const dir = join(daemon.work, 'night-code');
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'manifest.json'), JSON.stringify(MANIFEST));
@@ -34,7 +46,7 @@ async function installThemeWithCode(daemon: Daemon): Promise<void> {
   await writeFile(join(dir, 'main.js'), MAIN);
   const pack = join(daemon.work, 'night-code.nullradix');
   await daemon.cli(['theme', 'pack', dir, '--out', pack]);
-  await daemon.cli(['theme', 'install', pack, '--yes']);
+  await installAsPerson(page, pack, 'Install Night Code 1.0.0?');
   await daemon.api('PUT', '/api/v1/settings/theme', { theme: 'night-code' });
 }
 
@@ -42,7 +54,7 @@ test('theme code runs only after its switch is on, and not in safe mode', async 
   page,
   daemon,
 }) => {
-  await installThemeWithCode(daemon);
+  await installThemeWithCode(page, daemon);
   const root = page.locator('html');
 
   await page.goto('/settings');
@@ -75,7 +87,7 @@ test('an update that adds a network domain turns the switch off again', async ({
   page,
   daemon,
 }) => {
-  await installThemeWithCode(daemon);
+  await installThemeWithCode(page, daemon);
   await page.goto('/settings');
   await page.getByRole('switch', { name: 'Run the code of Night Code' }).click();
   await expect(page.getByRole('switch', { name: 'Run the code of Night Code' })).toBeChecked();
@@ -85,7 +97,7 @@ test('an update that adds a network domain turns the switch off again', async ({
   await writeFile(join(dir, 'manifest.json'), JSON.stringify(next));
   const pack = join(daemon.work, 'night-code-2.nullradix');
   await daemon.cli(['theme', 'pack', dir, '--out', pack]);
-  await daemon.cli(['theme', 'install', pack, '--yes']);
+  await installAsPerson(page, pack, 'Update Night Code 1.1.0?');
 
   // the list refreshes through the change stream, with no reload
   await expect(page.getByRole('switch', { name: 'Run the code of Night Code' })).not.toBeChecked();

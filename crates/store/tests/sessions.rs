@@ -332,6 +332,7 @@ async fn the_ticket_a_hook_names_is_linked_once() {
         by_person: true,
         force: false,
         allow_duplicate: true,
+        from_agent: false,
     };
     tickets
         .create(project.id(), board.board.id(), &input, &person, options)
@@ -545,6 +546,7 @@ async fn tickets_in_a_repository(f: &Fixture, titles: &[&str]) -> uuid::Uuid {
         by_person: true,
         force: false,
         allow_duplicate: true,
+        from_agent: false,
     };
     for title in titles {
         let input = NewTicket {

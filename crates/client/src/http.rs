@@ -14,18 +14,20 @@ use nullradix_api::{
     LoginDto, MarkFavorite, MergeRetryDto, MoveStep, MoveTicket, NextPlanning, NextPlanningClaim,
     NoteDto, NoteList, PassReportDto, PauseDispatcher, PreviewPrompt, Problem, ProjectDto,
     ProjectList, PromoteNote, PromotedNote, PromptDetail, PromptKindDto, PromptListDto,
-    PromptPreviewDto, QuestionCommentDto, QuestionDetailDto, QuestionList, RebaseCustomization,
-    ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RetryMerge, ReturnReview, RunDto,
-    RunList, RunOutput, RunnerList, SaveThemeSettings, SeenNote, SessionChangesDto,
-    SessionDetailDto, SessionDto, SessionList, SetBoardRepository, SetPrompt, SetRunToken,
-    StartLogin, StartRun, StartTicket, StartedTicket, SubmitResearch, ThemeDto, ThemeListDto,
-    ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList, TranscriptPageDto, UpdateAccount,
-    UpdateCustomization, UpdateDispatcher, UpdateDispatcherConfig, UpdateTicket, WritePlan,
+    PromptPreviewDto, QuestionCommentDto, QuestionDetailDto, QuestionList, RUN_HEADER,
+    RebaseCustomization, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RetryMerge,
+    ReturnReview, RunDto, RunList, RunOutput, RunnerList, SESSION_HEADER, SaveThemeSettings,
+    SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository,
+    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, SubmitResearch,
+    ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList,
+    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
+    UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
-use ureq::http::Response;
-use ureq::{Agent, Body};
+use ureq::http::{HeaderValue, Request, Response};
+use ureq::middleware::{Middleware, MiddlewareNext};
+use ureq::{Agent, Body, SendBody};
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -80,6 +82,66 @@ fn is_transient(error: &ureq::Error) -> bool {
     }
 }
 
+/// The run and session of an agent the caller works in; the daemon refuses its decisions.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentContext {
+    pub run: Option<String>,
+    pub session: Option<String>,
+}
+
+impl AgentContext {
+    /// The context named by `NULLRADIX_RUN` and `NULLRADIX_SESSION`; an empty value counts as none.
+    #[must_use]
+    pub fn from_env() -> Self {
+        let read = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+        Self {
+            run: read("NULLRADIX_RUN"),
+            session: read("NULLRADIX_SESSION"),
+        }
+    }
+}
+
+/// Adds the headers that tell the daemon a request comes from an agent.
+struct AgentHeaders(AgentContext);
+
+impl Middleware for AgentHeaders {
+    fn handle(
+        &self,
+        mut request: Request<SendBody<'_>>,
+        next: MiddlewareNext<'_>,
+    ) -> Result<Response<Body>, ureq::Error> {
+        for (name, value) in [(RUN_HEADER, &self.0.run), (SESSION_HEADER, &self.0.session)] {
+            if let Some(value) = value {
+                // the header counts by being there, so an odd value still goes out
+                let value = HeaderValue::from_str(value)
+                    .unwrap_or_else(|_| HeaderValue::from_static("agent"));
+                request.headers_mut().insert(name, value);
+            }
+        }
+        next.handle(request)
+    }
+}
+
+fn build_agent(
+    connect_timeout: Option<Duration>,
+    timeout: Duration,
+    context: &AgentContext,
+) -> Agent {
+    let builder = Agent::config_builder()
+        .timeout_connect(connect_timeout)
+        .timeout_global(Some(timeout))
+        .http_status_as_error(false)
+        .proxy(None);
+    if *context == AgentContext::default() {
+        builder.build().into()
+    } else {
+        builder
+            .middleware(AgentHeaders(context.clone()))
+            .build()
+            .into()
+    }
+}
+
 /// Blocking HTTP client for short-lived callers such as the CLI and hooks.
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -88,25 +150,29 @@ pub struct Client {
     token: Option<Secret>,
     connect_timeout: Option<Duration>,
     timeout: Duration,
+    context: AgentContext,
 }
 
 impl Client {
     #[must_use]
     pub fn new(address: SocketAddr, connect_timeout: Duration, timeout: Duration) -> Self {
-        let agent = Agent::config_builder()
-            .timeout_connect(Some(connect_timeout))
-            .timeout_global(Some(timeout))
-            .http_status_as_error(false)
-            .proxy(None)
-            .build()
-            .into();
+        let context = AgentContext::default();
         Self {
-            agent,
+            agent: build_agent(Some(connect_timeout), timeout, &context),
             address,
             token: None,
             connect_timeout: Some(connect_timeout),
             timeout,
+            context,
         }
+    }
+
+    /// The same client that names the run and session of an agent on every request.
+    #[must_use]
+    pub fn with_context(mut self, context: AgentContext) -> Self {
+        self.agent = build_agent(self.connect_timeout, self.timeout, &context);
+        self.context = context;
+        self
     }
 
     #[must_use]
@@ -118,19 +184,13 @@ impl Client {
     /// The same client with another limit for a whole request.
     #[must_use]
     pub fn with_timeout(&self, timeout: Duration) -> Self {
-        let agent = Agent::config_builder()
-            .timeout_connect(self.connect_timeout)
-            .timeout_global(Some(timeout))
-            .http_status_as_error(false)
-            .proxy(None)
-            .build()
-            .into();
         Self {
-            agent,
+            agent: build_agent(self.connect_timeout, timeout, &self.context),
             address: self.address,
             token: self.token.clone(),
             connect_timeout: self.connect_timeout,
             timeout,
+            context: self.context.clone(),
         }
     }
 
@@ -632,12 +692,11 @@ impl Client {
         self.get_json("/themes")
     }
 
-    /// Installs a package or replaces the theme; code, domains or a Claude part need `confirmed`.
-    pub fn install_theme(&self, package: &[u8], confirmed: bool) -> Result<ThemeDto, ClientError> {
-        let query = if confirmed { "?confirmed=true" } else { "" };
+    /// Installs a package or replaces the theme; the daemon refuses what the person must confirm.
+    pub fn install_theme(&self, package: &[u8]) -> Result<ThemeDto, ClientError> {
         let mut response = self
             .agent
-            .post(&self.url(&format!("/themes{query}")))
+            .post(&self.url("/themes"))
             .header("Authorization", &self.authorization()?)
             .header("Content-Type", "application/octet-stream")
             .send(package)
@@ -687,26 +746,14 @@ impl Client {
         decode(&mut response, 200)
     }
 
-    /// Installs a theme of a source; `confirmed` is the checksum of the package that was seen.
+    /// Installs a theme of a source; the daemon refuses what the person must confirm.
     pub fn install_from_catalog(
         &self,
         source: &str,
         theme: &str,
         replace: bool,
-        confirmed: Option<&str>,
     ) -> Result<ThemeDto, ClientError> {
-        let mut query = Vec::new();
-        if replace {
-            query.push(String::from("replace=true"));
-        }
-        if let Some(sha) = confirmed {
-            query.push(format!("confirmedSha256={}", segment(sha)));
-        }
-        let query = if query.is_empty() {
-            String::new()
-        } else {
-            format!("?{}", query.join("&"))
-        };
+        let query = if replace { "?replace=true" } else { "" };
         let route = format!(
             "/theme-catalog/sources/{}/themes/{}/install{query}",
             segment(source),
@@ -2073,7 +2120,7 @@ mod tests {
             Some("catalog-unreachable")
         );
         let missing = client
-            .install_from_catalog(&source.id, "night-blue", false, None)
+            .install_from_catalog(&source.id, "night-blue", false)
             .unwrap_err();
         assert!(matches!(missing, ClientError::Refused { status: 503, .. }));
         client.remove_catalog_source(&source.id, 1).unwrap();
@@ -2106,7 +2153,7 @@ mod tests {
         }
     }
 
-    /// Answers every request of a catalog install: 201 for `SHA`, else the refusal with the facts.
+    /// Answers a catalog install: 201 for the source `plain`, else the refusal with the facts.
     fn spawn_catalog_daemon() -> (SocketAddr, std::sync::mpsc::Receiver<String>) {
         use std::io::{Read, Write};
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2131,7 +2178,7 @@ mod tests {
                     .to_owned();
                 let (status, body) = if target.contains("/broken/") {
                     ("409 Conflict", String::from("not json"))
-                } else if target.ends_with(&format!("confirmedSha256={SHA}")) {
+                } else if target.contains("/plain/") {
                     (
                         "201 Created",
                         serde_json::to_string(&night_blue_dto()).unwrap(),
@@ -2162,49 +2209,103 @@ mod tests {
     }
 
     #[test]
-    fn a_catalog_install_is_one_request_and_only_the_named_checksum_confirms() {
+    fn a_catalog_install_is_one_request_that_never_confirms() {
         let (address, requests) = spawn_catalog_daemon();
         let client = Client::new(address, PATIENT, PATIENT)
             .with_token(Secret::parse(&"c".repeat(64)).unwrap());
-        let refusal = |confirmed: Option<&str>| match client
-            .install_from_catalog("src", "night-blue", false, confirmed)
+        let refusal = |replace: bool| match client
+            .install_from_catalog("src", "night-blue", replace)
             .unwrap_err()
         {
             ClientError::ConfirmationRequired { facts, .. } => facts,
             other => panic!("{other:?}"),
         };
-        let facts = refusal(None);
+        let facts = refusal(false);
         assert_eq!(
             (facts.sha256.as_deref(), facts.name.as_str()),
             (Some(SHA), "Night Blue")
         );
         assert!(requests.recv().unwrap().ends_with("/install"));
-        // a wrong checksum is refused again with the facts
-        let facts = refusal(Some("0000"));
-        assert_eq!(facts.sha256.as_deref(), Some(SHA));
-        assert!(
-            requests
-                .recv()
-                .unwrap()
-                .ends_with("/install?confirmedSha256=0000")
-        );
+        refusal(true);
+        assert!(requests.recv().unwrap().ends_with("/install?replace=true"));
 
         let theme = client
-            .install_from_catalog("src", "night-blue", true, Some(SHA))
+            .install_from_catalog("plain", "night-blue", false)
             .unwrap();
         assert_eq!(theme.id, "night-blue");
-        assert!(
-            requests
-                .recv()
-                .unwrap()
-                .ends_with("/install?replace=true&confirmedSha256=ab12")
-        );
+        assert!(requests.recv().unwrap().ends_with("/install"));
         assert!(requests.try_recv().is_err());
 
         let broken = client
-            .install_from_catalog("broken", "night-blue", false, Some(SHA))
+            .install_from_catalog("broken", "night-blue", false)
             .unwrap_err();
         assert!(matches!(broken, ClientError::Protocol(_)), "{broken:?}");
+    }
+
+    /// Sends the head of every request it gets, and answers with an empty theme list.
+    fn spawn_echo_daemon() -> (SocketAddr, std::sync::mpsc::Receiver<String>) {
+        use std::io::{Read, Write};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (seen, heads) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut head = Vec::new();
+                let mut byte = [0_u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    if stream.read(&mut byte).unwrap_or(0) == 0 {
+                        break;
+                    }
+                    head.push(byte[0]);
+                }
+                let body = r#"{"items":[],"active":"nullradix"}"#;
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(reply.as_bytes());
+                let _ = seen.send(String::from_utf8_lossy(&head).to_lowercase());
+            }
+        });
+        (address, heads)
+    }
+
+    #[test]
+    fn requests_name_the_run_and_session_of_an_agent() {
+        let (address, heads) = spawn_echo_daemon();
+        let token = Secret::parse(&"c".repeat(64)).unwrap();
+        let plain = Client::new(address, PATIENT, PATIENT).with_token(token);
+        plain.list_themes().unwrap();
+        let head = heads.recv().unwrap();
+        assert!(!head.contains("x-nullradix-"), "{head}");
+
+        let agent = plain.with_context(AgentContext {
+            run: Some(String::from("run-1")),
+            session: Some(String::from("session 1")),
+        });
+        agent.list_themes().unwrap();
+        let head = heads.recv().unwrap();
+        assert!(head.contains("x-nullradix-run: run-1\r\n"), "{head}");
+        assert!(
+            head.contains("x-nullradix-session: session 1\r\n"),
+            "{head}"
+        );
+
+        // a value that cannot be a header still marks the request
+        let odd = agent.with_timeout(PATIENT).with_context(AgentContext {
+            run: Some(String::from("bad\nvalue")),
+            session: None,
+        });
+        odd.list_themes().unwrap();
+        let head = heads.recv().unwrap();
+        assert!(head.contains("x-nullradix-run: agent\r\n"), "{head}");
+        assert!(!head.contains("x-nullradix-session"), "{head}");
+
+        // a client with another limit keeps naming the agent
+        let limited = agent.with_timeout(PATIENT);
+        limited.list_themes().unwrap();
+        assert!(heads.recv().unwrap().contains("x-nullradix-run: run-1"));
     }
 
     #[test]

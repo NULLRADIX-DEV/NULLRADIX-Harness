@@ -5315,7 +5315,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Bad name or content, or nothing shipped to copy: `customization-no-standard` */
+            /** @description Bad name or content, a head key that is not allowed (`customization-head-refused`, with the keys as errors), or nothing shipped to copy: `customization-no-standard` */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5484,6 +5484,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Bad content or a head key that is not allowed: `customization-head-refused` */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7224,6 +7225,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7864,6 +7874,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8021,6 +8040,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8073,6 +8101,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9328,6 +9365,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `claude-theme-needs-person`: a token or an agent tried to turn the switch on; only the person in the app may, a token may turn it off */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -9351,6 +9397,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Chosen; a token choosing a theme with a Claude part turns the Claude switch off */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9850,7 +9897,7 @@ export interface operations {
             query?: {
                 /** @description Replace a theme of the same id that was installed from another source or by upload. */
                 replace?: boolean;
-                /** @description Checksum of the package the person confirmed, from the `confirmation` of the refusal. */
+                /** @description Checksum of the package the person confirmed, from the refusal; only a person can confirm. */
                 confirmedSha256?: string;
             };
             header?: never;
@@ -9988,7 +10035,7 @@ export interface operations {
     install_theme: {
         parameters: {
             query?: {
-                /** @description Confirmed: the package may hold code, network domains or a Claude part. */
+                /** @description Confirmed: code, network domains or a Claude part; only counts from the person. */
                 confirmed?: boolean;
             };
             header?: never;
@@ -10030,7 +10077,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them) */
+            /** @description `theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them; a token cannot confirm) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10140,7 +10187,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `theme-code-needs-person`: a token tried to turn the code on; only a browser session may, a token may turn it off */
+            /** @description `theme-code-needs-person`: a token or an agent tried to turn the code on; only the person in the app may, a token may turn it off */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10592,6 +10639,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10644,6 +10700,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person, take off the autopilot except label, or remove a dependency that is still open */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10710,6 +10775,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10762,6 +10836,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10918,6 +11001,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent and the ticket waits for a person */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11105,6 +11197,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11157,6 +11258,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11389,6 +11499,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent and would move a ticket that waits for a person */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11556,6 +11675,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11744,6 +11872,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Unknown ticket */
             404: {
                 headers: {
@@ -11844,6 +11981,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `decision-needs-person`: the request says it comes from a run or session of an agent and the ticket waits for a person */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -217,7 +217,10 @@ async fn saves_the_order_by_id_and_skips_entries_that_are_gone() {
         .unwrap();
     assert_eq!(saved.order.len(), 2, "unknown entries are not stored");
     assert_eq!(f.keys().await, ["ticket:ARC-0002", "ticket:ARC-0001"]);
-    f.tickets.delete("ARC-2", &f.person, None).await.unwrap();
+    f.tickets
+        .delete("ARC-2", &f.person, None, false)
+        .await
+        .unwrap();
     assert_eq!(
         f.store.snapshot().await.unwrap().order,
         [InboxRef::parse("ticket", "ARC-1").unwrap()]

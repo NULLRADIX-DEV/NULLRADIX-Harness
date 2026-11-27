@@ -6,13 +6,13 @@ use async_trait::async_trait;
 use nullradix_domain::{
     Base, BaseState, ExtensionPoint, Finding, FrontMatter, Overlay, OverlayError, OverlayKind,
     OverlayName, OverlayState, Timestamp, Version, base_state, check_front_matter, overlay_content,
-    overlay_state,
+    overlay_state, refused_keys,
 };
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::auth::hex;
-use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
+use crate::{AppError, Change, ChangeSignal, Clock, FieldProblem, IdGenerator};
 
 /// The shipped files a customization can replace.
 #[async_trait]
@@ -109,6 +109,13 @@ pub fn name_invalid(error: &OverlayError) -> AppError {
     AppError::invalid(code, error.to_string())
 }
 
+/// The content as stored: not blank, not huge, and with a head of allowed keys.
+fn checked_content(point: ExtensionPoint, text: &str) -> Result<String, AppError> {
+    let content = overlay_content(text).map_err(|error| name_invalid(&error))?;
+    check_head(point, content)?;
+    Ok(content.to_owned())
+}
+
 fn label(point: ExtensionPoint, name: &OverlayName) -> String {
     format!("{} {name}", point.as_str())
 }
@@ -182,6 +189,10 @@ pub fn parse_front_matter(text: &str) -> FrontMatter {
             FrontMatter {
                 name: text("name"),
                 description: text("description"),
+                keys: fields
+                    .keys()
+                    .map(|key| key.as_str().unwrap_or("?").to_owned())
+                    .collect(),
                 error: None,
             }
         }
@@ -200,6 +211,32 @@ pub fn parse_front_matter(text: &str) -> FrontMatter {
     }
 }
 
+/// Refuses a head with keys the point does not allow, such as `allowed-tools` or `hooks`.
+fn check_head(point: ExtensionPoint, text: &str) -> Result<(), AppError> {
+    let head = parse_front_matter(text);
+    let refused = refused_keys(point, &head);
+    if refused.is_empty() {
+        return Ok(());
+    }
+    let fields = refused
+        .iter()
+        .map(|key| FieldProblem {
+            field: String::from("content"),
+            message: format!("the head key {key} is not allowed"),
+        })
+        .collect();
+    Err(AppError::invalid(
+        "customization-head-refused",
+        format!(
+            "the head has keys that are not allowed ({}); a {} may only have {}",
+            refused.join(", "),
+            point.as_str(),
+            point.head_keys().join(", ")
+        ),
+    )
+    .with_fields(fields))
+}
+
 fn hash(text: &str) -> String {
     hex(&Sha256::digest(text.as_bytes()))
 }
@@ -215,7 +252,11 @@ fn snapshot(content: &str) -> Base {
 #[must_use]
 pub fn evaluate(overlay: Overlay, standard: Option<&str>) -> OverlayLine {
     let record = overlay.record();
-    let problems = check_front_matter(&record.name, &parse_front_matter(&record.content));
+    let problems = check_front_matter(
+        record.point,
+        &record.name,
+        &parse_front_matter(&record.content),
+    );
     let base = base_state(
         record.kind,
         record.base.as_ref(),
@@ -324,19 +365,11 @@ impl CustomizationService {
         let standard = self.standards.get(point, &name).await?;
         let (content, kind, base) = match (content, &standard) {
             (Some(text), Some(shipped)) => (
-                overlay_content(text)
-                    .map_err(|error| name_invalid(&error))?
-                    .to_owned(),
+                checked_content(point, text)?,
                 OverlayKind::Replace,
                 Some(snapshot(shipped)),
             ),
-            (Some(text), None) => (
-                overlay_content(text)
-                    .map_err(|error| name_invalid(&error))?
-                    .to_owned(),
-                OverlayKind::New,
-                None,
-            ),
+            (Some(text), None) => (checked_content(point, text)?, OverlayKind::New, None),
             (None, Some(shipped)) => (
                 shipped.clone(),
                 OverlayKind::Replace,
@@ -366,7 +399,7 @@ impl CustomizationService {
     ) -> Result<OverlayLine, AppError> {
         let name = OverlayName::parse_stored(name).map_err(|error| name_invalid(&error))?;
         let content = content
-            .map(|text| overlay_content(text).map_err(|error| name_invalid(&error)))
+            .map(|text| checked_content(point, text))
             .transpose()?;
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
@@ -382,7 +415,7 @@ impl CustomizationService {
         }
         let mut next = current.clone();
         if let Some(text) = content.filter(|text| *text != current.record().content) {
-            next = next.with_content(text.to_owned(), now);
+            next = next.with_content(text, now);
         }
         if let Some(flag) = enabled.filter(|flag| *flag != current.record().enabled) {
             next = next.with_enabled(flag, now);
@@ -656,6 +689,17 @@ mod tests {
     }
 
     #[test]
+    fn every_top_level_key_of_a_head_is_listed() {
+        let head = parse_front_matter(
+            "---\nname: a\ndescription: b\nallowed-tools: Bash\nhooks:\n  Stop: []\n<<: {a: 1}\n7: y\n---\n",
+        );
+        assert_eq!(
+            head.keys,
+            ["name", "description", "allowed-tools", "hooks", "<<", "?"]
+        );
+    }
+
+    #[test]
     fn missing_unclosed_or_non_mapping_heads_are_empty_and_broken_yaml_is_reported() {
         for text in [
             "Body only",
@@ -703,6 +747,120 @@ mod tests {
             line.overlay.record().base.as_ref().unwrap().content,
             "---\ndescription: shipped\n---\nv1"
         );
+    }
+
+    const SKILL_WITH_TOOLS: &str = "---\nname: review\ndescription: Reviews\nallowed-tools: Bash\nhooks:\n  Stop: []\n---\nBody\n";
+
+    #[tokio::test]
+    async fn a_head_with_keys_that_run_code_is_refused_on_create_and_update() {
+        let fixture = fixture();
+        let error = fixture
+            .service
+            .create(ExtensionPoint::Skill, "review", Some(SKILL_WITH_TOOLS))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "customization-head-refused");
+        let fields: Vec<(&str, &str)> = error
+            .fields()
+            .iter()
+            .map(|field| (field.field.as_str(), field.message.as_str()))
+            .collect();
+        assert_eq!(
+            fields,
+            [
+                ("content", "the head key allowed-tools is not allowed"),
+                ("content", "the head key hooks is not allowed")
+            ]
+        );
+        assert!(fixture.memory.rows.lock().is_empty());
+
+        // replacing a shipped file is checked too, and so is the content of an update
+        fixture.ship("skill", "board", "---\ndescription: shipped\n---\nv1");
+        let error = fixture
+            .service
+            .create(ExtensionPoint::Skill, "board", Some(SKILL_WITH_TOOLS))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "customization-head-refused");
+        let line = fixture
+            .service
+            .create(ExtensionPoint::Skill, "review", Some(SKILL))
+            .await
+            .unwrap();
+        let error = fixture
+            .service
+            .update(
+                ExtensionPoint::Skill,
+                "review",
+                Some(SKILL_WITH_TOOLS),
+                None,
+                line.overlay.record().version,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "customization-head-refused");
+        let kept = fixture
+            .service
+            .get(ExtensionPoint::Skill, "review")
+            .await
+            .unwrap();
+        assert_eq!(kept.overlay.record().content, SKILL);
+        // the key of the shipped output style stays fine, for output styles only
+        let style =
+            "---\nname: terse\ndescription: Short\nkeep-coding-instructions: true\n---\nBe brief";
+        fixture
+            .service
+            .create(ExtensionPoint::OutputStyle, "terse", Some(style))
+            .await
+            .unwrap();
+        let error = fixture
+            .service
+            .create(
+                ExtensionPoint::Skill,
+                "terse",
+                Some("---\ndescription: x\nkeep-coding-instructions: true\n---\nB"),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "customization-head-refused");
+    }
+
+    #[tokio::test]
+    async fn a_stored_customization_with_such_keys_falls_back_to_the_shipped_file() {
+        let fixture = fixture();
+        fixture.ship("skill", "review", "---\ndescription: shipped\n---\nv1");
+        let name = OverlayName::parse("review").unwrap();
+        let overlay = Overlay::create(
+            ExtensionPoint::Skill,
+            name.clone(),
+            OverlayKind::Replace,
+            SKILL_WITH_TOOLS.to_owned(),
+            None,
+            Timestamp::from_millis(1),
+        );
+        fixture
+            .memory
+            .rows
+            .lock()
+            .insert(key(ExtensionPoint::Skill, &name), overlay);
+        let line = fixture
+            .service
+            .get(ExtensionPoint::Skill, "review")
+            .await
+            .unwrap();
+        assert_eq!(line.state, OverlayState::Fallback);
+        let codes: Vec<&str> = line.problems.iter().map(|problem| problem.code).collect();
+        assert_eq!(
+            codes,
+            ["front-matter-key-refused", "front-matter-key-refused"]
+        );
+        let effective = fixture
+            .service
+            .effective(ExtensionPoint::Skill, "review")
+            .await
+            .unwrap();
+        assert_eq!(effective.source, Source::Standard);
+        assert!(!effective.content.contains("allowed-tools"));
     }
 
     #[tokio::test]

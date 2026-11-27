@@ -1,4 +1,8 @@
-#![allow(clippy::unwrap_used, reason = "integration tests fail loudly")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    reason = "integration tests fail loudly and read from top to bottom"
+)]
 
 mod common;
 
@@ -41,11 +45,13 @@ const AGENT: WriteOptions = WriteOptions {
     by_person: false,
     force: false,
     allow_duplicate: false,
+    from_agent: false,
 };
 const PERSON: WriteOptions = WriteOptions {
     by_person: true,
     force: false,
     allow_duplicate: false,
+    from_agent: false,
 };
 
 async fn fixture() -> Fixture {
@@ -350,6 +356,7 @@ async fn open_tickets_with_the_same_title_are_refused_unless_allowed() {
     );
     let allowed = WriteOptions {
         allow_duplicate: true,
+        from_agent: false,
         ..AGENT
     };
     assert!(
@@ -533,7 +540,14 @@ async fn boards_go_with_their_tickets_and_open_ones_only_when_asked() {
 
     let error = fx
         .boards
-        .delete(project.id(), board.id(), board.version(), false, &fx.person)
+        .delete(
+            project.id(),
+            board.id(),
+            board.version(),
+            false,
+            &fx.person,
+            false,
+        )
         .await
         .unwrap_err();
     assert_eq!(error.code(), "board-has-open-tickets");
@@ -542,7 +556,14 @@ async fn boards_go_with_their_tickets_and_open_ones_only_when_asked() {
 
     let deleted = fx
         .boards
-        .delete(project.id(), board.id(), board.version(), true, &fx.person)
+        .delete(
+            project.id(),
+            board.id(),
+            board.version(),
+            true,
+            &fx.person,
+            false,
+        )
         .await
         .unwrap();
     let deleted: Vec<String> = deleted.iter().map(ToString::to_string).collect();
@@ -583,7 +604,14 @@ async fn boards_go_with_their_tickets_and_open_ones_only_when_asked() {
     fx.create(&empty, finished, PERSON).await.unwrap();
     let gone = fx
         .boards
-        .delete(project.id(), empty.id(), empty.version(), false, &fx.person)
+        .delete(
+            project.id(),
+            empty.id(),
+            empty.version(),
+            false,
+            &fx.person,
+            false,
+        )
         .await
         .unwrap();
     assert_eq!(gone.len(), 1);
@@ -791,11 +819,14 @@ async fn deleted_tickets_free_their_dependents_and_leave_the_numbers_unused() {
 
     let stale = fx
         .tickets
-        .delete("ARC-1", &fx.person, Some(Version::INITIAL.next()))
+        .delete("ARC-1", &fx.person, Some(Version::INITIAL.next()), false)
         .await
         .unwrap_err();
     assert_eq!(stale.code(), "version-conflict");
-    fx.tickets.delete("arc-1", &fx.person, None).await.unwrap();
+    fx.tickets
+        .delete("arc-1", &fx.person, None, false)
+        .await
+        .unwrap();
     assert_eq!(
         fx.tickets.get("ARC-1").await.unwrap_err().code(),
         "ticket-not-found"
@@ -833,7 +864,7 @@ async fn deleted_tickets_free_their_dependents_and_leave_the_numbers_unused() {
     );
     assert_eq!(
         fx.tickets
-            .delete("ARC-1", &fx.person, None)
+            .delete("ARC-1", &fx.person, None, false)
             .await
             .unwrap_err()
             .code(),
@@ -992,7 +1023,10 @@ async fn dependency_lists_replace_add_and_remove_in_the_legacy_order() {
     let detail = fx.update("ARC-4", added, 2, AGENT).await.unwrap();
     assert_eq!(keys(&detail), ["ARC-0001", "ARC-0003", "ARC-0002"]);
 
-    fx.tickets.delete("ARC-1", &fx.person, None).await.unwrap();
+    fx.tickets
+        .delete("ARC-1", &fx.person, None, false)
+        .await
+        .unwrap();
     let top = fx.tickets.get("ARC-4").await.unwrap();
     let last = top.history.last().unwrap();
     assert_eq!(
@@ -1260,7 +1294,7 @@ async fn claims_take_free_tickets_and_release_gives_them_back() {
             let fx = &fx;
             async move {
                 fx.tickets
-                    .claim(key, agent, status, &fx.person, None, force)
+                    .claim(key, agent, status, &fx.person, None, force, false)
                     .await
                     .map_err(|error| error.code().to_owned())
             }
@@ -1290,7 +1324,7 @@ async fn claims_take_free_tickets_and_release_gives_them_back() {
 
     let released = fx
         .tickets
-        .release("ARC-1", Some("planned"), &fx.person, None)
+        .release("ARC-1", Some("planned"), &fx.person, None, false)
         .await
         .unwrap();
     let record = released.ticket.record();
@@ -1310,17 +1344,25 @@ async fn a_release_on_a_stale_version_changes_nothing() {
     fx.create(&board, titled("Base"), AGENT).await.unwrap();
     let claimed = fx
         .tickets
-        .claim("ARC-1", "claude", None, &fx.person, None, false)
+        .claim("ARC-1", "claude", None, &fx.person, None, false, false)
         .await
         .unwrap();
     let stale = claimed.ticket.record().version;
     fx.tickets
-        .claim("ARC-1", "other", Some("blocked"), &fx.person, None, true)
+        .claim(
+            "ARC-1",
+            "other",
+            Some("blocked"),
+            &fx.person,
+            None,
+            true,
+            false,
+        )
         .await
         .unwrap();
     let refused = fx
         .tickets
-        .release("ARC-1", Some("planned"), &fx.person, Some(stale))
+        .release("ARC-1", Some("planned"), &fx.person, Some(stale), false)
         .await
         .unwrap_err();
     assert_eq!(refused.code(), "version-conflict");
@@ -1389,35 +1431,37 @@ async fn plans_and_planning_claims_follow_the_legacy_rules() {
         fx.create(&board, titled(title), AGENT).await.unwrap();
     }
     let peek = tickets
-        .next_planning(TicketScope::default(), None, &fx.person)
+        .next_planning(TicketScope::default(), None, &fx.person, false)
         .await
         .unwrap();
     assert_eq!(peek.unwrap().ticket.key().to_string(), "ARC-0001");
     let first = tickets
-        .next_planning(TicketScope::default(), Some("planner"), &fx.person)
+        .next_planning(TicketScope::default(), Some("planner"), &fx.person, false)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(first.ticket.key().to_string(), "ARC-0001");
     let second = tickets
-        .next_planning(TicketScope::default(), Some("other"), &fx.person)
+        .next_planning(TicketScope::default(), Some("other"), &fx.person, false)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(second.ticket.key().to_string(), "ARC-0002");
-    let taken = tickets.claim_planning("ARC-1", "other", &fx.person).await;
+    let taken = tickets
+        .claim_planning("ARC-1", "other", &fx.person, false)
+        .await;
     assert_eq!(taken.unwrap_err().code(), "plan-claimed");
     tickets
-        .claim_planning("ARC-1", "planner", &fx.person)
+        .claim_planning("ARC-1", "planner", &fx.person, false)
         .await
         .unwrap();
     *clock.0.lock().unwrap() += 15 * 60 * 1000;
     tickets
-        .claim_planning("ARC-1", "other", &fx.person)
+        .claim_planning("ARC-1", "other", &fx.person, false)
         .await
         .unwrap();
     tickets
-        .release_planning("ARC-1", "planner", &fx.person)
+        .release_planning("ARC-1", "planner", &fx.person, false)
         .await
         .unwrap();
     let still = tickets.get("ARC-1").await.unwrap().view;
@@ -1430,7 +1474,7 @@ async fn plans_and_planning_claims_follow_the_legacy_rules() {
     assert_eq!(owner, Some("other"));
 
     let empty = tickets
-        .plan("ARC-1", &PlanInput::default(), &fx.person)
+        .plan("ARC-1", &PlanInput::default(), &fx.person, false)
         .await;
     assert_eq!(empty.unwrap_err().code(), "plan-empty");
     let plan = PlanInput {
@@ -1439,7 +1483,10 @@ async fn plans_and_planning_claims_follow_the_legacy_rules() {
         acceptance: Some(String::from("  ")),
         ..PlanInput::default()
     };
-    let planned = tickets.plan("ARC-1", &plan, &fx.person).await.unwrap();
+    let planned = tickets
+        .plan("ARC-1", &plan, &fx.person, false)
+        .await
+        .unwrap();
     let record = planned.ticket.record();
     assert_eq!(
         (record.status, record.needs_planning),
@@ -1459,7 +1506,7 @@ async fn plans_and_planning_claims_follow_the_legacy_rules() {
     assert_eq!(last.note.as_deref(), Some("planned"));
     // the claim on ARC-2 is fifteen minutes old by now, so ARC-2 is free again
     let next = tickets
-        .next_planning(TicketScope::default(), None, &fx.person)
+        .next_planning(TicketScope::default(), None, &fx.person, false)
         .await
         .unwrap();
     assert_eq!(next.unwrap().ticket.key().to_string(), "ARC-0002");
@@ -1482,7 +1529,7 @@ async fn an_agent_plans_only_into_planned_blocked_or_in_planning() {
             status: Some(status.to_owned()),
             ..PlanInput::default()
         };
-        let refused = fx.tickets.plan("ARC-1", &input, &agent).await;
+        let refused = fx.tickets.plan("ARC-1", &input, &agent, false).await;
         assert_eq!(
             refused.unwrap_err().code(),
             "plan-status-denied",
@@ -1495,14 +1542,20 @@ async fn an_agent_plans_only_into_planned_blocked_or_in_planning() {
             status: Some(status.to_owned()),
             ..PlanInput::default()
         };
-        fx.tickets.plan("ARC-1", &input, &agent).await.unwrap();
+        fx.tickets
+            .plan("ARC-1", &input, &agent, false)
+            .await
+            .unwrap();
     }
     let input = PlanInput {
         plan: Some(String::from("Do it")),
         status: Some(String::from("done")),
         ..PlanInput::default()
     };
-    fx.tickets.plan("ARC-1", &input, &fx.person).await.unwrap();
+    fx.tickets
+        .plan("ARC-1", &input, &fx.person, false)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -1524,14 +1577,18 @@ async fn a_plan_text_above_the_cap_is_a_field_problem_and_one_at_the_cap_is_kept
             "diagram" => input.diagram = text,
             _ => input.acceptance = text,
         }
-        let refused = fx.tickets.plan("ARC-1", &input, &fx.person).await;
+        let refused = fx.tickets.plan("ARC-1", &input, &fx.person, false).await;
         assert_eq!(refused.unwrap_err().code(), "value-too-long", "{field}");
     }
     let input = PlanInput {
         plan: Some(at_cap.clone()),
         ..PlanInput::default()
     };
-    let planned = fx.tickets.plan("ARC-1", &input, &fx.person).await.unwrap();
+    let planned = fx
+        .tickets
+        .plan("ARC-1", &input, &fx.person, false)
+        .await
+        .unwrap();
     assert_eq!(planned.ticket.record().plan, at_cap);
 }
 
@@ -1600,7 +1657,7 @@ async fn the_planning_queue_checks_again_under_the_write() {
             ..TicketScope::default()
         };
         let claimed = tickets
-            .next_planning(scope, Some("planner"), &fx.person)
+            .next_planning(scope, Some("planner"), &fx.person, false)
             .await
             .unwrap()
             .unwrap();
@@ -1633,31 +1690,40 @@ async fn claims_and_plans_keep_versions_columns_and_history_like_legacy() {
             &fx.person,
             Some(Version::INITIAL.next()),
             false,
+            false,
         )
         .await
         .unwrap_err();
     assert_eq!(stale.code(), "version-conflict");
     let first = fx
         .tickets
-        .claim("ARC-1", "claude", None, &fx.person, None, false)
+        .claim("ARC-1", "claude", None, &fx.person, None, false, false)
         .await
         .unwrap();
     let second = fx
         .tickets
-        .claim("ARC-2", "claude", None, &fx.person, None, false)
+        .claim("ARC-2", "claude", None, &fx.person, None, false, false)
         .await
         .unwrap();
     let order = |view: &TicketView| view.ticket.record().sort_order;
     assert_eq!((order(&first), order(&second)), (0, 1));
     let same = fx
         .tickets
-        .claim("ARC-3", "claude", Some("planned"), &fx.person, None, false)
+        .claim(
+            "ARC-3",
+            "claude",
+            Some("planned"),
+            &fx.person,
+            None,
+            false,
+            false,
+        )
         .await
         .unwrap();
     assert_eq!(order(&same), 2);
     let released = fx
         .tickets
-        .release("ARC-3", Some("in-progress"), &fx.person, None)
+        .release("ARC-3", Some("in-progress"), &fx.person, None, false)
         .await
         .unwrap();
     assert_eq!(order(&released), 2);
@@ -1690,12 +1756,12 @@ async fn claims_and_plans_keep_versions_columns_and_history_like_legacy() {
 
     let claimed = fx
         .tickets
-        .claim_planning("ARC-4", "planner", &fx.person)
+        .claim_planning("ARC-4", "planner", &fx.person, false)
         .await
         .unwrap();
     let renewed = fx
         .tickets
-        .claim_planning("ARC-4", "planner", &fx.person)
+        .claim_planning("ARC-4", "planner", &fx.person, false)
         .await
         .unwrap();
     assert_eq!(
@@ -1947,6 +2013,9 @@ impl TicketWrite for Counting {
         self.reads.lock().unwrap().push("dependency_index");
         self.inner.dependency_index().await
     }
+    async fn autopilot_keep_label(&mut self) -> Result<Option<String>, AppError> {
+        self.inner.autopilot_keep_label().await
+    }
     async fn take_number(&mut self, project: Id<Project>) -> Result<u32, AppError> {
         self.inner.take_number(project).await
     }
@@ -2027,13 +2096,21 @@ async fn a_claim_reads_dependencies_and_questions_only_when_the_checks_before_th
     };
     fx.create(&board, blocker, AGENT).await.unwrap();
     fx.tickets
-        .claim("ARC-2", "claude", Some("planned"), &fx.person, None, false)
+        .claim(
+            "ARC-2",
+            "claude",
+            Some("planned"),
+            &fx.person,
+            None,
+            false,
+            false,
+        )
         .await
         .unwrap();
     let claim = async |key: &str, status: Option<&str>, force: bool| {
         reads.lock().unwrap().clear();
         let result = tickets
-            .claim(key, "other", status, &fx.person, None, force)
+            .claim(key, "other", status, &fx.person, None, force, false)
             .await;
         let seen = reads.lock().unwrap().clone();
         (

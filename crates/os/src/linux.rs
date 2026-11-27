@@ -1,20 +1,21 @@
 #![allow(unsafe_code, reason = "pre_exec and raw descriptors have no safe form")]
 
 use std::collections::{HashMap, HashSet};
-use std::ffi::{OsStr, OsString};
+use std::ffi::{CString, OsStr, OsString};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nix::errno::Errno;
 use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl};
+use nix::libc;
 use nix::sys::prctl;
 use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, kill, raise, sigaction};
 use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
@@ -22,26 +23,44 @@ use nix::unistd::{Pid, pipe2};
 
 const PASSES: usize = 20;
 const PAUSE: Duration = Duration::from_millis(5);
-/// How often the reaper looks for children to reap and signals to pass on.
-const TICK: Duration = Duration::from_millis(20);
+/// How often the reaper looks for children to reap and signals to pass on, as the supervisor does.
+const TICK: Duration = Duration::from_millis(100);
 /// The descriptor on which the reaper reports whether the command started; the command lacks it.
 const STATUS_VAR: &str = "NULLRADIX_REAPER_STATUS";
+/// The name the reaper shows in process lists.
+const REAPER_NAME: &str = "nullradix";
+/// Signals that reach the reaper and that it passes on; others keep their default action.
+const FORWARDED: [Signal; 7] = [
+    Signal::SIGTERM,
+    Signal::SIGINT,
+    Signal::SIGHUP,
+    Signal::SIGQUIT,
+    Signal::SIGUSR1,
+    Signal::SIGUSR2,
+    Signal::SIGALRM,
+];
 
 /// Takes a pid and its start time; when the pipe closes it ends that tree if the pid still matches.
-const GUARD: &str = r#"trap '' HUP INT
+const GUARD: &str = r#"set -f
+trap '' HUP INT
 read -r main start || exit 0
 case $main in ''|*[!0-9]*) exit 0 ;; esac
 case $start in ''|*[!0-9]*) exit 0 ;; esac
 while read -r note; do :; done
-members() {
+stat_line() {
   line=
-  read -r line < "/proc/$main/stat" || return 0
+  while read -r part || [ -n "$part" ]; do line="$line$part"; done < "$1" || return 1
+  [ -n "$line" ]
+}
+members() {
+  stat_line "/proc/$main/stat" || return 0
   set -- ${line##*) }
   [ "${20}" = "$start" ] || return 0
   pairs=
+  set +f
   for stat in /proc/[0-9]*/stat; do
-    line=
-    read -r line < "$stat" || continue
+    set -f
+    stat_line "$stat" || continue
     set -- ${line##*) }
     id=${stat#/proc/}
     pairs="$pairs ${id%/stat}:$2"
@@ -93,7 +112,11 @@ pub(crate) fn use_reaper(program: PathBuf, args: Vec<OsString>) {
 pub(crate) fn reaped(program: &OsStr) -> Option<Command> {
     let shim = SHIM.get()?;
     let mut command = Command::new(&shim.program);
-    command.args(&shim.args).arg("--").arg(program);
+    command
+        .arg0(REAPER_NAME)
+        .args(&shim.args)
+        .arg("--")
+        .arg(program);
     Some(command)
 }
 
@@ -268,6 +291,22 @@ pub(crate) fn prepare(command: &mut Command) -> io::Result<Option<Report>> {
     }))
 }
 
+/// How long a reaper that reported a failure gets to end by itself before it is killed.
+pub(crate) const FAILED_REAPER_GRACE: Duration = Duration::from_secs(5);
+
+/// Waits up to `grace` for a child that ends itself; a kill would cut off what it writes at exit.
+pub(crate) fn end_failed(child: &mut Child, grace: Duration) -> io::Result<ExitStatus> {
+    let deadline = Instant::now() + grace;
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    let _ = child.kill();
+    child.wait()
+}
+
 /// A reaper that cannot be started is no missing program.
 pub(crate) fn reaper_failed(error: &io::Error) -> io::Error {
     io::Error::other(format!("cannot start the run reaper: {error}"))
@@ -296,13 +335,33 @@ impl Report {
     }
 }
 
+/// The descriptor the holder named for the report: past the standard streams and open.
+fn status_descriptor(text: Option<&str>) -> Option<OwnedFd> {
+    let raw: i32 = text?.parse().ok().filter(|&raw| raw >= 3)?;
+    // SAFETY: F_GETFD only asks whether the number is an open descriptor
+    if unsafe { libc::fcntl(raw, libc::F_GETFD) } < 0 {
+        return None;
+    }
+    // SAFETY: the holder passed this open descriptor on for the reaper alone
+    Some(unsafe { OwnedFd::from_raw_fd(raw) })
+}
+
+/// Lets no core file of the reaper itself come of a signal that ended the command.
+fn forbid_core_dumps() {
+    let none = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: setrlimit reads the struct it is given
+    let _ = unsafe { libc::setrlimit(libc::RLIMIT_CORE, &raw const none) };
+}
+
 /// Runs `args` as the only child of a subreaper; orphans are reaped and leftovers die with it.
 pub(crate) fn run_reaper(args: &[OsString]) -> i32 {
-    let status = std::env::var(STATUS_VAR)
-        .ok()
-        .and_then(|text| text.parse::<i32>().ok())
-        // SAFETY: the holder passed this descriptor on for the reaper alone
-        .map(|raw| unsafe { OwnedFd::from_raw_fd(raw) });
+    if let Ok(name) = CString::new(REAPER_NAME) {
+        let _ = prctl::set_name(&name);
+    }
+    let status = status_descriptor(std::env::var(STATUS_VAR).ok().as_deref());
     if let Some(fd) = &status {
         let _ = fcntl(fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC));
     }
@@ -316,16 +375,18 @@ pub(crate) fn run_reaper(args: &[OsString]) -> i32 {
         return 2;
     };
     let catch = SigAction::new(SigHandler::Handler(note), SaFlags::empty(), SigSet::empty());
-    let handled = [Signal::SIGTERM, Signal::SIGINT, Signal::SIGHUP]
+    let handled = FORWARDED
         // SAFETY: the handler only stores into an atomic, so it is async-signal-safe
         .map(|signal| unsafe { sigaction(signal, &catch) });
     if handled.iter().any(Result::is_err) || prctl::set_child_subreaper(true).is_err() {
         tell("err 1");
         return 1;
     }
+    // an own group, so a signal to the group of the reaper reaches the command once, through us
     let child = match Command::new(program)
         .args(rest)
         .env_remove(STATUS_VAR)
+        .process_group(0)
         .spawn()
     {
         Ok(child) => child,
@@ -345,10 +406,7 @@ pub(crate) fn run_reaper(args: &[OsString]) -> i32 {
         if let Some(ended) = reap_ready(main) {
             break ended;
         }
-        let pending = SIGNALED.swap(0, Ordering::SeqCst);
-        if let (Ok(signal), Some(raw)) = (Signal::try_from(pending), to_pid(main)) {
-            let _ = kill(raw, signal);
-        }
+        pass_on(main);
         thread::sleep(TICK);
     };
     sweep();
@@ -357,6 +415,7 @@ pub(crate) fn run_reaper(args: &[OsString]) -> i32 {
             let default = SigAction::new(SigHandler::SigDfl, SaFlags::empty(), SigSet::empty());
             // SAFETY: the default action is no handler code
             let _ = unsafe { sigaction(signal, &default) };
+            forbid_core_dumps();
             let _ = raise(signal);
             128 + signal as i32
         }
@@ -365,10 +424,22 @@ pub(crate) fn run_reaper(args: &[OsString]) -> i32 {
     }
 }
 
-static SIGNALED: AtomicI32 = AtomicI32::new(0);
+/// One bit per signal that arrived since the last pass.
+static PENDING: AtomicU64 = AtomicU64::new(0);
 
 extern "C" fn note(signal: i32) {
-    SIGNALED.store(signal, Ordering::SeqCst);
+    PENDING.fetch_or(1 << (signal & 63), Ordering::SeqCst);
+}
+
+/// Sends the signals that arrived to the command, each once; those of one tick go in table order.
+fn pass_on(main: u32) {
+    let arrived = PENDING.swap(0, Ordering::SeqCst);
+    let Some(raw) = to_pid(main) else { return };
+    for signal in FORWARDED {
+        if arrived & (1 << (signal as i32 & 63)) != 0 {
+            let _ = kill(raw, signal);
+        }
+    }
 }
 
 /// Reaps every child that ended; the status of `main` once it is among them.
@@ -453,6 +524,7 @@ impl Drop for Guard {
 
 #[cfg(test)]
 mod tests {
+    use std::os::fd::IntoRawFd;
     use std::os::unix::process::ExitStatusExt;
     use std::path::Path;
     use std::sync::Once;
@@ -536,6 +608,20 @@ mod tests {
         assert_eq!(tree.wait().unwrap().code(), Some(3));
         let mut tree = ProcessTree::spawn(&mut script("kill -KILL $$")).unwrap();
         let status = tree.wait().unwrap();
+        assert_eq!((status.code(), status.signal()), (None, Some(9)));
+    }
+
+    #[test]
+    fn a_child_that_is_ending_is_waited_for_and_one_that_is_not_gets_killed() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 0.3; exit 5"])
+            .spawn()
+            .unwrap();
+        let status = end_failed(&mut child, Duration::from_secs(20)).unwrap();
+        assert_eq!((status.code(), status.signal()), (Some(5), None));
+        let mut staying = Command::new("sleep");
+        let mut child = staying.arg("60").spawn().unwrap();
+        let status = end_failed(&mut child, Duration::from_millis(100)).unwrap();
         assert_eq!((status.code(), status.signal()), (None, Some(9)));
     }
 
@@ -731,5 +817,240 @@ mod tests {
         assert!(stand_in.wait().unwrap().success());
         assert!(dir.path().join("done").exists());
         assert_all_gone(&pids);
+    }
+
+    fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !done() {
+            assert!(Instant::now() < deadline, "{what} did not happen");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn lines_of(path: &Path) -> Vec<String> {
+        fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn only_an_open_descriptor_past_the_standard_streams_is_taken_as_the_report() {
+        assert!(status_descriptor(None).is_none());
+        for text in ["", "x", "-1", "0", "1", "2", &i32::MAX.to_string()] {
+            assert!(status_descriptor(Some(text)).is_none(), "{text:?}");
+        }
+        let (read, write) = pipe2(OFlag::O_CLOEXEC).unwrap();
+        let raw = write.into_raw_fd();
+        let taken = status_descriptor(Some(&raw.to_string())).unwrap();
+        assert_eq!(taken.as_raw_fd(), raw);
+        drop((taken, read));
+    }
+
+    #[test]
+    fn the_command_does_not_see_the_report_variable() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("seen");
+        let text = format!(
+            "printf '%s' \"${{{STATUS_VAR}-unset}}\" > '{file}'",
+            file = file.display()
+        );
+        let mut tree = ProcessTree::spawn(&mut script(&text)).unwrap();
+        assert!(tree.wait().unwrap().success());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "unset");
+    }
+
+    #[test]
+    fn the_reaper_shows_as_nullradix() {
+        let mut tree = ProcessTree::spawn(&mut script("sleep 60")).unwrap();
+        let id = tree.id();
+        let cmdline = fs::read(format!("/proc/{id}/cmdline")).unwrap();
+        assert!(cmdline.starts_with(b"nullradix\0"), "{cmdline:?}");
+        // a test runs the reaper on a thread of its own, so any thread may carry the name
+        let names: Vec<String> = fs::read_dir(format!("/proc/{id}/task"))
+            .unwrap()
+            .filter_map(|task| fs::read_to_string(task.ok()?.path().join("comm")).ok())
+            .map(|name| name.trim_end().to_owned())
+            .collect();
+        assert!(names.iter().any(|name| name == REAPER_NAME), "{names:?}");
+        tree.kill().unwrap();
+    }
+
+    #[test]
+    fn a_signal_to_the_group_of_the_reaper_reaches_the_command_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let (log, ready) = (dir.path().join("log"), dir.path().join("ready"));
+        let note = |signal: &str, mark: &str| {
+            format!("trap 'echo {mark} >> \"{}\"' {signal}; ", log.display())
+        };
+        let text = format!(
+            "{}{}{}echo > '{}'; n=0; while [ $n -lt 400 ]; do sleep 0.05; n=$((n+1)); done",
+            note("TERM", "t"),
+            note("USR1", "u"),
+            note("USR2", "v"),
+            ready.display()
+        );
+        let mut tree = ProcessTree::spawn(&mut script(&text)).unwrap();
+        let reaper = to_pid(tree.id()).unwrap();
+        wait_until("the command", || ready.exists());
+        killpg(reaper, Signal::SIGTERM).unwrap();
+        wait_until("the first TERM", || {
+            lines_of(&log).contains(&String::from("t"))
+        });
+        // later signals are passed on in later passes, so a second TERM would show before them
+        kill(reaper, Signal::SIGUSR1).unwrap();
+        wait_until("USR1", || lines_of(&log).contains(&String::from("u")));
+        kill(reaper, Signal::SIGUSR2).unwrap();
+        wait_until("USR2", || lines_of(&log).contains(&String::from("v")));
+        let seen = lines_of(&log);
+        assert_eq!(
+            seen.iter().filter(|line| *line == "t").count(),
+            1,
+            "{seen:?}"
+        );
+        tree.kill().unwrap();
+    }
+
+    #[test]
+    fn every_signal_that_would_end_the_reaper_is_passed_on_so_it_still_sweeps() {
+        for (name, signal) in [
+            ("QUIT", Signal::SIGQUIT),
+            ("USR1", Signal::SIGUSR1),
+            ("USR2", Signal::SIGUSR2),
+            ("ALRM", Signal::SIGALRM),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let (orphan, ready) = (dir.path().join("orphan.pid"), dir.path().join("ready"));
+            let text = format!(
+                "trap 'exit 7' {name}; ( sleep 60 & echo $! > '{}' ); echo > '{}'; \
+                 n=0; while [ $n -lt 400 ]; do sleep 0.05; n=$((n+1)); done",
+                orphan.display(),
+                ready.display()
+            );
+            let mut tree = ProcessTree::spawn(&mut script(&text)).unwrap();
+            wait_until("the command", || ready.exists());
+            let orphan = wait_for_pid(&orphan);
+            kill(to_pid(tree.id()).unwrap(), signal).unwrap();
+            let status = tree.wait().unwrap();
+            assert_eq!((status.code(), status.signal()), (Some(7), None), "{name}");
+            assert!(gone(orphan), "{name}: the orphan survived the sweep");
+        }
+    }
+
+    #[test]
+    fn a_command_that_dumps_core_ends_the_reaper_the_same_way() {
+        ensure_reaper();
+        let mut command = ProcessTree::command("sleep");
+        command.arg("60");
+        let mut tree = ProcessTree::spawn(&mut command).unwrap();
+        let reaper = tree.id();
+        let child = || {
+            table()
+                .unwrap()
+                .iter()
+                .find(|entry| entry.parent == reaper)
+                .map(|entry| entry.id)
+        };
+        wait_until("the command", || child().is_some());
+        kill(to_pid(child().unwrap()).unwrap(), Signal::SIGQUIT).unwrap();
+        let status = tree.wait().unwrap();
+        assert_eq!(status.signal(), Some(3), "{status:?}");
+    }
+
+    #[test]
+    #[ignore = "runs as the helper of the test below"]
+    fn core_limit_helper() {
+        if std::env::var(STAND_IN).is_err() {
+            return;
+        }
+        forbid_core_dumps();
+        let mut limit = libc::rlimit {
+            rlim_cur: 1,
+            rlim_max: 1,
+        };
+        // SAFETY: getrlimit fills the struct it is given
+        unsafe { libc::getrlimit(libc::RLIMIT_CORE, &raw mut limit) };
+        println!("limit {} {}", limit.rlim_cur, limit.rlim_max);
+    }
+
+    #[test]
+    fn forbidding_core_dumps_sets_both_limits_to_zero() {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "linux::tests::core_limit_helper",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env(STAND_IN, "core")
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(text.contains("limit 0 0"), "{text}");
+    }
+
+    /// The signals a process ignores, from its status file.
+    fn ignored(id: u32) -> u64 {
+        let text = fs::read_to_string(format!("/proc/{id}/status")).unwrap_or_default();
+        text.lines()
+            .find_map(|line| line.strip_prefix("SigIgn:"))
+            .and_then(|mask| u64::from_str_radix(mask.trim(), 16).ok())
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn the_guard_ignores_a_hangup_and_still_ends_the_tree() {
+        let mut other = Command::new("sleep").arg("60").spawn().unwrap();
+        let mut guard = Guard::start().unwrap();
+        let id = guard.child.as_ref().unwrap().id();
+        // HUP is signal 1 and INT signal 2: the first two bits
+        wait_until("the traps", || ignored(id) & 0b11 == 0b11);
+        kill(to_pid(id).unwrap(), Signal::SIGHUP).unwrap();
+        kill(to_pid(id).unwrap(), Signal::SIGINT).unwrap();
+        guard.watch(other.id()).unwrap();
+        let mut child = guard.child.take().unwrap();
+        drop(guard.stdin.take());
+        child.wait().unwrap();
+        assert!(gone(other.id()), "the guard died of the hangup");
+        let _ = other.kill();
+        other.wait().unwrap();
+    }
+
+    #[test]
+    fn a_newline_in_a_process_name_does_not_hide_it_from_the_guard() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        // the name of a script is the name its process shows, whatever it holds
+        let odd = dir.path().join("odd\nname");
+        fs::write(&odd, "#!/bin/sh\nsleep 60; true\n").unwrap();
+        fs::set_permissions(&odd, fs::Permissions::from_mode(0o755)).unwrap();
+        let pid_file = dir.path().join("odd.pid");
+        let text = format!("\"$1\" & echo $! > '{}'; wait", pid_file.display());
+        let mut main = Command::new("sh")
+            .args(["-c", &text, "sh"])
+            .arg(&odd)
+            .spawn()
+            .unwrap();
+        let hidden = wait_for_pid(&pid_file);
+        let comm = fs::read_to_string(format!("/proc/{hidden}/comm")).unwrap();
+        assert!(comm.trim_end_matches('\n').contains('\n'), "{comm:?}");
+        let leaf = || {
+            table()
+                .unwrap()
+                .iter()
+                .find(|entry| entry.parent == hidden)
+                .map(|entry| entry.id)
+        };
+        wait_until("the sleep under the script", || leaf().is_some());
+        let leaf = leaf().unwrap();
+        let mut guard = Guard::start().unwrap();
+        guard.watch(main.id()).unwrap();
+        let mut child = guard.child.take().unwrap();
+        drop(guard.stdin.take());
+        child.wait().unwrap();
+        assert!(gone(hidden), "the process with the newline survived");
+        assert!(gone(leaf), "the child of that process survived");
+        let _ = main.wait();
     }
 }

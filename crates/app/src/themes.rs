@@ -66,6 +66,7 @@ fn confirmation_required(
     risk: ThemeRisk,
     added: RiskAdded,
     update: bool,
+    by_person: bool,
 ) -> AppError {
     let mut parts = Vec::new();
     if risk.has_code {
@@ -77,19 +78,23 @@ fn confirmation_required(
     if !risk.network.is_empty() {
         parts.push(format!("network domains {}", risk.network.join(", ")));
     }
-    AppError::conflict(
-        "theme-confirmation-required",
-        format!("{} contains {}", manifest.id(), join_parts(&parts)),
+    let message = format!("{} contains {}", manifest.id(), join_parts(&parts));
+    let message = if by_person {
+        message
+    } else {
+        format!("{message}; only the person can confirm it, in the app")
+    };
+    AppError::conflict("theme-confirmation-required", message).with_confirmation(
+        ConfirmationFacts {
+            risk,
+            added,
+            update,
+            id: manifest.id().to_string(),
+            name: manifest.record().name.clone(),
+            version: manifest.record().version.clone(),
+            sha256: None,
+        },
     )
-    .with_confirmation(ConfirmationFacts {
-        risk,
-        added,
-        update,
-        id: manifest.id().to_string(),
-        name: manifest.record().name.clone(),
-        version: manifest.record().version.clone(),
-        sha256: None,
-    })
 }
 
 /// The installed themes and which one is chosen.
@@ -181,6 +186,8 @@ pub trait ThemeWrite: Send {
     ) -> Result<(), AppError>;
     /// Whether the code switch of the theme is on; off until someone turned it on.
     async fn code_enabled(&mut self, id: &ThemeId) -> Result<bool, AppError>;
+    /// Turns the switch of the Claude part off; `None` when it already is off.
+    async fn claude_off(&mut self, at: Timestamp) -> Result<Option<Change>, AppError>;
     /// Turns the code switch on or off; `None` when it already is as asked.
     async fn set_code(
         &mut self,
@@ -344,7 +351,7 @@ impl ThemeService {
         Ok(ThemeList { themes, active })
     }
 
-    /// Installs or replaces the theme; code, network domains or a Claude part need `confirmed`.
+    /// Installs or replaces the theme; risky packages need `confirmed`, which only a person gives.
     pub async fn install(
         &self,
         archive: Vec<u8>,
@@ -364,6 +371,8 @@ impl ThemeService {
         confirmed: bool,
         by_person: bool,
     ) -> Result<Installed, AppError> {
+        // a token cannot confirm: the person does that in the app
+        let confirmed = confirmed && by_person;
         let files = self.files.unpack(archive).await?;
         let manifest = check_package(&files, false)?;
         if let Some((id, version)) = expected
@@ -406,6 +415,7 @@ impl ThemeService {
                 risk,
                 added,
                 known.is_some(),
+                by_person,
             ));
         }
         let has_code = files.iter().any(|file| file.path == CODE_FILE);
@@ -541,18 +551,37 @@ impl ThemeService {
         Ok((theme, ThemeCode { has_code, enabled }))
     }
 
-    /// Chooses a built-in or an installed theme; the choice survives restarts.
-    pub async fn select(&self, id: &str) -> Result<String, AppError> {
-        if !BUILTIN_THEMES.contains(&id) {
-            let theme = ThemeId::parse(id).map_err(|error| id_invalid(&error))?;
-            if self.repository.get(&theme).await?.is_none() {
-                return Err(theme_not_found(id));
-            }
-        }
+    /// Chooses a theme; a token choosing one with a Claude part turns that part's switch off.
+    pub async fn select(&self, id: &str, by_person: bool) -> Result<String, AppError> {
+        let theme = if BUILTIN_THEMES.contains(&id) {
+            None
+        } else {
+            Some(ThemeId::parse(id).map_err(|error| id_invalid(&error))?)
+        };
+        let now = self.clock.now();
         let mut write = self.repository.begin().await?;
-        let change = write.select(id, self.clock.now()).await?;
+        // the Claude part is read in the write, so a reinstall cannot change it in between
+        let claude_part = match &theme {
+            Some(theme) => {
+                write
+                    .theme(theme)
+                    .await?
+                    .ok_or_else(|| theme_not_found(id))?
+                    .record()
+                    .manifest
+                    .record()
+                    .claude_theme
+            }
+            None => false,
+        };
+        let change = write.select(id, now).await?;
+        let off = if change.is_some() && claude_part && !by_person {
+            write.claude_off(now).await?
+        } else {
+            None
+        };
         write.commit().await?;
-        if let Some(change) = &change {
+        for change in change.iter().chain(off.iter()) {
             self.signal.notify(change);
         }
         Ok(id.to_owned())
@@ -743,6 +772,7 @@ pub(crate) mod tests {
         settings: Mutex<BTreeMap<String, StoredSettings>>,
         origins: Mutex<BTreeMap<String, SourceId>>,
         code: Mutex<BTreeSet<String>>,
+        claude: Mutex<bool>,
     }
 
     impl Memory {
@@ -917,6 +947,17 @@ pub(crate) mod tests {
 
         async fn code_enabled(&mut self, id: &ThemeId) -> Result<bool, AppError> {
             Ok(self.0.code.lock().contains(id.as_str()))
+        }
+
+        async fn claude_off(&mut self, _at: Timestamp) -> Result<Option<Change>, AppError> {
+            let was_on = std::mem::take(&mut *self.0.claude.lock());
+            Ok(was_on.then(|| {
+                self.0.record(
+                    Entity::Setting,
+                    crate::claude_theme::CLAUDE_THEME_FEED_ID,
+                    ChangeOp::Update,
+                )
+            }))
         }
 
         async fn set_code(
@@ -1109,6 +1150,12 @@ pub(crate) mod tests {
 
     fn night_blue() -> Vec<u8> {
         archive(&package())
+    }
+
+    fn night_blue_named(id: &str) -> Vec<u8> {
+        let mut files = package();
+        files[0] = file("manifest.json", &MANIFEST.replace("night-blue", id));
+        archive(&files)
     }
 
     fn with_settings() -> Vec<u8> {
@@ -1524,18 +1571,22 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn only_built_in_or_installed_themes_can_be_chosen() {
         let fixture = fixture();
-        assert_eq!(fixture.service.select("dark").await.unwrap(), "dark");
+        assert_eq!(fixture.service.select("dark", true).await.unwrap(), "dark");
         assert_eq!(fixture.service.list().await.unwrap().active, "dark");
-        let error = fixture.service.select("night-blue").await.unwrap_err();
+        let error = fixture
+            .service
+            .select("night-blue", true)
+            .await
+            .unwrap_err();
         assert_eq!(error.code(), "theme-not-found");
-        let error = fixture.service.select("Bad Id").await.unwrap_err();
+        let error = fixture.service.select("Bad Id", true).await.unwrap_err();
         assert_eq!(error.code(), "theme-id-invalid");
         fixture
             .service
             .install(night_blue(), false, true)
             .await
             .unwrap();
-        fixture.service.select("night-blue").await.unwrap();
+        fixture.service.select("night-blue", true).await.unwrap();
         assert_eq!(fixture.service.list().await.unwrap().active, "night-blue");
     }
 
@@ -1543,10 +1594,10 @@ pub(crate) mod tests {
     async fn choosing_the_same_theme_again_is_no_change() {
         let fixture = fixture();
         let mut head = fixture.signal.subscribe();
-        fixture.service.select("light").await.unwrap();
+        fixture.service.select("light", true).await.unwrap();
         assert!(head.has_changed().unwrap());
         head.borrow_and_update();
-        fixture.service.select("light").await.unwrap();
+        fixture.service.select("light", true).await.unwrap();
         assert!(!head.has_changed().unwrap());
     }
 
@@ -1559,7 +1610,7 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .theme;
-        fixture.service.select("night-blue").await.unwrap();
+        fixture.service.select("night-blue", true).await.unwrap();
         fixture
             .service
             .remove("night-blue", theme.record().version)
@@ -1596,7 +1647,7 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .theme;
-        fixture.service.select("dark").await.unwrap();
+        fixture.service.select("dark", true).await.unwrap();
         fixture
             .service
             .remove("night-blue", theme.record().version)
@@ -2289,7 +2340,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn an_install_by_anyone_but_the_person_turns_the_switch_off() {
+    async fn a_token_cannot_confirm_code_and_a_plain_update_by_it_turns_the_switch_off() {
         let fixture = fixture();
         fixture
             .service
@@ -2306,7 +2357,7 @@ pub(crate) mod tests {
         };
         turn_on(&fixture).await;
 
-        // the same domains with new code adds nothing, but only the person may keep it on
+        // the same domains with new code adds nothing, yet a token's confirmation does not count
         let manifest = MANIFEST
             .replace("1.0.0", "1.0.1")
             .replace(r#""network": []"#, r#""network": ["a.example.com"]"#);
@@ -2315,9 +2366,36 @@ pub(crate) mod tests {
             file("theme.css", ":root { --accent: #6c63ff }"),
             file("main.js", "steal()"),
         ]);
-        let token = fixture.service.install(swapped, true, false).await.unwrap();
-        assert!(token.added.is_empty() && !token.code.enabled);
-        assert!(!code_of(&fixture).await.1.enabled);
+        let refused = fixture
+            .service
+            .install(swapped, true, false)
+            .await
+            .unwrap_err();
+        assert_eq!(refused.code(), "theme-confirmation-required");
+        assert!(
+            refused
+                .message()
+                .contains("only the person can confirm it, in the app"),
+            "{}",
+            refused.message()
+        );
+        assert!(refused.confirmation().is_some());
+        // nothing changed: the switch stays on and the old script is served
+        assert!(code_of(&fixture).await.1.enabled);
+        let served = fixture
+            .service
+            .asset("night-blue", "main.js")
+            .await
+            .unwrap();
+        assert_ne!(served.data, b"steal()");
+
+        // a token's update without code takes the code away and the switch with it
+        let token = fixture
+            .service
+            .install(night_blue(), false, false)
+            .await
+            .unwrap();
+        assert!(!token.code.has_code && !token.code.enabled);
         assert!(fixture.memory.code.lock().is_empty());
         assert!(
             fixture
@@ -2326,6 +2404,11 @@ pub(crate) mod tests {
                 .await
                 .is_err()
         );
+        fixture
+            .service
+            .install(with_code("1.0.1"), true, true)
+            .await
+            .unwrap();
 
         // the person's own update that adds nothing keeps the switch
         turn_on(&fixture).await;
@@ -2336,6 +2419,77 @@ pub(crate) mod tests {
             .unwrap();
         assert!(person.added.is_empty() && person.code.enabled);
         assert!(code_of(&fixture).await.1.enabled);
+    }
+
+    #[tokio::test]
+    async fn only_the_person_can_confirm_a_package_that_needs_it() {
+        let fixture = fixture();
+        for confirmed in [false, true] {
+            let error = fixture
+                .service
+                .install(everything("1.0.0", &[]), confirmed, false)
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), "theme-confirmation-required", "{confirmed}");
+            assert!(error.message().contains("in the app"), "{confirmed}");
+        }
+        assert_eq!(fixture.service.list().await.unwrap().themes.len(), 0);
+        let by_person = fixture
+            .service
+            .install(everything("1.0.0", &[]), false, true)
+            .await
+            .unwrap_err();
+        assert!(!by_person.message().contains("in the app"));
+        fixture
+            .service
+            .install(everything("1.0.0", &[]), true, true)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_token_choosing_a_theme_with_a_claude_part_turns_its_switch_off() {
+        let fixture = fixture();
+        fixture
+            .service
+            .install(everything("1.0.0", &[]), true, true)
+            .await
+            .unwrap();
+        fixture
+            .service
+            .install(night_blue_named("plain-blue"), false, true)
+            .await
+            .unwrap();
+        let on = || *fixture.memory.claude.lock() = true;
+
+        // the person's choice and a token's choice of a theme without a Claude part keep it
+        on();
+        fixture.service.select("night-blue", true).await.unwrap();
+        assert!(*fixture.memory.claude.lock());
+        fixture.service.select("plain-blue", false).await.unwrap();
+        assert!(*fixture.memory.claude.lock());
+        fixture.service.select("dark", false).await.unwrap();
+        assert!(*fixture.memory.claude.lock());
+
+        // a token choosing the theme with a Claude part turns it off, with a change signal
+        let before = fixture.memory.feed.lock().len();
+        fixture.service.select("night-blue", false).await.unwrap();
+        assert!(!*fixture.memory.claude.lock());
+        let feed = fixture.memory.feed.lock().clone();
+        assert!(feed[before..].contains(&(
+            Entity::Setting,
+            crate::claude_theme::CLAUDE_THEME_FEED_ID,
+            ChangeOp::Update
+        )));
+
+        // choosing what is chosen already changes nothing
+        on();
+        fixture.service.select("night-blue", false).await.unwrap();
+        assert!(*fixture.memory.claude.lock());
+        // the person's choice keeps it
+        fixture.service.select("plain-blue", true).await.unwrap();
+        fixture.service.select("night-blue", true).await.unwrap();
+        assert!(*fixture.memory.claude.lock());
     }
 
     #[tokio::test]

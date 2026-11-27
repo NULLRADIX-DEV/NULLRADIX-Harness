@@ -15,6 +15,15 @@ use crate::{AppError, Change, ChangeSignal, Clock};
 pub const CLAUDE_THEME_FEED_ID: uuid::Uuid =
     uuid::Uuid::from_u128(0x6e75_6c6c_7261_6469_7800_636c_6175_6465);
 
+/// A token tried to turn the Claude part on; only the person in the app may.
+#[must_use]
+pub fn needs_person() -> AppError {
+    AppError::forbidden(
+        "claude-theme-needs-person",
+        "only the person in the app can turn the Claude part of a theme on; tokens may only turn it off",
+    )
+}
+
 /// The switch and the folders a theme was put into.
 #[async_trait]
 pub trait ClaudeThemeRepository: Send + Sync {

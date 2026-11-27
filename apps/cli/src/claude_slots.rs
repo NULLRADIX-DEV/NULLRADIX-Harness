@@ -233,7 +233,7 @@ mod tests {
         )
         .unwrap();
         s.themes.install(package(), true, true).await.unwrap();
-        s.themes.select("night").await.unwrap();
+        s.themes.select("night", true).await.unwrap();
 
         // installing and choosing alone leave the Claude folders alone
         s.service.reconcile().await.unwrap();
@@ -265,7 +265,7 @@ mod tests {
     async fn a_theme_folder_that_vanished_is_an_error_not_a_panic() {
         let s = setup().await;
         s.themes.install(package(), true, true).await.unwrap();
-        s.themes.select("night").await.unwrap();
+        s.themes.select("night", true).await.unwrap();
         fs::remove_dir_all(s.root.join("themes/night/claude")).unwrap();
         let status = s.service.set_enabled(true).await.unwrap();
         assert_eq!(status.state, TargetState::Error);

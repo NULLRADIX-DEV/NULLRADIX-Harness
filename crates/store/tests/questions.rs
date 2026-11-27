@@ -314,13 +314,13 @@ async fn an_open_question_holds_its_tickets_back_until_a_person_answers() {
     );
     let claimed = f
         .tickets
-        .claim(&ticket, "claude", None, &f.person, None, false)
+        .claim(&ticket, "claude", None, &f.person, None, false, false)
         .await
         .unwrap_err();
     assert_eq!(claimed.code(), "question-open");
     let planning = f
         .tickets
-        .next_planning(TicketScope::default(), None, &f.person)
+        .next_planning(TicketScope::default(), None, &f.person, false)
         .await
         .unwrap();
     assert!(planning.is_none());
@@ -561,7 +561,10 @@ async fn deleting_a_ticket_drops_it_from_its_questions() {
         })
         .await
         .unwrap();
-    f.tickets.delete(&ticket, &f.person, None).await.unwrap();
+    f.tickets
+        .delete(&ticket, &f.person, None, false)
+        .await
+        .unwrap();
     let detail = f.questions.get(&key).await.unwrap();
     let record = detail.view.row.question.record();
     assert_eq!(record.tickets.len(), 0);

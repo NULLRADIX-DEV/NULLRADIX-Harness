@@ -618,8 +618,14 @@ async fn notes_keep_ticket_keys_after_the_tickets_are_deleted() {
         .await
         .unwrap();
     let made = promoted.ticket.ticket.key().to_string();
-    f.tickets.delete(&origin, &f.person, None).await.unwrap();
-    f.tickets.delete(&made, &f.person, None).await.unwrap();
+    f.tickets
+        .delete(&origin, &f.person, None, false)
+        .await
+        .unwrap();
+    f.tickets
+        .delete(&made, &f.person, None, false)
+        .await
+        .unwrap();
     let note = f.notes.get("1").await.unwrap().note;
     let source = note.source.unwrap();
     assert_eq!(source.key.to_string(), origin);
@@ -635,6 +641,7 @@ async fn notes_keep_ticket_keys_after_the_tickets_are_deleted() {
             board.version(),
             true,
             &f.person,
+            false,
         )
         .await
         .unwrap();

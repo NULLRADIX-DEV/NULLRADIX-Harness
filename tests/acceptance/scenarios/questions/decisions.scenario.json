@@ -1,0 +1,163 @@
+{
+  "title": "Answering, discarding and reopening a question stay with the person, not with a run or a session of an agent",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": {
+          "key": "ARC",
+          "name": "Arches"
+        }
+      },
+      "save": {
+        "project": "json.id"
+      }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": {
+          "name": "Main"
+        }
+      },
+      "save": {
+        "board": "json.id"
+      }
+    },
+    {
+      "name": "the board to work on",
+      "cli": {
+        "args": ["board", "use", "{{board}}"]
+      }
+    },
+    {
+      "name": "ask a question with options",
+      "cli": {
+        "args": [
+          "question",
+          "add",
+          "Which store?",
+          "--option",
+          "File: one JSON file",
+          "--option",
+          "Db: SQLite next to the daemon",
+          "--author",
+          "claude"
+        ]
+      }
+    },
+    {
+      "name": "a run cannot answer it",
+      "cli": {
+        "args": ["question", "answer", "ARC-Q1", "--option", "O1"],
+        "env": {
+          "NULLRADIX_RUN": "run-1"
+        }
+      }
+    },
+    {
+      "name": "a session cannot answer it",
+      "cli": {
+        "args": ["question", "answer", "ARC-Q1", "--option", "O1"],
+        "env": {
+          "NULLRADIX_SESSION": "session-1"
+        }
+      }
+    },
+    {
+      "name": "a run cannot discard it",
+      "cli": {
+        "args": ["question", "discard", "ARC-Q1", "--reason", "not needed"],
+        "env": {
+          "NULLRADIX_RUN": "run-1"
+        }
+      }
+    },
+    {
+      "name": "the question is still open",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/questions/ARC-Q1",
+        "keep": ["question.key", "question.state", "question.version"]
+      }
+    },
+    {
+      "name": "the person answers at a terminal",
+      "cli": {
+        "args": ["question", "answer", "ARC-Q1", "--option", "O2", "--reason", "fits"]
+      }
+    },
+    {
+      "name": "a run cannot reopen it",
+      "cli": {
+        "args": ["question", "reopen", "ARC-Q1", "--reason", "again"],
+        "env": {
+          "NULLRADIX_RUN": "run-1"
+        }
+      }
+    },
+    {
+      "name": "a session cannot reopen it",
+      "cli": {
+        "args": ["question", "reopen", "ARC-Q1", "--reason", "again"],
+        "env": {
+          "NULLRADIX_SESSION": "session-1"
+        }
+      }
+    },
+    {
+      "name": "the question is still answered",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/questions/ARC-Q1",
+        "keep": ["question.key", "question.state", "question.decision.option"]
+      }
+    },
+    {
+      "name": "the person reopens it at a terminal",
+      "cli": {
+        "args": ["question", "reopen", "ARC-Q1", "--reason", "again"]
+      }
+    },
+    {
+      "name": "the person discards it in the app",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/questions/ARC-Q1/discard",
+        "body": {
+          "reason": "not needed"
+        },
+        "auth": "session",
+        "keep": ["question.key", "question.state"]
+      }
+    },
+    {
+      "name": "the person reopens it in the app",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/questions/ARC-Q1/reopen",
+        "body": {
+          "reason": "we need it after all"
+        },
+        "auth": "session",
+        "keep": ["question.key", "question.state"]
+      }
+    },
+    {
+      "name": "the person answers it in the app",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/questions/ARC-Q1/answer",
+        "body": {
+          "option": "O1"
+        },
+        "auth": "session",
+        "keep": ["question.key", "question.state", "question.decision.option"]
+      }
+    }
+  ]
+}

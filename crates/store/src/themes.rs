@@ -448,6 +448,10 @@ impl ThemeWrite for Write {
         Ok(row.is_some())
     }
 
+    async fn claude_off(&mut self, at: Timestamp) -> Result<Option<Change>, AppError> {
+        Ok(crate::claude_theme::turn_off(&mut self.0, at).await?)
+    }
+
     async fn set_code(
         &mut self,
         id: &ThemeId,

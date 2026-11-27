@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fakeApi, json, problem } from '../../test/fakeApi';
 import { renderApp } from '../../test/renderApp';
 import type { Customization } from './queries';
@@ -112,6 +112,28 @@ describe('CustomizationsSection', () => {
     ).toBeInTheDocument();
     expect(rows.getByText('the head has no description')).toBeInTheDocument();
     expect(rows.getByText('the shipped file changed')).toBeInTheDocument();
+  });
+
+  it('lists every refused head key even when they share a code', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    server([
+      item({
+        state: 'fallback',
+        problems: [
+          {
+            code: 'front-matter-key-refused',
+            message: 'the head key allowed-tools is not allowed',
+          },
+          { code: 'front-matter-key-refused', message: 'the head key hooks is not allowed' },
+        ],
+      }),
+    ]);
+    renderApp('/settings');
+    const rows = within(list());
+    expect(await rows.findByText('the head key allowed-tools is not allowed')).toBeInTheDocument();
+    expect(rows.getByText('the head key hooks is not allowed')).toBeInTheDocument();
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
   });
 
   it('adds a customization and shows why a bad one is refused', async () => {

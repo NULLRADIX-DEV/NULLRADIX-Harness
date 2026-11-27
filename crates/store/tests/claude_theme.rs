@@ -217,7 +217,7 @@ async fn installing_and_choosing_a_theme_never_applies_its_claude_part() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     let status = f.service.reconcile().await.unwrap();
     assert!(!status.enabled);
     assert_eq!(status.state, TargetState::None);
@@ -234,7 +234,7 @@ async fn the_switch_puts_the_theme_into_the_default_folder_and_every_account() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
 
     let status = f.service.set_enabled(true).await.unwrap();
 
@@ -261,7 +261,7 @@ async fn a_second_reconcile_writes_nothing() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     f.service.set_enabled(true).await.unwrap();
     let writes = f.slots.writes();
     f.service.reconcile().await.unwrap();
@@ -275,7 +275,7 @@ async fn saving_theme_settings_and_reinstalling_carry_over() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     f.service.set_enabled(true).await.unwrap();
 
     let values = BTreeMap::from([
@@ -309,7 +309,7 @@ async fn a_folder_written_with_older_settings_is_not_reported_active() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     assert_eq!(
         f.service.set_enabled(true).await.unwrap().state,
         TargetState::Active
@@ -338,16 +338,16 @@ async fn switching_off_or_to_another_theme_takes_it_out_again() {
         .install(package("plain", false), false, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     f.service.set_enabled(true).await.unwrap();
 
-    f.themes.select("plain").await.unwrap();
+    f.themes.select("plain", true).await.unwrap();
     let status = f.service.reconcile().await.unwrap();
     assert_eq!(status.state, TargetState::None);
     assert!(f.slots.holds("/home/.claude").is_none());
     assert!(f.slots.holds("/accounts/work").is_none());
 
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     f.service.reconcile().await.unwrap();
     assert!(f.slots.holds("/accounts/work").is_some());
     f.service.set_enabled(false).await.unwrap();
@@ -364,7 +364,7 @@ async fn removing_the_chosen_theme_takes_it_out() {
         .await
         .unwrap()
         .theme;
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     f.service.set_enabled(true).await.unwrap();
     f.themes
         .remove("night-blue", installed.record().version)
@@ -382,7 +382,7 @@ async fn a_removed_account_loses_the_theme_in_its_folder() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     f.service.set_enabled(true).await.unwrap();
     assert!(f.slots.holds("/accounts/work").is_some());
 
@@ -414,7 +414,7 @@ async fn a_foreign_folder_is_reported_and_the_others_still_get_the_theme() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
 
     let status = f.service.set_enabled(true).await.unwrap();
 
@@ -450,7 +450,7 @@ async fn a_failing_folder_shows_as_error_and_is_kept_for_removal() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
 
     let status = f.service.set_enabled(true).await.unwrap();
     assert_eq!(status.state, TargetState::Error);
@@ -471,7 +471,7 @@ async fn the_status_only_reads() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     let before = feed(&f.store).await.len();
     f.store
         .set_enabled(true, Timestamp::from_millis(1))
@@ -492,7 +492,7 @@ async fn a_theme_without_a_claude_part_wants_nothing_even_when_switched_on() {
         .install(package("plain", false), false, true)
         .await
         .unwrap();
-    f.themes.select("plain").await.unwrap();
+    f.themes.select("plain", true).await.unwrap();
     let status = f.service.set_enabled(true).await.unwrap();
     assert!(status.enabled);
     assert_eq!(status.state, TargetState::None);
@@ -508,7 +508,7 @@ async fn account_folders_spelled_alike_are_written_once() {
         .install(package("night-blue", true), true, true)
         .await
         .unwrap();
-    f.themes.select("night-blue").await.unwrap();
+    f.themes.select("night-blue", true).await.unwrap();
     let status = f.service.set_enabled(true).await.unwrap();
     assert_eq!(status.targets.len(), 1);
 }

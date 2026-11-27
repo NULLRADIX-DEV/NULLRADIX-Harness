@@ -95,7 +95,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use accounts::{AccountDto, AccountList, CreateAccount, SetRunToken, UpdateAccount};
-pub use auth::{Handoff, Me, PrincipalKind, SESSION_COOKIE};
+pub use auth::{Handoff, Me, PrincipalKind, RUN_HEADER, SESSION_COOKIE, SESSION_HEADER};
 pub use autostart::{AutostartDto, SetAutostart};
 pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
 pub use claude_theme::{ClaudeThemeDto, ClaudeThemeStateDto, ClaudeThemeTargetDto, SetClaudeTheme};
@@ -1124,6 +1124,28 @@ pub(crate) mod tests {
         token: &Secret,
     ) -> axum::http::request::Builder {
         local(request).header(header::AUTHORIZATION, format!("Bearer {}", token.expose()))
+    }
+
+    /// A write by the person in the browser: the session cookie and a same-origin header.
+    pub(crate) fn as_person(
+        request: axum::http::request::Builder,
+        cookie: &str,
+    ) -> axum::http::request::Builder {
+        local(request)
+            .header(header::COOKIE, cookie)
+            .header(header::ORIGIN, "http://127.0.0.1:4711")
+    }
+
+    /// A request that says it comes from a dispatcher run, as the CLI sends it.
+    pub(crate) fn in_run(request: axum::http::request::Builder) -> axum::http::request::Builder {
+        request.header(crate::RUN_HEADER, "run-1")
+    }
+
+    /// A request that says it comes from a Claude session, as the CLI sends it.
+    pub(crate) fn in_session(
+        request: axum::http::request::Builder,
+    ) -> axum::http::request::Builder {
+        request.header(crate::SESSION_HEADER, "session-1")
     }
 
     pub(crate) async fn send(

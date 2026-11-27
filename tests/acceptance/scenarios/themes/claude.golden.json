@@ -56,16 +56,23 @@
     "stdout": "packed night-blue 1.2.0 (4 files) into <WORK>/night-blue.nullradix\n"
   },
   {
-    "cli": [
-      "theme",
-      "install",
-      "<WORK>/night-blue.nullradix",
-      "--yes"
-    ],
-    "exitCode": 0,
-    "name": "install the package",
-    "stderr": "",
-    "stdout": "installed night-blue 1.2.0\n"
+    "name": "the person installs the package",
+    "request": {
+      "auth": "session",
+      "bodyFile": "<WORK>/night-blue.nullradix",
+      "method": "POST",
+      "path": "/api/v1/themes?confirmed=true"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": false,
+        "hasCode": false,
+        "id": "night-blue",
+        "version": 1
+      },
+      "location": "/api/v1/themes/night-blue/files/theme.css?v=1",
+      "status": 201
+    }
   },
   {
     "cli": [
@@ -114,10 +121,57 @@
       "claude",
       "on"
     ],
-    "exitCode": 0,
-    "name": "turn it on over the cli",
-    "stderr": "",
-    "stdout": "claude theme on: active (chosen theme: night-blue)\n  active   <HOME>/data/.claude\n"
+    "exitCode": 1,
+    "name": "the cli cannot turn it on",
+    "stderr": "error: turn the Claude part on in the app: it runs code in every Claude session, so only the person can allow it\n",
+    "stdout": ""
+  },
+  {
+    "name": "a token cannot turn it on over http either",
+    "request": {
+      "body": {
+        "enabled": true
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/claude-theme"
+    },
+    "response": {
+      "json": {
+        "code": "claude-theme-needs-person",
+        "detail": "only the person in the app can turn the Claude part of a theme on; tokens may only turn it off",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:claude-theme-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "the person turns it on in the app",
+    "request": {
+      "auth": "session",
+      "body": {
+        "enabled": true
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/claude-theme"
+    },
+    "response": {
+      "json": {
+        "enabled": true,
+        "state": "active",
+        "targets": [
+          {
+            "message": null,
+            "path": "<HOME>/data/.claude",
+            "state": "active"
+          }
+        ],
+        "themeId": "night-blue",
+        "themeName": "Night Blue"
+      },
+      "status": 200
+    }
   },
   {
     "name": "the status names the folder",
@@ -207,9 +261,46 @@
       "night-blue"
     ],
     "exitCode": 0,
-    "name": "the installed theme again",
+    "name": "a token choosing the theme with a Claude part turns the switch off",
     "stderr": "",
     "stdout": "now using night-blue\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "it is off now",
+    "stderr": "",
+    "stdout": "claude theme off: none (chosen theme: night-blue)\n  none     <HOME>/data/.claude\n"
+  },
+  {
+    "name": "the person turns it on again",
+    "request": {
+      "auth": "session",
+      "body": {
+        "enabled": true
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/claude-theme"
+    },
+    "response": {
+      "json": {
+        "enabled": true,
+        "state": "active",
+        "targets": [
+          {
+            "message": null,
+            "path": "<HOME>/data/.claude",
+            "state": "active"
+          }
+        ],
+        "themeId": "night-blue",
+        "themeName": "Night Blue"
+      },
+      "status": 200
+    }
   },
   {
     "cli": [
@@ -253,15 +344,31 @@
     "name": "a folder of someone else"
   },
   {
-    "cli": [
-      "theme",
-      "claude",
-      "on"
-    ],
-    "exitCode": 0,
     "name": "it is refused and reported",
-    "stderr": "",
-    "stdout": "claude theme on: foreign (chosen theme: night-blue)\n  foreign  <HOME>/data/.claude (<HOME>/data/.claude/skills/nullradix-theme is not owned by NULLRADIX; rename or delete it so the Claude theme can go there)\n"
+    "request": {
+      "auth": "session",
+      "body": {
+        "enabled": true
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/claude-theme"
+    },
+    "response": {
+      "json": {
+        "enabled": true,
+        "state": "foreign",
+        "targets": [
+          {
+            "message": "<HOME>/data/.claude/skills/nullradix-theme is not owned by NULLRADIX; rename or delete it so the Claude theme can go there",
+            "path": "<HOME>/data/.claude",
+            "state": "foreign"
+          }
+        ],
+        "themeId": "night-blue",
+        "themeName": "Night Blue"
+      },
+      "status": 200
+    }
   },
   {
     "cli": [

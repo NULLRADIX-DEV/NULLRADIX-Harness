@@ -114,16 +114,23 @@
     "stdout": "packed night-code 1.0.0 (3 files) into <WORK>/v1.nullradix\n"
   },
   {
-    "cli": [
-      "theme",
-      "install",
-      "<WORK>/v1.nullradix",
-      "--yes"
-    ],
-    "exitCode": 0,
-    "name": "install the confirmed package",
-    "stderr": "",
-    "stdout": "installed night-code 1.0.0\nits code is off; turn it on in the app\n"
+    "name": "the person installs the confirmed package",
+    "request": {
+      "auth": "session",
+      "bodyFile": "<WORK>/v1.nullradix",
+      "method": "POST",
+      "path": "/api/v1/themes?confirmed=true"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": false,
+        "hasCode": true,
+        "id": "night-code",
+        "version": 1
+      },
+      "location": "/api/v1/themes/night-code/files/theme.css?v=1",
+      "status": 201
+    }
   },
   {
     "name": "the theme has code and the switch is off",
@@ -406,19 +413,42 @@
     }
   },
   {
-    "cli": [
-      "theme",
-      "install",
-      "<WORK>/v1.nullradix",
-      "--yes"
-    ],
-    "exitCode": 0,
-    "name": "a token installs the same package again",
-    "stderr": "",
-    "stdout": "installed night-code 1.0.0\nits code is off; turn it on in the app\n"
+    "name": "a token cannot confirm the same package again",
+    "request": {
+      "bodyFile": "<WORK>/v1.nullradix",
+      "method": "POST",
+      "path": "/api/v1/themes?confirmed=true"
+    },
+    "response": {
+      "json": {
+        "code": "theme-confirmation-required",
+        "confirmation": {
+          "added": {
+            "claudeTheme": false,
+            "code": false,
+            "domains": []
+          },
+          "claudeTheme": false,
+          "domains": [
+            "fonts.example.com"
+          ],
+          "hasCode": true,
+          "id": "night-code",
+          "name": "Night Code",
+          "sha256": null,
+          "update": true,
+          "version": "<VERSION>"
+        },
+        "detail": "night-code contains code and network domains fonts.example.com; only the person can confirm it, in the app",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:theme-confirmation-required"
+      },
+      "status": 409
+    }
   },
   {
-    "name": "the token's install turned the switch off",
+    "name": "the refused install changed nothing",
     "request": {
       "method": "GET",
       "path": "/api/v1/themes"
@@ -427,48 +457,10 @@
       "json": {
         "items": {
           "0": {
-            "codeEnabled": false,
-            "version": 3
+            "codeEnabled": true,
+            "version": 2
           }
         }
-      },
-      "status": 200
-    }
-  },
-  {
-    "name": "the module is not served after the token's install",
-    "request": {
-      "method": "GET",
-      "path": "/api/v1/themes/night-code/files/main.js"
-    },
-    "response": {
-      "json": {
-        "code": "theme-file-not-found",
-        "detail": "no such theme file",
-        "status": 404,
-        "title": "Not Found",
-        "type": "urn:nullradix:problem:theme-file-not-found"
-      },
-      "status": 404
-    }
-  },
-  {
-    "name": "the person turns the code on again",
-    "request": {
-      "auth": "session",
-      "body": {
-        "enabled": true,
-        "version": 3
-      },
-      "method": "PUT",
-      "path": "/api/v1/themes/night-code/code"
-    },
-    "response": {
-      "json": {
-        "codeEnabled": true,
-        "hasCode": true,
-        "id": "night-code",
-        "version": 3
       },
       "status": 200
     }
@@ -504,9 +496,9 @@
         "codeEnabled": false,
         "hasCode": true,
         "id": "night-code",
-        "version": 4
+        "version": 3
       },
-      "location": "/api/v1/themes/night-code/files/theme.css?v=4",
+      "location": "/api/v1/themes/night-code/files/theme.css?v=3",
       "status": 200
     }
   },
@@ -521,7 +513,7 @@
         "items": {
           "0": {
             "codeEnabled": false,
-            "version": 4
+            "version": 3
           }
         }
       },
@@ -530,6 +522,108 @@
   },
   {
     "name": "the module is not served after the update",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "json": {
+        "code": "theme-file-not-found",
+        "detail": "no such theme file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-file-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "file": "<WORK>/plain-night/manifest.json",
+    "lines": 0,
+    "name": "manifest of a plain update"
+  },
+  {
+    "file": "<WORK>/plain-night/theme.css",
+    "lines": 0,
+    "name": "plain stylesheet"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/plain-night",
+      "--out",
+      "<WORK>/plain.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the plain update",
+    "stderr": "",
+    "stdout": "packed night-code 1.2.0 (2 files) into <WORK>/plain.nullradix\n"
+  },
+  {
+    "name": "the person turns the code on again",
+    "request": {
+      "auth": "session",
+      "body": {
+        "enabled": true,
+        "version": 3
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": true,
+        "hasCode": true,
+        "id": "night-code",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the module is served again",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "status": 200,
+      "text": "export default { id: 'night-code', slots: {} };\n"
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/plain.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "a token installs the plain update, which takes the code away",
+    "stderr": "",
+    "stdout": "installed night-code 1.2.0\n"
+  },
+  {
+    "name": "the code and its switch are gone",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "items": {
+          "0": {
+            "codeEnabled": false,
+            "hasCode": false,
+            "version": 4
+          }
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the module is not served after the plain update",
     "request": {
       "method": "GET",
       "path": "/api/v1/themes/night-code/files/main.js"
@@ -557,16 +651,23 @@
     "stdout": "removed night-code\n"
   },
   {
-    "cli": [
-      "theme",
-      "install",
-      "<WORK>/v2.nullradix",
-      "--yes"
-    ],
-    "exitCode": 0,
-    "name": "a reinstall starts with the switch off",
-    "stderr": "",
-    "stdout": "installed night-code 1.1.0\nits code is off; turn it on in the app\n"
+    "name": "a reinstall by the person starts with the switch off",
+    "request": {
+      "auth": "session",
+      "bodyFile": "<WORK>/v2.nullradix",
+      "method": "POST",
+      "path": "/api/v1/themes?confirmed=true"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": false,
+        "hasCode": true,
+        "id": "night-code",
+        "version": 1
+      },
+      "location": "/api/v1/themes/night-code/files/theme.css?v=1",
+      "status": 201
+    }
   },
   {
     "name": "the new install is off",

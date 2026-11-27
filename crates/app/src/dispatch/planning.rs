@@ -201,6 +201,12 @@ impl PlanningRuns {
                 record.status.as_str()
             )));
         }
+        if record.awaits_a_person() {
+            return Err(AppError::invalid(
+                "plan-waiting-person",
+                format!("{key} waits for a person - decide first, then plan"),
+            ));
+        }
         if !detail.view.open_questions.is_empty() {
             let keys: Vec<String> = detail
                 .view
@@ -284,7 +290,7 @@ impl PlanningRuns {
         let actor = self.parts.starter.actor().await?;
         self.parts
             .tickets
-            .claim_planning(&text, &agent, actor)
+            .claim_planning(&text, &agent, actor, false)
             .await?;
         let launched = self
             .launch(&text, &root, trigger, &profile, chosen.account, &agent)
@@ -363,7 +369,12 @@ impl PlanningRuns {
     /// Gives the planning claim back; what goes wrong is only logged.
     async fn release(&self, key: &str, agent: &str) {
         let released = match self.parts.starter.actor().await {
-            Ok(actor) => self.parts.tickets.release_planning(key, agent, actor).await,
+            Ok(actor) => {
+                self.parts
+                    .tickets
+                    .release_planning(key, agent, actor, false)
+                    .await
+            }
             Err(error) => Err(error),
         };
         if let Err(error) = released {

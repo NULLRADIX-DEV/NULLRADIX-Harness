@@ -503,6 +503,13 @@ impl TicketWrite for Write {
         Ok(dependency_index(&mut self.0).await?)
     }
 
+    async fn autopilot_keep_label(&mut self) -> Result<Option<String>, AppError> {
+        sqlx::query_scalar!("SELECT autopilot_except_label FROM dispatcher_settings WHERE id = 1")
+            .fetch_one(&mut *self.0)
+            .await
+            .map_err(database)
+    }
+
     async fn take_number(&mut self, project: Id<Project>) -> Result<u32, AppError> {
         let uuid = project.as_uuid();
         let number = sqlx::query_scalar!(

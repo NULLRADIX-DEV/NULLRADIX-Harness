@@ -1,11 +1,13 @@
 //! The switch that puts the Claude part of the chosen theme into the Claude config folders.
 
-use axum::Json;
 use axum::extract::State;
-use nullradix_app::claude_theme::{ClaudeThemeStatus, TargetState, TargetStatus};
+use axum::{Extension, Json};
+use nullradix_app::auth::Principal;
+use nullradix_app::claude_theme::{ClaudeThemeStatus, TargetState, TargetStatus, needs_person};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::auth::{AgentContext, require_person};
 use crate::{ApiError, ApiJson, ApiState, Problem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -110,13 +112,19 @@ pub(crate) async fn claude_theme(
     responses(
         (status = 200, description = "The switch is set and the folders are in line; a folder that failed shows in its state", body = ClaudeThemeDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`claude-theme-needs-person`: a token or an agent tried to turn the switch on; only the person in the app may, a token may turn it off", body = Problem),
         (status = 422, body = Problem),
     )
 )]
 pub(crate) async fn set_claude_theme(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiJson(input): ApiJson<SetClaudeTheme>,
 ) -> Result<Json<ClaudeThemeDto>, ApiError> {
+    if input.enabled {
+        require_person(&principal, context, needs_person)?;
+    }
     Ok(Json(
         state.claude_theme.set_enabled(input.enabled).await?.into(),
     ))
@@ -177,10 +185,12 @@ pub(crate) mod fake {
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
-    use axum::http::{Request, header};
+    use axum::http::{Request, StatusCode, header};
     use serde_json::{Value, json};
 
-    use crate::tests::{TestApi, bearer, local, send, test_api};
+    use crate::tests::{
+        TestApi, as_person, bearer, in_run, in_session, local, open_session, send, test_api,
+    };
 
     async fn call(api: &TestApi, method: &str, body: Option<Value>) -> (u16, Value) {
         let request = bearer(
@@ -192,6 +202,17 @@ mod tests {
         .header(header::CONTENT_TYPE, "application/json")
         .body(body.map_or_else(Body::empty, |body| Body::from(body.to_string())))
         .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        (status.as_u16(), json)
+    }
+
+    /// The person in the browser; only they turn the switch on.
+    async fn person_put(api: &TestApi, body: Value) -> (u16, Value) {
+        let cookie = open_session(api).await;
+        let request = as_person(Request::put("/api/v1/settings/claude-theme"), &cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
         let (status, _, json) = send(&api.router, request).await;
         (status.as_u16(), json)
     }
@@ -209,7 +230,7 @@ mod tests {
                 "targets": [{ "path": "/default", "state": "none", "message": null }]
             })
         );
-        let (status, on) = call(&api, "PUT", Some(json!({ "enabled": true }))).await;
+        let (status, on) = person_put(&api, json!({ "enabled": true })).await;
         assert_eq!((status, &on["enabled"]), (200, &json!(true)));
         let (_, again) = call(&api, "GET", None).await;
         assert_eq!(again["enabled"], true);
@@ -225,9 +246,80 @@ mod tests {
             json!({ "enabled": "yes" }),
             json!({ "enabled": true, "x": 1 }),
         ] {
-            let (status, problem) = call(&api, "PUT", Some(body)).await;
+            let (status, problem) = person_put(&api, body).await;
             assert_eq!(status, 422, "{problem}");
         }
+    }
+
+    #[tokio::test]
+    async fn only_the_person_turns_the_switch_on_and_a_token_only_off() {
+        let api = test_api().await;
+        let on = json!({ "enabled": true });
+        // a token is refused, and so is a session that names a run or a session of an agent
+        let (status, problem) = call(&api, "PUT", Some(on.clone())).await;
+        assert_eq!(
+            (status, &problem["code"]),
+            (403, &json!("claude-theme-needs-person"))
+        );
+        let cookie = open_session(&api).await;
+        for mark in [in_run, in_session] {
+            let request = mark(as_person(
+                Request::put("/api/v1/settings/claude-theme"),
+                &cookie,
+            ))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(on.to_string()))
+            .unwrap();
+            let (status, _, problem) = send(&api.router, request).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(problem["code"], "claude-theme-needs-person");
+        }
+        assert_eq!(call(&api, "GET", None).await.1["enabled"], false);
+        assert_eq!(api.slots.calls(), 0);
+
+        let (status, set) = person_put(&api, on).await;
+        assert_eq!((status, &set["enabled"]), (200, &json!(true)));
+        // a token may switch it off, and an off that changes nothing is fine as well
+        let (status, set) = call(&api, "PUT", Some(json!({ "enabled": false }))).await;
+        assert_eq!((status, &set["enabled"]), (200, &json!(false)));
+        let (status, _) = call(&api, "PUT", Some(json!({ "enabled": false }))).await;
+        assert_eq!(status, 200);
+        // a refused body is still told apart from a refused person
+        let (status, _) = call(&api, "PUT", Some(json!({ "enabled": "yes" }))).await;
+        assert_eq!(status, 422);
+    }
+
+    #[tokio::test]
+    async fn a_token_choosing_a_theme_with_a_claude_part_turns_the_switch_off() {
+        let api = test_api().await;
+        upload(&api).await;
+        person_put(&api, json!({ "enabled": true })).await;
+        let choose = |theme: &'static str| {
+            call_at(
+                &api,
+                "PUT",
+                "/api/v1/settings/theme",
+                Some(json!({ "theme": theme })),
+            )
+        };
+        // the person's own choice keeps the switch
+        let cookie = open_session(&api).await;
+        let request = as_person(Request::put("/api/v1/settings/theme"), &cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "theme": "night-blue" }).to_string()))
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, StatusCode::OK);
+        assert_eq!(call(&api, "GET", None).await.1["enabled"], true);
+        // a token's choice of a theme without one does too
+        assert_eq!(choose("light").await.0, 200);
+        assert_eq!(call(&api, "GET", None).await.1["enabled"], true);
+        // its choice of the theme with a Claude part does not
+        assert_eq!(choose("night-blue").await.0, 200);
+        let (_, status) = call(&api, "GET", None).await;
+        assert_eq!(
+            (&status["enabled"], &status["state"]),
+            (&json!(false), &json!("none"))
+        );
     }
 
     #[tokio::test]
@@ -254,7 +346,8 @@ mod tests {
             "manifest.json={THEME}\n--\ntheme.css=a {{}}\n--\nclaude/hooks/hooks.json={{}}"
         )
         .into_bytes();
-        let request = bearer(Request::post("/api/v1/themes?confirmed=true"), &api.token)
+        let cookie = open_session(api).await;
+        let request = as_person(Request::post("/api/v1/themes?confirmed=true"), &cookie)
             .body(Body::from(bytes))
             .unwrap();
         let (status, _, body) = send(&api.router, request).await;
