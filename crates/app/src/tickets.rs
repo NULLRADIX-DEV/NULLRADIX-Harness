@@ -866,16 +866,16 @@ impl TicketService {
         let mut write = self.repository.begin().await?;
         let name = agent_name(agent)?;
         let before = load(write.as_mut(), &key, expected).await?;
+        before.claim_precheck(status, force).map_err(claim_error)?;
         let index = write.dependency_index().await?;
-        let facts = if force {
-            StatusFacts::default()
-        } else {
-            StatusFacts {
-                open_dependencies: index.open_dependencies(&before.record().depends_on),
-                open_questions: open_question_keys(write.as_mut(), before.id()).await?,
-                ..StatusFacts::default()
+        let mut facts = StatusFacts::default();
+        if !force {
+            facts.open_dependencies = index.open_dependencies(&before.record().depends_on);
+            // the question read only matters when no dependency refuses first
+            if facts.open_dependencies.is_empty() {
+                facts.open_questions = open_question_keys(write.as_mut(), before.id()).await?;
             }
-        };
+        }
         let mut after = before
             .claimed(name, status, force, &facts)
             .map_err(claim_error)?;

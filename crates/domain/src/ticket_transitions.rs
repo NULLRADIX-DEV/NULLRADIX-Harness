@@ -1,8 +1,8 @@
 //! State rules of a ticket: each takes the current state and a request and returns the next state.
 
 use crate::{
-    BLOCKED_REASON_MAX, Board, Id, StatusFacts, StatusLock, Ticket, TicketError, TicketKey,
-    TicketRecord, TicketStatus, Timestamp, optional_text, strip_fence,
+    BLOCKED_REASON_MAX, Board, HUMAN_INTERACTION, Id, StatusFacts, StatusLock, Ticket, TicketError,
+    TicketKey, TicketRecord, TicketStatus, Timestamp, optional_text, strip_fence,
 };
 
 /// Why a claim for an agent is refused.
@@ -16,7 +16,7 @@ pub enum ClaimError {
 
 /// The ticket is not blocked on a person.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{key} waits for no acceptance; only blocked with \"Human Interaction: ...\"")]
+#[error("{key} waits for no acceptance; only blocked with \"{HUMAN_INTERACTION} ...\"")]
 pub struct AcceptError {
     pub key: TicketKey,
 }
@@ -108,6 +108,25 @@ impl Ticket {
         after
     }
 
+    /// The claim checks that need no reads: taken already, and not needed for agents.
+    pub fn claim_precheck(&self, status: TicketStatus, force: bool) -> Result<(), ClaimError> {
+        if force {
+            return Ok(());
+        }
+        let record = self.record();
+        // even the same name: several sessions often share one, only this keeps a claim exclusive
+        if let Some(current) = &record.assignee {
+            return Err(ClaimError::Assigned {
+                key: record.key.clone(),
+                assignee: current.clone(),
+            });
+        }
+        if status == TicketStatus::NotNeeded {
+            return Err(StatusLock::NotNeededByPeople.into());
+        }
+        Ok(())
+    }
+
     /// Hands the ticket to an agent; `facts` come into play unless the claim is forced.
     pub fn claimed(
         &self,
@@ -116,20 +135,8 @@ impl Ticket {
         force: bool,
         facts: &StatusFacts,
     ) -> Result<TicketRecord, ClaimError> {
-        let record = self.record();
-        // even the same name: several sessions often share one, only this keeps a claim exclusive
-        if let Some(current) = &record.assignee
-            && !force
-        {
-            return Err(ClaimError::Assigned {
-                key: record.key.clone(),
-                assignee: current.clone(),
-            });
-        }
+        self.claim_precheck(status, force)?;
         if !force {
-            if status == TicketStatus::NotNeeded {
-                return Err(StatusLock::NotNeededByPeople.into());
-            }
             if !facts.open_dependencies.is_empty() {
                 return Err(StatusLock::DependencyOpen(facts.open_dependencies.clone()).into());
             }
@@ -137,7 +144,7 @@ impl Ticket {
                 return Err(StatusLock::QuestionOpen(facts.open_questions.clone()).into());
             }
         }
-        let mut after = record.clone();
+        let mut after = self.record().clone();
         after.assignee = Some(assignee);
         after.status = status;
         Ok(after)
@@ -304,7 +311,10 @@ mod tests {
             "it works"
         );
         assert_eq!(ticket.moved(TicketStatus::Planned, None).acceptance, "");
-        assert_eq!(ticket.moved(TicketStatus::Planned, Some("")).acceptance, "");
+        let mut record = ticket.record().clone();
+        record.acceptance = String::from("old");
+        let written = Ticket::restore(record).moved(TicketStatus::Planned, Some(""));
+        assert_eq!(written.acceptance, "");
     }
 
     #[test]
@@ -450,6 +460,40 @@ mod tests {
         // a forced claim skips every lock, and the acceptance never counts
         assert!(claim(TicketStatus::NotNeeded, true, &facts).is_ok());
         assert!(claim(TicketStatus::Done, false, &StatusFacts::default()).is_ok());
+    }
+
+    #[test]
+    fn the_first_refusal_wins_when_several_apply() {
+        let mut record = ticket(TicketStatus::Planned).record().clone();
+        record.assignee = Some(String::from("claude"));
+        let assigned = Ticket::restore(record);
+        let free = ticket(TicketStatus::Planned);
+        let both = StatusFacts {
+            acceptance_blank: false,
+            open_dependencies: vec![key("ARC-1")],
+            open_questions: vec![String::from("Q-1")],
+        };
+        let name = || String::from("claude");
+        assert_eq!(
+            assigned.claimed(name(), TicketStatus::NotNeeded, false, &both),
+            Err(ClaimError::Assigned {
+                key: key("ARC-7"),
+                assignee: String::from("claude"),
+            })
+        );
+        assert_eq!(
+            free.claimed(name(), TicketStatus::NotNeeded, false, &both),
+            Err(StatusLock::NotNeededByPeople.into())
+        );
+        assert_eq!(
+            free.claimed(name(), TicketStatus::InProgress, false, &both),
+            Err(StatusLock::DependencyOpen(vec![key("ARC-1")]).into())
+        );
+        assert_eq!(
+            assigned.claim_precheck(TicketStatus::InProgress, true),
+            Ok(())
+        );
+        assert!(free.claim_precheck(TicketStatus::InProgress, false).is_ok());
     }
 
     #[test]

@@ -4,18 +4,26 @@ mod common;
 
 use std::sync::Arc;
 
+use nullradix_app::Change;
 use nullradix_app::boards::{BoardService, local_person};
+use nullradix_app::comments::CommentWrite;
 use nullradix_app::projects::ProjectService;
+use nullradix_app::questions::{OpenQuestion, QuestionWrite};
 use nullradix_app::tickets::{
     NewTicket, PlanInput, StepGuard, StepPatch, TicketDetail, TicketFilter, TicketPatch,
     TicketRead, TicketRepository, TicketScope, TicketService, TicketSnapshot, TicketView,
     TicketWrite, WriteOptions,
 };
+use nullradix_app::worktrees::{WorktreeEntry, WorktreeWrite};
 use nullradix_app::{
     AppError, ChangeFeed, ChangeOp, ChangeSignal, Clock, Entity, SystemClock, UuidV7Generator,
 };
 use nullradix_domain::{
     Actor, Board, Column, Id, Priority, Project, Step, TicketKey, TicketStatus, Timestamp, Version,
+};
+use nullradix_domain::{
+    Comment, DependencyIndex, HistoryEntry, ProjectKey, Question, QuestionKey, Repository,
+    Research, Runner, Ticket, TicketTitle, Tombstone, Worktree, WorktreeBranch,
 };
 use nullradix_store::Store;
 use tokio::sync::watch::Receiver;
@@ -1763,4 +1771,291 @@ async fn tickets_move_between_boards_of_one_project_all_or_none() {
         (last.field.as_str(), last.note.as_deref()),
         ("boardId", Some("taken from board Main"))
     );
+}
+
+/// Delegates every write to the store and notes which lock reads a claim makes.
+struct Counting {
+    inner: Box<dyn TicketWrite>,
+    reads: Arc<std::sync::Mutex<Vec<&'static str>>>,
+}
+
+struct Reading {
+    store: Arc<Store>,
+    reads: Arc<std::sync::Mutex<Vec<&'static str>>>,
+}
+
+#[async_trait::async_trait]
+impl TicketRepository for Reading {
+    async fn begin(&self) -> Result<Box<dyn TicketWrite>, AppError> {
+        Ok(Box::new(Counting {
+            inner: TicketRepository::begin(self.store.as_ref()).await?,
+            reads: self.reads.clone(),
+        }))
+    }
+
+    async fn list(&self, scope: TicketScope) -> Result<TicketSnapshot, AppError> {
+        self.store.list(scope).await
+    }
+
+    async fn get(&self, key: &TicketKey) -> Result<Option<TicketRead>, AppError> {
+        self.store.get(key).await
+    }
+}
+
+#[async_trait::async_trait]
+impl WorktreeWrite for Counting {
+    async fn insert_worktree(
+        &mut self,
+        worktree: &Worktree,
+        owner: Id<Ticket>,
+    ) -> Result<Change, AppError> {
+        self.inner.insert_worktree(worktree, owner).await
+    }
+    async fn join_worktree(
+        &mut self,
+        worktree: Id<Worktree>,
+        ticket: Id<Ticket>,
+        at: Timestamp,
+    ) -> Result<Change, AppError> {
+        self.inner.join_worktree(worktree, ticket, at).await
+    }
+    async fn release_link(
+        &mut self,
+        ticket: Id<Ticket>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        self.inner.release_link(ticket, at).await
+    }
+    async fn retire_branch(
+        &mut self,
+        repository: Id<Repository>,
+        runner: Id<Runner>,
+        branch: &WorktreeBranch,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        self.inner
+            .retire_branch(repository, runner, branch, at)
+            .await
+    }
+    async fn live_worktree(
+        &mut self,
+        ticket: Id<Ticket>,
+    ) -> Result<Option<WorktreeEntry>, AppError> {
+        self.inner.live_worktree(ticket).await
+    }
+    async fn set_ready(
+        &mut self,
+        worktree: Id<Worktree>,
+        ready: bool,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        self.inner.set_ready(worktree, ready, at).await
+    }
+    async fn claim_removal(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        self.inner.claim_removal(worktree, at).await
+    }
+    async fn mark_removed(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        self.inner.mark_removed(worktree, at).await
+    }
+    async fn mark_restored(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        self.inner.mark_restored(worktree, at).await
+    }
+    async fn mark_ensured(
+        &mut self,
+        worktree: Id<Worktree>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        self.inner.mark_ensured(worktree, at).await
+    }
+    async fn mark_kept(
+        &mut self,
+        worktree: Id<Worktree>,
+        reason: Option<&str>,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError> {
+        self.inner.mark_kept(worktree, reason, at).await
+    }
+}
+
+#[async_trait::async_trait]
+impl CommentWrite for Counting {
+    async fn insert_comment(&mut self, comment: &Comment) -> Result<Change, AppError> {
+        self.inner.insert_comment(comment).await
+    }
+}
+
+#[async_trait::async_trait]
+impl QuestionWrite for Counting {
+    async fn take_question_number(&mut self, project: Id<Project>) -> Result<u32, AppError> {
+        self.inner.take_question_number(project).await
+    }
+    async fn question(&mut self, key: &QuestionKey) -> Result<Option<Question>, AppError> {
+        self.inner.question(key).await
+    }
+    async fn insert_question(&mut self, question: &Question) -> Result<Change, AppError> {
+        self.inner.insert_question(question).await
+    }
+    async fn update_question(
+        &mut self,
+        question: &Question,
+        expected: Version,
+    ) -> Result<Change, AppError> {
+        self.inner.update_question(question, expected).await
+    }
+    async fn insert_research(&mut self, research: &Research) -> Result<(), AppError> {
+        self.inner.insert_research(research).await
+    }
+    async fn research(&mut self, question: Id<Question>) -> Result<Vec<Research>, AppError> {
+        self.inner.research(question).await
+    }
+    async fn open_questions(&mut self, ticket: Id<Ticket>) -> Result<Vec<OpenQuestion>, AppError> {
+        self.reads.lock().unwrap().push("open_questions");
+        self.inner.open_questions(ticket).await
+    }
+    async fn questions_naming(&mut self, ticket: Id<Ticket>) -> Result<Vec<Question>, AppError> {
+        self.inner.questions_naming(ticket).await
+    }
+    async fn note_tickets(&mut self, history: &[HistoryEntry]) -> Result<(), AppError> {
+        self.inner.note_tickets(history).await
+    }
+}
+
+#[async_trait::async_trait]
+impl TicketWrite for Counting {
+    async fn board(&mut self, id: Id<Board>) -> Result<Option<(Board, ProjectKey)>, AppError> {
+        self.inner.board(id).await
+    }
+    async fn open_titles(
+        &mut self,
+        board: Id<Board>,
+    ) -> Result<Vec<(TicketKey, TicketTitle)>, AppError> {
+        self.inner.open_titles(board).await
+    }
+    async fn dependency_index(&mut self) -> Result<DependencyIndex, AppError> {
+        self.reads.lock().unwrap().push("dependency_index");
+        self.inner.dependency_index().await
+    }
+    async fn take_number(&mut self, project: Id<Project>) -> Result<u32, AppError> {
+        self.inner.take_number(project).await
+    }
+    async fn next_sort_order(
+        &mut self,
+        board: Id<Board>,
+        status: TicketStatus,
+    ) -> Result<i64, AppError> {
+        self.inner.next_sort_order(board, status).await
+    }
+    async fn insert(
+        &mut self,
+        ticket: &Ticket,
+        history: &[HistoryEntry],
+    ) -> Result<Change, AppError> {
+        self.inner.insert(ticket, history).await
+    }
+    async fn ticket(&mut self, key: &TicketKey) -> Result<Option<Ticket>, AppError> {
+        self.inner.ticket(key).await
+    }
+    async fn board_tickets(&mut self, board: Id<Board>) -> Result<Vec<Ticket>, AppError> {
+        self.inner.board_tickets(board).await
+    }
+    async fn dependents(&mut self, ticket: Id<Ticket>) -> Result<Vec<Ticket>, AppError> {
+        self.inner.dependents(ticket).await
+    }
+    async fn update(
+        &mut self,
+        ticket: &Ticket,
+        expected: Version,
+        history: &[HistoryEntry],
+    ) -> Result<Change, AppError> {
+        self.inner.update(ticket, expected, history).await
+    }
+    async fn delete(&mut self, ticket: &Ticket, tombstone: &Tombstone) -> Result<Change, AppError> {
+        self.inner.delete(ticket, tombstone).await
+    }
+    async fn delete_board(
+        &mut self,
+        board: Id<Board>,
+        expected: Version,
+        at: Timestamp,
+    ) -> Result<Change, AppError> {
+        self.inner.delete_board(board, expected, at).await
+    }
+    async fn steps(&mut self, ticket: Id<Ticket>) -> Result<Vec<Step>, AppError> {
+        self.inner.steps(ticket).await
+    }
+    async fn replace_steps(&mut self, ticket: Id<Ticket>, steps: &[Step]) -> Result<(), AppError> {
+        self.inner.replace_steps(ticket, steps).await
+    }
+    async fn commit(self: Box<Self>) -> Result<(), AppError> {
+        self.inner.commit().await
+    }
+}
+
+#[tokio::test]
+async fn a_claim_reads_dependencies_and_questions_only_when_the_checks_before_them_pass() {
+    let fx = fixture().await;
+    let (_, board) = fx.board("ARC").await;
+    let reads = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let tickets = TicketService::new(
+        Arc::new(Reading {
+            store: fx.store.clone(),
+            reads: reads.clone(),
+        }),
+        fx.store.clone(),
+        Arc::new(SystemClock),
+        Arc::new(UuidV7Generator),
+        ChangeSignal::new(),
+    );
+    for title in ["One", "Two", "Three"] {
+        fx.create(&board, titled(title), AGENT).await.unwrap();
+    }
+    let blocker = NewTicket {
+        depends_on: vec![String::from("ARC-1")],
+        ..titled("Four")
+    };
+    fx.create(&board, blocker, AGENT).await.unwrap();
+    fx.tickets
+        .claim("ARC-2", "claude", Some("planned"), &fx.person, None, false)
+        .await
+        .unwrap();
+    let claim = async |key: &str, status: Option<&str>, force: bool| {
+        reads.lock().unwrap().clear();
+        let result = tickets
+            .claim(key, "other", status, &fx.person, None, force)
+            .await;
+        let seen = reads.lock().unwrap().clone();
+        (
+            result.map(|_| ()).map_err(|error| error.code().to_owned()),
+            seen,
+        )
+    };
+    let (result, seen) = claim("ARC-2", None, false).await;
+    assert_eq!((result, seen), (Err(String::from("conflict")), vec![]));
+    let (result, seen) = claim("ARC-3", Some("not_needed"), false).await;
+    assert_eq!(
+        (result, seen),
+        (Err(String::from("not-needed-human-only")), vec![])
+    );
+    let (result, seen) = claim("ARC-4", None, false).await;
+    assert_eq!(
+        (result, seen),
+        (
+            Err(String::from("dependency-open")),
+            vec!["dependency_index"]
+        )
+    );
+    let (result, seen) = claim("ARC-3", None, true).await;
+    assert_eq!((result, seen), (Ok(()), vec!["dependency_index"]));
 }
