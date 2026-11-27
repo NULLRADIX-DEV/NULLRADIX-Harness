@@ -1,24 +1,39 @@
-import type { ThemeDefinition, ThemeSlots } from '@nullradix/theme-sdk';
+import type { ThemeDefinition, ThemeSettingsSchema, ThemeSlots } from '@nullradix/theme-sdk';
 
 const themes = new Map<string, ThemeDefinition>();
 
-// Own enumerable function values, read once, so later changes or getters change nothing.
-function snapshot(definition: ThemeDefinition, id: string): ThemeDefinition {
-  const { settingsSchema, mermaid } = definition;
-  const slots = Object.fromEntries(
-    Object.entries(definition.slots).filter(([, value]) => typeof value === 'function'),
+// A schema is plain data: a copy keeps later changes out; one with code in it is dropped.
+function copySchema(schema: unknown): ThemeSettingsSchema | undefined {
+  if (typeof schema !== 'object' || schema === null) return undefined;
+  try {
+    return structuredClone(schema) as ThemeSettingsSchema;
+  } catch {
+    return undefined;
+  }
+}
+
+// A theme module's default export as a plain copy, each property read once; undefined if no theme.
+export function readTheme(value: unknown, id: string): ThemeDefinition | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { id: found, slots, settingsSchema, mermaid } = value as Record<string, unknown>;
+  if (found !== id || typeof slots !== 'object' || slots === null) return undefined;
+  const components = Object.fromEntries(
+    Object.entries(slots).filter(([, component]) => typeof component === 'function'),
   ) as ThemeSlots;
+  const schema = copySchema(settingsSchema);
   return {
     id,
-    slots,
-    ...(settingsSchema !== undefined && { settingsSchema }),
-    ...(typeof mermaid === 'function' && { mermaid }),
+    slots: components,
+    ...(schema !== undefined && { settingsSchema: schema }),
+    ...(typeof mermaid === 'function' && {
+      mermaid: mermaid as NonNullable<ThemeDefinition['mermaid']>,
+    }),
   };
 }
 
-// Registers a copy of a theme under `id`; one with the same id is replaced.
-export function registerTheme(definition: ThemeDefinition, id = definition.id): void {
-  themes.set(id, snapshot(definition, id));
+// Registers a theme, usually one from readTheme; one with the same id is replaced.
+export function registerTheme(definition: ThemeDefinition): void {
+  themes.set(definition.id, definition);
 }
 
 // Takes a theme out again, for example after it was uninstalled.

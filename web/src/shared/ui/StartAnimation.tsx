@@ -12,7 +12,7 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-// The slot StartAnimation of the theme shown at page load covers the app; a later change adds none.
+// The animation of the theme shown at page load covers the app; a click or key ends it.
 export function StartAnimation() {
   const theme = useSlotTheme();
   const [start] = useState(() => {
@@ -27,21 +27,26 @@ export function StartAnimation() {
   useEffect(() => {
     if (!start) return undefined;
     const timer = setTimeout(finish, START_ANIMATION_MAX_MS);
+    // the person can always skip it: a key press ends it, like a pointer down on the overlay
+    window.addEventListener('keydown', finish);
     return () => {
       clearTimeout(timer);
+      window.removeEventListener('keydown', finish);
     };
   }, [start, finish]);
 
   if (!start || done) return null;
   const { themeId, Custom } = start;
   return (
-    <div className="theme-start-anim" aria-hidden="true" inert>
+    <div className="theme-start-anim" aria-hidden="true" onPointerDown={finish}>
       <SlotBoundary
         fallback={<Finish onFinish={finish} />}
         themeId={themeId}
         where="the slot StartAnimation"
       >
-        <Custom onDone={finish} />
+        <div className="theme-start-anim-body" inert>
+          <Custom onDone={finish} />
+        </div>
         <TakeOver />
       </SlotBoundary>
     </div>

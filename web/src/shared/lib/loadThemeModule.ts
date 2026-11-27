@@ -1,10 +1,10 @@
-import { SDK_VERSION, type ThemeDefinition } from '@nullradix/theme-sdk';
+import { SDK_VERSION } from '@nullradix/theme-sdk';
 import type { ThemeList } from '../query/themes';
 import { satisfiesSdkRange } from './sdkRange';
 import { isSafeTheme } from './safeTheme';
 import { isThemeMode, readThemeChoice } from './theme';
 import { setThemeNotice } from './themeNotice';
-import { registerTheme } from './themeRegistry';
+import { readTheme, registerTheme } from './themeRegistry';
 
 // What loading the code of the chosen theme came to.
 export interface ThemeLoadResult {
@@ -31,12 +31,6 @@ function fail(status: ThemeLoadResult['status'], themeId: string, message: strin
   console.warn(message);
   setThemeNotice(message);
   return { status, themeId } satisfies ThemeLoadResult;
-}
-
-function isDefinition(value: unknown, id: string): value is ThemeDefinition {
-  if (typeof value !== 'object' || value === null) return false;
-  const { id: found, slots } = value as { id?: unknown; slots?: unknown };
-  return found === id && typeof slots === 'object' && slots !== null;
 }
 
 // Before the first render: runs main.js of the chosen theme if it has code and its switch is on.
@@ -106,15 +100,15 @@ export async function loadThemeModule(deps: ThemeModuleDeps): Promise<ThemeLoadR
       );
     }
     if (limit.passed) throw new TimeoutError();
-    const definition = (module as { default?: unknown } | null)?.default;
-    if (!isDefinition(definition, theme.id)) {
+    const definition = readTheme((module as { default?: unknown } | null)?.default, theme.id);
+    if (!definition) {
       return fail(
         'invalid',
         theme.id,
         `The theme "${theme.id}" delivers no valid theme definition - the default is shown.`,
       );
     }
-    registerTheme(definition, theme.id);
+    registerTheme(definition);
     return { status: 'loaded', themeId: theme.id };
   } catch (error) {
     // no theme was asked for and the list failed: the default needs no word

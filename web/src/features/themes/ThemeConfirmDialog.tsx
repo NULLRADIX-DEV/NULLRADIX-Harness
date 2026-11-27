@@ -20,7 +20,7 @@ function codeSwitchLine(facts: Confirmation): string {
     : 'This update adds nothing new, so the code switch of this theme stays as it is.';
 }
 
-// Asks before a package with code, network domains or a Claude part is installed.
+// Asks before a package with code, domains or a Claude part is installed; plain, never a slot.
 export function ThemeConfirmDialog({
   facts,
   busy,
@@ -41,6 +41,7 @@ export function ThemeConfirmDialog({
       describedBy={descriptionId}
       role="alertdialog"
       className="panel db-dialog"
+      plain
       onEscape={onCancel}
       onSubmit={(event) => {
         event.preventDefault();

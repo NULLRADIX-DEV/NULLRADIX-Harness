@@ -1,74 +1,96 @@
 import type { ThemeDefinition, ThemeSlots } from '@nullradix/theme-sdk';
-import { afterEach, expect, it } from 'vitest';
-import { getTheme, registerTheme, unregisterTheme } from './themeRegistry';
+import { afterEach, describe, expect, it } from 'vitest';
+import { getTheme, readTheme, registerTheme, unregisterTheme } from './themeRegistry';
 
 const Button = () => null;
-const ocean: ThemeDefinition = { id: 'ocean', slots: { Button } };
 
 afterEach(() => {
   unregisterTheme('ocean');
 });
 
-it('keeps what a module registered until it is taken out', () => {
-  expect(getTheme('ocean')).toBeUndefined();
-  registerTheme(ocean);
-  expect(getTheme('ocean')?.id).toBe('ocean');
-  expect(getTheme('ocean')?.slots.Button).toBe(Button);
-  unregisterTheme('ocean');
-  expect(getTheme('ocean')).toBeUndefined();
+describe('registerTheme', () => {
+  it('keeps what a module registered until it is taken out', () => {
+    expect(getTheme('ocean')).toBeUndefined();
+    const ocean: ThemeDefinition = { id: 'ocean', slots: { Button } };
+    registerTheme(ocean);
+    expect(getTheme('ocean')).toBe(ocean);
+    unregisterTheme('ocean');
+    expect(getTheme('ocean')).toBeUndefined();
+  });
+
+  it('replaces a theme registered again under the same id', () => {
+    registerTheme({ id: 'ocean', slots: { Button } });
+    const again: ThemeDefinition = { id: 'ocean', slots: {} };
+    registerTheme(again);
+    expect(getTheme('ocean')).toBe(again);
+  });
 });
 
-it('replaces a theme registered again under the same id', () => {
-  const Other = () => null;
-  registerTheme(ocean);
-  registerTheme({ id: 'ocean', slots: { Card: Other } });
-  expect(getTheme('ocean')?.slots).toEqual({ Card: Other });
-});
+describe('readTheme', () => {
+  it('copies the theme, so later changes of the module change nothing', () => {
+    const slots: ThemeSlots = { Button };
+    const read = readTheme({ id: 'ocean', slots }, 'ocean');
+    slots.Button = () => null;
+    slots.Card = () => null;
+    expect(read).toEqual({ id: 'ocean', slots: { Button } });
+  });
 
-it('keeps a copy, so later changes of the theme change nothing', () => {
-  const slots: ThemeSlots = { Button };
-  registerTheme({ id: 'ocean', slots });
-  slots.Button = () => null;
-  slots.Card = () => null;
-  expect(getTheme('ocean')?.slots).toEqual({ Button });
-});
+  it('reads every property once and keeps only own functions', () => {
+    const reads = { slots: 0, id: 0, button: 0 };
+    const slots = {
+      get Button() {
+        reads.button += 1;
+        return reads.button === 1 ? Button : () => null;
+      },
+      Card: 'not a component',
+      Panel: undefined,
+    } as unknown as ThemeSlots;
+    Object.setPrototypeOf(slots, { Dialog: () => null });
+    const definition = {
+      get id() {
+        reads.id += 1;
+        return reads.id === 1 ? 'ocean' : 'other';
+      },
+      get slots() {
+        reads.slots += 1;
+        return slots;
+      },
+    };
+    const read = readTheme(definition, 'ocean');
+    expect(read).toEqual({ id: 'ocean', slots: { Button } });
+    expect(read?.slots.Button).toBe(Button);
+    expect(reads).toEqual({ slots: 1, id: 1, button: 1 });
+  });
 
-it('reads a getter once and keeps only own functions', () => {
-  let reads = 0;
-  const slots = {
-    get Button() {
-      reads += 1;
-      return reads === 1 ? Button : () => null;
-    },
-    Card: 'not a component',
-    Panel: undefined,
-  } as unknown as ThemeSlots;
-  Object.setPrototypeOf(slots, { Dialog: () => null });
-  registerTheme({ id: 'ocean', slots });
-  expect(getTheme('ocean')?.slots).toEqual({ Button });
-  expect(getTheme('ocean')?.slots.Button).toBe(Button);
-  expect(reads).toBe(1);
-});
+  it('refuses what is no theme or has another id', () => {
+    expect(readTheme(undefined, 'ocean')).toBeUndefined();
+    expect(readTheme(null, 'ocean')).toBeUndefined();
+    expect(readTheme('ocean', 'ocean')).toBeUndefined();
+    expect(readTheme({ id: 'ocean' }, 'ocean')).toBeUndefined();
+    expect(readTheme({ id: 'ocean', slots: null }, 'ocean')).toBeUndefined();
+    expect(readTheme({ id: 'forest', slots: {} }, 'ocean')).toBeUndefined();
+  });
 
-it('registers under the given id, whatever the definition says later', () => {
-  let reads = 0;
-  const definition = {
-    slots: {},
-    get id() {
-      reads += 1;
-      return reads === 1 ? 'ocean' : 'other';
-    },
-  } as ThemeDefinition;
-  registerTheme(definition, 'ocean');
-  expect(getTheme('ocean')?.id).toBe('ocean');
-  expect(getTheme('other')).toBeUndefined();
-});
+  it('keeps the Mermaid look only when it is a function', () => {
+    const mermaid = () => ({ theme: 'dark' as const });
+    expect(readTheme({ id: 'ocean', slots: {}, mermaid }, 'ocean')?.mermaid).toBe(mermaid);
+    expect(readTheme({ id: 'ocean', slots: {}, mermaid: 'x' }, 'ocean')).toEqual({
+      id: 'ocean',
+      slots: {},
+    });
+  });
 
-it('keeps the Mermaid look and the settings schema only when they are real', () => {
-  const mermaid = () => ({ theme: 'dark' as const });
-  registerTheme({ id: 'ocean', slots: {}, mermaid, settingsSchema: {} });
-  expect(getTheme('ocean')?.mermaid).toBe(mermaid);
-  expect(getTheme('ocean')?.settingsSchema).toEqual({});
-  registerTheme({ id: 'ocean', slots: {}, mermaid: 'x' as unknown as () => never });
-  expect(getTheme('ocean')).toEqual({ id: 'ocean', slots: {} });
+  it('copies the settings schema and drops one with code in it', () => {
+    const schema = { dark: { type: 'boolean', label: 'Dark', default: true } };
+    const read = readTheme({ id: 'ocean', slots: {}, settingsSchema: schema }, 'ocean');
+    schema.dark.default = false;
+    expect(read?.settingsSchema).toEqual({
+      dark: { type: 'boolean', label: 'Dark', default: true },
+    });
+    const withCode = { dark: { type: 'boolean', label: () => 'x', default: true } };
+    expect(readTheme({ id: 'ocean', slots: {}, settingsSchema: withCode }, 'ocean')).toEqual({
+      id: 'ocean',
+      slots: {},
+    });
+  });
 });

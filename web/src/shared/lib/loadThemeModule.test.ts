@@ -68,6 +68,25 @@ describe('loadThemeModule', () => {
     expect(getThemeNotice()).toBeUndefined();
   });
 
+  it('registers a copy of the definition that it read once', async () => {
+    const Button = () => null;
+    let reads = 0;
+    const module = {
+      id: 'ocean',
+      get slots() {
+        reads += 1;
+        return { Button };
+      },
+    };
+    const result = await loadThemeModule(
+      deps({ importModule: vi.fn(() => Promise.resolve({ default: module })) }),
+    );
+    expect(result.status).toBe('loaded');
+    expect(reads).toBe(1);
+    expect(getTheme('ocean')?.slots).toEqual({ Button });
+    expect(getTheme('ocean')).not.toBe(module);
+  });
+
   it('follows the theme the daemon has chosen, not the stored hint', async () => {
     window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
     const d = deps();

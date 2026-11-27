@@ -390,10 +390,31 @@ describe('StartAnimation', () => {
     renderThemed(<StartAnimation />, theme({ StartAnimation: Themed }));
     expect(screen.getByText('skip intro')).toBeInTheDocument();
     expect(document.getElementById(START_OVERLAY_ID)).toBeNull();
-    // the animation is not reachable by keyboard or assistive technology
-    expect(document.querySelector('.theme-start-anim')).toHaveAttribute('inert');
     await userEvent.click(screen.getByText('skip intro'));
     expect(screen.queryByText('skip intro')).not.toBeInTheDocument();
+  });
+
+  it('blocks the app and keeps the theme content out of reach of keyboard and pointer', () => {
+    renderThemed(<StartAnimation />, theme({ StartAnimation: Themed }));
+    const overlay = document.querySelector('.theme-start-anim');
+    expect(overlay).not.toHaveAttribute('inert');
+    expect(screen.getByText('skip intro').closest('[inert]')).toBe(
+      document.querySelector('.theme-start-anim-body'),
+    );
+  });
+
+  it('ends on a click on the overlay, which is where a click lands since the content is inert', async () => {
+    renderThemed(<StartAnimation />, theme({ StartAnimation: () => <span>intro</span> }));
+    const overlay = document.querySelector('.theme-start-anim');
+    if (!overlay) throw new Error('no overlay');
+    await userEvent.click(overlay);
+    expect(screen.queryByText('intro')).not.toBeInTheDocument();
+  });
+
+  it('ends on a key press', async () => {
+    renderThemed(<StartAnimation />, theme({ StartAnimation: () => <span>intro</span> }));
+    await userEvent.keyboard('a');
+    expect(screen.queryByText('intro')).not.toBeInTheDocument();
   });
 
   it('ends after the limit when onDone never comes', () => {

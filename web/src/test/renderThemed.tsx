@@ -10,7 +10,7 @@ import { setThemeNotice } from '../shared/lib/themeNotice';
 import { registerTheme, unregisterTheme } from '../shared/lib/themeRegistry';
 import { themeKeys, type Theme, type ThemeList } from '../shared/query/themes';
 import { ThemeProvider } from '../shared/ui/ThemeProvider';
-import { fakeApi, json } from './fakeApi';
+import { fakeApi, json, type Handler } from './fakeApi';
 
 export function themeEntry(id: string, overrides: Partial<Theme> = {}): Theme {
   return {
@@ -53,7 +53,7 @@ afterEach(() => {
 export function renderThemed(
   ui: ReactNode,
   definition: ThemeDefinition,
-  options: { codeEnabled?: boolean } = {},
+  options: { codeEnabled?: boolean; routes?: Record<string, Handler> } = {},
 ) {
   registerTheme(definition);
   registered.add(definition.id);
@@ -63,6 +63,7 @@ export function renderThemed(
   };
   const state = { list };
   fakeApi({
+    ...options.routes,
     'GET /api/v1/themes': () => json(200, state.list),
     'PUT /api/v1/settings/theme': async (request) => {
       const body = (await request.json()) as { theme: string };
