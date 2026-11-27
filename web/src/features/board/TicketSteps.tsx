@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { Progress } from '../../shared/ui/Progress';
 import type { Step } from '../tickets/queries';
 import { StepForm } from './StepForm';
 import type { TicketActions } from './useTicketActions';
+import { Button } from '../../shared/ui/Button';
 
 // `text` is what the step said when the form opened; the daemon refuses a step changed since.
 type Mode = { kind: 'add' } | { kind: 'edit' | 'remove'; id: string; text: string } | null;
@@ -17,21 +19,23 @@ function guidance(detail: string): string | null {
 
 function StepsProgress({ done, total }: { done: number; total: number }) {
   return (
-    <div className="progress">
-      <span
-        className="progress-bar"
-        role="progressbar"
-        aria-label="Steps done"
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={done}
-      >
-        <span style={{ width: `${String(Math.round((done / total) * 100))}%` }} />
-      </span>
-      <span className="progress-text">
-        {done} of {total} done
-      </span>
-    </div>
+    <Progress done={done} total={total} label="Steps done" caption="steps done">
+      <div className="progress">
+        <span
+          className="progress-bar"
+          role="progressbar"
+          aria-label="Steps done"
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={done}
+        >
+          <span style={{ width: `${String(Math.round((done / total) * 100))}%` }} />
+        </span>
+        <span className="progress-text">
+          {done} of {total} done
+        </span>
+      </div>
+    </Progress>
   );
 }
 
@@ -184,9 +188,10 @@ export function TicketSteps({
                     <span>
                       Remove {name} &quot;{step.text}&quot;?
                     </span>
-                    <button
+                    <Button
                       type="button"
-                      className="btn danger small"
+                      variant="danger"
+                      className="small"
                       disabled={actions.busy}
                       onClick={() => {
                         void actions.removeStep(step.id, mode.text).then((removed) => {
@@ -195,10 +200,10 @@ export function TicketSteps({
                       }}
                     >
                       Remove
-                    </button>
-                    <button type="button" className="btn small" autoFocus onClick={close}>
+                    </Button>
+                    <Button type="button" className="small" autoFocus onClick={close}>
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 )}
                 {step.detail && (

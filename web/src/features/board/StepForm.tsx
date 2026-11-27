@@ -1,4 +1,6 @@
 import { useState, type KeyboardEvent, type SubmitEvent } from 'react';
+import { Input } from '../../shared/ui/Input';
+import { Button } from '../../shared/ui/Button';
 
 export const STEP_MAX_LENGTH = 1000;
 
@@ -57,21 +59,22 @@ export function StepForm({
       </label>
       <label className="field">
         <span>Guidance (optional)</span>
-        <textarea
+        <Input
+          multiline
           rows={3}
           value={detail}
-          onChange={(event) => {
-            setDetail(event.target.value);
+          onChange={(text) => {
+            setDetail(text);
           }}
         />
       </label>
       <div className="actions">
-        <button type="submit" className="btn primary small" disabled={empty || busy}>
+        <Button type="submit" variant="primary" className="small" disabled={empty || busy}>
           {submitLabel}
-        </button>
-        <button type="button" className="btn small" onClick={onCancel}>
+        </Button>
+        <Button type="button" className="small" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

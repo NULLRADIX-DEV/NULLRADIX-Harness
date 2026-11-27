@@ -16,6 +16,9 @@ import {
   type QuestionDetail as Detail,
   type QuestionOption,
 } from './queries';
+import { Button } from '../../shared/ui/Button';
+import { Input } from '../../shared/ui/Input';
+import { Panel } from '../../shared/ui/Panel';
 
 const TIME = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 
@@ -57,16 +60,16 @@ function ResearchButton({ questionKey }: { questionKey: string }) {
   const error = message(start.error, 'Could not start the research.');
   return (
     <div className="qx-research">
-      <button
+      <Button
         type="button"
-        className="btn small"
+        className="small"
         disabled={runs.data === undefined || researching || start.isPending}
         onClick={() => {
           start.mutate(questionKey);
         }}
       >
         {researching || start.isPending ? 'Researching...' : 'Research'}
-      </button>
+      </Button>
       {error !== null && (
         <p className="form-error" role="alert">
           {error}
@@ -152,11 +155,11 @@ function Decide({ detail }: { detail: Detail }) {
       )}
       <label className="field">
         <span>Own answer</span>
-        <input
+        <Input
           value={own}
-          onChange={(event) => {
-            setOwn(event.target.value);
-            if (event.target.value.trim() !== '') setPicked(null);
+          onChange={(text) => {
+            setOwn(text);
+            if (text.trim() !== '') setPicked(null);
           }}
         />
       </label>
@@ -182,19 +185,20 @@ function Decide({ detail }: { detail: Detail }) {
         </p>
       )}
       <div className="qx-actions">
-        <button
+        <Button
           type="button"
-          className="btn danger small"
+          variant="danger"
+          className="small"
           disabled={busy}
           onClick={() => {
             discard.mutate({ key: question.key, version: question.version, ...because });
           }}
         >
           Discard
-        </button>
-        <button type="button" className="btn primary" disabled={!canAnswer} onClick={decide}>
+        </Button>
+        <Button type="button" variant="primary" disabled={!canAnswer} onClick={decide}>
           {picked === null ? 'Answer' : `Answer: ${picked}`}
-        </button>
+        </Button>
       </div>
     </section>
   );
@@ -235,16 +239,16 @@ function Decided({ detail }: { detail: Detail }) {
           {error}
         </p>
       )}
-      <button
+      <Button
         type="button"
-        className="btn small"
+        className="small"
         disabled={reopen.isPending}
         onClick={() => {
           reopen.mutate({ key: question.key, version: question.version });
         }}
       >
         Reopen
-      </button>
+      </Button>
     </section>
   );
 }
@@ -293,14 +297,15 @@ function Comments({ detail }: { detail: Detail }) {
           />
           <div className="db-composer-actions">
             <span className="muted">Ctrl+Enter</span>
-            <button
+            <Button
               type="button"
-              className="btn primary small"
+              variant="primary"
+              className="small"
               disabled={empty || add.isPending}
               onClick={send}
             >
               Comment
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -346,7 +351,7 @@ export function QuestionDetail({ questionKey }: { questionKey: string }) {
   const data = detail.data;
   const question = data.question;
   return (
-    <article className="panel qx-detail" aria-label={`Question ${question.key}`}>
+    <Panel as="article" className="panel qx-detail" aria-label={`Question ${question.key}`}>
       <header className="qx-detail-head">
         <span className="card-id">{question.key}</span>
         <span className={`badge qx-state-${question.state}`}>{STATE_LABELS[question.state]}</span>
@@ -410,6 +415,6 @@ export function QuestionDetail({ questionKey }: { questionKey: string }) {
         </>
       )}
       <Comments detail={data} />
-    </article>
+    </Panel>
   );
 }

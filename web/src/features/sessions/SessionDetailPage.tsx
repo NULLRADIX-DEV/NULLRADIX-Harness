@@ -12,6 +12,7 @@ import { SessionStateBadge } from './SessionStateBadge';
 import { TranscriptView } from './TranscriptView';
 import { useTranscript } from './transcript';
 import { useNow } from '../../shared/lib/useNow';
+import { Panel } from '../../shared/ui/Panel';
 
 type Tab = 'transcript' | 'changes' | 'run';
 
@@ -94,7 +95,7 @@ function Facts({ detail, now }: { detail: SessionDetail; now: number }) {
 function Todos({ detail }: { detail: SessionDetail }) {
   if (detail.todos.length === 0) return null;
   return (
-    <section className="panel sd-todos" aria-label="Todos">
+    <Panel as="section" className="panel sd-todos" aria-label="Todos">
       <h2>Todos</h2>
       <ul>
         {detail.todos.map((todo, index) => (
@@ -106,7 +107,7 @@ function Todos({ detail }: { detail: SessionDetail }) {
           </li>
         ))}
       </ul>
-    </section>
+    </Panel>
   );
 }
 

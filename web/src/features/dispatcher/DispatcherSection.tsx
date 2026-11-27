@@ -29,6 +29,8 @@ import {
   type DispatcherConfigView,
 } from './queries';
 import './dispatcher.css';
+import { Button } from '../../shared/ui/Button';
+import { Panel } from '../../shared/ui/Panel';
 
 export const CONFLICT_MESSAGE =
   'The dispatcher configuration changed in the meantime. Reload to see the new version.';
@@ -553,9 +555,9 @@ function ConfigEditor({
       {behind && (
         <p className="form-error" role="alert">
           The configuration was changed elsewhere.{' '}
-          <button type="button" className="btn" onClick={reload}>
+          <Button type="button" onClick={reload}>
             Reload
-          </button>
+          </Button>
         </p>
       )}
       <Operation {...props} />
@@ -568,9 +570,9 @@ function ConfigEditor({
         message={problemMessage(save.error, MESSAGES, 'Could not save the configuration.')}
       />
       <div className="dispatcher-footer">
-        <button type="submit" className="btn primary" disabled={save.isPending || !dirty}>
+        <Button type="submit" variant="primary" disabled={save.isPending || !dirty}>
           Save dispatcher settings
-        </button>
+        </Button>
         <span role="status" className="muted">
           {saved ? 'Saved.' : dirty ? 'Unsaved changes.' : ''}
         </span>
@@ -589,7 +591,7 @@ export function DispatcherSection() {
     enabled: account.enabled,
   }));
   return (
-    <section className="panel page-section" aria-labelledby={headingId}>
+    <Panel as="section" className="panel page-section" aria-labelledby={headingId}>
       <h2 id={headingId}>Dispatcher</h2>
       <p className="muted dispatcher-note">
         The dispatcher takes ready tickets of your boards and lets Claude work on them in their own
@@ -601,6 +603,6 @@ export function DispatcherSection() {
       )}
       {config.status === 'success' && <ConfigEditor view={config.data} accounts={choices} />}
       {config.status === 'success' && <PromptsEditor />}
-    </section>
+    </Panel>
   );
 }

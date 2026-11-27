@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { useAcceptReview, useReturnReview } from './decisions';
 import { decisionText, FEEDBACK_MAX } from './messages';
+import { Button } from '../../shared/ui/Button';
 
 // A person accepts the held ticket or sends it back to the agent with feedback.
 export function ReviewDecision({ ticketKey, version }: { ticketKey: string; version: number }) {
@@ -32,12 +33,11 @@ export function ReviewDecision({ ticketKey, version }: { ticketKey: string; vers
             }}
           />
           <div className="actions">
-            <button type="submit" className="btn primary" disabled={!ready || busy}>
+            <Button type="submit" variant="primary" disabled={!ready || busy}>
               Return with feedback
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn"
               disabled={busy}
               onClick={() => {
                 setReturning(false);
@@ -45,24 +45,23 @@ export function ReviewDecision({ ticketKey, version }: { ticketKey: string; vers
               }}
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       ) : (
         <div className="actions">
-          <button
+          <Button
             type="button"
-            className="btn primary"
+            variant="primary"
             disabled={busy}
             onClick={() => {
               accept.mutate({ ticketKey, version });
             }}
           >
             Accept
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn"
             disabled={busy}
             onClick={() => {
               setReturning(true);
@@ -70,7 +69,7 @@ export function ReviewDecision({ ticketKey, version }: { ticketKey: string; vers
             }}
           >
             Return to agent
-          </button>
+          </Button>
         </div>
       )}
       {error && (

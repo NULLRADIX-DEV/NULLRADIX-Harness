@@ -1,5 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode, type SubmitEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { useSlotted } from '../../shared/ui/useSlotted';
 
 const FOCUSABLE = [
   'a[href]',
@@ -35,6 +36,12 @@ export function Modal({
   children,
 }: ModalProps) {
   const ref = useRef<HTMLFormElement>(null);
+  // the theme styles only the visible shell; role, focus and Escape stay here
+  const { node: content, replaced } = useSlotted(
+    'Dialog',
+    { labelledBy, role, className, children },
+    children,
+  );
 
   useEffect(() => {
     const node = ref.current;
@@ -78,10 +85,11 @@ export function Modal({
         aria-describedby={describedBy}
         tabIndex={-1}
         className={className}
+        data-slot={replaced ? 'Dialog' : undefined}
         onKeyDown={onKeyDown}
         onSubmit={onSubmit}
       >
-        {children}
+        {content}
       </form>
     </div>,
     document.body,

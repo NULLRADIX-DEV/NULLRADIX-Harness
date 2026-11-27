@@ -10,6 +10,7 @@ import { pickBoard, readBoardChoice, saveBoardChoice } from './boardChoice';
 import { NewTicketDialog } from './NewTicketDialog';
 import { TicketPanel } from './TicketPanel';
 import './board.css';
+import { Button } from '../../shared/ui/Button';
 
 export const NOTICE_MS = 4000;
 export const TICKET_PARAM = 'ticket';
@@ -88,19 +89,18 @@ export function BoardPage() {
         <div className="db-board-dispatcher">
           <DispatcherIndicator />
         </div>
-        <button
+        <Button
           type="button"
-          className="btn"
           disabled={!board}
           onClick={() => {
             setNoting(true);
           }}
         >
           Notes
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn primary"
+          variant="primary"
           disabled={!board}
           onClick={() => {
             setNotice(null);
@@ -108,7 +108,7 @@ export function BoardPage() {
           }}
         >
           New ticket
-        </button>
+        </Button>
       </div>
       {notice !== null && (
         <div className="banner info" role="status">

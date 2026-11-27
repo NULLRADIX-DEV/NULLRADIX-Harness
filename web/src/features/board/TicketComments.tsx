@@ -3,6 +3,7 @@ import type { Comment } from '../tickets/queries';
 import { dayLabel } from './TicketHistory';
 import type { TicketActions } from './useTicketActions';
 import { useNow } from '../../shared/lib/useNow';
+import { Button } from '../../shared/ui/Button';
 
 const TIME = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const FULL = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
@@ -56,14 +57,15 @@ function Composer({ actions }: { actions: TicketActions }) {
         />
         <div className="db-composer-actions">
           <span className="muted">Ctrl+Enter</span>
-          <button
+          <Button
             type="button"
-            className="btn primary small"
+            variant="primary"
+            className="small"
             disabled={empty || actions.busy}
             onClick={send}
           >
             Comment
-          </button>
+          </Button>
         </div>
       </div>
     </div>

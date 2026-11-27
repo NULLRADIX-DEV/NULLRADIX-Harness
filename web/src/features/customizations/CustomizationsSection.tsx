@@ -11,6 +11,9 @@ import {
   type ExtensionPoint,
 } from './queries';
 import './customizations.css';
+import { Input } from '../../shared/ui/Input';
+import { Button } from '../../shared/ui/Button';
+import { Panel } from '../../shared/ui/Panel';
 
 export const POINT_LABELS: Readonly<Record<ExtensionPoint, string>> = {
   skill: 'Skill',
@@ -83,18 +86,19 @@ function CreateForm() {
       </div>
       <label className="field">
         <span>Text</span>
-        <textarea
+        <Input
+          multiline
           className="customization-content"
           value={content}
           placeholder="The whole file with its head. Left empty copies the shipped file."
-          onChange={(event) => {
-            setContent(event.target.value);
+          onChange={(text) => {
+            setContent(text);
           }}
         />
       </label>
-      <button type="submit" className="btn primary" disabled={create.isPending || name === ''}>
+      <Button type="submit" variant="primary" disabled={create.isPending || name === ''}>
         Add customization
-      </button>
+      </Button>
       <FormError
         message={problemMessage(create.error, MESSAGES, 'Could not add the customization.')}
       />
@@ -116,25 +120,26 @@ function EditForm({ item, onDone }: { item: Customization; onDone: () => void })
 
   return (
     <form aria-label={`Edit ${item.name}`} onSubmit={submit}>
-      <textarea
+      <Input
+        multiline
         className="customization-content"
         aria-label={`Text of ${item.name}`}
         value={content}
-        onChange={(event) => {
-          setContent(event.target.value);
+        onChange={(text) => {
+          setContent(text);
         }}
       />
       <div className="form-row">
-        <button
+        <Button
           type="submit"
-          className="btn primary"
+          variant="primary"
           disabled={update.isPending || content === item.content}
         >
           Save
-        </button>
-        <button type="button" className="btn" onClick={onDone}>
+        </Button>
+        <Button type="button" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
       <FormError message={problemMessage(update.error, MESSAGES, 'Could not save the text.')} />
     </form>
@@ -163,18 +168,16 @@ function Row({ item }: { item: Customization }) {
         </div>
         {mode === 'view' && (
           <span className="project-actions">
-            <button
+            <Button
               type="button"
-              className="btn"
               onClick={() => {
                 setMode('edit');
               }}
             >
               Edit {item.name}
-            </button>{' '}
-            <button
+            </Button>{' '}
+            <Button
               type="button"
-              className="btn"
               disabled={update.isPending}
               onClick={() => {
                 update.mutate({
@@ -186,16 +189,15 @@ function Row({ item }: { item: Customization }) {
               }}
             >
               {item.enabled ? `Disable ${item.name}` : `Enable ${item.name}`}
-            </button>{' '}
-            <button
+            </Button>{' '}
+            <Button
               type="button"
-              className="btn"
               onClick={() => {
                 setMode('delete');
               }}
             >
               Reset {item.name}
-            </button>
+            </Button>
           </span>
         )}
       </div>
@@ -215,9 +217,9 @@ function Row({ item }: { item: Customization }) {
           <p>
             Drop <strong>{item.name}</strong>? The shipped file, if any, is in charge again.
           </p>
-          <button
+          <Button
             type="button"
-            className="btn danger"
+            variant="danger"
             disabled={remove.isPending}
             onClick={() => {
               remove.mutate(
@@ -227,10 +229,10 @@ function Row({ item }: { item: Customization }) {
             }}
           >
             Drop
-          </button>{' '}
-          <button type="button" className="btn" onClick={back}>
+          </Button>{' '}
+          <Button type="button" onClick={back}>
             Keep
-          </button>
+          </Button>
         </div>
       )}
       <FormError
@@ -248,7 +250,7 @@ export function CustomizationsSection() {
   const customizations = useQuery(customizationsQuery());
   const items = customizations.data ?? [];
   return (
-    <section className="panel page-section" aria-labelledby="customizations-heading">
+    <Panel as="section" className="panel page-section" aria-labelledby="customizations-heading">
       <h2 id="customizations-heading">Customizations</h2>
       <p className="muted">
         Your own skills and output styles. They replace a shipped one of the same name or come on
@@ -264,6 +266,6 @@ export function CustomizationsSection() {
         ))}
       </ul>
       <CreateForm />
-    </section>
+    </Panel>
   );
 }

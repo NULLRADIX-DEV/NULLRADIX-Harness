@@ -1,10 +1,11 @@
 import { BrandMark } from '../../shared/ui/BrandMark';
 import { DaemonStatus } from '../daemon/DaemonStatus';
+import { Panel } from '../../shared/ui/Panel';
 
 export function SessionRequired() {
   return (
     <main className="gate">
-      <div className="gate-card panel">
+      <Panel className="gate-card panel">
         <div className="dock-row">
           <DaemonStatus />
           <span className="shell-brand">
@@ -21,7 +22,7 @@ export function SessionRequired() {
           <code>nullradix open</code>
         </pre>
         <p className="muted gate-hint">This page checks again every few seconds.</p>
-      </div>
+      </Panel>
     </main>
   );
 }

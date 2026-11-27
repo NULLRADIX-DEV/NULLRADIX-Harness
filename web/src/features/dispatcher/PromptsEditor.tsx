@@ -12,6 +12,7 @@ import {
   type PromptDto,
   type PromptKind,
 } from './queries';
+import { Button } from '../../shared/ui/Button';
 
 export const PROMPT_CONFLICT_MESSAGE =
   'The dispatcher configuration changed in the meantime. Reload to see the new version.';
@@ -43,16 +44,15 @@ function Preview({ prompt, draft }: { prompt: PromptDto; draft: string }) {
         onChange={setKey}
       />
       <div>
-        <button
+        <Button
           type="button"
-          className="btn"
           disabled={preview.isPending}
           onClick={() => {
             preview.mutate({ kind: prompt.kind, key, template: draft });
           }}
         >
           Preview
-        </button>
+        </Button>
       </div>
       {problems.length > 0 && (
         <ul className="dispatcher-row-errors" aria-label="Preview problems">
@@ -178,9 +178,9 @@ function PromptEditor({ prompt, version }: Base) {
       {behind && (
         <p className="form-error" role="alert">
           {PROMPT_CONFLICT_MESSAGE}{' '}
-          <button type="button" className="btn" onClick={reload}>
+          <Button type="button" onClick={reload}>
             Reload
-          </button>
+          </Button>
         </p>
       )}
       <div className="setting wide">
@@ -215,22 +215,21 @@ function PromptEditor({ prompt, version }: Base) {
         <FormError message={problemMessage(failure, MESSAGES, 'Could not save the template.')} />
       )}
       <div className="dispatcher-footer">
-        <button
+        <Button
           type="button"
-          className="btn primary"
+          variant="primary"
           disabled={!dirty || save.isPending || reset.isPending}
           onClick={submit}
         >
           Save template
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn"
           disabled={base.prompt.template === null || save.isPending || reset.isPending}
           onClick={dropOwn}
         >
           Reset to default
-        </button>
+        </Button>
       </div>
       <div className="prompt-help">
         <div>
@@ -238,16 +237,16 @@ function PromptEditor({ prompt, version }: Base) {
           <ul className="prompt-list" aria-label="Placeholders">
             {base.prompt.placeholders.map((placeholder) => (
               <li key={placeholder.name}>
-                <button
+                <Button
                   type="button"
-                  className="btn mono"
+                  className="mono"
                   aria-label={`Insert ${placeholder.name}`}
                   onClick={() => {
                     insert(placeholder.name);
                   }}
                 >
                   {`{{${placeholder.name}}}`}
-                </button>
+                </Button>
                 <span className="muted">{placeholder.description}</span>
               </li>
             ))}

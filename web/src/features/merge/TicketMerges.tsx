@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { canRetry, retryText } from './messages';
 import { mergesQuery, type MergeJob } from './queries';
 import { useRetryMerge } from './retry';
+import { Button } from '../../shared/ui/Button';
 
 const PHASES: Readonly<Record<MergeJob['phase'], string>> = {
   pending: 'Queued',
@@ -57,16 +58,16 @@ export function TicketMerges({
     <div className="merges">
       {canRetry(status, blockedReason, branch) && (
         <div className="actions">
-          <button
+          <Button
             type="button"
-            className="btn primary"
+            variant="primary"
             disabled={retry.isPending}
             onClick={() => {
               retry.mutate({ ticketKey, version });
             }}
           >
             Retry merge
-          </button>
+          </Button>
         </div>
       )}
       {retry.data && <p role="status">{retry.data.text}</p>}

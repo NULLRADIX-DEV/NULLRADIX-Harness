@@ -10,6 +10,8 @@ import {
 } from '../tickets/queries';
 import { ACCEPTANCE_QUESTION, createProblem, duplicateOf } from './messages';
 import { Modal } from './Modal';
+import { Input } from '../../shared/ui/Input';
+import { Button } from '../../shared/ui/Button';
 
 interface Draft {
   title: string;
@@ -110,11 +112,12 @@ export function NewTicketDialog({
       </label>
       <label className="field">
         <span>Description</span>
-        <textarea
+        <Input
+          multiline
           rows={6}
           value={draft.description}
-          onChange={(event) => {
-            edit({ description: event.target.value });
+          onChange={(text) => {
+            edit({ description: text });
           }}
         />
       </label>
@@ -171,12 +174,13 @@ export function NewTicketDialog({
       </div>
       <label className="field">
         <span>Acceptance</span>
-        <textarea
+        <Input
+          multiline
           rows={3}
           placeholder={ACCEPTANCE_QUESTION}
           value={draft.acceptance}
-          onChange={(event) => {
-            edit({ acceptance: event.target.value });
+          onChange={(text) => {
+            edit({ acceptance: text });
           }}
         />
       </label>
@@ -184,44 +188,42 @@ export function NewTicketDialog({
       {asking ? (
         <div role="alertdialog" aria-label="Discard input" className="actions">
           <span>Discard the input?</span>
-          <button type="button" className="btn danger" onClick={onClose}>
+          <Button type="button" variant="danger" onClick={onClose}>
             Discard
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn"
             autoFocus
             onClick={() => {
               setAsking(false);
             }}
           >
             Keep editing
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="actions">
-          <button
+          <Button
             type="submit"
-            className="btn primary"
+            variant="primary"
             disabled={create.isPending || draft.title.trim() === ''}
           >
             Create
-          </button>
+          </Button>
           {duplicate !== null && (
-            <button
+            <Button
               type="button"
-              className="btn"
               disabled={create.isPending}
               onClick={() => {
                 send(true);
               }}
             >
               Create anyway
-            </button>
+            </Button>
           )}
-          <button type="button" className="btn" disabled={create.isPending} onClick={cancel}>
+          <Button type="button" disabled={create.isPending} onClick={cancel}>
             Cancel
-          </button>
+          </Button>
         </div>
       )}
     </Modal>

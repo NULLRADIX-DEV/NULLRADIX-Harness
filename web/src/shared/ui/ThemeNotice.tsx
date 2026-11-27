@@ -1,6 +1,7 @@
 import { isSafeTheme, normalThemeUrl, safeThemeUrl } from '../lib/safeTheme';
 import { setThemeNotice, useThemeNotice } from '../lib/themeNotice';
 import './themeNotice.css';
+import { Button } from './Button';
 
 // Closable bar about the theme; a theme error offers safe mode, and safe mode offers the way back.
 export function ThemeNotice({
@@ -17,37 +18,34 @@ export function ThemeNotice({
     <div className="theme-notice" role="status">
       <span>{notice.message}</span>
       {notice.kind === 'error' && !safe && (
-        <button
+        <Button
           type="button"
-          className="btn"
           onClick={() => {
             assign(safeThemeUrl(window.location.href));
           }}
         >
           Reload in safe mode
-        </button>
+        </Button>
       )}
       {safe && (
-        <button
+        <Button
           type="button"
-          className="btn"
           onClick={() => {
             assign(normalThemeUrl(window.location.href));
           }}
         >
           Start normally
-        </button>
+        </Button>
       )}
-      <button
+      <Button
         type="button"
-        className="btn"
         aria-label="Close the note"
         onClick={() => {
           setThemeNotice(undefined);
         }}
       >
         x
-      </button>
+      </Button>
     </div>
   );
 }

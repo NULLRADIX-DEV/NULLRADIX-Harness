@@ -5,6 +5,7 @@ import { problemMessage, type ProblemMessages } from '../../shared/api/problemMe
 import { useInvalidate } from '../../shared/query/useInvalidate';
 import { isActive, runKeys, type Run } from '../runs/queries';
 import { ticketKeys, type Ticket } from '../tickets/queries';
+import { Button } from '../../shared/ui/Button';
 
 const MESSAGES: ProblemMessages = {
   'plan-not-possible':
@@ -64,16 +65,16 @@ export function TicketPlanning({ ticket }: { ticket: Ticket }) {
     <section className="db-side-section" aria-label="Planning">
       <h3 className="db-side-title">Planning</h3>
       <div className="db-planning">
-        <button
+        <Button
           type="button"
-          className="btn small"
+          className="small"
           disabled={runs.data === undefined || planning || start.isPending}
           onClick={() => {
             start.mutate(ticket.key);
           }}
         >
           {planning || start.isPending ? 'Planning...' : 'Plan'}
-        </button>
+        </Button>
         {error !== null && (
           <p className="form-error" role="alert">
             {error}

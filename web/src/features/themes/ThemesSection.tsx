@@ -11,6 +11,8 @@ import {
 import { FormError } from '../../shared/ui/FormError';
 import { ThemeConfirmDialog, confirmationOf } from './ThemeConfirmDialog';
 import './themes.css';
+import { Button } from '../../shared/ui/Button';
+import { Panel } from '../../shared/ui/Panel';
 
 export const PACKAGE_EXTENSION = '.nullradix';
 
@@ -64,36 +66,34 @@ function RemoveRow({ theme }: { theme: Theme }) {
       </div>
       {asking ? (
         <span role="group" aria-label={`Remove ${theme.name}`}>
-          <button
+          <Button
             type="button"
-            className="btn danger"
+            variant="danger"
             disabled={remove.isPending}
             onClick={() => {
               remove.mutate({ id: theme.id, version: theme.version });
             }}
           >
             Remove
-          </button>{' '}
-          <button
+          </Button>{' '}
+          <Button
             type="button"
-            className="btn"
             onClick={() => {
               setAsking(false);
             }}
           >
             Keep
-          </button>
+          </Button>
         </span>
       ) : (
-        <button
+        <Button
           type="button"
-          className="btn"
           onClick={() => {
             setAsking(true);
           }}
         >
           Remove {theme.name}
-        </button>
+        </Button>
       )}
       <FormError message={problemMessage(remove.error, MESSAGES, 'Could not remove the theme.')} />
     </li>
@@ -109,7 +109,7 @@ export function ThemesSection() {
   const asked = install.variables;
 
   return (
-    <section className="panel page-section" aria-labelledby="themes-heading">
+    <Panel as="section" className="panel page-section" aria-labelledby="themes-heading">
       <h2 id="themes-heading">Installed themes</h2>
       {themes.isError && <FormError message="Could not load the themes." />}
       {themes.data && items.length === 0 && (
@@ -161,6 +161,6 @@ export function ThemesSection() {
           />
         )}
       </div>
-    </section>
+    </Panel>
   );
 }

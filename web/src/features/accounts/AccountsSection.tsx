@@ -20,6 +20,8 @@ import {
   type LoginStatus,
 } from './queries';
 import './accounts.css';
+import { Button } from '../../shared/ui/Button';
+import { Panel } from '../../shared/ui/Panel';
 
 export const NAME_MAX_LENGTH = 60;
 export const CONFLICT_MESSAGE = 'This account changed in the meantime. The list is up to date now.';
@@ -93,12 +95,12 @@ function AddAccountForm() {
             }}
           />
         </label>
-        <button type="submit" className="btn" disabled={busy || name.trim() === ''}>
+        <Button type="submit" disabled={busy || name.trim() === ''}>
           Add account
-        </button>
-        <button type="button" className="btn primary" disabled={busy} onClick={addAndLogIn}>
+        </Button>
+        <Button type="button" variant="primary" disabled={busy} onClick={addAndLogIn}>
           Add and log in with Claude
-        </button>
+        </Button>
       </div>
       <p className="field-hint muted">
         The email is optional and fills the login page. Without a name, the account is named after
@@ -223,9 +225,8 @@ function RunToken({ account }: { account: Account }) {
       <div className="account-token">
         <span>Run token</span>
         <span className="account-badge">set</span>
-        <button
+        <Button
           type="button"
-          className="btn"
           disabled={busy}
           aria-label={`Remove the run token of ${account.name}`}
           onClick={() => {
@@ -233,7 +234,7 @@ function RunToken({ account }: { account: Account }) {
           }}
         >
           Remove
-        </button>
+        </Button>
         <FormError
           message={problemMessage(clear.error, MESSAGES, 'Could not remove the run token.')}
         />
@@ -255,9 +256,9 @@ function RunToken({ account }: { account: Account }) {
           }}
         />
       </label>
-      <button type="submit" className="btn" disabled={busy || token.trim() === ''}>
+      <Button type="submit" disabled={busy || token.trim() === ''}>
         Save token
-      </button>
+      </Button>
       <p className="field-hint muted">
         Create it in a terminal with <code>claude setup-token</code>. It is kept in the system
         secret store and never shown again.
@@ -295,16 +296,16 @@ function RenameForm({ account, onDone }: { account: Account; onDone: () => void 
             }}
           />
         </label>
-        <button
+        <Button
           type="submit"
-          className="btn primary"
+          variant="primary"
           disabled={update.isPending || trimmed === '' || trimmed === account.name}
         >
           Save
-        </button>
-        <button type="button" className="btn" onClick={onDone}>
+        </Button>
+        <Button type="button" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
       <FormError
         message={problemMessage(update.error, MESSAGES, 'Could not rename the account.')}
@@ -351,9 +352,9 @@ function RemoveConfirm({
         </label>
       )}
       <div className="form-row">
-        <button
+        <Button
           type="button"
-          className="btn danger"
+          variant="danger"
           disabled={remove.isPending}
           onClick={() => {
             remove.mutate(
@@ -363,10 +364,10 @@ function RemoveConfirm({
           }}
         >
           Remove
-        </button>
-        <button type="button" className="btn" onClick={onDone}>
+        </Button>
+        <Button type="button" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
       <FormError
         message={problemMessage(remove.error, MESSAGES, 'Could not remove the account.')}
@@ -450,9 +451,8 @@ function LoginBox({
   if (!login || login.state === 'done' || login.state === 'cancelled') {
     return (
       <div className="account-login">
-        <button
+        <Button
           type="button"
-          className="btn"
           disabled={start.isPending || !account.enabled}
           aria-label={`Log in ${account.name} with Claude`}
           onClick={() => {
@@ -460,7 +460,7 @@ function LoginBox({
           }}
         >
           {loggedIn ? 'Log in again' : 'Log in with Claude'}
-        </button>
+        </Button>
         <FormError message={problemMessage(start.error, MESSAGES, 'Could not start the login.')} />
       </div>
     );
@@ -472,16 +472,15 @@ function LoginBox({
       <div className="account-login" role="group" aria-label={`Login of ${account.name}`}>
         <p className="form-error">The login failed.</p>
         {reason !== '' && <pre className="account-login-output">{reason}</pre>}
-        <button
+        <Button
           type="button"
-          className="btn"
           disabled={start.isPending}
           onClick={() => {
             start.mutate({ id: account.id });
           }}
         >
           Try again
-        </button>
+        </Button>
         <FormError message={problemMessage(start.error, MESSAGES, 'Could not start the login.')} />
       </div>
     );
@@ -532,19 +531,18 @@ function LoginBox({
             }}
           />
         </label>
-        <button type="submit" className="btn" disabled={send.isPending || code.trim() === ''}>
+        <Button type="submit" disabled={send.isPending || code.trim() === ''}>
           Send code
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn"
           disabled={cancel.isPending}
           onClick={() => {
             cancel.mutate(account.id);
           }}
         >
           Cancel login
-        </button>
+        </Button>
       </div>
       <FormError message={problemMessage(send.error, MESSAGES, 'Could not send the code.')} />
     </form>
@@ -608,9 +606,8 @@ function AccountRow({
         {mode === 'view' && (
           <span className="project-actions">
             {paused && (
-              <button
+              <Button
                 type="button"
-                className="btn"
                 aria-label={`Resume ${account.name}`}
                 disabled={resume.isPending}
                 onClick={() => {
@@ -618,29 +615,27 @@ function AccountRow({
                 }}
               >
                 Resume
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
-              className="btn"
               aria-label={`Rename ${account.name}`}
               onClick={() => {
                 setMode('rename');
               }}
             >
               Rename
-            </button>
+            </Button>
             {account.slug !== 'default' && (
-              <button
+              <Button
                 type="button"
-                className="btn"
                 aria-label={`Remove ${account.name}`}
                 onClick={() => {
                   setMode('remove');
                 }}
               >
                 Remove
-              </button>
+              </Button>
             )}
           </span>
         )}
@@ -728,7 +723,7 @@ function AccountList() {
 export function AccountsSection() {
   const headingId = useId();
   return (
-    <section className="panel page-section" aria-labelledby={headingId}>
+    <Panel as="section" className="panel page-section" aria-labelledby={headingId}>
       <h2 id={headingId}>Claude accounts</h2>
       <p className="muted account-note">
         Runs can be spread over several Claude logins. Using several subscriptions to get around the
@@ -737,6 +732,6 @@ export function AccountsSection() {
       </p>
       <AddAccountForm />
       <AccountList />
-    </section>
+    </Panel>
   );
 }

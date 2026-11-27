@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { screenshotUrl, type Screenshot } from './dispatchQueries';
+import { Button } from '../../shared/ui/Button';
 
 // Thumbnails of the screenshots a run took; one opens larger below them.
 export function RunShots({ runId, shots }: { runId: string; shots: readonly Screenshot[] }) {
@@ -32,15 +33,15 @@ export function RunShots({ runId, shots }: { runId: string; shots: readonly Scre
             src={screenshotUrl(runId, open.id)}
             alt={`Screenshot ${String(shots.indexOf(open) + 1)}`}
           />
-          <button
+          <Button
             type="button"
-            className="btn small"
+            className="small"
             onClick={() => {
               setOpenId(null);
             }}
           >
             Close screenshot
-          </button>
+          </Button>
         </figure>
       )}
     </section>

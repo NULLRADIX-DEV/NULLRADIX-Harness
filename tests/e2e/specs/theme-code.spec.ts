@@ -10,7 +10,7 @@ const MANIFEST = {
   author: 'Ada',
   sdkVersion: '^1.3',
   colorScheme: 'dark',
-  slots: [],
+  slots: ['Panel'],
   permissions: { network: [] },
 };
 
@@ -18,7 +18,9 @@ const MANIFEST = {
 const MAIN = `import React from 'react';
 import { SDK_VERSION } from '@nullradix/theme-sdk';
 document.documentElement.dataset.themeCode = React.version + ' ' + SDK_VERSION;
-export default { id: 'night-code', slots: {} };
+const Panel = ({ title, children }) =>
+  React.createElement('div', { 'data-themed-panel': '' }, title, children);
+export default { id: 'night-code', slots: { Panel } };
 `;
 
 async function installThemeWithCode(daemon: Daemon): Promise<void> {
