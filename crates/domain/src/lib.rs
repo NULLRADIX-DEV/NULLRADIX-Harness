@@ -143,7 +143,7 @@ pub use theme::{
 pub use theme_catalog::{
     Availability, CatalogEntry, CatalogError, CatalogSource, CatalogUrl, Endpoint, EndpointHost,
     EntryDraft, MAX_DESCRIPTION_CHARS, MAX_INDEX_BYTES, MAX_INDEX_ENTRIES, MAX_SOURCES,
-    MAX_URL_CHARS, MAX_VERSION_CHARS, Reach, SourceId, THEME_SDK_VERSION, is_public_address,
+    MAX_URL_CHARS, MAX_VERSION_CHARS, Reach, SourceId, is_public_address,
 };
 pub use theme_settings::{SETTING_VALUE_MAX, SettingValue, ThemeSettingValues};
 pub use ticket::{

@@ -6,10 +6,9 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use sha2::{Digest, Sha256};
 use url::{Host, Url};
 
+use crate::theme::SDK_VERSION;
 use crate::{ThemeId, Timestamp};
 
-/// Version of the theme SDK this build runs; catalog entries are checked against it.
-pub const THEME_SDK_VERSION: &str = "1.3.0";
 pub const MAX_SOURCES: usize = 50;
 pub const MAX_URL_CHARS: usize = 2048;
 /// Largest index a source may serve.
@@ -365,7 +364,7 @@ impl CatalogEntry {
                 "description holds control or direction characters",
             ));
         }
-        let sdk = semver::Version::parse(THEME_SDK_VERSION)
+        let sdk = semver::Version::parse(SDK_VERSION)
             .map_err(|_| String::from("the SDK version of this build is invalid"))?;
         Ok(Self {
             id,
@@ -590,6 +589,17 @@ mod tests {
         let mut entry = draft();
         entry.description = Some(String::from("Blue\nand calm"));
         assert!(build(&entry).is_ok());
+    }
+
+    #[test]
+    fn compatibility_is_decided_by_the_sdk_version_of_the_theme_module() {
+        let version = semver::Version::parse(SDK_VERSION).unwrap();
+        let mut exact = draft();
+        exact.sdk_version = Some(format!("={version}"));
+        assert!(build(&exact).unwrap().compatible);
+        let mut next = draft();
+        next.sdk_version = Some(format!(">{version}"));
+        assert!(!build(&next).unwrap().compatible);
     }
 
     #[test]
