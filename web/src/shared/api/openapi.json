@@ -2220,6 +2220,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Too many open streams: `event-streams-busy`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         }
       }

@@ -30,6 +30,8 @@ jiff = { version = "0.2.46", default-features = false, features = ["std", "tz-sy
 directories = "6.0.0"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 http-body-util = "0.1.3"
+hyper = { version = "1.13.0", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["service", "tokio"] }
 getrandom = "0.4.3"
 libtest-mimic = "0.8.2"
 open = "5.4.5"

@@ -303,7 +303,6 @@
   {
     "name": "resume",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/dispatcher/resume"
     },
@@ -342,7 +341,6 @@
   {
     "name": "run a pass on request",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/dispatcher/passes"
     },

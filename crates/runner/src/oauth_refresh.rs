@@ -72,8 +72,9 @@ impl CurlTokenEndpoint {
         // JSON text escapes control characters, so it fits a quoted config string
         let text = serde_json::to_string(body).ok()?;
         Some(format!(
-            "url = \"{}\"\nrequest = \"POST\"\nheader = \"Content-Type: application/json\"\nheader = \"User-Agent: ai-harness\"\ndata = \"{}\"\n",
+            "url = \"{}\"\n{}request = \"POST\"\nheader = \"Content-Type: application/json\"\nheader = \"User-Agent: nullradix\"\ndata = \"{}\"\n",
             curl::quoted(&self.url)?,
+            curl::pinned(&self.url),
             curl::quoted(&text)?
         ))
     }
@@ -399,6 +400,13 @@ mod tests {
     use super::*;
 
     const NOW: i64 = 1_800_000_000_000;
+
+    #[test]
+    fn the_production_request_follows_no_redirect_and_speaks_https_only() {
+        let config = CurlTokenEndpoint::anthropic().config(&json!({})).unwrap();
+        assert!(config.contains("max-redirs = 0\n"), "{config}");
+        assert!(config.contains("proto = \"=https\"\n"), "{config}");
+    }
 
     struct FixedClock;
 
@@ -951,7 +959,7 @@ mod tests {
         let head = head.to_lowercase();
         assert!(head.starts_with("post /v1/oauth/token"));
         assert!(head.contains("content-type: application/json"));
-        assert!(head.contains("user-agent: ai-harness"));
+        assert!(head.contains("user-agent: nullradix"));
         assert_eq!(serde_json::from_str::<Value>(sent).unwrap(), body);
     }
 

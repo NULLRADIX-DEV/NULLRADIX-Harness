@@ -20,6 +20,15 @@ pub(crate) fn quoted(text: &str) -> Option<String> {
     Some(text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+/// Config lines that keep a request on its URL: no redirects, and https only for an https URL.
+pub(crate) fn pinned(url: &str) -> &'static str {
+    if url.starts_with("https://") {
+        "max-redirs = 0\nproto = \"=https\"\n"
+    } else {
+        "max-redirs = 0\n"
+    }
+}
+
 /// Runs curl with `config`, so secrets never appear on a command line; the answer includes headers.
 pub(crate) async fn run(config: &str, limit: Duration) -> Result<String, String> {
     let mut command = tokio::process::Command::new("curl");
@@ -190,6 +199,15 @@ mod tests {
     use tokio::io::AsyncWriteExt;
 
     use super::*;
+
+    #[test]
+    fn requests_stay_on_their_url() {
+        assert_eq!(
+            pinned("https://example.com/x"),
+            "max-redirs = 0\nproto = \"=https\"\n"
+        );
+        assert_eq!(pinned("http://127.0.0.1:1/x"), "max-redirs = 0\n");
+    }
 
     #[test]
     fn the_reply_after_a_proxy_connect_preamble_is_the_answer() {

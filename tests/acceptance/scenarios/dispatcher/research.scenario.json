@@ -134,19 +134,19 @@
     },
     {
       "name": "research an unknown question",
-      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q99/research-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q99/research-runs" }
     },
     {
       "name": "research something that is no question key",
-      "http": { "method": "POST", "path": "/api/v1/questions/ARC-1/research-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/questions/ARC-1/research-runs" }
     },
     {
       "name": "research a decided question",
-      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q2/research-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q2/research-runs" }
     },
     {
       "name": "research a question of a project without a repository",
-      "http": { "method": "POST", "path": "/api/v1/questions/OTH-Q1/research-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/questions/OTH-Q1/research-runs" }
     },
     {
       "name": "the state before the research",
@@ -170,7 +170,7 @@
     },
     {
       "name": "start it a second time while the first is not settled",
-      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q1/research-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q1/research-runs" }
     },
     {
       "name": "a pause holds a research back",
@@ -178,7 +178,7 @@
     },
     {
       "name": "research during the pause",
-      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q3/research-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q3/research-runs" }
     },
     { "name": "lift the pause", "cli": { "args": ["dispatcher", "resume"] } },
     {
@@ -240,7 +240,7 @@
     },
     {
       "name": "research the third question, which stays without a result",
-      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q3/research-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/questions/ARC-Q3/research-runs" }
     },
     {
       "name": "the second run ended",

@@ -20,6 +20,7 @@ mod health;
 mod hooks;
 mod host;
 mod inbox;
+mod limits;
 mod login;
 mod merge;
 mod notes;
@@ -29,6 +30,7 @@ mod questions;
 mod repositories;
 mod review;
 mod runs;
+mod server;
 mod session_detail;
 mod sessions;
 mod snippets;
@@ -40,8 +42,6 @@ mod usage;
 mod web;
 mod worktrees;
 
-use std::future::Future;
-use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -83,7 +83,6 @@ use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{AppError, ChangeFeed, ChangeSignal};
-use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
@@ -137,6 +136,7 @@ pub use host::AllowedHosts;
 pub use inbox::{
     InboxCounts, InboxItemDto, InboxItemTypeDto, InboxKindDto, InboxList, InboxOrder, InboxRefDto,
 };
+pub use limits::Limits;
 pub use login::{
     AccountLoginDto, CreateAccountLogin, LoginCode, LoginDto, LoginStateDto, StartLogin,
 };
@@ -164,6 +164,7 @@ pub use review::{
 pub use runs::{
     OutputLineDto, OutputStreamDto, RunDto, RunList, RunOutput, RunStatusDto, StartRun,
 };
+pub use server::serve;
 pub use session_detail::{
     ChangeOriginDto, ChangedFileDto, ClaimSession, ContextUsageDto, DiffHunkDto, DiffLineDto,
     DiffLineKindDto, FileDiffDto, FileStatusDto, SessionChangesDto, SessionDetailDto,
@@ -277,6 +278,7 @@ pub struct ApiState {
     /// Cancelled when the daemon stops; long-lived responses end with it.
     pub shutdown: CancellationToken,
     pub allowed_hosts: AllowedHosts,
+    pub limits: Limits,
     pub secure_cookies: bool,
     /// Built web UI to serve next to the API, if any.
     pub web_dir: Option<PathBuf>,
@@ -510,6 +512,7 @@ pub fn router(state: ApiState) -> Router {
             state.clone(),
             auth::authenticate,
         ))
+        .layer(middleware::from_fn(body_guard::buffer_small_body))
         .layer(
             ServiceBuilder::new()
                 .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
@@ -521,11 +524,14 @@ pub fn router(state: ApiState) -> Router {
                 .layer(security_header(header::CONTENT_SECURITY_POLICY, APP_CSP))
                 .layer(middleware::from_fn(web::no_store_for_api))
                 .layer(middleware::from_fn_with_state(
+                    state.limits.request_timeout,
+                    limits::limit_request_time,
+                ))
+                .layer(middleware::from_fn_with_state(
                     state.allowed_hosts.clone(),
                     host::check_host,
                 )),
         )
-        .layer(middleware::from_fn(body_guard::buffer_small_body))
         .with_state(state)
 }
 
@@ -574,16 +580,6 @@ pub fn openapi_json() -> Result<String, serde_json::Error> {
     routes().split_for_parts().1.to_pretty_json()
 }
 
-pub async fn serve(
-    listener: TcpListener,
-    router: Router,
-    shutdown: impl Future<Output = ()> + Send + 'static,
-) -> io::Result<()> {
-    axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown)
-        .await
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use axum::body::{Body, to_bytes};
@@ -618,6 +614,10 @@ pub(crate) mod tests {
 
     pub(crate) async fn test_api() -> TestApi {
         test_api_with_web(None).await
+    }
+
+    pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
+        test_api_with(web_dir, Limits::default()).await
     }
 
     type TicketServices = (
@@ -852,7 +852,7 @@ pub(crate) mod tests {
         clippy::too_many_lines,
         reason = "wires every service of the test daemon"
     )]
-    pub(crate) async fn test_api_with_web(web_dir: Option<PathBuf>) -> TestApi {
+    pub(crate) async fn test_api_with(web_dir: Option<PathBuf>, limits: Limits) -> TestApi {
         let store = Arc::new(Store::in_memory().await.unwrap());
         let auth = Arc::new(AuthService::new(
             store.clone(),
@@ -1070,6 +1070,7 @@ pub(crate) mod tests {
             signal,
             shutdown: shutdown.clone(),
             allowed_hosts: AllowedHosts::loopback_and([]),
+            limits,
             secure_cookies: false,
             web_dir,
         });
