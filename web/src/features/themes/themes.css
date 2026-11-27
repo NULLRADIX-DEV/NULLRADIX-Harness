@@ -28,11 +28,21 @@
 }
 
 .theme-preview {
+  flex: none;
   width: 64px;
   height: 40px;
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid var(--line);
+}
+
+.theme-preview-empty {
+  display: grid;
+  place-items: center;
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 18px;
+  text-transform: uppercase;
 }
 
 .theme-install {

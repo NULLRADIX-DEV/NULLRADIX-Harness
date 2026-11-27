@@ -40,6 +40,7 @@ use nullradix_app::sessions::SessionService;
 use nullradix_app::snippets::SnippetService;
 use nullradix_app::theme_catalog::CatalogService;
 use nullradix_app::theme_fetch::ThemeAssets;
+use nullradix_app::theme_preview::ThemePreviews;
 use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
@@ -159,6 +160,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     .await?;
     let (themes, catalog, customizations, snippets) = start_extensions(config, &store, &signal);
     let theme_assets = start_theme_assets(config, &themes);
+    let theme_previews = start_theme_previews(config, &catalog);
     let claude_theme = start_claude_theme(config, &store, &themes, &signal);
     if let Err(error) = claude_theme.reconcile().await {
         tracing::warn!(%error, "cannot sync the Claude theme");
@@ -223,6 +225,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         favorites,
         themes,
         theme_assets,
+        theme_previews,
         catalog,
         claude_theme,
         autostart,
@@ -561,6 +564,30 @@ fn start_theme_assets(config: &Config, themes: &Arc<ThemeService>) -> Arc<ThemeA
     ))
 }
 
+/// Where the preview proxy keeps its images; only a copy, so it lives in the cache folder.
+fn theme_preview_cache(config: &Config) -> std::path::PathBuf {
+    config.paths.cache.join("theme-previews")
+}
+
+/// The preview proxy fetches like the catalog does: public https unless local catalogs are on.
+fn start_theme_previews(config: &Config, catalog: &Arc<CatalogService>) -> Arc<ThemePreviews> {
+    Arc::new(ThemePreviews::new(
+        catalog.clone(),
+        Arc::new(CurlCatalogFetcher::new(catalog_reach(config))),
+        Arc::new(crate::theme_assets::FolderPreviews::new(
+            theme_preview_cache(config),
+        )),
+    ))
+}
+
+fn catalog_reach(config: &Config) -> Reach {
+    if config.theme_catalog_local {
+        Reach::Anywhere
+    } else {
+        Reach::Public
+    }
+}
+
 /// Themes from the data folder and the customizations in the database.
 fn start_extensions(
     config: &Config,
@@ -579,11 +606,7 @@ fn start_extensions(
         Arc::new(UuidV7Generator),
         signal.clone(),
     ));
-    let reach = if config.theme_catalog_local {
-        Reach::Anywhere
-    } else {
-        Reach::Public
-    };
+    let reach = catalog_reach(config);
     let catalog = Arc::new(CatalogService::new(
         Arc::new(store.clone()),
         Arc::new(CurlCatalogFetcher::new(reach)),

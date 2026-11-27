@@ -1,0 +1,64 @@
+{
+  "title": "The preview proxy refuses unknown sources, bad theme ids and callers without a token before any request (the harness cannot serve https, so no image is fetched)",
+  "steps": [
+    {
+      "name": "a source id of the wrong shape is unknown",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/theme-catalog/sources/not-a-source/themes/night-blue/preview"
+      }
+    },
+    {
+      "name": "a source that was never added is unknown",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/theme-catalog/sources/000000000000/themes/night-blue/preview"
+      }
+    },
+    {
+      "name": "add a source over https",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/theme-catalog/sources",
+        "body": { "url": "https://themes.example.com/index.json" }
+      },
+      "save": { "id": "json.id" }
+    },
+    {
+      "name": "a theme id with capitals and a dot is refused",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/theme-catalog/sources/{{id}}/themes/Bad.Id/preview"
+      }
+    },
+    {
+      "name": "a theme id that climbs out of its folder is refused",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/theme-catalog/sources/{{id}}/themes/..%2Fnight-blue/preview"
+      }
+    },
+    {
+      "name": "the preview needs a token",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/theme-catalog/sources/{{id}}/themes/night-blue/preview",
+        "auth": "none"
+      }
+    },
+    {
+      "name": "remove the source",
+      "http": {
+        "method": "DELETE",
+        "path": "/api/v1/theme-catalog/sources/{{id}}?version=1"
+      }
+    },
+    {
+      "name": "a removed source offers no preview",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/theme-catalog/sources/{{id}}/themes/night-blue/preview"
+      }
+    }
+  ]
+}

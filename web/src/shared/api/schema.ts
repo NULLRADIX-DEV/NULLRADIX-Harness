@@ -1317,6 +1317,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/theme-catalog/sources/{id}/themes/{theme}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["catalog_theme_preview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/theme-catalog/themes": {
         parameters: {
             query?: never;
@@ -2076,6 +2092,8 @@ export interface components {
             /** @description The installed version when the theme is installed. */
             installedVersion?: string | null;
             name: string;
+            /** @description Path of the preview image on this daemon; the address the source names never leaves it. */
+            previewUrl?: string | null;
             /** @description Range of SDK versions the theme runs with. */
             sdkVersion: string;
             sourceId: string;
@@ -10010,6 +10028,69 @@ export interface operations {
                 };
             };
             /** @description The source cannot be reached: `catalog-timeout`, `catalog-unreachable`, `catalog-http-error` */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    catalog_theme_preview: {
+        parameters: {
+            query?: {
+                /** @description The `v` of the `previewUrl` in the list; an image asked for by it may be kept long. */
+                v?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Source id. */
+                id: string;
+                /** @description Theme id as the source offers it. */
+                theme: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preview image the source names for the theme, fetched by the daemon: a PNG, JPEG or WebP of at most 2 MiB, never SVG; it is kept per source and changes with the address or the package checksum of the entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": number[];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `catalog-source-not-found`, `catalog-theme-not-found` or `catalog-preview-not-found` (the entry names no preview) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `theme-id-invalid`; `catalog-preview-invalid` (not a PNG, JPEG or WebP); `catalog-too-large` above 2 MiB; `catalog-address-refused`; `catalog-index-invalid` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The source or the image host fails: `catalog-timeout`, `catalog-unreachable`, `catalog-http-error` */
             503: {
                 headers: {
                     [name: string]: unknown;

@@ -1,19 +1,20 @@
 //! Theme catalogs: sources the person added, the themes they offer and installing one.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use nullradix_domain::{
-    Availability, CatalogEntry, CatalogError, CatalogSource, CatalogUrl, EntryDraft,
-    MAX_INDEX_BYTES, MAX_INDEX_ENTRIES, MAX_PACKAGE_BYTES, MAX_SOURCES, Reach, SourceId,
-    THEME_ID_MAX, ThemeId, Timestamp, Version,
+    Availability, CatalogEntry, CatalogError, CatalogPreview, CatalogSource, CatalogUrl,
+    EntryDraft, MAX_INDEX_BYTES, MAX_INDEX_ENTRIES, MAX_PACKAGE_BYTES, MAX_SOURCES, Reach,
+    SourceId, THEME_ID_MAX, ThemeId, Timestamp, Version,
 };
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::flights::Flights;
 use crate::themes::{Installed, Origin, ThemeService};
 use crate::{AppError, Change, ChangeSignal, Clock};
 
@@ -161,6 +162,7 @@ fn draft(item: &Value) -> Result<EntryDraft, String> {
         sdk_version: text_field(fields, "sdkVersion")?,
         download_url: text_field(fields, "downloadUrl")?,
         sha256: text_field(fields, "sha256")?,
+        preview: text_field(fields, "preview")?,
         description: text_field(fields, "description")?,
     })
 }
@@ -257,7 +259,7 @@ fn fetch_problem(error: FetchError, what: &str) -> SourceProblem {
     }
 }
 
-fn fetch_failed(error: FetchError, what: &str) -> AppError {
+pub(crate) fn fetch_failed(error: FetchError, what: &str) -> AppError {
     let problem = fetch_problem(error, what);
     match error {
         FetchError::TooLarge | FetchError::Refused => {
@@ -280,12 +282,33 @@ fn with_checksum(error: AppError, sha256: &str) -> AppError {
     AppError::conflict(error.code(), error.message()).with_confirmation(facts)
 }
 
+/// A source whose index cannot be read: a refusal of its content is the caller's, the rest is not.
+fn index_failed(problem: SourceProblem) -> AppError {
+    match problem.code {
+        "catalog-address-refused" | "catalog-too-large" | "catalog-index-invalid" => {
+            AppError::invalid(problem.code, problem.message)
+        }
+        _ => AppError::unavailable(problem.code, problem.message),
+    }
+}
+
 fn source_not_found() -> AppError {
     AppError::not_found("catalog-source-not-found", "no such catalog source")
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
     crate::auth::hex(&Sha256::digest(bytes))
+}
+
+/// The previews the last read index of a source names; a theme without one maps to `None`.
+type Offered = HashMap<ThemeId, Option<CatalogPreview>>;
+
+/// The preview an index names for a theme of a source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewTarget {
+    pub source: SourceId,
+    pub theme: ThemeId,
+    pub preview: CatalogPreview,
 }
 
 pub struct CatalogService {
@@ -295,6 +318,10 @@ pub struct CatalogService {
     clock: Arc<dyn Clock>,
     signal: ChangeSignal,
     reach: Reach,
+    /// What the newest read of each index offers, so a page of previews reads no index at all.
+    offered: parking_lot::Mutex<HashMap<SourceId, Arc<Offered>>>,
+    /// One index read per source at a time when previews ask before any index was read.
+    reads: Flights<SourceId>,
 }
 
 impl std::fmt::Debug for CatalogService {
@@ -320,6 +347,8 @@ impl CatalogService {
             clock,
             signal,
             reach,
+            offered: parking_lot::Mutex::default(),
+            reads: Flights::default(),
         }
     }
 
@@ -392,7 +421,64 @@ impl CatalogService {
             .await?;
         write.commit().await?;
         self.signal.notify(&change);
+        self.offered.lock().remove(&id);
         Ok(())
+    }
+
+    /// The preview the source names for the theme; the index is read only if none was before.
+    pub async fn preview_of(&self, source: &str, theme: &str) -> Result<PreviewTarget, AppError> {
+        let id = SourceId::parse(source).ok_or_else(source_not_found)?;
+        let theme = ThemeId::parse(theme)
+            .map_err(|error| AppError::invalid("theme-id-invalid", error.to_string()))?;
+        let known = self.source(&id).await?;
+        let offered = if let Some(offered) = self.offered_by(&id) {
+            offered
+        } else {
+            let _read = self.reads.enter(id.clone()).await;
+            // whoever was ahead may have read it meanwhile
+            if self.offered_by(&id).is_none() {
+                self.read_index(&known).await.map_err(index_failed)?;
+            }
+            self.offered_by(&id).ok_or_else(source_not_found)?
+        };
+        let preview = match offered.get(&theme) {
+            None => {
+                return Err(AppError::not_found(
+                    "catalog-theme-not-found",
+                    format!("the source does not offer {theme}"),
+                ));
+            }
+            Some(None) => {
+                return Err(AppError::not_found(
+                    "catalog-preview-not-found",
+                    format!("{theme} has no preview"),
+                ));
+            }
+            Some(Some(preview)) => preview.clone(),
+        };
+        Ok(PreviewTarget {
+            source: id,
+            theme,
+            preview,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reads_are_idle(&self) -> bool {
+        self.reads.is_empty()
+    }
+
+    fn offered_by(&self, source: &SourceId) -> Option<Arc<Offered>> {
+        self.offered.lock().get(source).cloned()
+    }
+
+    async fn source(&self, id: &SourceId) -> Result<CatalogSource, AppError> {
+        self.sources()
+            .await?
+            .sources
+            .into_iter()
+            .find(|known| known.id() == id)
+            .ok_or_else(source_not_found)
     }
 
     /// Asks every source for its themes; a failing source shows as a problem, not an error.
@@ -477,22 +563,8 @@ impl CatalogService {
         let id = SourceId::parse(source).ok_or_else(source_not_found)?;
         let theme_id = ThemeId::parse(theme)
             .map_err(|error| AppError::invalid("theme-id-invalid", error.to_string()))?;
-        let source = self
-            .sources()
-            .await?
-            .sources
-            .into_iter()
-            .find(|known| known.id() == &id)
-            .ok_or_else(source_not_found)?;
-        let parsed = self
-            .read_index(&source)
-            .await
-            .map_err(|problem| match problem.code {
-                "catalog-address-refused" | "catalog-too-large" | "catalog-index-invalid" => {
-                    AppError::invalid(problem.code, problem.message)
-                }
-                _ => AppError::unavailable(problem.code, problem.message),
-            })?;
+        let source = self.source(&id).await?;
+        let parsed = self.read_index(&source).await.map_err(index_failed)?;
         let entry = parsed
             .entries
             .into_iter()
@@ -549,15 +621,24 @@ impl CatalogService {
             .fetch(&url, MAX_INDEX_BYTES)
             .await
             .map_err(|error| fetch_problem(error, "the source"))?;
-        parse_index(&bytes, self.reach).map_err(|error| SourceProblem {
+        let parsed = parse_index(&bytes, self.reach).map_err(|error| SourceProblem {
             code: "catalog-index-invalid",
             message: error.to_string(),
-        })
+        })?;
+        let offered = parsed
+            .entries
+            .iter()
+            .map(|entry| (entry.id.clone(), entry.preview.clone()))
+            .collect();
+        self.offered
+            .lock()
+            .insert(source.id().clone(), Arc::new(offered));
+        Ok(parsed)
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use parking_lot::Mutex;
 
     use super::*;
@@ -566,7 +647,7 @@ mod tests {
     use crate::{ChangeOp, Entity, SystemClock};
 
     #[derive(Default)]
-    struct MemorySources {
+    pub(crate) struct MemorySources {
         stored: Mutex<Option<StoredSources>>,
         feed: Mutex<i64>,
     }
@@ -640,13 +721,13 @@ mod tests {
 
     /// Answers by address; a missing answer is unreachable.
     #[derive(Default)]
-    struct FakeFetcher {
+    pub(crate) struct FakeFetcher {
         answers: Mutex<BTreeMap<String, Result<Vec<u8>, FetchError>>>,
-        asked: Mutex<Vec<(String, u64)>>,
+        pub(crate) asked: Mutex<Vec<(String, u64)>>,
     }
 
     impl FakeFetcher {
-        fn answer(&self, url: &str, result: Result<Vec<u8>, FetchError>) {
+        pub(crate) fn answer(&self, url: &str, result: Result<Vec<u8>, FetchError>) {
             self.answers.lock().insert(url.to_owned(), result);
         }
     }
@@ -663,25 +744,33 @@ mod tests {
         }
     }
 
-    struct World {
-        service: CatalogService,
-        fetcher: Arc<FakeFetcher>,
+    pub(crate) struct World {
+        pub(crate) service: Arc<CatalogService>,
+        pub(crate) fetcher: Arc<FakeFetcher>,
         themes: Arc<ThemeService>,
         sources: Arc<MemorySources>,
     }
 
-    fn world(reach: Reach) -> World {
+    pub(crate) fn world(reach: Reach) -> World {
+        world_with(reach, |fetcher| fetcher)
+    }
+
+    /// A world whose service asks `front` instead of the fake itself, for gates.
+    pub(crate) fn world_with(
+        reach: Reach,
+        front: impl FnOnce(Arc<FakeFetcher>) -> Arc<dyn CatalogFetcher>,
+    ) -> World {
         let themes = fixture().service;
         let fetcher = Arc::new(FakeFetcher::default());
         let sources = Arc::new(MemorySources::default());
-        let service = CatalogService::new(
+        let service = Arc::new(CatalogService::new(
             Arc::new(sources.clone()),
-            fetcher.clone(),
+            front(fetcher.clone()),
             themes.clone(),
             Arc::new(SystemClock),
             ChangeSignal::new(),
             reach,
-        );
+        ));
         World {
             service,
             fetcher,
@@ -690,7 +779,7 @@ mod tests {
         }
     }
 
-    const SOURCE: &str = "https://themes.example.com/index.json";
+    pub(crate) const SOURCE: &str = "https://themes.example.com/index.json";
     const PACKAGE_URL: &str = "https://themes.example.com/night-blue.nullradix";
 
     fn night_blue() -> Vec<u8> {

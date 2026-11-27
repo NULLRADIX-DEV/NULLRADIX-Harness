@@ -5,8 +5,12 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::theme_fetch::{AssetCache, EntryError, Stored, ZipEntries};
+use nullradix_app::theme_preview::PreviewCache;
 use nullradix_app::themes::files_failed;
-use nullradix_domain::{MAX_ARCHIVE_BYTES, MAX_CACHE_BYTES, MAX_CACHE_FILES, ThemeId};
+use nullradix_domain::{
+    MAX_ARCHIVE_BYTES, MAX_CACHE_BYTES, MAX_CACHE_FILES, MAX_PREVIEW_BYTES,
+    MAX_PREVIEW_CACHE_BYTES, MAX_PREVIEW_CACHE_FILES, SourceId, ThemeId,
+};
 use nullradix_os::{ArchiveError, CacheBudget};
 
 /// Reads files out of zip archives held in memory.
@@ -82,6 +86,57 @@ impl AssetCache for FolderAssets {
     }
 }
 
+/// Cached preview images below one folder, one subfolder per catalog source.
+pub(crate) struct FolderPreviews {
+    dir: PathBuf,
+}
+
+impl FolderPreviews {
+    pub(crate) const fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+}
+
+#[async_trait]
+impl PreviewCache for FolderPreviews {
+    async fn get(&self, source: &SourceId, key: &str) -> Option<Vec<u8>> {
+        let (dir, source, key) = (self.dir.clone(), source.to_string(), key.to_owned());
+        tokio::task::spawn_blocking(move || {
+            nullradix_os::cache_read(&dir, &source, &key, MAX_PREVIEW_BYTES)
+        })
+        .await
+        .ok()?
+        .ok()?
+    }
+
+    async fn put(&self, source: &SourceId, key: &str, bytes: Vec<u8>) -> Result<Stored, AppError> {
+        let (dir, source, key) = (self.dir.clone(), source.to_string(), key.to_owned());
+        let budget = CacheBudget {
+            bytes: MAX_PREVIEW_CACHE_BYTES,
+            files: MAX_PREVIEW_CACHE_FILES,
+        };
+        // the bytes go to the thread and come back, so they are not copied
+        let (bytes, written) = tokio::task::spawn_blocking(move || {
+            let written = nullradix_os::cache_write(&dir, &source, &key, &bytes, budget);
+            (bytes, written)
+        })
+        .await
+        .map_err(files_failed)?;
+        Ok(Stored {
+            bytes,
+            error: written.err().map(files_failed),
+        })
+    }
+
+    async fn clear(&self, source: &SourceId) -> Result<(), AppError> {
+        let (dir, source) = (self.dir.clone(), source.to_string());
+        tokio::task::spawn_blocking(move || nullradix_os::cache_clear(&dir, &source))
+            .await
+            .map_err(files_failed)?
+            .map_err(files_failed)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +183,49 @@ mod tests {
                 .is_some()
         );
         assert_eq!(cache.get(&theme(), "../x").await, None);
+    }
+
+    fn source(text: &str) -> SourceId {
+        SourceId::parse(text).unwrap()
+    }
+
+    #[tokio::test]
+    async fn previews_are_kept_per_source_and_cleared_with_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = FolderPreviews::new(dir.path().to_path_buf());
+        let (one, two) = (source("aaaaaaaaaaaa"), source("bbbbbbbbbbbb"));
+        assert_eq!(cache.get(&one, "ab12").await, None);
+        cache.put(&one, "ab12", b"PNG".to_vec()).await.unwrap();
+        cache.put(&two, "ab12", b"JPG".to_vec()).await.unwrap();
+        assert_eq!(cache.get(&one, "ab12").await, Some(b"PNG".to_vec()));
+        assert_eq!(cache.get(&two, "ab12").await, Some(b"JPG".to_vec()));
+        cache.clear(&one).await.unwrap();
+        assert_eq!(cache.get(&one, "ab12").await, None);
+        assert_eq!(cache.get(&two, "ab12").await, Some(b"JPG".to_vec()));
+        // clearing what is not there is no error
+        cache.clear(&one).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_preview_cache_refuses_odd_keys_and_serves_nothing_above_the_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = FolderPreviews::new(dir.path().to_path_buf());
+        let one = source("aaaaaaaaaaaa");
+        let put = cache.put(&one, "../x", b"PNG".to_vec()).await.unwrap();
+        assert!(put.error.is_some());
+        assert_eq!(cache.get(&one, "../x").await, None);
+        let budget = CacheBudget {
+            bytes: 1 << 30,
+            files: 10,
+        };
+        let big = vec![0_u8; usize::try_from(MAX_PREVIEW_BYTES).unwrap() + 1];
+        nullradix_os::cache_write(dir.path(), "aaaaaaaaaaaa", "big", &big, budget).unwrap();
+        assert_eq!(cache.get(&one, "big").await, None);
+        let fits = vec![0_u8; usize::try_from(MAX_PREVIEW_BYTES).unwrap()];
+        nullradix_os::cache_write(dir.path(), "aaaaaaaaaaaa", "fits", &fits, budget).unwrap();
+        assert_eq!(
+            cache.get(&one, "fits").await.map(|bytes| bytes.len()),
+            Some(fits.len())
+        );
     }
 }

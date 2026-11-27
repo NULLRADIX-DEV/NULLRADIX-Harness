@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use url::{Host, Url};
 
 use crate::theme::SDK_VERSION;
+use crate::theme_preview::CatalogPreview;
 use crate::{ThemeId, Timestamp};
 
 pub const MAX_SOURCES: usize = 50;
@@ -276,6 +277,7 @@ pub struct EntryDraft {
     pub sdk_version: Option<String>,
     pub download_url: Option<String>,
     pub sha256: Option<String>,
+    pub preview: Option<String>,
     pub description: Option<String>,
 }
 
@@ -291,6 +293,8 @@ pub struct CatalogEntry {
     pub download_url: CatalogUrl,
     /// Lower-case hex of the package.
     pub sha256: String,
+    /// The image the source offers for the entry.
+    pub preview: Option<CatalogPreview>,
     pub description: Option<String>,
 }
 
@@ -346,6 +350,16 @@ impl CatalogEntry {
         if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(String::from("sha256 must be 64 hex characters"));
         }
+        let sha256 = sha256.to_ascii_lowercase();
+        let preview = draft
+            .preview
+            .as_deref()
+            .map(|raw| {
+                CatalogUrl::parse(raw, reach)
+                    .map(|url| CatalogPreview::new(url, &sha256))
+                    .map_err(|error| format!("preview: {error}"))
+            })
+            .transpose()?;
         if draft
             .description
             .as_ref()
@@ -373,7 +387,8 @@ impl CatalogEntry {
             sdk_version: sdk_version.to_owned(),
             compatible: range.matches(&sdk),
             download_url,
-            sha256: sha256.to_ascii_lowercase(),
+            sha256,
+            preview,
             description: draft.description.clone(),
         })
     }
@@ -568,6 +583,7 @@ mod tests {
             sdk_version: Some(String::from("^2.0")),
             download_url: Some(String::from("https://example.com/ocean.nullradix")),
             sha256: Some("AB".repeat(32)),
+            preview: None,
             description: Some(String::from("Blue")),
         }
     }
@@ -582,6 +598,49 @@ mod tests {
         assert!(entry.compatible);
         assert_eq!(entry.sha256, "ab".repeat(32));
         assert_eq!(entry.id.as_str(), "ocean");
+    }
+
+    #[test]
+    fn an_entry_without_a_preview_has_none() {
+        assert_eq!(build(&draft()).unwrap().preview, None);
+    }
+
+    #[test]
+    fn a_preview_is_a_public_https_address_tied_to_the_checksum() {
+        let mut named = draft();
+        named.preview = Some(String::from("HTTPS://Example.com/ocean.png#x"));
+        let entry = build(&named).unwrap();
+        let preview = entry.preview.unwrap();
+        assert_eq!(preview.url().as_str(), "https://example.com/ocean.png");
+        let mut repacked = named.clone();
+        repacked.sha256 = Some("cd".repeat(32));
+        let again = build(&repacked).unwrap().preview.unwrap();
+        assert_ne!(preview.fingerprint(), again.fingerprint());
+        // the checksum counts in lower case
+        let mut upper = named;
+        upper.sha256 = Some("ab".repeat(32));
+        assert_eq!(build(&upper).unwrap().preview.unwrap(), preview);
+    }
+
+    #[test]
+    fn a_preview_must_pass_the_rules_of_the_reach() {
+        for bad in [
+            "http://example.com/a.png",
+            "https://10.0.0.1/a.png",
+            "https://localhost/a.png",
+            "https://u:p@example.com/a.png",
+            "https://example.com:8443/a.png",
+            "file:///etc/passwd",
+            "",
+        ] {
+            let mut entry = draft();
+            entry.preview = Some(bad.to_owned());
+            let reason = build(&entry).unwrap_err();
+            assert!(reason.starts_with("preview: "), "{bad}: {reason}");
+        }
+        let mut local = draft();
+        local.preview = Some(String::from("http://127.0.0.1:8080/a.png"));
+        assert!(CatalogEntry::build(&local, Reach::Anywhere).is_ok());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type {
@@ -281,5 +281,74 @@ describe('CatalogSection', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(api.requests(route)).toHaveLength(1);
+  });
+});
+
+describe('CatalogSection previews', () => {
+  const PROXY =
+    '/api/v1/theme-catalog/sources/aaaaaaaaaaaa/themes/night-blue/preview?v=0123456789abcdef';
+
+  async function listed(themes: CatalogTheme[]) {
+    catalogServer({ sources: [source('aaaaaaaaaaaa', URL_A)], themes });
+    renderApp('/settings');
+    return within(await screen.findByRole('list', { name: 'Available themes' }));
+  }
+
+  it('shows the image through the proxy path of the daemon', async () => {
+    const list = await listed([offered({ previewUrl: PROXY })]);
+    const image = list.getByRole('img', { name: 'Preview of Night Blue' });
+    expect(image).toHaveAttribute('src', PROXY);
+    expect(image).toHaveAttribute('loading', 'lazy');
+  });
+
+  it('shows a box with the first letter when the entry has no preview', async () => {
+    const list = await listed([offered({ previewUrl: null }), offered({ id: 'sea', name: 'Sea' })]);
+    expect(list.queryByRole('img')).not.toBeInTheDocument();
+    expect(list.getByText('N')).toBeInTheDocument();
+    expect(list.getByText('S')).toBeInTheDocument();
+  });
+
+  it('shows the box instead when the image fails, and keeps the rest of the row', async () => {
+    const list = await listed([offered({ previewUrl: PROXY })]);
+    fireEvent.error(list.getByRole('img', { name: 'Preview of Night Blue' }));
+    expect(list.queryByRole('img')).not.toBeInTheDocument();
+    expect(list.getByText('N')).toBeInTheDocument();
+    expect(list.getByRole('button', { name: 'Install Night Blue' })).toBeInTheDocument();
+  });
+
+  it('never puts an address that is not the proxy path of a source into an image', async () => {
+    const odd = [
+      'https://evil.example/preview.png',
+      'http://127.0.0.1/preview.png',
+      '//evil.example/preview.png',
+      'data:image/png;base64,AAAA',
+      'javascript:alert(1)',
+      '/api/v1/themes/night-blue/files/preview.png',
+      '/api/v1/theme-catalog/sources/aaaaaaaaaaaa/themes/night-blue/preview?v=1&x=https://evil.example',
+      '/api/v1/theme-catalog/sources/aaaaaaaaaaaa/themes/../preview',
+      `${PROXY}#x`,
+      ` ${PROXY}`,
+    ];
+    const list = await listed(
+      odd.map((previewUrl, number) =>
+        offered({ id: `theme-${String(number)}`, name: `Theme ${String(number)}`, previewUrl }),
+      ),
+    );
+    expect(list.queryByRole('img')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('img')).toHaveLength(0);
+  });
+
+  it('asks for no remote address, whatever the catalog holds', async () => {
+    const api = catalogServer({
+      sources: [source('aaaaaaaaaaaa', URL_A)],
+      themes: [offered({ previewUrl: PROXY })],
+    });
+    renderApp('/settings');
+    await screen.findByRole('img', { name: 'Preview of Night Blue' });
+    for (const image of document.querySelectorAll('img')) {
+      expect(new URL(image.src).origin).toBe(window.location.origin);
+    }
+    const asked = (api.fetch.mock.calls as [Request][]).map(([request]) => new URL(request.url));
+    expect(asked.every((url) => url.origin === window.location.origin)).toBe(true);
   });
 });

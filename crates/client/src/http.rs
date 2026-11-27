@@ -1926,6 +1926,7 @@ mod tests {
             },
         );
         let themes = theme_service(&store, &signal);
+        let catalog = catalog_service(&store, &themes, &signal);
         ApiState {
             auth,
             projects,
@@ -1968,7 +1969,12 @@ mod tests {
                 Arc::new(nullradix_app::theme_fetch::NoZipEntries),
                 Arc::new(nullradix_app::theme_fetch::NoAssetCache),
             )),
-            catalog: catalog_service(&store, &themes, &signal),
+            theme_previews: Arc::new(nullradix_app::theme_preview::ThemePreviews::new(
+                catalog.clone(),
+                Arc::new(nullradix_app::theme_catalog::NoNetwork),
+                Arc::new(nullradix_app::theme_preview::NoPreviewCache),
+            )),
+            catalog,
             claude_theme: Arc::new(nullradix_app::claude_theme::ClaudeThemeService::new(
                 store.clone(),
                 themes.clone(),

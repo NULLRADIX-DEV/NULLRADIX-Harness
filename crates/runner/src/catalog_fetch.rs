@@ -9,7 +9,8 @@ use async_trait::async_trait;
 use nullradix_app::theme_catalog::{CatalogFetcher, FetchError};
 use nullradix_app::theme_fetch::{AssetFetcher, Hop};
 use nullradix_domain::{
-    CatalogUrl, EndpointHost, MAX_ASSET_BYTES, MAX_INDEX_BYTES, Reach, is_public_address,
+    CatalogUrl, EndpointHost, MAX_ASSET_BYTES, MAX_INDEX_BYTES, MAX_PREVIEW_BYTES, Reach,
+    is_public_address,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -17,6 +18,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 const PACKAGE_LIMIT: Duration = Duration::from_secs(60);
 /// Indexes are small; a slow source must not hold up the others for long.
 const INDEX_LIMIT: Duration = Duration::from_secs(20);
+/// A preview image is small too, and a page of them waits for it.
+const PREVIEW_LIMIT: Duration = Duration::from_secs(30);
 const CONNECT_LIMIT_SECONDS: u64 = 10;
 const MAX_REDIRECTS: usize = 3;
 /// One request for a resource of a theme; the redirects of the proxy have a budget of their own.
@@ -213,6 +216,8 @@ impl CurlCatalogFetcher {
 fn limit_for(max_bytes: u64) -> Duration {
     if max_bytes <= MAX_INDEX_BYTES {
         INDEX_LIMIT
+    } else if max_bytes <= MAX_PREVIEW_BYTES {
+        PREVIEW_LIMIT
     } else {
         PACKAGE_LIMIT
     }
@@ -593,7 +598,9 @@ mod tests {
     #[test]
     fn an_index_gets_less_time_than_a_package() {
         assert_eq!(limit_for(MAX_INDEX_BYTES), INDEX_LIMIT);
-        assert_eq!(limit_for(MAX_INDEX_BYTES + 1), PACKAGE_LIMIT);
+        assert_eq!(limit_for(MAX_INDEX_BYTES + 1), PREVIEW_LIMIT);
+        assert_eq!(limit_for(MAX_PREVIEW_BYTES), PREVIEW_LIMIT);
+        assert_eq!(limit_for(MAX_PREVIEW_BYTES + 1), PACKAGE_LIMIT);
     }
 
     fn assets(curl: CurlCatalogFetcher) -> CurlAssetFetcher {

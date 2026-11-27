@@ -46,6 +46,39 @@ function stateText(theme: CatalogTheme): string {
   return 'Not installed';
 }
 
+// The path of the proxy the daemon names; nothing else, above all no address of a source, is shown.
+const PREVIEW_PATH =
+  /^\/api\/v1\/theme-catalog\/sources\/[0-9a-f]{12}\/themes\/[a-z0-9-]+\/preview(\?v=[0-9a-f]+)?$/;
+
+function previewSource(url: string | null | undefined): string | null {
+  return typeof url === 'string' && PREVIEW_PATH.test(url) ? url : null;
+}
+
+// The image through the daemon; without one, or when it fails, a plain box with the first letter.
+function Preview({ theme }: { theme: CatalogTheme }) {
+  const src = previewSource(theme.previewUrl);
+  const [failed, setFailed] = useState(false);
+  if (src === null || failed) {
+    return (
+      <div className="theme-preview theme-preview-empty" aria-hidden="true">
+        {theme.name.slice(0, 1)}
+      </div>
+    );
+  }
+  return (
+    <img
+      className="theme-preview"
+      src={src}
+      alt={`Preview of ${theme.name}`}
+      loading="lazy"
+      decoding="async"
+      onError={() => {
+        setFailed(true);
+      }}
+    />
+  );
+}
+
 function ThemeRow({ theme }: { theme: CatalogTheme }) {
   const install = useInstallFromCatalog();
   const [confirming, setConfirming] = useState(false);
@@ -55,6 +88,7 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
   const label = theme.state === 'update' ? 'Update' : elsewhere ? 'Replace' : 'Install';
   return (
     <li className="theme-row">
+      <Preview key={theme.previewUrl ?? ''} theme={theme} />
       <div className="theme-row-text">
         <strong>{theme.name}</strong>
         <div className="muted">
