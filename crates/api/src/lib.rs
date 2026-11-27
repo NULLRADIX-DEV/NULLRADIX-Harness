@@ -477,12 +477,12 @@ fn routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
 }
 
-/// Pages load only same-origin scripts; styles may be inline, nothing else leaves the origin.
+/// Pages load only same-origin scripts; nothing inline and nothing leaves the origin.
 const APP_CSP: &str = concat!(
     "default-src 'self'; script-src 'self'; worker-src 'self'; frame-src 'none'; ",
     "form-action 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; ",
     "img-src 'self' data:; font-src 'self' data:; ",
-    "style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self'"
+    "style-src 'self'; connect-src 'self'; media-src 'self'"
 );
 
 pub fn router(state: ApiState) -> Router {

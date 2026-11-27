@@ -11,11 +11,27 @@ use crate::API_PREFIX;
 
 /// Serves the built web UI; unknown paths get `index.html` so client routes survive reloads.
 pub(crate) async fn serve(dir: &Path, request: Request) -> Response {
+    let hashed = request.uri().path().starts_with("/assets/");
     let service = ServeDir::new(dir).fallback(ServeFile::new(dir.join("index.html")));
-    match service.oneshot(request).await {
+    let mut response = match service.oneshot(request).await {
         Ok(response) => response.into_response(),
         Err(never) => match never {},
-    }
+    };
+    // hashed bundles never change; the shell and boot files must be revalidated together
+    // an unknown asset path falls back to the shell, which must not be cached as hashed
+    let shell = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
+    let policy = if hashed && response.status().is_success() && !shell {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(policy));
+    response
 }
 
 /// API answers carry user data and must never be cached.
@@ -66,6 +82,7 @@ mod tests {
         let (status, headers, body) = get(&api.router, "/").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "<html>shell</html>");
+        assert_eq!(headers["cache-control"], "no-cache");
         assert_eq!(headers["x-frame-options"], "DENY");
         assert_eq!(headers["x-content-type-options"], "nosniff");
         assert_eq!(headers["referrer-policy"], "no-referrer");
@@ -78,7 +95,7 @@ mod tests {
             "form-action 'self'",
             "img-src 'self' data:",
             "font-src 'self' data:",
-            "style-src 'self' 'unsafe-inline'",
+            "style-src 'self'",
             "connect-src 'self'",
             "media-src 'self'",
         ] {
@@ -90,14 +107,25 @@ mod tests {
             .find(|d| d.starts_with("script-src"))
             .unwrap();
         assert_eq!(script, "script-src 'self'");
+        assert!(!csp.contains("unsafe-inline"), "{csp}");
 
         let (status, _, body) = get(&api.router, "/board/ARC-0001").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "<html>shell</html>");
 
-        let (status, _, body) = get(&api.router, "/assets/app.js").await;
+        let (status, headers, body) = get(&api.router, "/assets/app.js").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "console.log(1)");
+        assert_eq!(
+            headers["cache-control"],
+            "public, max-age=31536000, immutable"
+        );
+
+        fs::write(dir.path().join("boot-theme.js"), "var a;").unwrap();
+        let (_, headers, _) = get(&api.router, "/boot-theme.js").await;
+        assert_eq!(headers["cache-control"], "no-cache");
+        let (_, headers, _) = get(&api.router, "/assets/missing.js").await;
+        assert_eq!(headers["cache-control"], "no-cache");
     }
 
     #[tokio::test]
