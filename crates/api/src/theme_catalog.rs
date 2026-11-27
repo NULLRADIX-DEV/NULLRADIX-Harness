@@ -337,7 +337,7 @@ pub(crate) async fn install_catalog_theme(
     ApiPath(path): ApiPath<InstallPath>,
     ApiQuery(query): ApiQuery<InstallQuery>,
 ) -> Result<(StatusCode, HeaderMap, Json<ThemeDto>), ApiError> {
-    let theme = state
+    let installed = state
         .catalog
         .install(
             &path.id,
@@ -345,15 +345,14 @@ pub(crate) async fn install_catalog_theme(
             query.replace,
             query.confirmed_sha256.as_deref(),
         )
-        .await?
-        .theme;
+        .await?;
     crate::claude_theme::resync(&state).await;
-    let dto = ThemeDto::from(&theme);
+    let dto = ThemeDto::new(&installed.theme, installed.code);
     let mut headers = HeaderMap::new();
     if let Ok(value) = HeaderValue::from_str(&dto.style_url) {
         headers.insert(header::LOCATION, value);
     }
-    let status = if theme.record().version.value() == 1 {
+    let status = if installed.theme.record().version.value() == 1 {
         StatusCode::CREATED
     } else {
         StatusCode::OK

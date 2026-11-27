@@ -178,8 +178,8 @@ pub use theme_catalog::{
     CatalogSourceStatusDto, CatalogStateDto, CatalogThemeDto, SkippedEntryDto,
 };
 pub use themes::{
-    ChooseTheme, ColorSchemeDto, SaveThemeSettings, ThemeDto, ThemeListDto, ThemeOptionDto,
-    ThemeSettingDto, ThemeSettingValueDto, ThemeSettingsDto,
+    ChooseTheme, ColorSchemeDto, SaveThemeSettings, SetThemeCode, ThemeDto, ThemeListDto,
+    ThemeOptionDto, ThemeSettingDto, ThemeSettingValueDto, ThemeSettingsDto,
 };
 pub use tickets::{
     AcceptTicket, AddStep, ChangeStep, ClaimPlanning, ClaimTicket, ColumnDto, CreateTicket,
@@ -299,6 +299,7 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
     router
         .routes(routes!(themes::list_themes, themes::install_theme))
         .routes(routes!(themes::remove_theme))
+        .routes(routes!(themes::set_theme_code))
         .routes(routes!(
             themes::theme_settings,
             themes::save_theme_settings,
@@ -488,8 +489,8 @@ fn routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::with_openapi(doc).nest(API_PREFIX, v1)
 }
 
-/// Pages load only same-origin scripts; nothing inline and nothing leaves the origin.
-const APP_CSP: &str = concat!(
+/// Pages load only same-origin scripts and the inline scripts they name by hash; nothing leaves the origin.
+pub(crate) const APP_CSP: &str = concat!(
     "default-src 'self'; script-src 'self'; worker-src 'self'; frame-src 'none'; ",
     "form-action 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; ",
     "img-src 'self' data:; font-src 'self' data:; ",

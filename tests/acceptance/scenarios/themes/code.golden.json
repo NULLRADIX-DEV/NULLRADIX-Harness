@@ -1,0 +1,579 @@
+[
+  {
+    "file": "<WORK>/night-code/manifest.json",
+    "lines": 0,
+    "name": "manifest with a domain"
+  },
+  {
+    "file": "<WORK>/night-code/theme.css",
+    "lines": 0,
+    "name": "stylesheet"
+  },
+  {
+    "file": "<WORK>/night-code/main.js",
+    "lines": 0,
+    "name": "script"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-code",
+      "--out",
+      "<WORK>/v1.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the folder",
+    "stderr": "",
+    "stdout": "packed night-code 1.0.0 (3 files) into <WORK>/v1.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v1.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "install the confirmed package",
+    "stderr": "",
+    "stdout": "installed night-code 1.0.0\n"
+  },
+  {
+    "name": "the theme has code and the switch is off",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "codeEnabled": false,
+            "codeUrl": "/api/v1/themes/night-code/files/main.js?v=1",
+            "colorScheme": "dark",
+            "hasCode": true,
+            "id": "night-code",
+            "installedAt": "<TIME>",
+            "name": "Night Code",
+            "network": [
+              "fonts.example.com"
+            ],
+            "packageVersion": "1.0.0",
+            "previewUrl": null,
+            "sdkVersion": "^1.3",
+            "settings": [],
+            "slots": [],
+            "startColor": null,
+            "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=1",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the module is served as javascript",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes/night-code/files/main.js"
+    },
+    "response": {
+      "status": 200,
+      "text": "export default { id: 'night-code', slots: {} };\n"
+    }
+  },
+  {
+    "name": "a stale version cannot turn the switch on",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 99
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "code": "version-conflict",
+        "detail": "theme night-code was changed by someone else, reload and try again",
+        "status": 409,
+        "title": "Conflict",
+        "type": "urn:nullradix:problem:version-conflict"
+      },
+      "status": 409
+    }
+  },
+  {
+    "name": "turning the switch on for the version seen",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "author": "Ada",
+        "claudeTheme": false,
+        "codeEnabled": true,
+        "codeUrl": "/api/v1/themes/night-code/files/main.js?v=1",
+        "colorScheme": "dark",
+        "hasCode": true,
+        "id": "night-code",
+        "installedAt": "<TIME>",
+        "name": "Night Code",
+        "network": [
+          "fonts.example.com"
+        ],
+        "packageVersion": "1.0.0",
+        "previewUrl": null,
+        "sdkVersion": "^1.3",
+        "settings": [],
+        "slots": [],
+        "startColor": null,
+        "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=1",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the list shows it on",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "codeEnabled": true,
+            "codeUrl": "/api/v1/themes/night-code/files/main.js?v=1",
+            "colorScheme": "dark",
+            "hasCode": true,
+            "id": "night-code",
+            "installedAt": "<TIME>",
+            "name": "Night Code",
+            "network": [
+              "fonts.example.com"
+            ],
+            "packageVersion": "1.0.0",
+            "previewUrl": null,
+            "sdkVersion": "^1.3",
+            "settings": [],
+            "slots": [],
+            "startColor": null,
+            "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=1",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "an unknown theme has no switch",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/missing-theme/code"
+    },
+    "response": {
+      "json": {
+        "code": "theme-not-found",
+        "detail": "the theme missing-theme is not installed",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:theme-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v1.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "the same package again keeps the switch",
+    "stderr": "",
+    "stdout": "installed night-code 1.0.0\n"
+  },
+  {
+    "name": "still on after an update that adds nothing",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "codeEnabled": true,
+            "codeUrl": "/api/v1/themes/night-code/files/main.js?v=2",
+            "colorScheme": "dark",
+            "hasCode": true,
+            "id": "night-code",
+            "installedAt": "<TIME>",
+            "name": "Night Code",
+            "network": [
+              "fonts.example.com"
+            ],
+            "packageVersion": "1.0.0",
+            "previewUrl": null,
+            "sdkVersion": "^1.3",
+            "settings": [],
+            "slots": [],
+            "startColor": null,
+            "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=2",
+            "updatedAt": "<TIME>",
+            "version": 2
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "file": "<WORK>/night-code/manifest.json",
+    "lines": 0,
+    "name": "manifest of an update with another domain"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/night-code",
+      "--out",
+      "<WORK>/v2.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the update",
+    "stderr": "",
+    "stdout": "packed night-code 1.1.0 (3 files) into <WORK>/v2.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v2.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "install the update that adds a domain",
+    "stderr": "",
+    "stdout": "installed night-code 1.1.0\n"
+  },
+  {
+    "name": "the switch is off again",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "codeEnabled": false,
+            "codeUrl": "/api/v1/themes/night-code/files/main.js?v=3",
+            "colorScheme": "dark",
+            "hasCode": true,
+            "id": "night-code",
+            "installedAt": "<TIME>",
+            "name": "Night Code",
+            "network": [
+              "fonts.example.com",
+              "cdn.example.com"
+            ],
+            "packageVersion": "1.1.0",
+            "previewUrl": null,
+            "sdkVersion": "^1.3",
+            "settings": [],
+            "slots": [],
+            "startColor": null,
+            "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=3",
+            "updatedAt": "<TIME>",
+            "version": 3
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "turning it on again",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 3
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "author": "Ada",
+        "claudeTheme": false,
+        "codeEnabled": true,
+        "codeUrl": "/api/v1/themes/night-code/files/main.js?v=3",
+        "colorScheme": "dark",
+        "hasCode": true,
+        "id": "night-code",
+        "installedAt": "<TIME>",
+        "name": "Night Code",
+        "network": [
+          "fonts.example.com",
+          "cdn.example.com"
+        ],
+        "packageVersion": "1.1.0",
+        "previewUrl": null,
+        "sdkVersion": "^1.3",
+        "settings": [],
+        "slots": [],
+        "startColor": null,
+        "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=3",
+        "updatedAt": "<TIME>",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "turning it off",
+    "request": {
+      "body": {
+        "enabled": false,
+        "version": 3
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "author": "Ada",
+        "claudeTheme": false,
+        "codeEnabled": false,
+        "codeUrl": "/api/v1/themes/night-code/files/main.js?v=3",
+        "colorScheme": "dark",
+        "hasCode": true,
+        "id": "night-code",
+        "installedAt": "<TIME>",
+        "name": "Night Code",
+        "network": [
+          "fonts.example.com",
+          "cdn.example.com"
+        ],
+        "packageVersion": "1.1.0",
+        "previewUrl": null,
+        "sdkVersion": "^1.3",
+        "settings": [],
+        "slots": [],
+        "startColor": null,
+        "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=3",
+        "updatedAt": "<TIME>",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "file": "<WORK>/plain/manifest.json",
+    "lines": 0,
+    "name": "a theme without code has no switch to turn on"
+  },
+  {
+    "file": "<WORK>/plain/theme.css",
+    "lines": 0,
+    "name": "plain stylesheet"
+  },
+  {
+    "cli": [
+      "theme",
+      "pack",
+      "<WORK>/plain",
+      "--out",
+      "<WORK>/plain.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "pack the plain theme",
+    "stderr": "",
+    "stdout": "packed plain-blue 1.0.0 (2 files) into <WORK>/plain.nullradix\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/plain.nullradix"
+    ],
+    "exitCode": 0,
+    "name": "install the plain theme",
+    "stderr": "",
+    "stdout": "installed plain-blue 1.0.0\n"
+  },
+  {
+    "name": "the switch needs a main.js",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/plain-blue/code"
+    },
+    "response": {
+      "json": {
+        "code": "theme-has-no-code",
+        "detail": "plain-blue has no main.js to run",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-has-no-code"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "turning it on once more before the uninstall",
+    "request": {
+      "body": {
+        "enabled": true,
+        "version": 3
+      },
+      "method": "PUT",
+      "path": "/api/v1/themes/night-code/code"
+    },
+    "response": {
+      "json": {
+        "author": "Ada",
+        "claudeTheme": false,
+        "codeEnabled": true,
+        "codeUrl": "/api/v1/themes/night-code/files/main.js?v=3",
+        "colorScheme": "dark",
+        "hasCode": true,
+        "id": "night-code",
+        "installedAt": "<TIME>",
+        "name": "Night Code",
+        "network": [
+          "fonts.example.com",
+          "cdn.example.com"
+        ],
+        "packageVersion": "1.1.0",
+        "previewUrl": null,
+        "sdkVersion": "^1.3",
+        "settings": [],
+        "slots": [],
+        "startColor": null,
+        "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=3",
+        "updatedAt": "<TIME>",
+        "version": 3
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "remove",
+      "night-code"
+    ],
+    "exitCode": 0,
+    "name": "uninstall the theme",
+    "stderr": "",
+    "stdout": "removed night-code\n"
+  },
+  {
+    "cli": [
+      "theme",
+      "install",
+      "<WORK>/v2.nullradix",
+      "--yes"
+    ],
+    "exitCode": 0,
+    "name": "a reinstall starts with the switch off",
+    "stderr": "",
+    "stdout": "installed night-code 1.1.0\n"
+  },
+  {
+    "name": "the new install is off",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/themes"
+    },
+    "response": {
+      "json": {
+        "active": "nullradix",
+        "items": [
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "codeEnabled": false,
+            "codeUrl": "/api/v1/themes/night-code/files/main.js?v=1",
+            "colorScheme": "dark",
+            "hasCode": true,
+            "id": "night-code",
+            "installedAt": "<TIME>",
+            "name": "Night Code",
+            "network": [
+              "fonts.example.com",
+              "cdn.example.com"
+            ],
+            "packageVersion": "1.1.0",
+            "previewUrl": null,
+            "sdkVersion": "^1.3",
+            "settings": [],
+            "slots": [],
+            "startColor": null,
+            "styleUrl": "/api/v1/themes/night-code/files/theme.css?v=1",
+            "updatedAt": "<TIME>",
+            "version": 1
+          },
+          {
+            "author": "Ada",
+            "claudeTheme": false,
+            "codeEnabled": false,
+            "codeUrl": null,
+            "colorScheme": "dark",
+            "hasCode": false,
+            "id": "plain-blue",
+            "installedAt": "<TIME>",
+            "name": "Plain Blue",
+            "network": [],
+            "packageVersion": "1.0.0",
+            "previewUrl": null,
+            "sdkVersion": "^1.3",
+            "settings": [],
+            "slots": [],
+            "startColor": null,
+            "styleUrl": "/api/v1/themes/plain-blue/files/theme.css?v=1",
+            "updatedAt": "<TIME>",
+            "version": 1
+          }
+        ]
+      },
+      "status": 200
+    }
+  }
+]

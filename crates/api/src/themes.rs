@@ -8,9 +8,10 @@ use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use nullradix_app::AppError;
-use nullradix_app::themes::{ThemeList, ThemeSettings};
+use nullradix_app::themes::{ThemeCode, ThemeList, ThemeSettings};
 use nullradix_domain::{
-    ColorScheme, InstalledTheme, MAX_PACKAGE_BYTES, STYLE_FILE, SettingSpec, SettingValue, Version,
+    CODE_FILE, ColorScheme, InstalledTheme, MAX_PACKAGE_BYTES, STYLE_FILE, SettingSpec,
+    SettingValue, ThemeId, Version,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -89,6 +90,12 @@ pub struct ThemeDto {
     pub settings: Vec<ThemeSettingDto>,
     /// Whether the package brings a theme for Claude Code.
     pub claude_theme: bool,
+    /// The package has a `main.js` for the web UI.
+    pub has_code: bool,
+    /// The person turned the code switch on; the web UI runs `main.js` of the chosen theme only then.
+    pub code_enabled: bool,
+    /// URL of `main.js`, set when the package has one.
+    pub code_url: Option<String>,
     pub installed_at: i64,
     pub updated_at: i64,
     /// Row version for deleting.
@@ -99,8 +106,8 @@ fn file_url(id: &str, path: &str) -> String {
     format!("{API_PREFIX}/themes/{id}/files/{path}")
 }
 
-impl From<&InstalledTheme> for ThemeDto {
-    fn from(theme: &InstalledTheme) -> Self {
+impl ThemeDto {
+    pub(crate) fn new(theme: &InstalledTheme, code: ThemeCode) -> Self {
         let record = theme.record();
         let manifest = record.manifest.record();
         let id = manifest.id.as_str();
@@ -156,6 +163,11 @@ impl From<&InstalledTheme> for ThemeDto {
             network: manifest.network.clone(),
             settings,
             claude_theme: manifest.claude_theme,
+            has_code: code.has_code,
+            code_enabled: code.enabled,
+            code_url: code
+                .has_code
+                .then(|| format!("{}?v={}", file_url(id, CODE_FILE), record.version.value())),
             installed_at: record.installed_at.as_millis(),
             updated_at: record.updated_at.as_millis(),
             version: record.version.value(),
@@ -171,10 +183,16 @@ pub struct ThemeListDto {
     pub active: String,
 }
 
-impl From<&ThemeList> for ThemeListDto {
-    fn from(list: &ThemeList) -> Self {
+impl ThemeListDto {
+    fn new(list: &ThemeList, codes: &BTreeMap<ThemeId, ThemeCode>) -> Self {
         Self {
-            items: list.themes.iter().map(ThemeDto::from).collect(),
+            items: list
+                .themes
+                .iter()
+                .map(|theme| {
+                    ThemeDto::new(theme, codes.get(theme.id()).copied().unwrap_or_default())
+                })
+                .collect(),
             active: list.active.clone(),
         }
     }
@@ -261,6 +279,15 @@ fn expected_version(value: i64) -> Result<Option<Version>, AppError> {
     AppError::client_version(value).map(Some)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetThemeCode {
+    /// Let the web UI run `main.js` of the theme while it is chosen, or stop it.
+    pub enabled: bool,
+    /// Version of the theme the person saw, so a later update cannot slip in.
+    pub version: i64,
+}
+
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct RemoveThemeQuery {
@@ -293,7 +320,9 @@ pub(crate) struct ThemeFilePath {
 pub(crate) async fn list_themes(
     State(state): State<ApiState>,
 ) -> Result<Json<ThemeListDto>, ApiError> {
-    Ok(Json(ThemeListDto::from(&state.themes.list().await?)))
+    let list = state.themes.list().await?;
+    let codes = state.themes.codes(&list.themes).await?;
+    Ok(Json(ThemeListDto::new(&list, &codes)))
 }
 
 #[utoipa::path(
@@ -328,14 +357,13 @@ pub(crate) async fn install_theme(
             format!("the package is larger than {MAX_PACKAGE_BYTES} bytes"),
         )
     })?;
-    let theme = state
+    let installed = state
         .themes
         .install(archive.to_vec(), query.confirmed)
-        .await?
-        .theme;
+        .await?;
     crate::claude_theme::resync(&state).await;
-    let dto = ThemeDto::from(&theme);
-    let created = theme.record().version.value() == 1;
+    let dto = ThemeDto::new(&installed.theme, installed.code);
+    let created = installed.theme.record().version.value() == 1;
     let mut headers = HeaderMap::new();
     if let Ok(value) = HeaderValue::from_str(&dto.style_url) {
         headers.insert(header::LOCATION, value);
@@ -393,6 +421,36 @@ pub(crate) async fn remove_theme(
         .await?;
     crate::claude_theme::resync(&state).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    put,
+    path = "/themes/{id}/code",
+    tag = "themes",
+    params(ThemePath),
+    request_body = SetThemeCode,
+    responses(
+        (status = 200, description = "The switch is set", body = ThemeDto),
+        (status = 401, body = Problem),
+        (status = 404, description = "The theme is not installed", body = Problem),
+        (status = 409, description = "Stale version: the theme was updated since the person saw it", body = Problem),
+        (status = 422, description = "`theme-has-no-code`: the theme has no `main.js` to turn on", body = Problem),
+    )
+)]
+pub(crate) async fn set_theme_code(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<ThemePath>,
+    ApiJson(input): ApiJson<SetThemeCode>,
+) -> Result<Json<ThemeDto>, ApiError> {
+    let (theme, code) = state
+        .themes
+        .set_code(
+            &path.id,
+            input.enabled,
+            AppError::client_version(input.version)?,
+        )
+        .await?;
+    Ok(Json(ThemeDto::new(&theme, code)))
 }
 
 #[utoipa::path(
@@ -1038,5 +1096,89 @@ mod tests {
             problem["confirmation"]["added"]["domains"],
             json!(["cdn.example.com"])
         );
+    }
+
+    async fn first_theme(api: &TestApi) -> Value {
+        let (_, list) = call(api, "GET", "/api/v1/themes", None).await;
+        list["items"][0].clone()
+    }
+
+    #[tokio::test]
+    async fn the_code_switch_is_part_of_the_theme_and_set_with_its_version() {
+        let api = test_api().await;
+        let confirmed = "/api/v1/themes?confirmed=true";
+        let (status, _, theme) = upload_to(&api, confirmed, with_code(MANIFEST)).await;
+        assert_eq!(status, 201, "{theme}");
+        assert_eq!(
+            (&theme["hasCode"], &theme["codeEnabled"]),
+            (&json!(true), &json!(false))
+        );
+        assert_eq!(
+            theme["codeUrl"],
+            "/api/v1/themes/night-blue/files/main.js?v=1"
+        );
+
+        let path = "/api/v1/themes/night-blue/code";
+        let stale = json!({ "enabled": true, "version": 7 });
+        let (status, problem) = call(&api, "PUT", path, Some(stale)).await;
+        assert_eq!(
+            (status, &problem["code"]),
+            (409, &json!("version-conflict"))
+        );
+        assert_eq!(first_theme(&api).await["codeEnabled"], false);
+
+        let on = json!({ "enabled": true, "version": 1 });
+        let (status, set) = call(&api, "PUT", path, Some(on)).await;
+        assert_eq!((status, &set["codeEnabled"]), (200, &json!(true)));
+        assert_eq!(first_theme(&api).await["codeEnabled"], true);
+
+        let off = json!({ "enabled": false, "version": 1 });
+        let (status, set) = call(&api, "PUT", path, Some(off)).await;
+        assert_eq!((status, &set["codeEnabled"]), (200, &json!(false)));
+        assert_eq!(first_theme(&api).await["codeEnabled"], false);
+    }
+
+    #[tokio::test]
+    async fn the_code_switch_refuses_themes_without_code_and_unknown_ones() {
+        let api = test_api().await;
+        let (status, _, _) = upload(&api, package(MANIFEST)).await;
+        assert_eq!(status, 201);
+        let plain = first_theme(&api).await;
+        assert_eq!(
+            (&plain["hasCode"], &plain["codeEnabled"], &plain["codeUrl"]),
+            (&json!(false), &json!(false), &Value::Null)
+        );
+        let body = json!({ "enabled": true, "version": 1 });
+        let path = "/api/v1/themes/night-blue/code";
+        let (status, problem) = call(&api, "PUT", path, Some(body.clone())).await;
+        assert_eq!(
+            (status, &problem["code"]),
+            (422, &json!("theme-has-no-code"))
+        );
+        let (status, problem) = call(&api, "PUT", "/api/v1/themes/other/code", Some(body)).await;
+        assert_eq!((status, &problem["code"]), (404, &json!("theme-not-found")));
+        let junk = json!({ "enabled": true, "version": 1, "extra": 1 });
+        let (status, _) = call(&api, "PUT", path, Some(junk)).await;
+        assert_eq!(status, 422);
+        let request = local(Request::put(path))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        let (status, _, _) = send(&api.router, request).await;
+        assert_eq!(status, 401);
+    }
+
+    #[tokio::test]
+    async fn an_update_that_adds_something_turns_the_switch_off_over_http() {
+        let api = test_api().await;
+        let confirmed = "/api/v1/themes?confirmed=true";
+        upload_to(&api, confirmed, with_code(MANIFEST)).await;
+        let on = json!({ "enabled": true, "version": 1 });
+        call(&api, "PUT", "/api/v1/themes/night-blue/code", Some(on)).await;
+        assert_eq!(first_theme(&api).await["codeEnabled"], true);
+        let more = MANIFEST.replace(r#""network": []"#, r#""network": ["cdn.example.com"]"#);
+        let (status, _, theme) = upload_to(&api, confirmed, with_code(&more)).await;
+        assert_eq!((status, &theme["codeEnabled"]), (200, &json!(false)));
+        assert_eq!(first_theme(&api).await["codeEnabled"], false);
     }
 }

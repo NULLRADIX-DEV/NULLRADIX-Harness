@@ -21,6 +21,8 @@ pub const MAX_ENTRIES: usize = 500;
 pub const MAX_ENTRY_PATH: usize = 512;
 pub const MANIFEST_FILE: &str = "manifest.json";
 pub const STYLE_FILE: &str = "theme.css";
+/// The module the web UI runs for a theme once its code switch is on.
+pub const CODE_FILE: &str = "main.js";
 /// Folder of the Claude Code theme inside a package.
 pub const CLAUDE_DIR: &str = "claude";
 pub const CLAUDE_HOOKS_FILE: &str = "claude/hooks/hooks.json";

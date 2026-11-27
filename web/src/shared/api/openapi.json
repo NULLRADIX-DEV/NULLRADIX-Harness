@@ -7402,6 +7402,86 @@
         }
       }
     },
+    "/api/v1/themes/{id}/code": {
+      "put": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "set_theme_code",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetThemeCode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The switch is set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The theme is not installed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version: the theme was updated since the person saw it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`theme-has-no-code`: the theme has no `main.js` to turn on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/themes/{id}/files/{*path}": {
       "get": {
         "tags": [
@@ -11160,10 +11240,11 @@
           },
           "id": {
             "type": "string",
-            "description": "Id and name of the theme in the package."
+            "description": "Id of the theme in the package."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Name of the theme in the package."
           },
           "sha256": {
             "type": [
@@ -16110,6 +16191,25 @@
         },
         "additionalProperties": false
       },
+      "SetThemeCode": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "version"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Let the web UI run `main.js` of the theme while it is chosen, or stop it."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Version of the theme the person saw, so a later update cannot slip in."
+          }
+        },
+        "additionalProperties": false
+      },
       "SimilarNoteDto": {
         "type": "object",
         "description": "A note the similarity check found.",
@@ -16791,6 +16891,8 @@
           "network",
           "settings",
           "claudeTheme",
+          "hasCode",
+          "codeEnabled",
           "installedAt",
           "updatedAt",
           "version"
@@ -16803,8 +16905,23 @@
             "type": "boolean",
             "description": "Whether the package brings a theme for Claude Code."
           },
+          "codeEnabled": {
+            "type": "boolean",
+            "description": "The person turned the code switch on; the web UI runs `main.js` of the chosen theme only then."
+          },
+          "codeUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of `main.js`, set when the package has one."
+          },
           "colorScheme": {
             "$ref": "#/components/schemas/ColorSchemeDto"
+          },
+          "hasCode": {
+            "type": "boolean",
+            "description": "The package has a `main.js` for the web UI."
           },
           "id": {
             "type": "string"

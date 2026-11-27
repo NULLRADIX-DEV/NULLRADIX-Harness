@@ -417,6 +417,46 @@ async fn an_origin_is_kept_replaced_and_dropped_with_the_write() {
     assert!(store.origins().await.unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn the_code_switch_is_a_row_that_exists_only_while_it_is_on() {
+    let store = Store::in_memory().await.unwrap();
+    let at = Timestamp::from_millis(4);
+    let id = ThemeId::parse("night-blue").unwrap();
+    let other = ThemeId::parse("other-theme").unwrap();
+    let feed = Uuid::from_u128(11);
+    let mut write = store.begin().await.unwrap();
+    write.insert(&theme(MANIFEST, 1), feed).await.unwrap();
+    write.commit().await.unwrap();
+    assert!(store.code_switches().await.unwrap().is_empty());
+
+    let mut write = store.begin().await.unwrap();
+    assert!(!write.code_enabled(&id).await.unwrap());
+    let on = write.set_code(&id, true, at).await.unwrap().unwrap();
+    assert_eq!(
+        (on.entity, on.op, on.entity_id),
+        (Entity::Setting, ChangeOp::Update, feed)
+    );
+    assert!(write.code_enabled(&id).await.unwrap());
+    // already on, and a theme that is not installed, are no change
+    assert!(write.set_code(&id, true, at).await.unwrap().is_none());
+    assert!(write.set_code(&other, true, at).await.unwrap().is_none());
+    write.commit().await.unwrap();
+    let switched = store.code_switches().await.unwrap();
+    assert_eq!(switched.len(), 2);
+    assert!(switched.contains(&id));
+
+    let mut write = store.begin().await.unwrap();
+    assert!(write.set_code(&id, false, at).await.unwrap().is_some());
+    assert!(write.set_code(&id, false, at).await.unwrap().is_none());
+    drop(write);
+    assert!(store.code_switches().await.unwrap().contains(&id));
+    let mut write = store.begin().await.unwrap();
+    write.set_code(&id, false, at).await.unwrap();
+    write.set_code(&other, false, at).await.unwrap();
+    write.commit().await.unwrap();
+    assert!(store.code_switches().await.unwrap().is_empty());
+}
+
 fn archive() -> Vec<u8> {
     let hooks = "claude/hooks/hooks.json={}";
     format!("manifest.json={MANIFEST}\n--\ntheme.css=a {{ color: red }}\n--\n{hooks}").into_bytes()

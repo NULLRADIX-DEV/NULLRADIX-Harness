@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    BUILTIN_THEMES, DEFAULT_THEME, InstalledTheme, RiskAdded, SettingValue, SourceId, ThemeId,
-    ThemeManifest, ThemeRisk, ThemeSettingValues, Timestamp, Version, asset_segments, content_type,
-    inspect_package,
+    BUILTIN_THEMES, CODE_FILE, DEFAULT_THEME, InstalledTheme, RiskAdded, SettingValue, SourceId,
+    ThemeId, ThemeManifest, ThemeRisk, ThemeSettingValues, Timestamp, Version, asset_segments,
+    content_type, inspect_package,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 use crate::theme_package::{PackageFile, check_package};
@@ -25,12 +25,22 @@ pub struct Asset {
     pub content_type: &'static str,
 }
 
+/// The code a theme brings for the web UI and whether the person allowed it to run.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ThemeCode {
+    /// The package has a `main.js`.
+    pub has_code: bool,
+    /// The code switch is on; always off without a `main.js`.
+    pub enabled: bool,
+}
+
 /// A theme that was installed and what its package added to the version it replaced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Installed {
     pub theme: InstalledTheme,
     /// Code, domains and Claude part added to the replaced version.
     pub added: RiskAdded,
+    pub code: ThemeCode,
 }
 
 /// "a", "a and b" or "a, b and c".
@@ -161,6 +171,15 @@ pub trait ThemeWrite: Send {
         source: Option<&SourceId>,
         at: Timestamp,
     ) -> Result<(), AppError>;
+    /// Whether the code switch of the theme is on; off until someone turned it on.
+    async fn code_enabled(&mut self, id: &ThemeId) -> Result<bool, AppError>;
+    /// Turns the code switch on or off; `None` when it already is as asked.
+    async fn set_code(
+        &mut self,
+        id: &ThemeId,
+        enabled: bool,
+        at: Timestamp,
+    ) -> Result<Option<Change>, AppError>;
     async fn commit(self: Box<Self>) -> Result<(), AppError>;
 }
 
@@ -175,6 +194,8 @@ pub trait ThemeRepository: Send + Sync {
     async fn settings(&self, id: &ThemeId) -> Result<Option<StoredSettings>, AppError>;
     /// The catalog source of every theme installed from one.
     async fn origins(&self) -> Result<BTreeMap<ThemeId, SourceId>, AppError>;
+    /// The themes whose code switch is on.
+    async fn code_switches(&self) -> Result<BTreeSet<ThemeId>, AppError>;
 }
 
 /// Where an install comes from and whether it may take over a theme from elsewhere.
@@ -357,6 +378,7 @@ impl ThemeService {
                 known.is_some(),
             ));
         }
+        let has_code = files.iter().any(|file| file.path == CODE_FILE);
         self.files.store(manifest.id(), files).await?;
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
@@ -372,9 +394,21 @@ impl ThemeService {
         write
             .set_origin(theme.id(), origin.map(|origin| origin.source), now)
             .await?;
+        let mut changes = vec![change];
+        // what the person allowed to run is not what this package brings
+        if known.is_none() || !added.is_empty() || !has_code {
+            changes.extend(write.set_code(theme.id(), false, now).await?);
+        }
+        let enabled = write.code_enabled(theme.id()).await?;
         write.commit().await?;
-        self.signal.notify(&change);
-        Ok(Installed { theme, added })
+        for change in &changes {
+            self.signal.notify(change);
+        }
+        Ok(Installed {
+            theme,
+            added,
+            code: ThemeCode { has_code, enabled },
+        })
     }
 
     /// The risk of the package and what it brings that the installed version did not have.
@@ -388,14 +422,15 @@ impl ThemeService {
             manifest.record(),
             files.iter().map(|file| file.path.as_str()),
         );
-        // unknown files count like a fresh install
         let old = match known {
-            Some(known) => self.files.paths(known.id()).await.map(|paths| {
-                inspect_package(
+            Some(known) => {
+                // unknown files only leave the code unknown; the stored manifest has the rest
+                let paths = self.files.paths(known.id()).await.unwrap_or_default();
+                Some(inspect_package(
                     known.record().manifest.record(),
                     paths.iter().map(String::as_str),
-                )
-            }),
+                ))
+            }
             None => None,
         };
         let added = risk.added_to(old.as_ref());
@@ -405,6 +440,63 @@ impl ThemeService {
     /// The catalog source of every theme installed from one.
     pub async fn origins(&self) -> Result<BTreeMap<ThemeId, SourceId>, AppError> {
         self.repository.origins().await
+    }
+
+    /// Whether the folder of the theme has a `main.js`; unknown files count as having one.
+    async fn has_code(&self, id: &ThemeId) -> bool {
+        self.files
+            .paths(id)
+            .await
+            .is_none_or(|paths| paths.iter().any(|path| path == CODE_FILE))
+    }
+
+    /// The code state of each theme: what it brings and what the person allowed.
+    pub async fn codes(
+        &self,
+        themes: &[InstalledTheme],
+    ) -> Result<BTreeMap<ThemeId, ThemeCode>, AppError> {
+        let switched = self.repository.code_switches().await?;
+        let mut codes = BTreeMap::new();
+        for theme in themes {
+            let has_code = self.has_code(theme.id()).await;
+            let enabled = has_code && switched.contains(theme.id());
+            codes.insert(theme.id().clone(), ThemeCode { has_code, enabled });
+        }
+        Ok(codes)
+    }
+
+    /// Turns the code of the theme on or off, for the version the person saw.
+    pub async fn set_code(
+        &self,
+        id: &str,
+        enabled: bool,
+        expected: Version,
+    ) -> Result<(InstalledTheme, ThemeCode), AppError> {
+        let theme_id = ThemeId::parse(id).map_err(|error| id_invalid(&error))?;
+        // installs and removals wait, so the files and the row stay the ones checked here
+        let _writing = self.writes.lock().await;
+        let theme = self
+            .repository
+            .get(&theme_id)
+            .await?
+            .ok_or_else(|| theme_not_found(id))?;
+        if theme.record().version != expected {
+            return Err(AppError::version_conflict("theme", id));
+        }
+        let has_code = self.has_code(&theme_id).await;
+        if enabled && !has_code {
+            return Err(AppError::invalid(
+                "theme-has-no-code",
+                format!("{id} has no {CODE_FILE} to run"),
+            ));
+        }
+        let mut write = self.repository.begin().await?;
+        let change = write.set_code(&theme_id, enabled, self.clock.now()).await?;
+        write.commit().await?;
+        if let Some(change) = &change {
+            self.signal.notify(change);
+        }
+        Ok((theme, ThemeCode { has_code, enabled }))
     }
 
     /// Chooses a built-in or an installed theme; the choice survives restarts.
@@ -430,14 +522,16 @@ impl ThemeService {
         let _writing = self.writes.lock().await;
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
-        // the values go with the theme, in the same transaction
+        // the values and the code switch go with the theme, in the same transaction
         let purged = write.purge_settings(&theme, now).await?;
+        let switched = write.set_code(&theme, false, now).await?;
         write.set_origin(&theme, None, now).await?;
         let Some(change) = write.delete(&theme, expected, now).await? else {
             return Err(theme_not_found(id));
         };
         let mut changes = vec![change];
         changes.extend(purged);
+        changes.extend(switched);
         if write.selection().await?.as_deref() == Some(id) {
             changes.extend(write.select(DEFAULT_THEME, now).await?);
         }
@@ -562,6 +656,7 @@ pub(crate) mod tests {
         feed: Mutex<Vec<(Entity, Uuid, ChangeOp)>>,
         settings: Mutex<BTreeMap<String, StoredSettings>>,
         origins: Mutex<BTreeMap<String, SourceId>>,
+        code: Mutex<BTreeSet<String>>,
     }
 
     impl Memory {
@@ -734,6 +829,27 @@ pub(crate) mod tests {
             Ok(())
         }
 
+        async fn code_enabled(&mut self, id: &ThemeId) -> Result<bool, AppError> {
+            Ok(self.0.code.lock().contains(id.as_str()))
+        }
+
+        async fn set_code(
+            &mut self,
+            id: &ThemeId,
+            enabled: bool,
+            _at: Timestamp,
+        ) -> Result<Option<Change>, AppError> {
+            let feed_id = self.0.themes.lock().get(id.as_str()).map(|entry| entry.1);
+            let changed = if enabled {
+                self.0.code.lock().insert(id.to_string())
+            } else {
+                self.0.code.lock().remove(id.as_str())
+            };
+            Ok(feed_id
+                .filter(|_| changed)
+                .map(|feed_id| self.0.record(Entity::Setting, feed_id, ChangeOp::Update)))
+        }
+
         async fn commit(self: Box<Self>) -> Result<(), AppError> {
             Ok(())
         }
@@ -778,6 +894,15 @@ pub(crate) mod tests {
                 .map(|(id, source)| (ThemeId::parse(id).unwrap(), source.clone()))
                 .collect())
         }
+
+        async fn code_switches(&self) -> Result<BTreeSet<ThemeId>, AppError> {
+            Ok(self
+                .code
+                .lock()
+                .iter()
+                .map(|id| ThemeId::parse(id).unwrap())
+                .collect())
+        }
     }
 
     /// Packages are archives of the form `path=text` lines in these tests.
@@ -786,6 +911,8 @@ pub(crate) mod tests {
         stored: Mutex<HashMap<String, Vec<PackageFile>>>,
         removals: Mutex<Vec<String>>,
         fail_remove: Mutex<bool>,
+        /// When set, the list of files is unknown.
+        unknown_paths: Mutex<bool>,
         /// When set, `store` announces itself and waits to be released.
         hold_store: Mutex<bool>,
         entered: tokio::sync::Notify,
@@ -846,6 +973,9 @@ pub(crate) mod tests {
         }
 
         async fn paths(&self, id: &ThemeId) -> Option<Vec<String>> {
+            if *self.unknown_paths.lock() {
+                return None;
+            }
             let stored = self.stored.lock();
             let files = stored.get(id.as_str()).map_or(&[][..], Vec::as_slice);
             Some(files.iter().map(|file| file.path.clone()).collect())
@@ -1557,5 +1687,328 @@ pub(crate) mod tests {
             error.confirmation().unwrap().added.domains,
             ["c.example.com"]
         );
+    }
+
+    /// A package with a Claude part, a domain and the given extra files.
+    fn everything(version: &str, extra: &[PackageFile]) -> Vec<u8> {
+        let manifest = MANIFEST
+            .replace("1.0.0", version)
+            .replace(r#""slots": []"#, r#""slots": [], "claudeTheme": true"#)
+            .replace(r#""network": []"#, r#""network": ["a.example.com"]"#);
+        let mut files = vec![
+            file("manifest.json", &manifest),
+            file("theme.css", "a { color: red }"),
+            file("claude/hooks/hooks.json", "{}"),
+        ];
+        files.extend(extra.iter().cloned());
+        archive(&files)
+    }
+
+    #[tokio::test]
+    async fn unknown_old_files_leave_only_the_code_unknown() {
+        let fixture = fixture();
+        let main = [file("main.js", "export default () => {}")];
+        fixture
+            .service
+            .install(everything("1.0.0", &main), true)
+            .await
+            .unwrap();
+        *fixture.files.unknown_paths.lock() = true;
+        let again = fixture
+            .service
+            .install(everything("1.0.1", &main), true)
+            .await
+            .unwrap();
+        // the stored manifest still knows the domains and the Claude part
+        assert!(again.added.code);
+        assert!(again.added.domains.is_empty());
+        assert!(!again.added.claude_theme);
+        let error = fixture
+            .service
+            .install(everything("1.0.2", &main), false)
+            .await
+            .unwrap_err();
+        let facts = error.confirmation().unwrap();
+        assert!(facts.added.code && !facts.added.claude_theme && facts.added.domains.is_empty());
+    }
+
+    fn with_code(version: &str) -> Vec<u8> {
+        risky(version, r#""a.example.com""#, true)
+    }
+
+    async fn code_of(fixture: &Fixture) -> (Version, ThemeCode) {
+        let list = fixture.service.list().await.unwrap();
+        let codes = fixture.service.codes(&list.themes).await.unwrap();
+        let theme = &list.themes[0];
+        (theme.record().version, codes[theme.id()])
+    }
+
+    #[tokio::test]
+    async fn the_code_switch_is_off_until_it_is_turned_on() {
+        let fixture = fixture();
+        let installed = fixture
+            .service
+            .install(with_code("1.0.0"), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            installed.code,
+            ThemeCode {
+                has_code: true,
+                enabled: false
+            }
+        );
+        let (version, code) = code_of(&fixture).await;
+        assert!(code.has_code && !code.enabled);
+
+        let (_, on) = fixture
+            .service
+            .set_code("night-blue", true, version)
+            .await
+            .unwrap();
+        assert!(on.enabled);
+        assert!(code_of(&fixture).await.1.enabled);
+        // the theme row itself does not change
+        assert_eq!(code_of(&fixture).await.0, version);
+        let (_, off) = fixture
+            .service
+            .set_code("night-blue", false, version)
+            .await
+            .unwrap();
+        assert!(!off.enabled);
+        assert!(!code_of(&fixture).await.1.enabled);
+    }
+
+    #[tokio::test]
+    async fn setting_the_switch_checks_the_theme_and_its_version() {
+        let fixture = fixture();
+        let missing = fixture
+            .service
+            .set_code("night-blue", true, Version::INITIAL)
+            .await
+            .unwrap_err();
+        assert_eq!(missing.code(), "theme-not-found");
+        let invalid = fixture
+            .service
+            .set_code("Night", true, Version::INITIAL)
+            .await
+            .unwrap_err();
+        assert_eq!(invalid.code(), "theme-id-invalid");
+
+        fixture.service.install(night_blue(), false).await.unwrap();
+        let plain = fixture
+            .service
+            .set_code("night-blue", true, Version::INITIAL)
+            .await
+            .unwrap_err();
+        assert_eq!(plain.code(), "theme-has-no-code");
+        assert_eq!(plain.kind(), crate::ErrorKind::Invalid);
+        // turning it off needs no code
+        fixture
+            .service
+            .set_code("night-blue", false, Version::INITIAL)
+            .await
+            .unwrap();
+
+        fixture
+            .service
+            .install(with_code("1.1.0"), true)
+            .await
+            .unwrap();
+        let stale = fixture
+            .service
+            .set_code("night-blue", true, Version::INITIAL)
+            .await
+            .unwrap_err();
+        assert_eq!(stale.code(), "version-conflict");
+        assert!(!code_of(&fixture).await.1.enabled);
+    }
+
+    #[tokio::test]
+    async fn an_update_that_adds_something_turns_the_switch_off() {
+        let fixture = fixture();
+        fixture
+            .service
+            .install(with_code("1.0.0"), true)
+            .await
+            .unwrap();
+        let version = code_of(&fixture).await.0;
+        fixture
+            .service
+            .set_code("night-blue", true, version)
+            .await
+            .unwrap();
+
+        // nothing new: the choice of the person stays
+        let same = fixture
+            .service
+            .install(with_code("1.0.1"), true)
+            .await
+            .unwrap();
+        assert!(same.added.is_empty() && same.code.enabled);
+        assert!(code_of(&fixture).await.1.enabled);
+
+        // a new domain
+        let more = risky("1.1.0", r#""a.example.com", "b.example.com""#, true);
+        let updated = fixture.service.install(more, true).await.unwrap();
+        assert_eq!(updated.added.domains, ["b.example.com"]);
+        assert!(!updated.code.enabled);
+        assert!(!code_of(&fixture).await.1.enabled);
+        assert!(fixture.memory.code.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_update_with_unknown_old_files_turns_the_switch_off() {
+        let fixture = fixture();
+        fixture
+            .service
+            .install(with_code("1.0.0"), true)
+            .await
+            .unwrap();
+        let version = code_of(&fixture).await.0;
+        fixture
+            .service
+            .set_code("night-blue", true, version)
+            .await
+            .unwrap();
+        *fixture.files.unknown_paths.lock() = true;
+        let done = fixture
+            .service
+            .install(with_code("1.0.1"), true)
+            .await
+            .unwrap();
+        assert!(done.added.code && !done.code.enabled);
+        assert!(fixture.memory.code.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_package_without_main_js_never_keeps_the_switch_on() {
+        let fixture = fixture();
+        let lib = |version: &str, with_main: bool| {
+            let manifest = MANIFEST.replace("1.0.0", version);
+            let mut files = vec![
+                file("manifest.json", &manifest),
+                file("theme.css", "a { color: red }"),
+                file("lib.js", "export const a = 1"),
+            ];
+            if with_main {
+                files.push(file("main.js", "import './lib.js'"));
+            }
+            archive(&files)
+        };
+        fixture
+            .service
+            .install(lib("1.0.0", true), true)
+            .await
+            .unwrap();
+        let version = code_of(&fixture).await.0;
+        fixture
+            .service
+            .set_code("night-blue", true, version)
+            .await
+            .unwrap();
+        // the library still counts as code, so nothing is added later
+        let dropped = fixture
+            .service
+            .install(lib("1.1.0", false), true)
+            .await
+            .unwrap();
+        assert!(dropped.added.is_empty());
+        assert!(!dropped.code.has_code && !dropped.code.enabled);
+        let back = fixture
+            .service
+            .install(lib("1.2.0", true), true)
+            .await
+            .unwrap();
+        assert!(back.added.is_empty());
+        assert!(back.code.has_code && !back.code.enabled);
+    }
+
+    #[tokio::test]
+    async fn a_new_install_starts_with_the_switch_off_and_removing_drops_it() {
+        let fixture = fixture();
+        fixture
+            .memory
+            .code
+            .lock()
+            .insert(String::from("night-blue"));
+        let fresh = fixture
+            .service
+            .install(with_code("1.0.0"), true)
+            .await
+            .unwrap();
+        assert!(!fresh.code.enabled);
+        let version = code_of(&fixture).await.0;
+        fixture
+            .service
+            .set_code("night-blue", true, version)
+            .await
+            .unwrap();
+        assert_eq!(fixture.memory.code.lock().len(), 1);
+        fixture.service.remove("night-blue", version).await.unwrap();
+        assert!(fixture.memory.code.lock().is_empty());
+        let again = fixture
+            .service
+            .install(with_code("1.0.0"), true)
+            .await
+            .unwrap();
+        assert!(!again.code.enabled);
+    }
+
+    #[tokio::test]
+    async fn the_switch_waits_for_an_install_in_progress() {
+        let fixture = Arc::new(fixture());
+        fixture
+            .service
+            .install(with_code("1.0.0"), true)
+            .await
+            .unwrap();
+        *fixture.files.hold_store.lock() = true;
+        let install = {
+            let fixture = fixture.clone();
+            tokio::spawn(async move { fixture.service.install(with_code("1.1.0"), true).await })
+        };
+        fixture.files.entered.notified().await;
+        // the install holds the files of 1.1.0 and the row of 1.0.0
+        let switch = {
+            let fixture = fixture.clone();
+            tokio::spawn(async move {
+                fixture
+                    .service
+                    .set_code("night-blue", true, Version::INITIAL)
+                    .await
+            })
+        };
+        tokio::task::yield_now().await;
+        assert!(!switch.is_finished());
+        fixture.files.release.notify_one();
+        install.await.unwrap().unwrap();
+        // the version the person saw is gone once the install is done
+        let error = switch.await.unwrap().unwrap_err();
+        assert_eq!(error.code(), "version-conflict");
+    }
+
+    #[tokio::test]
+    async fn the_switch_change_reaches_the_change_feed() {
+        let fixture = fixture();
+        fixture
+            .service
+            .install(with_code("1.0.0"), true)
+            .await
+            .unwrap();
+        let before = fixture.memory.feed.lock().len();
+        fixture
+            .service
+            .set_code("night-blue", true, Version::INITIAL)
+            .await
+            .unwrap();
+        assert_eq!(fixture.memory.feed.lock().len(), before + 1);
+        // the same state again is no change
+        fixture
+            .service
+            .set_code("night-blue", true, Version::INITIAL)
+            .await
+            .unwrap();
+        assert_eq!(fixture.memory.feed.lock().len(), before + 1);
     }
 }

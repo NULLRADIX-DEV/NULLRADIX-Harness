@@ -4,28 +4,86 @@ use axum::extract::Request;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::API_PREFIX;
+use crate::{API_PREFIX, APP_CSP};
+
+const INDEX_FILE: &str = "index.html";
+
+/// The inline scripts of a page as CSP hash sources, in document order.
+fn inline_script_hashes(html: &str) -> Vec<String> {
+    let mut hashes = Vec::new();
+    let mut rest = html;
+    while let Some(start) = rest.find("<script") {
+        rest = &rest[start + "<script".len()..];
+        let Some(tag_end) = rest.find('>') else {
+            break;
+        };
+        let attributes = &rest[..tag_end];
+        rest = &rest[tag_end + 1..];
+        let Some(close) = rest.find("</script") else {
+            break;
+        };
+        let content = &rest[..close];
+        rest = &rest[close..];
+        if attributes
+            .split_whitespace()
+            .any(|attribute| attribute.starts_with("src="))
+        {
+            continue;
+        }
+        let digest = Sha256::digest(content.as_bytes());
+        hashes.push(format!("'sha256-{}'", STANDARD.encode(digest)));
+    }
+    hashes
+}
+
+/// The policy for the page: the base one, plus the hash of every inline script such as the
+/// import map that lets themes share the app's modules.
+fn page_policy(html: &str) -> Option<HeaderValue> {
+    let hashes = inline_script_hashes(html);
+    if hashes.is_empty() {
+        return None;
+    }
+    let policy = APP_CSP.replacen(
+        "script-src 'self'",
+        &format!("script-src 'self' {}", hashes.join(" ")),
+        1,
+    );
+    HeaderValue::from_str(&policy).ok()
+}
 
 /// Serves the built web UI; unknown paths get `index.html` so client routes survive reloads.
 pub(crate) async fn serve(dir: &Path, request: Request) -> Response {
     let hashed = request.uri().path().starts_with("/assets/");
-    let service = ServeDir::new(dir).fallback(ServeFile::new(dir.join("index.html")));
+    let service = ServeDir::new(dir).fallback(ServeFile::new(dir.join(INDEX_FILE)));
     let mut response = match service.oneshot(request).await {
         Ok(response) => response.into_response(),
         Err(never) => match never {},
     };
-    // a 304 keeps the policy the browser already stored with its copy
-    if response.status() == StatusCode::NOT_MODIFIED {
-        return response;
-    }
-    // hashed bundles never change; the shell, boot files and unknown paths are revalidated
+    let not_modified = response.status() == StatusCode::NOT_MODIFIED;
     let shell = response
         .headers()
         .get(header::CONTENT_TYPE)
         .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
+    // a 304 replaces the stored headers, so a revalidated page repeats its policy
+    if shell || (not_modified && !hashed) {
+        let html = tokio::fs::read_to_string(dir.join(INDEX_FILE)).await;
+        if let Some(policy) = html.ok().as_deref().and_then(page_policy) {
+            response
+                .headers_mut()
+                .insert(header::CONTENT_SECURITY_POLICY, policy);
+        }
+    }
+    // a 304 keeps the cache policy the browser already stored with its copy
+    if not_modified {
+        return response;
+    }
+    // hashed bundles never change; the shell, boot files and unknown paths are revalidated
     let policy = if hashed && response.status().is_success() && !shell {
         "public, max-age=31536000, immutable"
     } else {
@@ -149,6 +207,90 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
         assert!(response.headers().get("cache-control").is_none());
+    }
+
+    const IMPORT_MAP: &str = r#"{"imports":{"react":"/assets/host-react.js"}}"#;
+
+    fn page(map: &str) -> String {
+        format!(
+            "<html><head><script src=\"/boot-theme.js\"></script>\
+             <script type=\"importmap\">{map}</script>\
+             <script type=\"module\" src=\"/assets/app.js\"></script></head></html>"
+        )
+    }
+
+    fn hash(text: &str) -> String {
+        use base64::Engine as _;
+        use sha2::Digest as _;
+        let digest = sha2::Sha256::digest(text.as_bytes());
+        format!(
+            "'sha256-{}'",
+            base64::engine::general_purpose::STANDARD.encode(digest)
+        )
+    }
+
+    fn script_src(headers: &axum::http::HeaderMap) -> String {
+        let csp = headers["content-security-policy"].to_str().unwrap();
+        assert!(!csp.contains("unsafe-eval"), "{csp}");
+        assert!(!csp.contains("unsafe-inline"), "{csp}");
+        assert!(!csp.contains("http"), "{csp}");
+        csp.split("; ")
+            .find(|directive| directive.starts_with("script-src"))
+            .unwrap()
+            .to_owned()
+    }
+
+    #[tokio::test]
+    async fn the_import_map_is_allowed_by_its_hash_and_nothing_else_is() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("index.html"), page(IMPORT_MAP)).unwrap();
+        fs::create_dir(dir.path().join("assets")).unwrap();
+        fs::write(dir.path().join("assets").join("app.js"), "console.log(1)").unwrap();
+        let api = test_api_with_web(Some(dir.path().to_path_buf())).await;
+        let expected = format!("script-src 'self' {}", hash(IMPORT_MAP));
+
+        // the shell, a client route and the explicit file all carry the hash
+        for path in ["/", "/board/ARC-0001", "/index.html"] {
+            let (status, headers, _) = get(&api.router, path).await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+            assert_eq!(script_src(&headers), expected, "{path}");
+        }
+        // scripts and other files need no hash
+        let (_, headers, _) = get(&api.router, "/assets/app.js").await;
+        assert_eq!(script_src(&headers), "script-src 'self'");
+
+        // a revalidated page repeats the policy, or the 304 would drop the hash
+        let (_, headers, _) = get(&api.router, "/").await;
+        let request = local(Request::get("/"))
+            .header("if-modified-since", headers["last-modified"].clone())
+            .body(Body::empty())
+            .unwrap();
+        let response = api.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(script_src(response.headers()), expected);
+
+        // a rebuilt page brings its own map and hash
+        let other = r#"{"imports":{"react":"/assets/host-react-2.js"}}"#;
+        fs::write(dir.path().join("index.html"), page(other)).unwrap();
+        let (_, headers, _) = get(&api.router, "/").await;
+        assert_eq!(
+            script_src(&headers),
+            format!("script-src 'self' {}", hash(other))
+        );
+    }
+
+    #[test]
+    fn only_inline_scripts_are_hashed() {
+        assert!(super::inline_script_hashes("<html></html>").is_empty());
+        let external =
+            "<script src=\"/a.js\"></script><script type=\"module\" src=\"/b.js\"></script>";
+        assert!(super::inline_script_hashes(external).is_empty());
+        let two = "<script>a()</script><script src=\"/a.js\"></script><script>b()</script>";
+        assert_eq!(super::inline_script_hashes(two), [hash("a()"), hash("b()")]);
+        // a script that never ends is no script
+        assert!(super::inline_script_hashes("<script>a()").is_empty());
+        assert!(super::inline_script_hashes("<script").is_empty());
+        assert_eq!(super::page_policy("<p>no scripts</p>"), None);
     }
 
     #[tokio::test]
