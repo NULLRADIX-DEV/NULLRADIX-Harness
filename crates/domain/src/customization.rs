@@ -176,7 +176,7 @@ impl Overlay {
         })
     }
 
-    /// The same overlay against the shipped file: the base moves and a new one becomes a replacement.
+    /// The same overlay against the shipped file: a new one becomes a replacement.
     #[must_use]
     pub fn rebased(&self, base: Base, now: Timestamp) -> Self {
         Self(OverlayRecord {

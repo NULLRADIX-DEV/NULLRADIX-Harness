@@ -956,7 +956,7 @@ mod tests {
         assert_eq!(rebased.overlay.record().kind, OverlayKind::Replace);
         assert_eq!(rebased.base, BaseState::Current);
         assert_eq!(rebased.overlay.record().content, SKILL);
-        assert!(rebased.warnings.is_empty());
+        assert_eq!(rebased.warnings.len(), 0);
     }
 
     #[tokio::test]
