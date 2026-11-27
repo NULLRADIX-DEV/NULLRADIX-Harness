@@ -13,11 +13,14 @@ mod dispatcher;
 mod dispatcher_prompt;
 mod hook;
 mod inbox;
+mod init;
+mod install;
 mod intake;
 mod logging;
 mod note;
 mod open;
 mod plan;
+mod plugin;
 mod project;
 mod question;
 mod research;
@@ -68,6 +71,10 @@ enum Command {
     Serve(ServeArgs),
     /// Show whether the daemon is running
     Status,
+    /// Set up the project of the current folder: rules, plugin and board
+    Init(init::InitArgs),
+    /// Install the plugin into the Claude folder of every account
+    Install(install::InstallArgs),
     /// Open the web UI in the browser
     Open,
     /// Manage the Claude accounts runs are spread over
@@ -175,6 +182,8 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Status => status::run(profile, cli.home.as_deref()),
+        Command::Init(args) => init::run(&args, profile, cli.home.as_deref()),
+        Command::Install(args) => install::run(&args, profile, cli.home.as_deref()),
         Command::Open => open::run(profile, cli.home.as_deref()),
         Command::Account(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;

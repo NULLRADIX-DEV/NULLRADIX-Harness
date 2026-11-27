@@ -29,6 +29,24 @@ impl Profile {
         }
     }
 
+    pub(crate) const fn plugin_name(self) -> &'static str {
+        self.app_name()
+    }
+
+    pub(crate) const fn display_name(self) -> &'static str {
+        match self {
+            Self::Release => "NULLRADIX",
+            Self::Dev => "NULLRADIX Dev",
+        }
+    }
+
+    pub(crate) const fn marketplace_name(self) -> &'static str {
+        match self {
+            Self::Release => "nullradix-local",
+            Self::Dev => "nullradix-dev-local",
+        }
+    }
+
     /// The value of `--profile`.
     pub(crate) const fn flag(self) -> &'static str {
         match self {
