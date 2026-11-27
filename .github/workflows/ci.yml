@@ -66,6 +66,7 @@ jobs:
               - .github/workflows/ci.yml
             web:
               - 'web/**'
+              - 'sdk/**'
               - 'tests/e2e/**'
               - 'apps/desktop/ui/**'
               - 'package*.json'
