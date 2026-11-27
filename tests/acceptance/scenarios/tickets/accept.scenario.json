@@ -31,35 +31,19 @@
     {
       "name": "the board to work on",
       "cli": {
-        "args": [
-          "board",
-          "use",
-          "{{board}}"
-        ]
+        "args": ["board", "use", "{{board}}"]
       }
     },
     {
       "name": "first ticket",
       "cli": {
-        "args": [
-          "ticket",
-          "create",
-          "Login page",
-          "--acceptance",
-          "Users can log in"
-        ]
+        "args": ["ticket", "create", "Login page", "--acceptance", "Users can log in"]
       }
     },
     {
       "name": "second ticket",
       "cli": {
-        "args": [
-          "ticket",
-          "create",
-          "Logout page",
-          "--acceptance",
-          "Users can log out"
-        ]
+        "args": ["ticket", "create", "Logout page", "--acceptance", "Users can log out"]
       }
     },
     {
@@ -97,11 +81,7 @@
     {
       "name": "a run cannot accept it",
       "cli": {
-        "args": [
-          "ticket",
-          "accept",
-          "ARC-1"
-        ],
+        "args": ["ticket", "accept", "ARC-1"],
         "env": {
           "NULLRADIX_RUN": "run-1"
         }
@@ -110,11 +90,7 @@
     {
       "name": "a session cannot accept it",
       "cli": {
-        "args": [
-          "ticket",
-          "accept",
-          "ARC-1"
-        ],
+        "args": ["ticket", "accept", "ARC-1"],
         "env": {
           "NULLRADIX_SESSION": "session-1"
         }
@@ -123,15 +99,7 @@
     {
       "name": "a run cannot set it to done instead",
       "cli": {
-        "args": [
-          "ticket",
-          "set",
-          "ARC-1",
-          "--status",
-          "done",
-          "--author",
-          "claude"
-        ],
+        "args": ["ticket", "set", "ARC-1", "--status", "done", "--author", "claude"],
         "env": {
           "NULLRADIX_RUN": "run-1"
         }
@@ -140,12 +108,7 @@
     {
       "name": "a session cannot move it to done",
       "cli": {
-        "args": [
-          "ticket",
-          "move",
-          "ARC-1",
-          "done"
-        ],
+        "args": ["ticket", "move", "ARC-1", "done"],
         "env": {
           "NULLRADIX_SESSION": "session-1"
         }
@@ -154,13 +117,7 @@
     {
       "name": "a run cannot replace the reason",
       "cli": {
-        "args": [
-          "ticket",
-          "set",
-          "ARC-1",
-          "--blocked-reason",
-          "waiting for a key"
-        ],
+        "args": ["ticket", "set", "ARC-1", "--blocked-reason", "waiting for a key"],
         "env": {
           "NULLRADIX_RUN": "run-1"
         }
@@ -169,13 +126,7 @@
     {
       "name": "a run cannot clear the reason",
       "cli": {
-        "args": [
-          "ticket",
-          "set",
-          "ARC-1",
-          "--blocked-reason",
-          ""
-        ],
+        "args": ["ticket", "set", "ARC-1", "--blocked-reason", ""],
         "env": {
           "NULLRADIX_RUN": "run-1"
         }
@@ -184,13 +135,7 @@
     {
       "name": "a run cannot return it to the agent",
       "cli": {
-        "args": [
-          "ticket",
-          "return",
-          "ARC-1",
-          "--feedback",
-          "more tests"
-        ],
+        "args": ["ticket", "return", "ARC-1", "--feedback", "more tests"],
         "env": {
           "NULLRADIX_RUN": "run-1"
         }
@@ -199,13 +144,7 @@
     {
       "name": "a session cannot plan it into planned",
       "cli": {
-        "args": [
-          "plan",
-          "write",
-          "ARC-1",
-          "--plan",
-          "Do it"
-        ],
+        "args": ["plan", "write", "ARC-1", "--plan", "Do it"],
         "env": {
           "NULLRADIX_SESSION": "session-1"
         }
@@ -214,13 +153,7 @@
     {
       "name": "a run claims planning but the ticket still waits",
       "cli": {
-        "args": [
-          "plan",
-          "claim",
-          "ARC-1",
-          "--agent",
-          "planner"
-        ],
+        "args": ["plan", "claim", "ARC-1", "--agent", "planner"],
         "env": {
           "NULLRADIX_RUN": "run-1"
         }
@@ -231,21 +164,13 @@
       "http": {
         "method": "GET",
         "path": "/api/v1/tickets/ARC-1",
-        "keep": [
-          "ticket.key",
-          "ticket.status",
-          "ticket.blockedReason"
-        ]
+        "keep": ["ticket.key", "ticket.status", "ticket.blockedReason"]
       }
     },
     {
       "name": "the person accepts at a terminal",
       "cli": {
-        "args": [
-          "ticket",
-          "accept",
-          "ARC-1"
-        ]
+        "args": ["ticket", "accept", "ARC-1"]
       }
     },
     {
@@ -255,10 +180,7 @@
         "path": "/api/v1/tickets/ARC-2/accept",
         "body": {},
         "auth": "session",
-        "keep": [
-          "key",
-          "status"
-        ]
+        "keep": ["key", "status"]
       }
     }
   ]
