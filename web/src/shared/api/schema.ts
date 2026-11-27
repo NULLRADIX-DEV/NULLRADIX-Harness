@@ -2177,6 +2177,21 @@ export interface components {
             /** @description Oldest first. */
             items: components["schemas"]["CommentDto"][];
         };
+        /** @description Code and domains of a theme package that a person confirms, and what an update adds. */
+        ConfirmationDto: {
+            /** @description The package has a Claude Code theme. */
+            claudeTheme: boolean;
+            /** @description Code the installed version did not have. */
+            codeAdded: boolean;
+            /** @description Domains the package declares in `permissions.network`. */
+            domains: string[];
+            /** @description Domains the installed version did not declare. */
+            domainsAdded: string[];
+            /** @description The package holds script files. */
+            hasCode: boolean;
+            /** @description The package replaces an installed theme. */
+            update: boolean;
+        };
         /** @description Context use after the last answer, input and cache included. */
         ContextUsageDto: {
             /** Format: int64 */
@@ -3036,6 +3051,7 @@ export interface components {
         /** @description RFC 9457 problem details with a stable `code` extension. */
         Problem: {
             code: string;
+            confirmation?: components["schemas"]["ConfirmationDto"] | null;
             detail: string;
             /** @description Refused fields of the input, for `theme-manifest-invalid`. */
             errors?: components["schemas"]["FieldProblemDto"][];
@@ -9775,6 +9791,8 @@ export interface operations {
             query?: {
                 /** @description Replace a theme of the same id that was installed from another source or by upload. */
                 replace?: boolean;
+                /** @description Confirmed: the package may bring code or network domains. */
+                confirmed?: boolean;
             };
             header?: never;
             path: {
@@ -9824,7 +9842,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `catalog-theme-incompatible` or `catalog-theme-installed-elsewhere` (retry with `replace=true`) */
+            /** @description `catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmed=true` after the person confirmed the code and domains in the problem) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9910,7 +9928,10 @@ export interface operations {
     };
     install_theme: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Confirmed: the package may bring code or network domains. */
+                confirmed?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9943,6 +9964,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `theme-confirmation-required`: the package has code or network domains the installed version did not (retry with `confirmed=true` after the person confirmed them) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

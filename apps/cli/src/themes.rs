@@ -92,6 +92,18 @@ impl ThemeFiles for FolderThemes {
         })
         .await
     }
+
+    async fn paths(&self, id: &ThemeId) -> Result<Vec<String>, AppError> {
+        let root = self.dir.join(id.as_str());
+        blocking(move || match nullradix_os::read_tree(&root, LIMITS) {
+            Ok(entries) => Ok(entries.into_iter().map(|entry| entry.path).collect()),
+            Err(ArchiveError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(Vec::new())
+            }
+            Err(error) => Err(refused(error)),
+        })
+        .await
+    }
 }
 
 #[cfg(test)]
@@ -140,7 +152,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let themes = service(dir.path().join("themes")).await;
         themes
-            .install(package(&[entry("assets/a.png", "png")]))
+            .install(package(&[entry("assets/a.png", "png")]), false)
             .await
             .unwrap();
         assert!(dir.path().join("themes/night-blue/theme.css").is_file());
@@ -177,13 +189,16 @@ mod tests {
         writer.start_file("theme.css", options).unwrap();
         writer.start_file("../../evil.css", options).unwrap();
         let traversal = writer.finish().unwrap().into_inner();
-        let error = themes.install(traversal).await.unwrap_err();
+        let error = themes.install(traversal, false).await.unwrap_err();
         assert_eq!(error.code(), "theme-package-invalid");
 
-        let error = themes.install(b"not a zip".to_vec()).await.unwrap_err();
+        let error = themes
+            .install(b"not a zip".to_vec(), false)
+            .await
+            .unwrap_err();
         assert_eq!(error.code(), "theme-package-invalid");
         let error = themes
-            .install(package(&[entry("script.sh", "rm -rf")]))
+            .install(package(&[entry("script.sh", "rm -rf")]), false)
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-package-invalid");
@@ -197,14 +212,43 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let themes = service(dir.path().join("themes")).await;
         themes
-            .install(package(&[entry("old.css", "old")]))
+            .install(package(&[entry("old.css", "old")]), false)
             .await
             .unwrap();
         themes
-            .install(package(&[entry("new.css", "new")]))
+            .install(package(&[entry("new.css", "new")]), false)
             .await
             .unwrap();
         assert!(!dir.path().join("themes/night-blue/old.css").exists());
         assert!(dir.path().join("themes/night-blue/new.css").exists());
+    }
+
+    #[tokio::test]
+    async fn an_update_adding_code_to_an_installed_folder_needs_a_confirmation() {
+        let dir = tempfile::tempdir().unwrap();
+        let themes = service(dir.path().join("themes")).await;
+        let files = FolderThemes::new(dir.path().join("themes"));
+        let id = ThemeId::parse("night-blue").unwrap();
+        assert!(files.paths(&id).await.unwrap().is_empty());
+        themes.install(package(&[]), false).await.unwrap();
+        assert_eq!(
+            files.paths(&id).await.unwrap(),
+            ["manifest.json", "theme.css"]
+        );
+        let error = themes
+            .install(package(&[entry("main.js", "run()")]), false)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "theme-confirmation-required");
+        let done = themes
+            .install(package(&[entry("main.js", "run()")]), true)
+            .await
+            .unwrap();
+        assert!(done.added.code);
+        let same = themes
+            .install(package(&[entry("main.js", "run()")]), false)
+            .await
+            .unwrap();
+        assert!(same.added.is_empty());
     }
 }

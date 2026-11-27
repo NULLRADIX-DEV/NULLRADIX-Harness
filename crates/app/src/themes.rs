@@ -4,15 +4,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    BUILTIN_THEMES, DEFAULT_THEME, InstalledTheme, SettingValue, SourceId, ThemeId,
-    ThemeSettingValues, Timestamp, Version, asset_segments, content_type,
+    BUILTIN_THEMES, DEFAULT_THEME, InstalledTheme, RiskAdded, SettingValue, SourceId, ThemeId,
+    ThemeManifest, ThemeSettingValues, Timestamp, Version, asset_segments, content_type,
+    inspect_package,
 };
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::theme_package::{PackageFile, check_package};
 use crate::theme_settings::settings_invalid;
-use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
+use crate::{AppError, Change, ChangeSignal, Clock, ConfirmationFacts, IdGenerator};
 
 /// Entity id of the chosen theme in the change feed, which only takes UUIDs.
 pub const SELECTION_FEED_ID: Uuid = Uuid::from_u128(0x6e75_6c6c_7261_6469_7800_7468_656d_6500);
@@ -22,6 +23,48 @@ pub const SELECTION_FEED_ID: Uuid = Uuid::from_u128(0x6e75_6c6c_7261_6469_7800_7
 pub struct Asset {
     pub data: Vec<u8>,
     pub content_type: &'static str,
+}
+
+/// A theme that was installed and what its package added to the version it replaced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Installed {
+    pub theme: InstalledTheme,
+    /// Code and domains the replaced version lacked; the code switch turns off on any.
+    pub added: RiskAdded,
+}
+
+/// The package needs a confirmation: the facts go with the refusal.
+fn confirmation_required(
+    manifest: &ThemeManifest,
+    files: &[PackageFile],
+    added: RiskAdded,
+    update: bool,
+) -> AppError {
+    let risk = inspect_package(
+        manifest.record(),
+        files.iter().map(|file| file.path.as_str()),
+    );
+    let mut parts = Vec::new();
+    if added.code {
+        parts.push(String::from("code"));
+    }
+    if !added.domains.is_empty() {
+        parts.push(format!("network domains {}", added.domains.join(", ")));
+    }
+    let verb = if update { "adds" } else { "contains" };
+    AppError::conflict(
+        "theme-confirmation-required",
+        format!(
+            "{} {verb} {}; confirm to install it",
+            manifest.id(),
+            parts.join(" and ")
+        ),
+    )
+    .with_confirmation(ConfirmationFacts {
+        risk,
+        added,
+        update,
+    })
 }
 
 /// The installed themes and which one is chosen.
@@ -144,6 +187,8 @@ pub trait ThemeFiles: Send + Sync {
     async fn remove(&self, id: &ThemeId) -> Result<(), AppError>;
     /// The file at `path` below the theme's folder; `None` unless it is a regular file inside it.
     async fn read(&self, id: &ThemeId, path: &[String]) -> Result<Option<Vec<u8>>, AppError>;
+    /// The paths of the files of the theme; empty when its folder is missing.
+    async fn paths(&self, id: &ThemeId) -> Result<Vec<String>, AppError>;
 }
 
 #[must_use]
@@ -185,6 +230,10 @@ impl ThemeFiles for UnavailableFiles {
 
     async fn read(&self, _id: &ThemeId, _path: &[String]) -> Result<Option<Vec<u8>>, AppError> {
         Ok(None)
+    }
+
+    async fn paths(&self, _id: &ThemeId) -> Result<Vec<String>, AppError> {
+        Ok(Vec::new())
     }
 }
 
@@ -245,8 +294,10 @@ impl ThemeService {
     }
 
     /// Installs the package, or replaces the installed theme with the same id.
-    pub async fn install(&self, archive: Vec<u8>) -> Result<InstalledTheme, AppError> {
-        self.install_expecting(archive, None, None).await
+    ///
+    /// Code or network domains the installed version did not have need `confirmed`.
+    pub async fn install(&self, archive: Vec<u8>, confirmed: bool) -> Result<Installed, AppError> {
+        self.install_expecting(archive, None, None, confirmed).await
     }
 
     /// Installs a package that must be the theme and version expected, recording its origin.
@@ -255,7 +306,8 @@ impl ThemeService {
         archive: Vec<u8>,
         expected: Option<(&ThemeId, &str)>,
         origin: Option<Origin<'_>>,
-    ) -> Result<InstalledTheme, AppError> {
+        confirmed: bool,
+    ) -> Result<Installed, AppError> {
         let files = self.files.unpack(archive).await?;
         let manifest = check_package(&files, false)?;
         if let Some((id, version)) = expected
@@ -290,6 +342,16 @@ impl ThemeService {
                 ),
             ));
         }
+        let known = self.repository.get(manifest.id()).await?;
+        let added = self.added_by(&manifest, &files, known.as_ref()).await?;
+        if !confirmed && !added.is_empty() {
+            return Err(confirmation_required(
+                &manifest,
+                &files,
+                added,
+                known.is_some(),
+            ));
+        }
         self.files.store(manifest.id(), files).await?;
         let now = self.clock.now();
         let mut write = self.repository.begin().await?;
@@ -307,7 +369,29 @@ impl ThemeService {
             .await?;
         write.commit().await?;
         self.signal.notify(&change);
-        Ok(theme)
+        Ok(Installed { theme, added })
+    }
+
+    /// What the package brings that the installed version, if any, did not have.
+    async fn added_by(
+        &self,
+        manifest: &ThemeManifest,
+        files: &[PackageFile],
+        known: Option<&InstalledTheme>,
+    ) -> Result<RiskAdded, AppError> {
+        let risk = inspect_package(
+            manifest.record(),
+            files.iter().map(|file| file.path.as_str()),
+        );
+        let Some(known) = known else {
+            return Ok(risk.added_to(None));
+        };
+        let paths = self.files.paths(known.id()).await?;
+        let old = inspect_package(
+            known.record().manifest.record(),
+            paths.iter().map(String::as_str),
+        );
+        Ok(risk.added_to(Some(&old)))
     }
 
     /// The catalog source of every theme installed from one.
@@ -752,6 +836,12 @@ pub(crate) mod tests {
                 .and_then(|files| files.iter().find(|file| file.path == joined))
                 .map(|file| file.data.clone()))
         }
+
+        async fn paths(&self, id: &ThemeId) -> Result<Vec<String>, AppError> {
+            let stored = self.stored.lock();
+            let files = stored.get(id.as_str()).map_or(&[][..], Vec::as_slice);
+            Ok(files.iter().map(|file| file.path.clone()).collect())
+        }
     }
 
     pub(crate) struct Fixture {
@@ -813,7 +903,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn settings_start_empty_and_saving_counts_the_version_up() {
         let fixture = fixture();
-        fixture.service.install(with_settings()).await.unwrap();
+        fixture
+            .service
+            .install(with_settings(), false)
+            .await
+            .unwrap();
         let none = fixture.service.settings("night-blue").await.unwrap();
         assert_eq!((none.values.is_empty(), none.version), (true, None));
         let first = input(&[("dim", SettingValue::Switch(false))]);
@@ -851,7 +945,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn values_that_no_longer_fit_a_reinstalled_manifest_are_left_out() {
         let fixture = fixture();
-        fixture.service.install(with_settings()).await.unwrap();
+        fixture
+            .service
+            .install(with_settings(), false)
+            .await
+            .unwrap();
         let both = input(&[("dim", SettingValue::Switch(false)), ("mode", choice("b"))]);
         fixture
             .service
@@ -860,7 +958,11 @@ pub(crate) mod tests {
             .unwrap();
         let reduced = r#"{ "mode": { "type": "select", "label": "Mode", "default": "a",
             "options": [{ "value": "a", "label": "A" }] } }"#;
-        fixture.service.install(with_schema(reduced)).await.unwrap();
+        fixture
+            .service
+            .install(with_schema(reduced), false)
+            .await
+            .unwrap();
         let read = fixture.service.settings("night-blue").await.unwrap();
         assert!(read.values.is_empty());
         let saved = fixture
@@ -874,7 +976,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_removed_key_does_not_come_back_from_the_store() {
         let fixture = fixture();
-        fixture.service.install(with_settings()).await.unwrap();
+        fixture
+            .service
+            .install(with_settings(), false)
+            .await
+            .unwrap();
         let both = input(&[("dim", SettingValue::Switch(false)), ("mode", choice("b"))]);
         fixture
             .service
@@ -883,7 +989,11 @@ pub(crate) mod tests {
             .unwrap();
         let kept = r#"{ "mode": { "type": "select", "label": "Mode", "default": "a",
             "options": [{ "value": "a", "label": "A" }, { "value": "b", "label": "B" }] } }"#;
-        fixture.service.install(with_schema(kept)).await.unwrap();
+        fixture
+            .service
+            .install(with_schema(kept), false)
+            .await
+            .unwrap();
         let read = fixture.service.settings("night-blue").await.unwrap();
         assert_eq!(read.values.values(), &input(&[("mode", choice("b"))]));
         fixture
@@ -896,7 +1006,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn saving_refuses_stale_versions_and_bad_values_without_a_change() {
         let fixture = fixture();
-        fixture.service.install(with_settings()).await.unwrap();
+        fixture
+            .service
+            .install(with_settings(), false)
+            .await
+            .unwrap();
         let on = input(&[("dim", SettingValue::Switch(true))]);
         fixture
             .service
@@ -948,7 +1062,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_theme_without_settings_refuses_every_key() {
         let fixture = fixture();
-        fixture.service.install(night_blue()).await.unwrap();
+        fixture.service.install(night_blue(), false).await.unwrap();
         let on = input(&[("dim", SettingValue::Switch(true))]);
         let error = fixture
             .service
@@ -967,7 +1081,11 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn resetting_checks_the_version_and_is_idempotent() {
         let fixture = fixture();
-        fixture.service.install(with_settings()).await.unwrap();
+        fixture
+            .service
+            .install(with_settings(), false)
+            .await
+            .unwrap();
         fixture
             .service
             .reset_settings("night-blue", None)
@@ -1004,7 +1122,12 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn removing_a_theme_removes_its_values_and_a_reinstall_starts_clean() {
         let fixture = fixture();
-        let theme = fixture.service.install(with_settings()).await.unwrap();
+        let theme = fixture
+            .service
+            .install(with_settings(), false)
+            .await
+            .unwrap()
+            .theme;
         let on = input(&[("dim", SettingValue::Switch(false))]);
         fixture
             .service
@@ -1017,7 +1140,11 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert!(fixture.memory.settings.lock().is_empty());
-        fixture.service.install(with_settings()).await.unwrap();
+        fixture
+            .service
+            .install(with_settings(), false)
+            .await
+            .unwrap();
         let read = fixture.service.settings("night-blue").await.unwrap();
         assert_eq!(read.version, None);
     }
@@ -1025,7 +1152,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_removal_waits_for_an_install_in_progress() {
         let fixture = fixture();
-        fixture.service.install(night_blue()).await.unwrap();
+        fixture.service.install(night_blue(), false).await.unwrap();
         *fixture.files.hold_store.lock() = true;
         let mut files = package();
         files[0] = file("manifest.json", &MANIFEST.replace("1.0.0", "1.1.0"));
@@ -1037,7 +1164,8 @@ pub(crate) mod tests {
             files_gate.release.notify_one();
             attempt.is_err()
         };
-        let (installed, waited) = tokio::join!(fixture.service.install(archive(&files)), waited);
+        let (installed, waited) =
+            tokio::join!(fixture.service.install(archive(&files), false), waited);
         installed.unwrap();
         assert!(
             waited,
@@ -1049,7 +1177,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn files_of_a_theme_that_is_not_installed_are_not_served() {
         let fixture = fixture();
-        fixture.service.install(night_blue()).await.unwrap();
+        fixture.service.install(night_blue(), false).await.unwrap();
         fixture.memory.themes.lock().clear();
         let missing = fixture.service.asset("night-blue", "theme.css").await;
         assert!(missing.is_err());
@@ -1066,7 +1194,12 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn installing_stores_the_files_then_lists_the_theme() {
         let fixture = fixture();
-        let theme = fixture.service.install(night_blue()).await.unwrap();
+        let theme = fixture
+            .service
+            .install(night_blue(), false)
+            .await
+            .unwrap()
+            .theme;
         assert_eq!(theme.id().as_str(), "night-blue");
         assert_eq!(theme.record().version, Version::INITIAL);
         assert_eq!(fixture.files.stored.lock().len(), 1);
@@ -1080,10 +1213,15 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn installing_the_same_id_again_replaces_it_and_bumps_the_version() {
         let fixture = fixture();
-        fixture.service.install(night_blue()).await.unwrap();
+        fixture.service.install(night_blue(), false).await.unwrap();
         let mut files = package();
         files[0] = file("manifest.json", &MANIFEST.replace("1.0.0", "1.1.0"));
-        let again = fixture.service.install(archive(&files)).await.unwrap();
+        let again = fixture
+            .service
+            .install(archive(&files), false)
+            .await
+            .unwrap()
+            .theme;
         assert_eq!(again.record().version, Version::from_stored(2));
         assert_eq!(again.record().manifest.record().version, "1.1.0");
         assert_eq!(fixture.service.list().await.unwrap().themes.len(), 1);
@@ -1095,10 +1233,18 @@ pub(crate) mod tests {
         let fixture = fixture();
         let mut files = package();
         files.push(file("../evil.css", "x"));
-        let error = fixture.service.install(archive(&files)).await.unwrap_err();
+        let error = fixture
+            .service
+            .install(archive(&files), false)
+            .await
+            .unwrap_err();
         assert_eq!(error.code(), "theme-package-invalid");
         let broken = vec![file("manifest.json", "{"), file("theme.css", "a {}")];
-        let error = fixture.service.install(archive(&broken)).await.unwrap_err();
+        let error = fixture
+            .service
+            .install(archive(&broken), false)
+            .await
+            .unwrap_err();
         assert_eq!(error.code(), "theme-manifest-invalid");
         assert!(fixture.files.stored.lock().is_empty());
         assert_eq!(fixture.service.list().await.unwrap().themes.len(), 0);
@@ -1111,7 +1257,11 @@ pub(crate) mod tests {
             file("manifest.json", &MANIFEST.replace("night-blue", "light")),
             file("theme.css", "a {}"),
         ];
-        let error = fixture.service.install(archive(&files)).await.unwrap_err();
+        let error = fixture
+            .service
+            .install(archive(&files), false)
+            .await
+            .unwrap_err();
         assert_eq!(error.code(), "theme-id-reserved");
         assert!(fixture.files.stored.lock().is_empty());
     }
@@ -1125,7 +1275,7 @@ pub(crate) mod tests {
         assert_eq!(error.code(), "theme-not-found");
         let error = fixture.service.select("Bad Id").await.unwrap_err();
         assert_eq!(error.code(), "theme-id-invalid");
-        fixture.service.install(night_blue()).await.unwrap();
+        fixture.service.install(night_blue(), false).await.unwrap();
         fixture.service.select("night-blue").await.unwrap();
         assert_eq!(fixture.service.list().await.unwrap().active, "night-blue");
     }
@@ -1144,7 +1294,12 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn removing_the_active_theme_falls_back_to_the_default() {
         let fixture = fixture();
-        let theme = fixture.service.install(night_blue()).await.unwrap();
+        let theme = fixture
+            .service
+            .install(night_blue(), false)
+            .await
+            .unwrap()
+            .theme;
         fixture.service.select("night-blue").await.unwrap();
         fixture
             .service
@@ -1176,7 +1331,12 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn removing_another_theme_keeps_the_choice() {
         let fixture = fixture();
-        let theme = fixture.service.install(night_blue()).await.unwrap();
+        let theme = fixture
+            .service
+            .install(night_blue(), false)
+            .await
+            .unwrap()
+            .theme;
         fixture.service.select("dark").await.unwrap();
         fixture
             .service
@@ -1195,7 +1355,7 @@ pub(crate) mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code(), "theme-not-found");
-        fixture.service.install(night_blue()).await.unwrap();
+        fixture.service.install(night_blue(), false).await.unwrap();
         let error = fixture
             .service
             .remove("night-blue", Version::from_stored(7))
@@ -1214,7 +1374,12 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn failing_file_removal_does_not_undo_the_uninstall() {
         let fixture = fixture();
-        let theme = fixture.service.install(night_blue()).await.unwrap();
+        let theme = fixture
+            .service
+            .install(night_blue(), false)
+            .await
+            .unwrap()
+            .theme;
         *fixture.files.fail_remove.lock() = true;
         fixture
             .service
@@ -1234,7 +1399,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn assets_are_served_with_their_type_and_unsafe_paths_are_not_found() {
         let fixture = fixture();
-        fixture.service.install(night_blue()).await.unwrap();
+        fixture.service.install(night_blue(), false).await.unwrap();
         let css = fixture
             .service
             .asset("night-blue", "theme.css")
@@ -1257,5 +1422,91 @@ pub(crate) mod tests {
             let error = fixture.service.asset(id, path).await.unwrap_err();
             assert_eq!(error.code(), "theme-file-not-found", "{id} {path}");
         }
+    }
+
+    fn risky(version: &str, network: &str, code: bool) -> Vec<u8> {
+        let manifest = MANIFEST
+            .replace("1.0.0", version)
+            .replace(r#""network": []"#, &format!(r#""network": [{network}]"#));
+        let mut files = vec![
+            file("manifest.json", &manifest),
+            file("theme.css", ":root { --accent: #6c63ff }"),
+        ];
+        if code {
+            files.push(file("main.js", "export default () => {}"));
+        }
+        archive(&files)
+    }
+
+    async fn refused(fixture: &Fixture, bytes: Vec<u8>) -> AppError {
+        let error = fixture.service.install(bytes, false).await.unwrap_err();
+        assert_eq!(error.code(), "theme-confirmation-required");
+        assert_eq!(error.kind(), crate::ErrorKind::Conflict);
+        error
+    }
+
+    #[tokio::test]
+    async fn a_new_theme_with_code_or_domains_needs_a_confirmation() {
+        let fixture = fixture();
+        let error = refused(&fixture, risky("1.0.0", r#""a.example.com""#, true)).await;
+        let facts = error.confirmation().unwrap();
+        assert!(facts.risk.has_code && !facts.update && facts.added.code);
+        assert_eq!(facts.risk.network, ["a.example.com"]);
+        assert!(fixture.files.stored.lock().is_empty());
+        assert!(fixture.service.list().await.unwrap().themes.is_empty());
+        refused(&fixture, risky("1.0.0", r#""a.example.com""#, false)).await;
+        refused(&fixture, risky("1.0.0", "", true)).await;
+        let installed = fixture
+            .service
+            .install(risky("1.0.0", r#""a.example.com""#, true), true)
+            .await
+            .unwrap();
+        assert!(installed.added.code);
+        assert_eq!(installed.added.domains, ["a.example.com"]);
+        assert_eq!(fixture.files.stored.lock().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_update_that_adds_nothing_risky_needs_no_confirmation() {
+        let fixture = fixture();
+        let first = risky("1.0.0", r#""a.example.com""#, true);
+        fixture.service.install(first, true).await.unwrap();
+        let again = risky("1.1.0", r#""A.example.com""#, true);
+        let updated = fixture.service.install(again, false).await.unwrap();
+        assert!(updated.added.is_empty());
+        assert_eq!(updated.theme.record().manifest.record().version, "1.1.0");
+        let plain = fixture.service.install(night_blue(), false).await.unwrap();
+        assert!(plain.added.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_update_that_adds_code_or_a_domain_needs_a_confirmation() {
+        let fixture = fixture();
+        fixture.service.install(night_blue(), false).await.unwrap();
+        let error = refused(&fixture, risky("1.1.0", "", true)).await;
+        let facts = error.confirmation().unwrap();
+        assert!(facts.update && facts.added.code && facts.added.domains.is_empty());
+        let error = refused(&fixture, risky("1.1.0", r#""b.example.com""#, false)).await;
+        let facts = error.confirmation().unwrap();
+        assert!(!facts.added.code);
+        assert_eq!(facts.added.domains, ["b.example.com"]);
+        assert_eq!(
+            fixture.service.list().await.unwrap().themes[0]
+                .record()
+                .version,
+            Version::INITIAL
+        );
+        let updated = fixture
+            .service
+            .install(risky("1.1.0", r#""b.example.com""#, true), true)
+            .await
+            .unwrap();
+        assert!(updated.added.code);
+        let more = risky("1.2.0", r#""b.example.com", "c.example.com""#, true);
+        let error = refused(&fixture, more).await;
+        assert_eq!(
+            error.confirmation().unwrap().added.domains,
+            ["c.example.com"]
+        );
     }
 }

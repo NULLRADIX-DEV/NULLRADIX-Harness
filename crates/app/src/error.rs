@@ -34,6 +34,17 @@ pub struct FieldProblem {
 #[derive(Debug)]
 struct FieldList(Vec<FieldProblem>);
 
+/// What a person confirms before a theme package is installed, for `theme-confirmation-required`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmationFacts {
+    /// Everything the package holds that needs confirming.
+    pub risk: nullradix_domain::ThemeRisk,
+    /// What an update adds to the installed version; everything risky for a new install.
+    pub added: nullradix_domain::RiskAdded,
+    /// A theme with this id is installed and the package replaces it.
+    pub update: bool,
+}
+
 /// Failure of a use case with a stable machine-readable code.
 #[derive(Debug)]
 pub struct AppError {
@@ -46,6 +57,8 @@ pub struct AppError {
     similar: Vec<SimilarNote>,
     /// Refused fields of the input, for `theme-manifest-invalid`.
     fields: Option<Box<FieldList>>,
+    /// Facts to confirm, for `theme-confirmation-required`.
+    confirmation: Option<Box<ConfirmationFacts>>,
     source: Option<Box<dyn Error + Send + Sync>>,
 }
 
@@ -59,6 +72,7 @@ impl AppError {
             existing: None,
             similar: Vec::new(),
             fields: None,
+            confirmation: None,
             source: None,
         }
     }
@@ -154,6 +168,17 @@ impl AppError {
     #[must_use]
     pub fn fields(&self) -> &[FieldProblem] {
         self.fields.as_ref().map_or(&[], |list| &list.0)
+    }
+
+    #[must_use]
+    pub fn with_confirmation(mut self, facts: ConfirmationFacts) -> Self {
+        self.confirmation = Some(Box::new(facts));
+        self
+    }
+
+    #[must_use]
+    pub fn confirmation(&self) -> Option<&ConfirmationFacts> {
+        self.confirmation.as_deref()
     }
 
     #[must_use]

@@ -220,6 +220,9 @@ pub(crate) struct InstallQuery {
     /// Replace a theme of the same id that was installed from another source or by upload.
     #[serde(default)]
     replace: bool,
+    /// Confirmed: the package may bring code or network domains.
+    #[serde(default)]
+    confirmed: bool,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -324,7 +327,7 @@ pub(crate) async fn browse_catalog(
         (status = 200, description = "Replaced the installed theme with the same id", body = ThemeDto),
         (status = 401, body = Problem),
         (status = 404, description = "`catalog-source-not-found` or `catalog-theme-not-found`", body = Problem),
-        (status = 409, description = "`catalog-theme-incompatible` or `catalog-theme-installed-elsewhere` (retry with `replace=true`)", body = Problem),
+        (status = 409, description = "`catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmed=true` after the person confirmed the code and domains in the problem)", body = Problem),
         (status = 422, description = "`catalog-checksum-mismatch`, `theme-package-mismatch`, `catalog-too-large`, `catalog-address-refused`, or the package is invalid as an uploaded one", body = Problem),
         (status = 503, description = "The source cannot be reached: `catalog-timeout`, `catalog-unreachable`, `catalog-http-error`", body = Problem),
     )
@@ -336,8 +339,9 @@ pub(crate) async fn install_catalog_theme(
 ) -> Result<(StatusCode, HeaderMap, Json<ThemeDto>), ApiError> {
     let theme = state
         .catalog
-        .install(&path.id, &path.theme, query.replace)
-        .await?;
+        .install(&path.id, &path.theme, query.replace, query.confirmed)
+        .await?
+        .theme;
     crate::claude_theme::resync(&state).await;
     let dto = ThemeDto::from(&theme);
     let mut headers = HeaderMap::new();
@@ -665,5 +669,25 @@ mod tests {
             assert_eq!(send(&api.router, request).await.0, 401, "{method} {path}");
         }
         assert!(api.fetcher.asked.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_catalog_theme_with_code_is_installed_only_when_confirmed() {
+        let api = test_api().await;
+        let mut bytes = package();
+        bytes.extend_from_slice(b"\n--\nmain.js=run()");
+        let (_, added) = add(&api, SOURCE).await;
+        let id = added["id"].as_str().unwrap();
+        api.fetcher.answer(SOURCE, Ok(index(&bytes)));
+        api.fetcher.answer(PACKAGE, Ok(bytes));
+        let path = format!("/api/v1/theme-catalog/sources/{id}/themes/night-blue/install");
+        let (status, problem) = call(&api, "POST", &path, None).await;
+        assert_eq!(status, 409, "{problem}");
+        assert_eq!(problem["code"], "theme-confirmation-required");
+        assert_eq!(problem["confirmation"]["hasCode"], true);
+        let (_, list) = call(&api, "GET", "/api/v1/themes", None).await;
+        assert!(list["items"].as_array().unwrap().is_empty());
+        let (status, theme) = call(&api, "POST", &format!("{path}?confirmed=true"), None).await;
+        assert_eq!((status, theme["id"].as_str()), (201, Some("night-blue")));
     }
 }

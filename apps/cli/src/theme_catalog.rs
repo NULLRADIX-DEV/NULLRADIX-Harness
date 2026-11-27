@@ -31,6 +31,9 @@ pub(crate) enum CatalogCommand {
         /// Replace a theme of the same id that was installed from another source or by upload
         #[arg(long)]
         replace: bool,
+        /// Confirm that the theme may bring code or network domains
+        #[arg(long)]
+        yes: bool,
     },
 }
 
@@ -56,7 +59,8 @@ pub(crate) fn run(command: CatalogCommand, client: &Client) -> anyhow::Result<()
             theme,
             source,
             replace,
-        } => install(client, &theme, source.as_deref(), replace),
+            yes,
+        } => install(client, &theme, source.as_deref(), replace, yes),
     }
 }
 
@@ -149,6 +153,7 @@ fn install(
     theme: &str,
     source: Option<&str>,
     replace: bool,
+    yes: bool,
 ) -> anyhow::Result<()> {
     let source = if let Some(source) = source {
         source.to_owned()
@@ -170,7 +175,9 @@ fn install(
             ),
         }
     };
-    let installed = client.install_from_catalog(&source, theme, replace)?;
+    let installed = client
+        .install_from_catalog(&source, theme, replace, yes)
+        .map_err(crate::theme::ask_for_yes)?;
     println!(
         "installed {} {}",
         plain(&installed.id),

@@ -7090,6 +7090,15 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "confirmed",
+            "in": "query",
+            "description": "Confirmed: the package may bring code or network domains.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -7141,7 +7150,7 @@
             }
           },
           "409": {
-            "description": "`catalog-theme-incompatible` or `catalog-theme-installed-elsewhere` (retry with `replace=true`)",
+            "description": "`catalog-theme-incompatible`, `catalog-theme-installed-elsewhere` (retry with `replace=true`) or `theme-confirmation-required` (retry with `confirmed=true` after the person confirmed the code and domains in the problem)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7234,6 +7243,17 @@
           "themes"
         ],
         "operationId": "install_theme",
+        "parameters": [
+          {
+            "name": "confirmed",
+            "in": "query",
+            "description": "Confirmed: the package may bring code or network domains.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "description": "A `.nullradix` theme package, a zip archive",
           "content": {
@@ -7280,6 +7300,16 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`theme-confirmation-required`: the package has code or network domains the installed version did not (retry with `confirmed=true` after the person confirmed them)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11072,6 +11102,50 @@
           }
         }
       },
+      "ConfirmationDto": {
+        "type": "object",
+        "description": "Code and domains of a theme package that a person confirms, and what an update adds.",
+        "required": [
+          "hasCode",
+          "domains",
+          "claudeTheme",
+          "update",
+          "codeAdded",
+          "domainsAdded"
+        ],
+        "properties": {
+          "claudeTheme": {
+            "type": "boolean",
+            "description": "The package has a Claude Code theme."
+          },
+          "codeAdded": {
+            "type": "boolean",
+            "description": "Code the installed version did not have."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains the package declares in `permissions.network`."
+          },
+          "domainsAdded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains the installed version did not declare."
+          },
+          "hasCode": {
+            "type": "boolean",
+            "description": "The package holds script files."
+          },
+          "update": {
+            "type": "boolean",
+            "description": "The package replaces an installed theme."
+          }
+        }
+      },
       "ContextUsageDto": {
         "type": "object",
         "description": "Context use after the last answer, input and cache included.",
@@ -13838,6 +13912,17 @@
         "properties": {
           "code": {
             "type": "string"
+          },
+          "confirmation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConfirmationDto",
+                "description": "What to confirm before installing, for `theme-confirmation-required`."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "detail": {
             "type": "string"

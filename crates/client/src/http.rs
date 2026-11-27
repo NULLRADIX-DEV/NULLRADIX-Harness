@@ -628,10 +628,13 @@ impl Client {
     }
 
     /// Installs a `.nullradix` package, or replaces the theme with the same id.
-    pub fn install_theme(&self, package: &[u8]) -> Result<ThemeDto, ClientError> {
+    ///
+    /// Code or network domains the installed version lacked need `confirmed`.
+    pub fn install_theme(&self, package: &[u8], confirmed: bool) -> Result<ThemeDto, ClientError> {
+        let query = if confirmed { "?confirmed=true" } else { "" };
         let mut response = self
             .agent
-            .post(&self.url("/themes"))
+            .post(&self.url(&format!("/themes{query}")))
             .header("Authorization", &self.authorization()?)
             .header("Content-Type", "application/octet-stream")
             .send(package)
@@ -682,13 +685,21 @@ impl Client {
     }
 
     /// Installs a theme a source offers; `replace` takes over one from elsewhere.
+    ///
+    /// Code or network domains the installed version lacked need `confirmed`.
     pub fn install_from_catalog(
         &self,
         source: &str,
         theme: &str,
         replace: bool,
+        confirmed: bool,
     ) -> Result<ThemeDto, ClientError> {
-        let query = if replace { "?replace=true" } else { "" };
+        let query = match (replace, confirmed) {
+            (false, false) => "",
+            (true, false) => "?replace=true",
+            (false, true) => "?confirmed=true",
+            (true, true) => "?replace=true&confirmed=true",
+        };
         let route = format!(
             "/theme-catalog/sources/{}/themes/{}/install{query}",
             segment(source),
@@ -2036,7 +2047,7 @@ mod tests {
             Some("catalog-unreachable")
         );
         let missing = client
-            .install_from_catalog(&source.id, "night-blue", false)
+            .install_from_catalog(&source.id, "night-blue", false, false)
             .unwrap_err();
         assert!(matches!(missing, ClientError::Refused { status: 503, .. }));
         client.remove_catalog_source(&source.id, 1).unwrap();

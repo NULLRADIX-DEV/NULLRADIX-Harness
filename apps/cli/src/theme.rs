@@ -6,7 +6,7 @@ use anyhow::{Context, bail};
 use clap::Subcommand;
 use nullradix_api::{SaveThemeSettings, ThemeDto, ThemeSettingDto, ThemeSettingValueDto};
 use nullradix_app::theme_package::{PackageFile, check_package};
-use nullradix_client::Client;
+use nullradix_client::{Client, ClientError};
 use nullradix_domain::{BUILTIN_THEMES, MAX_PACKAGE_BYTES};
 
 #[derive(Subcommand)]
@@ -21,6 +21,9 @@ pub(crate) enum ThemeCommand {
     Install {
         /// The package file
         file: PathBuf,
+        /// Confirm that the package may bring code or network domains
+        #[arg(long)]
+        yes: bool,
     },
     /// Choose the theme the web UI shows
     Use {
@@ -74,10 +77,20 @@ pub(crate) enum SettingsAction {
     Reset,
 }
 
+/// A refusal that asks for a confirmation names what to confirm and how to give it.
+pub(crate) fn ask_for_yes(error: ClientError) -> anyhow::Error {
+    match error {
+        ClientError::Refused { code, detail, .. } if code == "theme-confirmation-required" => {
+            anyhow::anyhow!("{detail}; run it again with --yes to confirm")
+        }
+        other => other.into(),
+    }
+}
+
 pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<ExitCode> {
     match command {
         ThemeCommand::List { json } => list(client, json)?,
-        ThemeCommand::Install { file } => {
+        ThemeCommand::Install { file, yes } => {
             let size = std::fs::metadata(&file)
                 .with_context(|| format!("cannot read {}", file.display()))?
                 .len();
@@ -89,7 +102,7 @@ pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<Exit
             }
             let bytes =
                 std::fs::read(&file).with_context(|| format!("cannot read {}", file.display()))?;
-            let theme = client.install_theme(&bytes)?;
+            let theme = client.install_theme(&bytes, yes).map_err(ask_for_yes)?;
             println!("installed {} {}", theme.id, theme.package_version);
         }
         ThemeCommand::Use { id } => {
@@ -321,6 +334,26 @@ pub(crate) fn pack(dir: &Path, out: Option<&Path>) -> anyhow::Result<ExitCode> {
 
 #[cfg(test)]
 mod tests {
+    use nullradix_client::ClientError;
+
+    #[test]
+    fn a_confirmation_refusal_asks_for_yes_and_others_stay_as_they_are() {
+        let asked = ask_for_yes(ClientError::Refused {
+            status: 409,
+            code: String::from("theme-confirmation-required"),
+            detail: String::from("night-blue contains code"),
+        });
+        assert_eq!(
+            asked.to_string(),
+            "night-blue contains code; run it again with --yes to confirm"
+        );
+        let other = ask_for_yes(ClientError::Refused {
+            status: 409,
+            code: String::from("version-conflict"),
+            detail: String::from("changed"),
+        });
+        assert!(other.to_string().contains("version-conflict"));
+    }
     use super::*;
 
     const MANIFEST: &str = r#"{
