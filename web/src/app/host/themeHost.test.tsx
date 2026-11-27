@@ -321,25 +321,43 @@ describe('navigate', () => {
     await waitFor(() => {
       expect(seen).toHaveBeenCalled();
     });
+    const visited: string[] = [];
+    router.subscribe((state) => {
+      visited.push(state.location.pathname);
+    });
     act(() => {
       last().navigate('https://evil.example/x');
       last().navigate('//evil.example/x');
+      last().navigate('/\\evil.example/x');
+      last().navigate('/\t/evil.example/x');
+      last().navigate('/.//evil.example/x');
+      last().navigate('/..//evil.example/x');
       last().navigate('sessions');
     });
-    expect(router.state.location.pathname).toBe('/inbox');
     act(() => {
       last().navigate('/sessions');
     });
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/sessions');
     });
+    // nothing else was visited on the way
+    expect(visited).toEqual(['/sessions']);
+    act(() => {
+      last().navigate('/dashboard?range=7#top');
+    });
+    await waitFor(() => {
+      expect(router.state.location.pathname + router.state.location.search).toBe(
+        '/dashboard?range=7',
+      );
+    });
   });
 });
 
 describe('without theme code', () => {
   it('asks the daemon for nothing the host would need', async () => {
-    renderShell(ocean, { codeEnabled: false });
-    await screen.findByRole('heading', { level: 1, name: 'Inbox' });
+    renderShell(ocean, { codeEnabled: false, path: '/sessions' });
+    await screen.findByRole('heading', { level: 1, name: 'Sessions' });
+    expect(fakeCalls('GET /api/v1/boards')).toHaveLength(0);
     expect(fakeCalls('GET /api/v1/projects')).toHaveLength(0);
     expect(fakeCalls('GET /api/v1/accounts/usage')).toHaveLength(0);
   });

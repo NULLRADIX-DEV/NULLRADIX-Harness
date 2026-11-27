@@ -5,6 +5,7 @@ import { UsageMeter } from '../../features/accounts/UsageMeter';
 import { BoardSwitcher } from '../../features/board/BoardSwitcher';
 import { DaemonStatus } from '../../features/daemon/DaemonStatus';
 import { NavIcon } from '../../shared/ui/ThemeIcon';
+import { SlotThemeContext } from '../../shared/ui/useSlot';
 import { useSlotted } from '../../shared/ui/useSlotted';
 import { NullradixThemeHost } from '../host/ThemeHost';
 import { DefaultShell } from './DefaultShell';
@@ -23,16 +24,17 @@ function buildParts(): ShellParts {
       </NavLink>
     );
   }
-  return {
+  // one object serves the theme and the built-in shell, so neither can change it for the other
+  return Object.freeze({
     // the app has no global search or connection banner yet
     search: null,
     boardSwitcher: <BoardSwitcher />,
     usage: <UsageMeter />,
-    navItems,
+    navItems: Object.freeze(navItems),
     outlet: <Outlet />,
     connection: null,
     status: <DaemonStatus />,
-  };
+  });
 }
 
 function navigationOf(parts: ShellParts): ReactNode {
@@ -58,12 +60,14 @@ function Shell({ parts }: { parts: ShellParts }) {
   };
   const standard = <DefaultShell {...props} />;
   const { node, replaced } = useSlotted('Shell', props, standard);
-  // the escape link shows the settings in the built-in shell, even if the theme hides the page
-  if (location.pathname === '/settings' && wantsBuiltinShell(location.state)) return standard;
+  // the escape link shows the settings in the built-in shell, with no theme component running
+  if (location.pathname === '/settings' && wantsBuiltinShell(location.state)) {
+    return <SlotThemeContext value={undefined}>{standard}</SlotThemeContext>;
+  }
   return (
     <>
-      {node}
       {replaced && <ShellEscape />}
+      {node}
     </>
   );
 }

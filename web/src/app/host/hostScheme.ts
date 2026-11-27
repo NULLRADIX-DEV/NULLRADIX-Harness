@@ -13,15 +13,22 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
+// Scheme and mode of the page in one string, so one observer serves both.
+function snapshot(): string {
+  const { theme, themeMode } = document.documentElement.dataset;
+  return `${theme === 'light' ? 'light' : 'dark'} ${themeMode ?? ''}`;
+}
+
 // Light or dark as the page shows it, also for the system setting and safe mode.
 export function useHostColorScheme(): ColorSchemeState {
   const { mode } = useTheme();
-  const scheme = useSyncExternalStore(subscribe, () =>
-    document.documentElement.dataset['theme'] === 'light' ? 'light' : 'dark',
-  );
-  const shown = useSyncExternalStore(
-    subscribe,
-    () => document.documentElement.dataset['themeMode'],
-  );
-  return useMemo(() => ({ scheme, themeId: mode, mode: shown ?? mode }), [scheme, mode, shown]);
+  const shown = useSyncExternalStore(subscribe, snapshot);
+  return useMemo(() => {
+    const [scheme, shownMode] = shown.split(' ');
+    return {
+      scheme: scheme === 'light' ? 'light' : 'dark',
+      themeId: mode,
+      mode: shownMode === '' || shownMode === undefined ? mode : shownMode,
+    };
+  }, [shown, mode]);
 }

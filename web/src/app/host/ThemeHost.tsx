@@ -27,12 +27,13 @@ export function NullradixThemeHost({
   const settings = useHostSettings();
   const themeSettings = useHostThemeSettings(active);
   const colorScheme = useHostColorScheme();
-  // only paths of the app: a theme does not send the person to another site
+  // only places of the app: the address is resolved like the browser does, backslashes included
   const navigate = useCallback(
     (to: string) => {
-      if (typeof to === 'string' && to.startsWith('/') && !to.startsWith('//')) {
-        void routerNavigate(to);
-      }
+      if (typeof to !== 'string' || !to.startsWith('/')) return;
+      const url = new URL(to, window.location.origin);
+      if (url.origin !== window.location.origin || url.pathname.startsWith('//')) return;
+      void routerNavigate(`${url.pathname}${url.search}${url.hash}`);
     },
     [routerNavigate],
   );

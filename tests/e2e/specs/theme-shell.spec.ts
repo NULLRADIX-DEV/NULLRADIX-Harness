@@ -10,7 +10,7 @@ const MANIFEST = {
   name: 'Night Shell',
   version: '1.0.0',
   author: 'Ada',
-  sdkVersion: '^1.3',
+  sdkVersion: '^2.0',
   colorScheme: 'dark',
   slots: ['Shell', 'page:dashboard'],
   permissions: { network: [] },
@@ -118,7 +118,7 @@ test('a theme replaces the shell and the dashboard, and safe mode brings the app
   );
 
   // the way out is outside the theme shell: the settings in the built-in shell
-  const escape = page.getByRole('navigation', { name: 'Theme escape' });
+  const escape = page.getByRole('navigation', { name: 'Leave theme' });
   await escape.getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
@@ -133,7 +133,7 @@ test('a theme replaces the shell and the dashboard, and safe mode brings the app
 
   // safe mode removes the theme code, shell and page
   await page
-    .getByRole('navigation', { name: 'Theme escape' })
+    .getByRole('navigation', { name: 'Leave theme' })
     .getByRole('button', {
       name: 'Safe mode',
     })
@@ -145,7 +145,7 @@ test('a theme replaces the shell and the dashboard, and safe mode brings the app
     page.getByRole('heading', { level: 1, name: 'Dashboard', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Theme escape' })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Leave theme' })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Start normally' }).click();
   await expect(shell).toBeVisible();

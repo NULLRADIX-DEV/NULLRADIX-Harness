@@ -8,6 +8,8 @@ import {
   type ShellProps,
   type ThemeSlots,
 } from '@nullradix/theme-sdk';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
@@ -70,6 +72,31 @@ function SdkShell() {
 
 const ocean = (slots: ThemeSlots) => ({ id: 'ocean', slots });
 
+// A shell that tries to change the parts it was given.
+function Tamper({ parts, nav }: ShellProps) {
+  let refused = 0;
+  const attempts = [
+    () => {
+      Object.assign(parts, { usage: null });
+    },
+    () => {
+      Object.assign(parts.navItems, { inbox: null });
+    },
+  ];
+  for (const attempt of attempts) {
+    try {
+      attempt();
+    } catch {
+      refused += 1;
+    }
+  }
+  return (
+    <div data-testid="tamper" data-refused={refused}>
+      {nav}
+    </div>
+  );
+}
+
 describe('the slot Shell', () => {
   it('replaces the built-in shell and gets the nav, the content and the parts', async () => {
     renderShell(ocean({ Shell: PartsShell }));
@@ -123,19 +150,33 @@ describe('the slot Shell', () => {
     renderShell(ocean({ Shell: PartsShell }), { codeEnabled: false });
     expect(screen.queryByTestId('theme-shell')).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
-    expect(screen.queryByRole('navigation', { name: 'Theme escape' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Leave theme' })).not.toBeInTheDocument();
+  });
+});
+
+describe('the parts of the shell', () => {
+  it('cannot be changed by the theme, so the built-in shell keeps them', async () => {
+    renderShell(ocean({ Shell: Tamper }));
+    const tamper = await screen.findByTestId('tamper');
+    expect(tamper.dataset['refused']).toBe('2');
+    expect(within(tamper).getByRole('link', { name: 'Inbox' })).toBeVisible();
+    const escape = within(screen.getByRole('navigation', { name: 'Leave theme' }));
+    await userEvent.click(escape.getByRole('link', { name: 'Settings' }));
+    const main = within(await screen.findByRole('navigation', { name: 'Main navigation' }));
+    expect(main.getAllByRole('link')).toHaveLength(6);
+    expect(screen.getByRole('button', { name: /Daemon status/ })).toBeVisible();
   });
 });
 
 describe('the way out of a theme shell', () => {
   it('shows the escape bar only while a theme shell is shown', () => {
     renderShell(ocean({}));
-    expect(screen.queryByRole('navigation', { name: 'Theme escape' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Leave theme' })).not.toBeInTheDocument();
   });
 
   it('keeps safe mode and the settings reachable under a shell that renders nothing', async () => {
     const { router } = renderShell(ocean({ Shell: () => null }));
-    const escape = within(await screen.findByRole('navigation', { name: 'Theme escape' }));
+    const escape = within(await screen.findByRole('navigation', { name: 'Leave theme' }));
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
     expect(escape.getByRole('button', { name: 'Safe mode' })).toBeEnabled();
     await userEvent.click(escape.getByRole('link', { name: 'Settings' }));
@@ -143,10 +184,10 @@ describe('the way out of a theme shell', () => {
     // the settings show in the built-in shell, where the code switch of the theme is
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
-    expect(screen.queryByRole('navigation', { name: 'Theme escape' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Leave theme' })).not.toBeInTheDocument();
     // leaving the settings through the built-in navigation returns to the theme shell
     await userEvent.click(screen.getByRole('link', { name: 'Inbox' }));
-    expect(await screen.findByRole('navigation', { name: 'Theme escape' })).toBeVisible();
+    expect(await screen.findByRole('navigation', { name: 'Leave theme' })).toBeVisible();
   });
 
   it('opens a link to the settings from the theme itself in the theme shell', async () => {
@@ -155,7 +196,57 @@ describe('the way out of a theme shell', () => {
     await userEvent.click(nav.getByRole('link', { name: 'Settings' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
     expect(screen.getByTestId('sdk-shell')).toBeVisible();
-    expect(screen.getByRole('navigation', { name: 'Theme escape' })).toBeVisible();
+    expect(screen.getByRole('navigation', { name: 'Leave theme' })).toBeVisible();
+  });
+
+  it('is the first element and sits in the top layer with colours of its own', async () => {
+    const show = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'showPopover', {
+      configurable: true,
+      value: show,
+    });
+    try {
+      const { container } = renderShell(ocean({ Shell: PartsShell }));
+      // jsdom hides an element with the attribute, as a browser does before it is shown
+      await waitFor(() => {
+        expect(container.querySelector('nav.shell-escape')).toHaveAttribute('popover', 'manual');
+      });
+      const bar = container.querySelector('nav.shell-escape');
+      expect(show).toHaveBeenCalled();
+      expect(bar).toHaveAttribute('popover', 'manual');
+      // before the theme shell, so keyboard users reach it first
+      expect(container.firstElementChild).toBe(bar);
+      expect(bar?.querySelector('.btn')).toBeNull();
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'showPopover');
+    }
+    const css = readFileSync(join(import.meta.dirname, 'shellEscape.css'), 'utf8');
+    expect(css).not.toContain('var(');
+    expect(css).toContain('z-index: 2147483647');
+  });
+
+  it('works where the popover API is missing', async () => {
+    renderShell(ocean({ Shell: () => null }));
+    expect(await screen.findByRole('link', { name: 'Settings' })).toBeVisible();
+  });
+
+  it('runs no theme component in the settings view of the escape link', async () => {
+    const icons = vi.fn();
+    renderShell(
+      ocean({
+        Shell: () => null,
+        NavIcon: ({ name }) => {
+          icons(name);
+          return <i data-icon={name} />;
+        },
+        Panel: ({ children }) => <div data-themed-panel="">{children}</div>,
+      }),
+    );
+    await userEvent.click(await screen.findByRole('link', { name: 'Settings' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+    expect(icons).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-slot], [data-themed-panel], i[data-icon]')).toBeNull();
+    expect(document.querySelectorAll('.nav svg.nav-icon')).toHaveLength(6);
   });
 
   it('reloads in safe mode from the escape bar', async () => {
