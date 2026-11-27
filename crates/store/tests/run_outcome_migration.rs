@@ -147,3 +147,20 @@ async fn the_rebuild_keeps_runs_and_what_refers_to_them_and_accepts_the_new_outc
         .unwrap();
     assert_eq!(left, 0);
 }
+
+#[tokio::test]
+async fn the_rebuild_stops_on_a_dangling_reference() {
+    let pool = pool().await;
+    before_migration().run(&pool).await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO run_denied_tools (run_id, tool, count) VALUES (?, 'Bash', 1)")
+        .bind(vec![9_u8; 16])
+        .execute(&pool)
+        .await
+        .unwrap();
+    let applied = sqlx::migrate!("./migrations").run(&pool).await;
+    assert!(applied.is_err(), "a dangling reference aborts the rebuild");
+}
