@@ -4,7 +4,7 @@ import { BOARD_STORAGE_KEY } from './boardChoice';
 import { chooseBoardId, useBoardChoice } from './useBoardChoice';
 
 describe('useBoardChoice', () => {
-  it('follows a choice made anywhere and one made in another tab', () => {
+  it('follows a choice made in the app and ignores other tabs', () => {
     window.localStorage.setItem(BOARD_STORAGE_KEY, 'one');
     const { result } = renderHook(() => useBoardChoice());
     expect(result.current).toBe('one');
@@ -17,7 +17,23 @@ describe('useBoardChoice', () => {
       window.localStorage.setItem(BOARD_STORAGE_KEY, 'three');
       window.dispatchEvent(new StorageEvent('storage', { key: BOARD_STORAGE_KEY }));
     });
-    expect(result.current).toBe('three');
+    expect(result.current).toBe('two');
+  });
+
+  it('survives a storage whose getter throws', () => {
+    const blocked = vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    try {
+      const { result } = renderHook(() => useBoardChoice());
+      expect(result.current).toBeNull();
+      act(() => {
+        chooseBoardId('five');
+      });
+      expect(result.current).toBe('five');
+    } finally {
+      blocked.mockRestore();
+    }
   });
 
   it('keeps the choice for this visit while the storage is blocked', () => {

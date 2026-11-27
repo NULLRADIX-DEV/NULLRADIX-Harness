@@ -2,6 +2,15 @@ import type { Board } from '../boards/queries';
 
 export const BOARD_STORAGE_KEY = 'nullradix-board';
 
+// The local storage, or null where even reaching it fails.
+export function localBoardStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 export function readBoardChoice(storage: Pick<Storage, 'getItem'>): string | null {
   try {
     return storage.getItem(BOARD_STORAGE_KEY);

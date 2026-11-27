@@ -59,6 +59,27 @@ describe('BoardPage', () => {
     });
   });
 
+  it('closes the dialog of the old board when another board is chosen', async () => {
+    const other = board({
+      id: OTHER_BOARD,
+      projectId: OTHER_PROJECT,
+      projectKey: 'OPS',
+      name: 'Ops',
+    });
+    boardServer({ boards: [board(), other], entries: [entry(ticket())] });
+    renderApp('/board?ticket=ARC-0001');
+    expect(await screen.findByRole('combobox', { name: 'Board' })).toHaveValue(BOARD_ID);
+    await userEvent.click(screen.getByRole('button', { name: 'New ticket' }));
+    expect(screen.getByRole('dialog', { name: /New ticket/ })).toBeInTheDocument();
+    act(() => {
+      chooseBoardId(OTHER_BOARD);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('combobox', { name: 'Board' })).toHaveValue(OTHER_BOARD);
+  });
+
   it('shows the eight columns with the cards of each', async () => {
     boardServer({
       entries: [

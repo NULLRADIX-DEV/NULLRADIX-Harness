@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { boardsQuery } from '../boards/queries';
 import { DispatcherIndicator } from '../dispatcher/DispatcherIndicator';
@@ -56,6 +56,20 @@ export function BoardPage() {
     setSearchParams(next, { replace: true });
   }, [linkedBoard, linkedNotes, searchParams, setSearchParams]);
 
+  // Another board, chosen here or by a theme shell, ends what was open for the old one.
+  const boardId = board?.id;
+  const shownBoard = useRef(boardId);
+  const leaveBoard = useEffectEvent(() => {
+    setCreating(false);
+    setNoting(false);
+    if (openKey !== null) closeTicket();
+  });
+  useEffect(() => {
+    const before = shownBoard.current;
+    shownBoard.current = boardId;
+    if (before !== undefined && before !== boardId) leaveBoard();
+  }, [boardId]);
+
   useEffect(() => {
     if (notice === null) return;
     const timer = setTimeout(() => {
@@ -74,17 +88,12 @@ export function BoardPage() {
     setSearchParams({});
   }
 
-  function chooseBoard(boardId: string) {
-    chooseBoardId(boardId);
-    if (openKey !== null) closeTicket();
-  }
-
   return (
     <div className="page db-board">
       <div className="db-board-head">
         <h1 className="page-title">Board</h1>
         {board && boards.data && (
-          <BoardPicker boards={boards.data} value={board.id} onChange={chooseBoard} />
+          <BoardPicker boards={boards.data} value={board.id} onChange={chooseBoardId} />
         )}
         <div className="db-board-dispatcher">
           <DispatcherIndicator />

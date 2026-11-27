@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { BOARD_STORAGE_KEY, readBoardChoice, saveBoardChoice } from './boardChoice';
+import { localBoardStorage, readBoardChoice, saveBoardChoice } from './boardChoice';
 
 const listeners = new Set<() => void>();
 
@@ -8,24 +8,29 @@ let unsaved: string | null = null;
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
-  // another tab chose a board
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === BOARD_STORAGE_KEY) listener();
-  };
-  window.addEventListener('storage', onStorage);
   return () => {
     listeners.delete(listener);
-    window.removeEventListener('storage', onStorage);
   };
 }
 
 // Remembers the board for every page and the board switcher.
 export function chooseBoardId(boardId: string): void {
-  unsaved = saveBoardChoice(window.localStorage, boardId) ? null : boardId;
+  const storage = localBoardStorage();
+  unsaved = storage && saveBoardChoice(storage, boardId) ? null : boardId;
   for (const listener of listeners) listener();
+}
+
+// Forgets a choice kept only for this visit; tests call it between cases.
+export function forgetUnsavedBoardChoice(): void {
+  unsaved = null;
+}
+
+function snapshot(): string | null {
+  const storage = localBoardStorage();
+  return unsaved ?? (storage ? readBoardChoice(storage) : null);
 }
 
 // The chosen board id, null before a choice; renders again when it changes.
 export function useBoardChoice(): string | null {
-  return useSyncExternalStore(subscribe, () => unsaved ?? readBoardChoice(window.localStorage));
+  return useSyncExternalStore(subscribe, snapshot);
 }
