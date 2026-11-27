@@ -135,6 +135,26 @@ pub(crate) async fn create_snippet(
 }
 
 #[utoipa::path(
+    get,
+    path = "/snippets/{id}",
+    tag = "snippets",
+    params(SnippetPath),
+    responses(
+        (status = 200, body = SnippetDto),
+        (status = 401, body = Problem),
+        (status = 404, body = Problem),
+        (status = 422, body = Problem),
+    )
+)]
+pub(crate) async fn get_snippet(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<SnippetPath>,
+) -> Result<Json<SnippetDto>, ApiError> {
+    let snippet = state.snippets.get(&path.id).await?;
+    Ok(Json(SnippetDto::from(&snippet)))
+}
+
+#[utoipa::path(
     patch,
     path = "/snippets/{id}",
     tag = "snippets",
@@ -447,7 +467,21 @@ mod tests {
         let response = tower::ServiceExt::oneshot(api.router.clone(), request)
             .await
             .unwrap();
-        assert_eq!(response.headers()[header::LOCATION], "/api/v1/snippets/red");
+        let location = response.headers()[header::LOCATION]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(location, "/api/v1/snippets/red");
+        // the address it names answers
+        let (status, found) = call(&api, "GET", &location, None).await;
+        assert_eq!((status, &found["id"]), (200, &json!("red")));
+        let (status, problem) = call(&api, "GET", "/api/v1/snippets/none", None).await;
+        assert_eq!((status, &problem["code"]), (404, &json!("snippet-missing")));
+        let (status, problem) = call(&api, "GET", "/api/v1/snippets/Bad", None).await;
+        assert_eq!(
+            (status, &problem["code"]),
+            (422, &json!("snippet-id-invalid"))
+        );
         let (status, problem) = call(&api, "POST", "/api/v1/snippets", create("red", "b{}")).await;
         assert_eq!((status, &problem["code"]), (409, &json!("snippet-exists")));
     }

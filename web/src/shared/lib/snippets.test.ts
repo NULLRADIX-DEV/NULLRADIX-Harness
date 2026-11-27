@@ -43,12 +43,18 @@ describe('snippetId', () => {
 describe('snippetsVersion', () => {
   it('is null without enabled snippets and changes with every edit', () => {
     expect(snippetsVersion([])).toBeNull();
-    expect(snippetsVersion([{ id: 'a1', version: 1, enabled: false }])).toBeNull();
-    const one = [{ id: 'a1', version: 1, enabled: true }];
-    const edited = [{ id: 'a1', version: 2, enabled: true }];
-    const added = [...one, { id: 'b2', version: 1, enabled: true }];
+    expect(snippetsVersion([{ id: 'a1', version: 1, createdAt: 1, enabled: false }])).toBeNull();
+    const one = [{ id: 'a1', version: 1, createdAt: 1, enabled: true }];
+    const edited = [{ id: 'a1', version: 2, createdAt: 1, enabled: true }];
+    const added = [...one, { id: 'b2', version: 1, createdAt: 1, enabled: true }];
     const versions = [one, edited, added].map(snippetsVersion);
     expect(new Set(versions).size).toBe(3);
+  });
+
+  it('differs for a snippet deleted and created again under the same id', () => {
+    const first = [{ id: 'a1', version: 1, createdAt: 5, enabled: true }];
+    const again = [{ id: 'a1', version: 1, createdAt: 9, enabled: true }];
+    expect(snippetsVersion(first)).not.toBe(snippetsVersion(again));
   });
 });
 
@@ -74,6 +80,41 @@ describe('applySnippetsStylesheet', () => {
     current?.dispatchEvent(new Event('load'));
     expect(links()).toEqual([current]);
     expect(old?.isConnected).toBe(false);
+  });
+
+  it('keeps what is still needed when changes follow each other quickly', () => {
+    applySnippetsStylesheet(document, 'a1.1');
+    applySnippetsStylesheet(document, 'a1.2');
+    applySnippetsStylesheet(document, 'a1.3');
+    const [first, second, third] = links();
+    expect(links()).toHaveLength(3);
+    expect(document.querySelectorAll(`#${SNIPPETS_LINK_ID}`)).toHaveLength(1);
+    expect(third?.id).toBe(SNIPPETS_LINK_ID);
+    // the middle one loads first: only the oldest goes, the newest still waits
+    second?.dispatchEvent(new Event('load'));
+    expect(links()).toEqual([second, third]);
+    third?.dispatchEvent(new Event('load'));
+    expect(links()).toEqual([third]);
+    expect(first?.isConnected).toBe(false);
+  });
+
+  it('drops every pending link when nothing is on any more', () => {
+    applySnippetsStylesheet(document, 'a1.1');
+    applySnippetsStylesheet(document, 'a1.2');
+    applySnippetsStylesheet(document, null);
+    expect(links()).toHaveLength(0);
+    applySnippetsStylesheet(document, 'a1.3');
+    expect(links()).toHaveLength(1);
+    expect(document.getElementById(SNIPPETS_LINK_ID)?.getAttribute('href')).toBe(
+      `${SNIPPETS_URL}?v=a1.3`,
+    );
+  });
+
+  it('does not add a link again for the version that is the newest', () => {
+    applySnippetsStylesheet(document, 'a1.1');
+    applySnippetsStylesheet(document, 'a1.2');
+    applySnippetsStylesheet(document, 'a1.2');
+    expect(links()).toHaveLength(2);
   });
 
   it('lets a failed load drop the old stylesheet too', () => {

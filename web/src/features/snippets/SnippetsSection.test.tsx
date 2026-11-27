@@ -8,7 +8,9 @@ import { SNIPPETS_LINK_ID } from '../../shared/lib/snippets';
 import type { Snippet } from './queries';
 
 afterEach(() => {
-  document.getElementById(SNIPPETS_LINK_ID)?.remove();
+  document.querySelectorAll('link[data-snippets]').forEach((link) => {
+    link.remove();
+  });
 });
 
 function item(overrides: Partial<Snippet> = {}): Snippet {
@@ -175,7 +177,7 @@ describe('active snippets in the app', () => {
     const api = server([item()]);
     renderApp('/settings');
     await waitFor(() => {
-      expect(sheet()).toBe('/api/v1/snippets/active.css?v=red.1');
+      expect(sheet()).toBe('/api/v1/snippets/active.css?v=red.1.1');
     });
     await waitFor(() => {
       expect(FakeEventSource.instances).not.toHaveLength(0);
@@ -196,7 +198,7 @@ describe('active snippets in the app', () => {
       );
     });
     await waitFor(() => {
-      expect(sheet()).toBe('/api/v1/snippets/active.css?v=red.2');
+      expect(sheet()).toBe('/api/v1/snippets/active.css?v=red.1.2');
     });
 
     api.replace([item({ version: 3, enabled: false })]);

@@ -330,7 +330,11 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
         .routes(routes!(customizations::rebase_customization))
         .routes(routes!(customizations::effective_customization))
         .routes(routes!(snippets::list_snippets, snippets::create_snippet))
-        .routes(routes!(snippets::update_snippet, snippets::delete_snippet))
+        .routes(routes!(
+            snippets::get_snippet,
+            snippets::update_snippet,
+            snippets::delete_snippet
+        ))
         .routes(routes!(snippets::active_snippets))
 }
 

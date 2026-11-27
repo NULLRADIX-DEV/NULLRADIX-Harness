@@ -1,4 +1,4 @@
-import { SNIPPETS_LINK_ID } from './snippets';
+import { SNIPPETS_LINK_SELECTOR } from './snippets';
 
 export const THEME_MODES = ['nullradix', 'light', 'dark', 'system'] as const;
 
@@ -133,7 +133,7 @@ export function applyInstalledTheme(root: HTMLElement, look: InstalledLook): voi
   link.id = THEME_LINK_ID;
   link.rel = 'stylesheet';
   link.href = look.styleUrl;
-  const snippets = doc.getElementById(SNIPPETS_LINK_ID);
+  const snippets = doc.querySelector(SNIPPETS_LINK_SELECTOR);
   if (existing) existing.replaceWith(link);
   else if (snippets) snippets.before(link);
   else doc.head.appendChild(link);

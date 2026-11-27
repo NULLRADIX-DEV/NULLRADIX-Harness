@@ -4,6 +4,7 @@ mod account;
 mod board;
 mod board_rules;
 mod comment;
+mod css_check;
 mod customization;
 mod dispatch_pass;
 mod dispatch_run;

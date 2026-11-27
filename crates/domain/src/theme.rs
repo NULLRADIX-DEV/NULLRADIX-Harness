@@ -651,118 +651,10 @@ pub fn check_claude_files<'a>(
     Err(FieldError::new("claudeTheme", message))
 }
 
-/// Removes comments; a comment marker inside a quoted string is text.
-pub(crate) fn strip_comments(css: &str) -> String {
-    let mut plain = String::with_capacity(css.len());
-    let mut chars = css.chars().peekable();
-    let mut quote: Option<char> = None;
-    while let Some(letter) = chars.next() {
-        match quote {
-            Some(open) => {
-                plain.push(letter);
-                if letter == open || letter == '\n' {
-                    quote = None;
-                }
-            }
-            None if letter == '/' && chars.peek() == Some(&'*') => {
-                chars.next();
-                let mut last = ' ';
-                for inner in chars.by_ref() {
-                    if last == '*' && inner == '/' {
-                        break;
-                    }
-                    last = inner;
-                }
-            }
-            None => {
-                if matches!(letter, '"' | '\'') {
-                    quote = Some(letter);
-                }
-                plain.push(letter);
-            }
-        }
-    }
-    plain
-}
-
-/// The text of every `url(...)` call, quotes removed.
-pub(crate) fn url_values(css: &str) -> Vec<String> {
-    let lower = css.to_ascii_lowercase();
-    let mut values = Vec::new();
-    let mut from = 0;
-    while let Some(found) = lower[from..].find("url(") {
-        let start = from + found + 4;
-        let inner = css[start..].trim_start();
-        let offset = css[start..].len() - inner.len();
-        let quote = inner
-            .chars()
-            .next()
-            .filter(|letter| matches!(letter, '"' | '\''));
-        let (value, consumed) = if let Some(quote) = quote {
-            match inner[1..].find(quote) {
-                Some(end) => (&inner[1..=end], 1 + end + 1),
-                None => (&inner[1..], inner.len()),
-            }
-        } else {
-            let end = inner.find(')').unwrap_or(inner.len());
-            (inner[..end].trim_end(), end)
-        };
-        values.push(value.trim().to_owned());
-        from = start + offset + consumed;
-    }
-    values
-}
-
-/// Refuses escapes, `@import`, `image-set()` and every `url()` that is not relative or `data:`.
+/// Refuses what a browser would load from elsewhere: escapes, `@import`, `image-set()` and the
+/// like, and every `url()` that is not relative or `data:`; the text must be well formed.
 pub fn check_theme_css(css: &str) -> Result<(), PackageError> {
-    if css.contains('\\') {
-        return Err(PackageError::ForbiddenCss(String::from(
-            "backslash escapes are not allowed",
-        )));
-    }
-    // CSS also ends lines at CR and FF, which the comment stripper would not see
-    if css.contains(['\r', '\u{c}']) {
-        return Err(PackageError::ForbiddenCss(String::from(
-            "carriage returns and form feeds are not allowed",
-        )));
-    }
-    // an unquoted url() keeps comment markers as text
-    if url_values(css)
-        .iter()
-        .any(|value| value.contains("/*") || value.contains("*/"))
-    {
-        return Err(PackageError::ForbiddenCss(String::from(
-            "comment markers inside url() are not allowed",
-        )));
-    }
-    let css = strip_comments(css);
-    let lower = css.to_ascii_lowercase();
-    if lower.contains("@import") {
-        return Err(PackageError::ForbiddenCss(String::from(
-            "@import is not allowed",
-        )));
-    }
-    if ["image-set(", "image(", "src("]
-        .iter()
-        .any(|call| lower.contains(call))
-    {
-        return Err(PackageError::ForbiddenCss(String::from(
-            "image-set(), image() and src() are not allowed",
-        )));
-    }
-    for value in url_values(&css) {
-        let lower = value.to_ascii_lowercase();
-        if lower.starts_with("data:") {
-            continue;
-        }
-        let first = lower.split('/').next().unwrap_or_default();
-        if lower.starts_with('/') || first.contains(':') || lower.contains('\\') {
-            return Err(PackageError::ForbiddenCss(format!(
-                "external or absolute url() is not allowed: {value}"
-            )));
-        }
-    }
-    Ok(())
+    crate::css_check::check_css(css, true).map_err(PackageError::ForbiddenCss)
 }
 
 /// The segments of a requested file path inside an installed theme, plain names only.
@@ -1091,6 +983,12 @@ mod tests {
             "a{content:\"x\r\"/* \"}b{background:url(https://evil)}c{d:*/}",
             "a{content:\"x\u{c}\"/* \"}b{background:url(https://evil)}c{d:*/}",
             "@font-face { src: src(\"https://evil/f.woff2\") }",
+            "a{background:url(\"data:x
+);}
+b{background:url(https://evil.test/x.png)}",
+            "a{background:url(data:x
+p{content:\")\"}/*\"} y{background:url(https://evil.test/x.png)} */",
+            "@media print {",
             "a { background: image(\"https://evil/x.png\") }",
         ] {
             assert!(
@@ -1098,13 +996,6 @@ mod tests {
                 "{css}"
             );
         }
-    }
-
-    #[test]
-    fn comment_markers_inside_strings_are_text() {
-        assert_eq!(strip_comments("a{content:\"/*\"}"), "a{content:\"/*\"}");
-        assert_eq!(strip_comments("a/* x */b"), "ab");
-        assert_eq!(strip_comments("a/* open"), "a");
     }
 
     #[test]

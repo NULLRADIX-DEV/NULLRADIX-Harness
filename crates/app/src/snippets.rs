@@ -91,9 +91,18 @@ impl SnippetService {
         self.repository.list().await
     }
 
+    pub async fn get(&self, id: &str) -> Result<Snippet, AppError> {
+        let id = SnippetId::parse(id).map_err(|error| snippet_invalid(&error))?;
+        let snippets = self.repository.list().await?;
+        snippets
+            .into_iter()
+            .find(|snippet| snippet.record().id == id)
+            .ok_or_else(|| missing(&id))
+    }
+
     /// The enabled snippets as one stylesheet.
     pub async fn active_css(&self) -> Result<String, AppError> {
-        Ok(active_stylesheet(&self.repository.list().await?))
+        active_stylesheet(&self.repository.list().await?).map_err(AppError::internal)
     }
 
     /// Adds a snippet; new ones are on unless `enabled` says otherwise.

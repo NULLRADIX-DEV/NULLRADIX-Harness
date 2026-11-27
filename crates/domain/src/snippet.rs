@@ -2,8 +2,8 @@
 
 use std::fmt::{self, Write};
 
-use crate::theme::{strip_comments, url_values};
-use crate::{PackageError, TextError, Timestamp, Version, check_theme_css, required_text};
+use crate::css_check::check_css;
+use crate::{TextError, Timestamp, Version, required_text};
 
 pub const SNIPPET_ID_MIN: usize = 2;
 pub const SNIPPET_ID_MAX: usize = 40;
@@ -72,27 +72,15 @@ impl SnippetName {
 pub struct SnippetCss(String);
 
 impl SnippetCss {
-    /// Refuses what a theme stylesheet refuses, and every `url()` that is not `data:`.
+    /// Refuses what a theme stylesheet refuses, and every `url()` that is not `data:`; the text
+    /// must be well formed, so it cannot reach into the snippet after it.
     pub fn parse(text: &str) -> Result<Self, SnippetError> {
         if text.len() > SNIPPET_CSS_MAX {
             return Err(SnippetError::CssTooLong);
         }
         // a lone CR stays refused by the theme check
         let css = text.replace("\r\n", "\n");
-        check_theme_css(&css).map_err(|error| match error {
-            PackageError::ForbiddenCss(reason) => SnippetError::ForbiddenCss(reason),
-            other => SnippetError::ForbiddenCss(other.to_string()),
-        })?;
-        // a snippet has no files of its own to point at
-        let plain = strip_comments(&css);
-        if let Some(value) = url_values(&plain)
-            .into_iter()
-            .find(|value| !value.to_ascii_lowercase().starts_with("data:"))
-        {
-            return Err(SnippetError::ForbiddenCss(format!(
-                "only data: urls are allowed: {value}"
-            )));
-        }
+        check_css(&css, false).map_err(SnippetError::ForbiddenCss)?;
         Ok(Self(css))
     }
 
@@ -181,20 +169,28 @@ impl Snippet {
 }
 
 /// The enabled snippets as one stylesheet, each behind a comment with its id.
-#[must_use]
-pub fn active_stylesheet(snippets: &[Snippet]) -> String {
+///
+/// Every snippet is well formed on its own; the joined text is checked again as a last guard.
+pub fn active_stylesheet(snippets: &[Snippet]) -> Result<String, SnippetError> {
     let mut ordered: Vec<&SnippetRecord> = snippets
         .iter()
         .map(Snippet::record)
         .filter(|record| record.enabled)
         .collect();
     ordered.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.id.cmp(&b.id)));
-    ordered
+    let sheet = ordered
         .into_iter()
         .fold(String::new(), |mut sheet, record| {
-            let _ = writeln!(sheet, "/* snippet: {} */\n{}", record.id, record.css);
+            let _ = writeln!(
+                sheet,
+                "/* snippet: {} */
+{}",
+                record.id, record.css
+            );
             sheet
-        })
+        });
+    check_css(&sheet, false).map_err(SnippetError::ForbiddenCss)?;
+    Ok(sheet)
 }
 
 #[cfg(test)]
@@ -329,9 +325,78 @@ mod tests {
             snippet("tie", "d{}", true, 2),
         ];
         assert_eq!(
-            active_stylesheet(&list),
+            active_stylesheet(&list).unwrap(),
             "/* snippet: one */\na{}\n/* snippet: tie */\nd{}\n/* snippet: two */\nb{}\n"
         );
-        assert_eq!(active_stylesheet(&[]), "");
+        assert_eq!(active_stylesheet(&[]).unwrap(), "");
+    }
+
+    #[test]
+    fn a_snippet_cannot_swallow_the_next_one() {
+        for open in [
+            "@media print {",
+            "a { color: red",
+            "a { content: \"open",
+            "a { background: url(\"data:x\"",
+            "a { background: url(data:x",
+            "/* open",
+        ] {
+            assert!(
+                matches!(SnippetCss::parse(open), Err(SnippetError::ForbiddenCss(_))),
+                "{open}"
+            );
+        }
+        // each text keeps its own rules when another one follows
+        let pairs = [
+            ("@media print { a { color: red } }", "b { color: blue }"),
+            ("a { content: \"} b {\" }", "c { color: blue }"),
+            ("/* } */ a {}", "b { background: url(data:x) }"),
+        ];
+        for (first, second) in pairs {
+            let list = [
+                snippet("one", first, true, 1),
+                snippet("two", second, true, 2),
+            ];
+            let sheet = active_stylesheet(&list).unwrap();
+            assert_eq!(
+                sheet,
+                format!(
+                    "/* snippet: one */
+{first}
+/* snippet: two */
+{second}
+"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn the_joined_text_is_checked_again() {
+        let broken = Snippet::restore(SnippetRecord {
+            css: String::from("@media print {"),
+            ..snippet("one", "a{}", true, 1).record().clone()
+        });
+        let list = [broken, snippet("two", "b{}", true, 2)];
+        assert!(matches!(
+            active_stylesheet(&list),
+            Err(SnippetError::ForbiddenCss(_))
+        ));
+    }
+
+    #[test]
+    fn tokenizer_tricks_cannot_hide_a_remote_url() {
+        for css in [
+            "a{background:url(\"data:x
+);}
+b{background:url(https://evil.test/x.png)}",
+            "a{background:url(data:x
+p{content:\")\"}/*\"} y{background:url(https://evil.test/x.png)} */",
+        ] {
+            assert!(
+                matches!(SnippetCss::parse(css), Err(SnippetError::ForbiddenCss(_))),
+                "{css}"
+            );
+        }
     }
 }
