@@ -51,7 +51,7 @@ pub use comment::{Comment, CommentBody, CommentError, CommentOn, CommentRecord, 
 pub use customization::{
     Base, BaseState, ExtensionPoint, Finding, FrontMatter, OVERLAY_CONTENT_MAX, OVERLAY_NAME_MAX,
     Overlay, OverlayError, OverlayKind, OverlayName, OverlayRecord, OverlayState, base_state,
-    check_front_matter, overlay_content, overlay_state,
+    check_front_matter, overlay_content, overlay_state, refused_keys,
 };
 pub use dispatch_pass::{
     ABORT_PREFIX, ACCOUNT_LABEL_PREFIX, AccountChoice, AccountChoiceInput, AccountReserve,

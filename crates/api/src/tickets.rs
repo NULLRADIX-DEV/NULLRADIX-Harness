@@ -2,7 +2,7 @@ use axum::Json;
 use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::AppError;
-use nullradix_app::auth::Principal;
+use nullradix_app::auth::{Principal, decision_needs_person};
 use nullradix_app::comments::Author;
 use nullradix_app::tickets::{
     self, HistoryLine, NewTicket, PlanInput, StepGuard, StepPatch, TicketDetail, TicketFilter,
@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::auth::{AgentContext, refuse_agent};
 use crate::comments::CommentDto;
 use crate::questions::OpenQuestionDto;
 use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
@@ -1199,6 +1200,7 @@ pub(crate) async fn release_ticket(
     responses(
         (status = 200, body = TicketDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent", body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, body = Problem),
@@ -1207,9 +1209,11 @@ pub(crate) async fn release_ticket(
 pub(crate) async fn accept_ticket(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<AcceptTicket>,
 ) -> Result<Json<TicketDto>, ApiError> {
+    refuse_agent(context, || decision_needs_person("accepting a ticket"))?;
     let view = state
         .decisions
         .accept(

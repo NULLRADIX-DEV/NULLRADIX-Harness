@@ -363,6 +363,7 @@ fn cli_step(
         .map_or_else(|| daemon.work.clone(), |dir| fill(dir, saved).into());
     command
         .args(&args)
+        .envs(&cli.env)
         .current_dir(folder)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -379,12 +380,15 @@ fn cli_step(
     let output = child.wait_with_output()?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    let entry = json!({
+    let mut entry = json!({
         "cli": args,
         "exitCode": output.status.code(),
         "stdout": stdout,
         "stderr": stderr,
     });
+    if !cli.env.is_empty() {
+        entry["env"] = json!(cli.env);
+    }
     Ok((entry, json!({ "stdout": stdout })))
 }
 

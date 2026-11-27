@@ -56,6 +56,25 @@ pub const RESEARCH_DENIED_TOOLS: [&str; 22] = [
     "Bash(nullradix question reopen:*)",
 ];
 
+/// Denied in work and merge runs: what changes the machine, the app or a decision of the person.
+pub const WORK_DENIED_TOOLS: [&str; 15] = [
+    "Bash(nullradix run:*)",
+    "Bash(nullradix theme:*)",
+    "Bash(nullradix customize:*)",
+    "Bash(nullradix install:*)",
+    "Bash(nullradix dispatcher:*)",
+    "Bash(nullradix account:*)",
+    "Bash(nullradix open:*)",
+    "Bash(nullradix ticket accept:*)",
+    "Bash(nullradix ticket return:*)",
+    "Bash(nullradix ticket merge:*)",
+    "Bash(nullradix question answer:*)",
+    "Bash(nullradix question discard:*)",
+    "Bash(nullradix question reopen:*)",
+    "Bash(nullradix review:*)",
+    "Bash(nullradix research start:*)",
+];
+
 /// The only tools of a plan run.
 pub const PLANNING_TOOLS: [&str; 16] = [
     "Read",
@@ -146,11 +165,15 @@ fn strings(tools: &[&str]) -> Vec<String> {
 }
 
 fn denied_tools(kind: RunKind) -> Vec<String> {
-    let mut denied = strings(&RESEARCH_DENIED_TOOLS);
-    if kind == RunKind::Plan {
-        denied.extend(strings(&PLANNING_ONLY_DENIED_TOOLS));
+    match kind {
+        RunKind::Work | RunKind::Merge => strings(&WORK_DENIED_TOOLS),
+        RunKind::Research => strings(&RESEARCH_DENIED_TOOLS),
+        RunKind::Plan => {
+            let mut denied = strings(&RESEARCH_DENIED_TOOLS);
+            denied.extend(strings(&PLANNING_ONLY_DENIED_TOOLS));
+            denied
+        }
     }
-    denied
 }
 
 fn allowed_tools(input: &InvocationInput<'_>) -> Vec<String> {
@@ -198,10 +221,7 @@ fn args(input: &InvocationInput<'_>) -> Vec<String> {
     if let Some(mode) = mode {
         args.extend([String::from("--permission-mode"), mode]);
     }
-    if restricted {
-        args.push(String::from("--disallowedTools"));
-        args.extend(denied_tools(input.kind));
-    } else {
+    if !restricted {
         args.extend(
             claude
                 .extra_args
@@ -210,6 +230,8 @@ fn args(input: &InvocationInput<'_>) -> Vec<String> {
                 .cloned(),
         );
     }
+    args.push(String::from("--disallowedTools"));
+    args.extend(denied_tools(input.kind));
     let tools = allowed_tools(input);
     if !tools.is_empty() {
         args.push(String::from("--allowedTools"));
@@ -352,8 +374,71 @@ mod tests {
             call.args[tools..],
             ["--allowedTools", "Read", "Bash(nullradix:*)"]
         );
-        assert!(!call.args.contains(&String::from("--disallowedTools")));
         assert_eq!(call.timeout, Duration::from_mins(90));
+    }
+
+    #[test]
+    fn work_and_merge_runs_deny_what_changes_the_machine_or_a_decision() {
+        for kind in [RunKind::Work, RunKind::Merge] {
+            let call = call(kind, &config(), &[]);
+            let denied = position(&call.args, "--disallowedTools");
+            let allowed = position(&call.args, "--allowedTools");
+            assert!(position(&call.args, "--add-dir=x") < denied, "{kind:?}");
+            assert_eq!(
+                call.args[denied + 1..allowed],
+                WORK_DENIED_TOOLS,
+                "{kind:?}"
+            );
+        }
+        for rule in [
+            "Bash(nullradix run:*)",
+            "Bash(nullradix theme:*)",
+            "Bash(nullradix customize:*)",
+            "Bash(nullradix install:*)",
+            "Bash(nullradix dispatcher:*)",
+            "Bash(nullradix account:*)",
+            "Bash(nullradix open:*)",
+            "Bash(nullradix ticket accept:*)",
+            "Bash(nullradix question answer:*)",
+            "Bash(nullradix question discard:*)",
+            "Bash(nullradix question reopen:*)",
+            "Bash(nullradix review:*)",
+        ] {
+            assert!(WORK_DENIED_TOOLS.contains(&rule), "{rule}");
+        }
+    }
+
+    #[test]
+    fn the_default_work_tools_name_the_nullradix_commands_a_run_needs() {
+        use nullradix_domain::DEFAULT_ALLOWED_TOOLS;
+        for gone in ["Bash(nullradix:*)", "Bash(node:*)", "Bash(harness:*)"] {
+            assert!(!DEFAULT_ALLOWED_TOOLS.contains(&gone), "{gone}");
+        }
+        // every allowed nullradix command is one a run needs and none is denied
+        for tool in DEFAULT_ALLOWED_TOOLS {
+            if let Some(command) = tool.strip_prefix("Bash(nullradix ") {
+                assert!(command.ends_with(":*)"), "{tool}");
+                assert!(
+                    !WORK_DENIED_TOOLS.iter().any(|denied| {
+                        let word = denied.trim_start_matches("Bash(").trim_end_matches(":*)");
+                        tool.trim_start_matches("Bash(").starts_with(word)
+                    }),
+                    "{tool}"
+                );
+            }
+        }
+        for needed in [
+            "ticket show",
+            "ticket comment",
+            "ticket done",
+            "ticket set",
+            "step check",
+            "note add",
+            "question add",
+        ] {
+            let rule = format!("Bash(nullradix {needed}:*)");
+            assert!(DEFAULT_ALLOWED_TOOLS.contains(&rule.as_str()), "{rule}");
+        }
     }
 
     #[test]

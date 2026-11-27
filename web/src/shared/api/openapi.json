@@ -1112,7 +1112,7 @@
             }
           },
           "422": {
-            "description": "Bad name or content, or nothing shipped to copy: `customization-no-standard`",
+            "description": "Bad name or content, a head key that is not allowed (`customization-head-refused`, with the keys as errors), or nothing shipped to copy: `customization-no-standard`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1341,6 +1341,7 @@
             }
           },
           "422": {
+            "description": "Bad content or a head key that is not allowed: `customization-head-refused`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4492,6 +4493,16 @@
               }
             }
           },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "content": {
               "application/json": {
@@ -4693,6 +4704,16 @@
               }
             }
           },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "content": {
               "application/json": {
@@ -4762,6 +4783,16 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent",
             "content": {
               "application/json": {
                 "schema": {
@@ -6414,6 +6445,16 @@
               }
             }
           },
+          "403": {
+            "description": "`claude-theme-needs-person`: a token or an agent tried to turn the switch on; only the person in the app may, a token may turn it off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6444,6 +6485,7 @@
         },
         "responses": {
           "200": {
+            "description": "Chosen; a token choosing a theme with a Claude part turns the Claude switch off",
             "content": {
               "application/json": {
                 "schema": {
@@ -7094,7 +7136,7 @@
           {
             "name": "confirmedSha256",
             "in": "query",
-            "description": "Checksum of the package the person confirmed, from the `confirmation` of the refusal.",
+            "description": "Checksum of the package the person confirmed, from the `confirmation` of the refusal; a token cannot confirm.",
             "required": false,
             "schema": {
               "type": "string"
@@ -7247,7 +7289,7 @@
           {
             "name": "confirmed",
             "in": "query",
-            "description": "Confirmed: the package may hold code, network domains or a Claude part.",
+            "description": "Confirmed: the package may hold code, network domains or a Claude part; only counts from the person.",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -7309,7 +7351,7 @@
             }
           },
           "409": {
-            "description": "`theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them)",
+            "description": "`theme-confirmation-required`: the package has code, network domains or a Claude part (retry with `confirmed=true` after the person confirmed them; a token cannot confirm)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7450,7 +7492,7 @@
             }
           },
           "403": {
-            "description": "`theme-code-needs-person`: a token tried to turn the code on; only a browser session may, a token may turn it off",
+            "description": "`theme-code-needs-person`: a token or an agent tried to turn the code on; only the person in the app may, a token may turn it off",
             "content": {
               "application/json": {
                 "schema": {
@@ -8223,6 +8265,16 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent",
             "content": {
               "application/json": {
                 "schema": {
@@ -9310,6 +9362,16 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`decision-needs-person`: the request says it comes from a run or session of an agent",
             "content": {
               "application/json": {
                 "schema": {

@@ -84,9 +84,13 @@
       }
     },
     {
-      "name": "install the confirmed package",
-      "cli": {
-        "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"]
+      "name": "the person installs the confirmed package",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v1.nullradix",
+        "auth": "session",
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
       }
     },
     {
@@ -235,37 +239,19 @@
       }
     },
     {
-      "name": "a token installs the same package again",
-      "cli": {
-        "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"]
+      "name": "a token cannot confirm the same package again",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v1.nullradix"
       }
     },
     {
-      "name": "the token's install turned the switch off",
+      "name": "the refused install changed nothing",
       "http": {
         "method": "GET",
         "path": "/api/v1/themes",
         "keep": ["items.0.version", "items.0.codeEnabled"]
-      }
-    },
-    {
-      "name": "the module is not served after the token's install",
-      "http": {
-        "method": "GET",
-        "path": "/api/v1/themes/night-code/files/main.js"
-      }
-    },
-    {
-      "name": "the person turns the code on again",
-      "http": {
-        "method": "PUT",
-        "path": "/api/v1/themes/night-code/code",
-        "body": {
-          "enabled": true,
-          "version": 3
-        },
-        "auth": "session",
-        "keep": ["id", "version", "hasCode", "codeEnabled"]
       }
     },
     {
@@ -307,15 +293,80 @@
       }
     },
     {
+      "name": "manifest of a plain update",
+      "file": {
+        "path": "{{WORK}}/plain-night/manifest.json",
+        "text": "{\"id\":\"night-code\",\"name\":\"Night Code\",\"version\":\"1.2.0\",\"author\":\"Ada\",\"sdkVersion\":\"^1.3\",\"colorScheme\":\"dark\",\"slots\":[],\"permissions\":{\"network\":[]}}"
+      }
+    },
+    {
+      "name": "plain stylesheet",
+      "file": {
+        "path": "{{WORK}}/plain-night/theme.css",
+        "text": "a { color: red }\n"
+      }
+    },
+    {
+      "name": "pack the plain update",
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/plain-night", "--out", "{{WORK}}/plain.nullradix"]
+      }
+    },
+    {
+      "name": "the person turns the code on again",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/themes/night-code/code",
+        "body": {
+          "enabled": true,
+          "version": 3
+        },
+        "auth": "session",
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
+      }
+    },
+    {
+      "name": "the module is served again",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
+      }
+    },
+    {
+      "name": "a token installs the plain update, which takes the code away",
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/plain.nullradix"]
+      }
+    },
+    {
+      "name": "the code and its switch are gone",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes",
+        "keep": ["items.0.version", "items.0.hasCode", "items.0.codeEnabled"]
+      }
+    },
+    {
+      "name": "the module is not served after the plain update",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes/night-code/files/main.js"
+      }
+    },
+    {
       "name": "uninstall the theme",
       "cli": {
         "args": ["theme", "remove", "night-code"]
       }
     },
     {
-      "name": "a reinstall starts with the switch off",
-      "cli": {
-        "args": ["theme", "install", "{{WORK}}/v2.nullradix", "--yes"]
+      "name": "a reinstall by the person starts with the switch off",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v2.nullradix",
+        "auth": "session",
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
       }
     },
     {

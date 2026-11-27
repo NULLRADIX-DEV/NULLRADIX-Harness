@@ -1,0 +1,142 @@
+[
+  {
+    "file": "<WORK>/review.md",
+    "lines": 0,
+    "name": "a skill head with keys that run code"
+  },
+  {
+    "cli": [
+      "customize",
+      "set",
+      "skill",
+      "review",
+      "--file",
+      "<WORK>/review.md"
+    ],
+    "exitCode": 1,
+    "name": "the cli refuses it",
+    "stderr": "error: the daemon refused the request: the head has keys that are not allowed (allowed-tools, hooks); a skill may only have name, description: content: the head key allowed-tools is not allowed; content: the head key hooks is not allowed (customization-head-refused)\n",
+    "stdout": ""
+  },
+  {
+    "name": "the api refuses it with the keys as fields",
+    "request": {
+      "body": {
+        "content": "---\nname: review\ndescription: Reviews a change\nallowed-tools: Bash\nhooks:\n  Stop: []\n---\nBody\n",
+        "name": "review",
+        "point": "skill"
+      },
+      "method": "POST",
+      "path": "/api/v1/customizations"
+    },
+    "response": {
+      "json": {
+        "code": "customization-head-refused",
+        "detail": "the head has keys that are not allowed (allowed-tools, hooks); a skill may only have name, description",
+        "errors": [
+          {
+            "field": "content",
+            "message": "the head key allowed-tools is not allowed"
+          },
+          {
+            "field": "content",
+            "message": "the head key hooks is not allowed"
+          }
+        ],
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:customization-head-refused"
+      },
+      "status": 422
+    }
+  },
+  {
+    "cli": [
+      "customize",
+      "overview"
+    ],
+    "exitCode": 0,
+    "name": "nothing is customized",
+    "stderr": "",
+    "stdout": "nothing is customized, start with `nullradix customize set`\n"
+  },
+  {
+    "file": "<WORK>/review.md",
+    "lines": 0,
+    "name": "a skill head with the allowed keys"
+  },
+  {
+    "cli": [
+      "customize",
+      "set",
+      "skill",
+      "review",
+      "--file",
+      "<WORK>/review.md"
+    ],
+    "exitCode": 0,
+    "name": "it is accepted",
+    "stderr": "",
+    "stdout": "skill review: new, active, base -\n"
+  },
+  {
+    "name": "an update that adds a key is refused",
+    "request": {
+      "body": {
+        "content": "---\nname: review\ndescription: Reviews a change\nhooks:\n  Stop: []\n---\nBody\n",
+        "version": 1
+      },
+      "method": "PATCH",
+      "path": "/api/v1/customizations/skill/review"
+    },
+    "response": {
+      "json": {
+        "code": "customization-head-refused",
+        "detail": "the head has keys that are not allowed (hooks); a skill may only have name, description",
+        "errors": [
+          {
+            "field": "content",
+            "message": "the head key hooks is not allowed"
+          }
+        ],
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:customization-head-refused"
+      },
+      "status": 422
+    }
+  },
+  {
+    "file": "<WORK>/terse.md",
+    "lines": 0,
+    "name": "the output style key of the shipped file is fine for an output style"
+  },
+  {
+    "cli": [
+      "customize",
+      "set",
+      "output-style",
+      "terse",
+      "--file",
+      "<WORK>/terse.md"
+    ],
+    "exitCode": 0,
+    "name": "it is accepted as an output style",
+    "stderr": "",
+    "stdout": "output-style terse: new, active, base -\n"
+  },
+  {
+    "cli": [
+      "customize",
+      "set",
+      "skill",
+      "terse",
+      "--file",
+      "<WORK>/terse.md"
+    ],
+    "exitCode": 1,
+    "name": "but not as a skill",
+    "stderr": "error: the daemon refused the request: the head has keys that are not allowed (keep-coding-instructions); a skill may only have name, description: content: the head key keep-coding-instructions is not allowed (customization-head-refused)\n",
+    "stdout": ""
+  }
+]

@@ -45,16 +45,23 @@
     "stdout": "packed night-code 1.0.0 (3 files) into <WORK>/v1.nullradix\n"
   },
   {
-    "cli": [
-      "theme",
-      "install",
-      "<WORK>/v1.nullradix",
-      "--yes"
-    ],
-    "exitCode": 0,
-    "name": "install the confirmed package",
-    "stderr": "",
-    "stdout": "installed night-code 1.0.0\nits code is off; turn it on in the app\n"
+    "name": "the person installs the confirmed package",
+    "request": {
+      "auth": "session",
+      "bodyFile": "<WORK>/v1.nullradix",
+      "method": "POST",
+      "path": "/api/v1/themes?confirmed=true"
+    },
+    "response": {
+      "json": {
+        "codeEnabled": false,
+        "hasCode": true,
+        "id": "night-code",
+        "version": 1
+      },
+      "location": "/api/v1/themes/night-code/files/theme.css?v=1",
+      "status": 201
+    }
   },
   {
     "name": "the proxy is closed while the code switch is off",

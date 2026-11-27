@@ -459,7 +459,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "plan",
               "profile": {
                 "effort": "high",
@@ -668,7 +668,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "plan",
               "profile": {
                 "effort": "high",
@@ -947,7 +947,7 @@
         "createdAt": "<TIME>",
         "dispatch": {
           "accountId": "<ID-10>",
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "plan",
           "profile": {
             "effort": "high",
@@ -1003,7 +1003,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "plan",
               "profile": {
                 "effort": "high",
@@ -1125,7 +1125,7 @@
     "exitCode": 0,
     "name": "switch it on",
     "stderr": "",
-    "stdout": "saved dispatcher configuration, version 2 (be69cf85d1a6fc2f)\n"
+    "stdout": "saved dispatcher configuration, version 2 (99addd3c3d25a566)\n"
   },
   {
     "cli": [
@@ -1173,7 +1173,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "plan",
               "profile": {
                 "effort": "high",
@@ -1214,7 +1214,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": "<ID-10>",
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "plan",
               "profile": {
                 "effort": "high",

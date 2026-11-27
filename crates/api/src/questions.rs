@@ -2,7 +2,7 @@ use axum::Json;
 use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::AppError;
-use nullradix_app::auth::Principal;
+use nullradix_app::auth::{Principal, decision_needs_person};
 use nullradix_app::comments::Author;
 use nullradix_app::questions::{
     Answer, DependencyState, NewQuestion, NewResearch, OpenQuestion, QuestionComment,
@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::auth::{AgentContext, refuse_agent};
 use crate::comments::ActorKindDto;
 use crate::tickets::TicketStatusDto;
 use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
@@ -626,6 +627,7 @@ pub(crate) async fn submit_research(
     responses(
         (status = 200, body = QuestionDetailDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent", body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "The question changed since it was read", body = Problem),
         (status = 422, description = "Not open, no person, or no single choice", body = Problem),
@@ -634,9 +636,11 @@ pub(crate) async fn submit_research(
 pub(crate) async fn answer_question(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<QuestionPath>,
     ApiJson(input): ApiJson<AnswerQuestion>,
 ) -> Result<Json<QuestionDetailDto>, ApiError> {
+    refuse_agent(context, || decision_needs_person("answering a question"))?;
     let answer = Answer {
         option: input.option,
         text: input.text,
@@ -669,6 +673,7 @@ pub(crate) async fn answer_question(
     responses(
         (status = 200, body = QuestionDetailDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent", body = Problem),
         (status = 404, body = Problem),
         (status = 409, body = Problem),
         (status = 422, description = "Not open, no person, or no reason", body = Problem),
@@ -677,9 +682,11 @@ pub(crate) async fn answer_question(
 pub(crate) async fn discard_question(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<QuestionPath>,
     ApiJson(input): ApiJson<DecideQuestion>,
 ) -> Result<Json<QuestionDetailDto>, ApiError> {
+    refuse_agent(context, || decision_needs_person("discarding a question"))?;
     let author = author(
         &principal,
         input.author.as_deref(),
@@ -707,6 +714,7 @@ pub(crate) async fn discard_question(
     responses(
         (status = 200, body = QuestionDetailDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent", body = Problem),
         (status = 404, body = Problem),
         (status = 409, body = Problem),
         (status = 422, description = "Open already, or no person", body = Problem),
@@ -715,9 +723,11 @@ pub(crate) async fn discard_question(
 pub(crate) async fn reopen_question(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<QuestionPath>,
     ApiJson(input): ApiJson<DecideQuestion>,
 ) -> Result<Json<QuestionDetailDto>, ApiError> {
+    refuse_agent(context, || decision_needs_person("reopening a question"))?;
     let author = author(
         &principal,
         input.author.as_deref(),
@@ -795,10 +805,12 @@ pub(crate) async fn add_question_comment(
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
-    use axum::http::Request;
+    use axum::http::{Request, StatusCode};
     use serde_json::{Value, json};
 
-    use crate::tests::{TestApi, bearer, send, test_api};
+    use crate::tests::{
+        TestApi, as_person, bearer, in_run, in_session, open_session, send, test_api,
+    };
 
     async fn call(api: &TestApi, method: &str, path: &str, body: Option<Value>) -> (u16, Value) {
         let request = bearer(Request::builder().method(method).uri(path), &api.token)
@@ -900,6 +912,83 @@ mod tests {
             list["counts"],
             json!({ "open": 0, "answered": 1, "discarded": 0 })
         );
+    }
+
+    #[tokio::test]
+    async fn deciding_stays_with_the_person_and_not_with_a_run_or_session_of_an_agent() {
+        let (api, questions) = with_ticket().await;
+        let asked = json!({
+            "title": "Which store?",
+            "options": [{ "title": "File", "text": "A file" }, { "title": "Db", "text": "SQLite" }],
+        });
+        assert_eq!(call(&api, "POST", &questions, Some(asked)).await.0, 201);
+        let cookie = open_session(&api).await;
+        let state = || async { call(&api, "GET", "/api/v1/questions/ARC-Q1", None).await.1 };
+
+        // each decision refuses a token and a session that name an agent, and changes nothing
+        let decisions = [
+            (
+                "answer",
+                json!({ "option": "O1", "reason": "fits" }),
+                "open",
+            ),
+            ("discard", json!({ "reason": "not needed" }), "open"),
+        ];
+        for (action, body, expected) in &decisions {
+            let path = format!("/api/v1/questions/ARC-Q1/{action}");
+            for mark in [in_run, in_session] {
+                for as_session in [false, true] {
+                    let builder = if as_session {
+                        as_person(Request::post(path.as_str()), &cookie)
+                    } else {
+                        bearer(Request::post(path.as_str()), &api.token)
+                    };
+                    let request = mark(builder)
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap();
+                    let (status, _, problem) = send(&api.router, request).await;
+                    assert_eq!(status, StatusCode::FORBIDDEN, "{action} {problem}");
+                    assert_eq!(problem["code"], "decision-needs-person", "{action}");
+                }
+            }
+            assert_eq!(state().await["question"]["state"], *expected, "{action}");
+        }
+
+        // the person in the app decides; then reopening is refused the same way
+        let post_as_person = |action: &'static str, body: Value| {
+            let request = as_person(
+                Request::post(format!("/api/v1/questions/ARC-Q1/{action}")),
+                &cookie,
+            )
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+            send(&api.router, request)
+        };
+        let (status, _, answered) = post_as_person("answer", decisions[0].1.clone()).await;
+        assert_eq!(status, StatusCode::OK, "{answered}");
+        assert_eq!(answered["question"]["state"], "answered");
+        for mark in [in_run, in_session] {
+            let request = mark(bearer(
+                Request::post("/api/v1/questions/ARC-Q1/reopen"),
+                &api.token,
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(json!({ "reason": "again" }).to_string()))
+            .unwrap();
+            let (status, _, problem) = send(&api.router, request).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+            assert_eq!(problem["code"], "decision-needs-person");
+        }
+        assert_eq!(state().await["question"]["state"], "answered");
+        let (status, _, reopened) = post_as_person("reopen", json!({ "reason": "again" })).await;
+        assert_eq!(status, StatusCode::OK, "{reopened}");
+        assert_eq!(reopened["question"]["state"], "open");
+        let (status, _, discarded) =
+            post_as_person("discard", json!({ "reason": "not needed" })).await;
+        assert_eq!(status, StatusCode::OK, "{discarded}");
+        assert_eq!(discarded["question"]["state"], "discarded");
     }
 
     #[tokio::test]

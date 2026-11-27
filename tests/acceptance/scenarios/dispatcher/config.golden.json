@@ -8,7 +8,7 @@
     "exitCode": 0,
     "name": "show the default in the CLI",
     "stderr": "",
-    "stdout": "dispatcher off, version 1 (be69cf85d1a6fc2f)\nwindow always, wip 1, attempts 2\nlabels in auto out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default medium):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts any\n  large      opus     max     150 turns  120 min  accounts any\nladder small > medium > large\nrules: 4\n  1. labels docs|typo|small -> small\n  2. labels architecture|refactoring -> large\n  3. priority urgent -> large\n  4. files >= 6 -> large\n"
+    "stdout": "dispatcher off, version 1 (99addd3c3d25a566)\nwindow always, wip 1, attempts 2\nlabels in auto out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default medium):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts any\n  large      opus     max     150 turns  120 min  accounts any\nladder small > medium > large\nrules: 4\n  1. labels docs|typo|small -> small\n  2. labels architecture|refactoring -> large\n  3. priority urgent -> large\n  4. files >= 6 -> large\n"
   },
   {
     "name": "read the default over HTTP",
@@ -38,9 +38,22 @@
               "Write",
               "Glob",
               "Grep",
-              "Bash(harness:*)",
-              "Bash(nullradix:*)",
-              "Bash(node:*)",
+              "Bash(nullradix ticket show:*)",
+              "Bash(nullradix ticket list:*)",
+              "Bash(nullradix ticket comment:*)",
+              "Bash(nullradix ticket set:*)",
+              "Bash(nullradix ticket done:*)",
+              "Bash(nullradix step check:*)",
+              "Bash(nullradix step add:*)",
+              "Bash(nullradix step edit:*)",
+              "Bash(nullradix note add:*)",
+              "Bash(nullradix note list:*)",
+              "Bash(nullradix note seen:*)",
+              "Bash(nullradix note show:*)",
+              "Bash(nullradix question add:*)",
+              "Bash(nullradix question show:*)",
+              "Bash(nullradix question list:*)",
+              "Bash(nullradix question comment:*)",
               "Bash(npm test:*)",
               "Bash(npm run:*)",
               "Bash(git status:*)",
@@ -184,7 +197,7 @@
           "worktreeSetup": [],
           "worktreeSetupTimeoutMinutes": 15
         },
-        "hash": "be69cf85d1a6fc2f",
+        "hash": "99addd3c3d25a566",
         "updatedAt": "<TIME>",
         "version": 1
       },
@@ -201,7 +214,7 @@
     "exitCode": 0,
     "name": "show the default as JSON",
     "stderr": "",
-    "stdout": "{\n  \"enabled\": false,\n  \"wip\": 1,\n  \"window\": null,\n  \"optInLabel\": \"auto\",\n  \"optOutLabel\": \"manual\",\n  \"agentPrefix\": \"worker-\",\n  \"staleMinutes\": 150,\n  \"maxAttempts\": 2,\n  \"pauseMinutesOnLimit\": 60,\n  \"promptExtra\": \"\",\n  \"prompts\": {\n    \"work\": null,\n    \"plan\": null,\n    \"research\": null,\n    \"merge\": null\n  },\n  \"mergeStrategy\": \"merge\",\n  \"reviewBeforeMerge\": true,\n  \"joinWorktrees\": \"none\",\n  \"worktreeSetup\": [],\n  \"worktreeSetupTimeoutMinutes\": 15,\n  \"claude\": {\n    \"command\": \"claude\",\n    \"model\": \"sonnet\",\n    \"effort\": null,\n    \"maxTurns\": 80,\n    \"timeoutMinutes\": 60,\n    \"permissionMode\": \"acceptEdits\",\n    \"allowedTools\": [\n      \"Read\",\n      \"Edit\",\n      \"Write\",\n      \"Glob\",\n      \"Grep\",\n      \"Bash(harness:*)\",\n      \"Bash(nullradix:*)\",\n      \"Bash(node:*)\",\n      \"Bash(npm test:*)\",\n      \"Bash(npm run:*)\",\n      \"Bash(git status:*)\",\n      \"Bash(git diff:*)\",\n      \"Bash(git log:*)\",\n      \"Bash(git branch:*)\",\n      \"Bash(git add:*)\",\n      \"Bash(git commit:*)\"\n    ],\n    \"useSubscription\": true,\n    \"extraArgs\": [],\n    \"gitBashPath\": null\n  },\n  \"profiles\": [\n    {\n      \"id\": \"<ID-1>\",\n      \"name\": \"small\",\n      \"model\": \"sonnet\",\n      \"effort\": \"high\",\n      \"maxTurns\": 40,\n      \"timeoutMinutes\": 45,\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-2>\",\n      \"name\": \"medium\",\n      \"model\": \"opus\",\n      \"effort\": \"high\",\n      \"maxTurns\": 80,\n      \"timeoutMinutes\": 90,\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-3>\",\n      \"name\": \"large\",\n      \"model\": \"opus\",\n      \"effort\": \"max\",\n      \"maxTurns\": 150,\n      \"timeoutMinutes\": 120,\n      \"accounts\": []\n    }\n  ],\n  \"defaultProfile\": \"medium\",\n  \"rules\": [\n    {\n      \"id\": \"<ID-4>\",\n      \"when\": {\n        \"labels\": [\n          \"docs\",\n          \"typo\",\n          \"small\"\n        ],\n        \"priorities\": null,\n        \"filesMin\": null,\n        \"planMinChars\": null\n      },\n      \"profile\": \"small\",\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-5>\",\n      \"when\": {\n        \"labels\": [\n          \"architecture\",\n          \"refactoring\"\n        ],\n        \"priorities\": null,\n        \"filesMin\": null,\n        \"planMinChars\": null\n      },\n      \"profile\": \"large\",\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-6>\",\n      \"when\": {\n        \"labels\": null,\n        \"priorities\": [\n          \"urgent\"\n        ],\n        \"filesMin\": null,\n        \"planMinChars\": null\n      },\n      \"profile\": \"large\",\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-7>\",\n      \"when\": {\n        \"labels\": null,\n        \"priorities\": null,\n        \"filesMin\": 6,\n        \"planMinChars\": null\n      },\n      \"profile\": \"large\",\n      \"accounts\": []\n    }\n  ],\n  \"escalate\": true,\n  \"ladder\": [\n    \"small\",\n    \"medium\",\n    \"large\"\n  ],\n  \"allowFable\": false,\n  \"research\": {\n    \"auto\": false,\n    \"wip\": 1,\n    \"maxPerDay\": 10,\n    \"profile\": null\n  },\n  \"planning\": {\n    \"auto\": false,\n    \"wip\": 1,\n    \"acceptance\": true,\n    \"profile\": null\n  },\n  \"autopilot\": {\n    \"enabled\": false,\n    \"exceptLabel\": \"interactive\",\n    \"maxMergeSessions\": 3\n  },\n  \"accountStrategy\": \"most-free\",\n  \"accountLimitPercent\": 90,\n  \"accountReserveFiveHour\": 10,\n  \"accountReserveWeek\": 2,\n  \"accountResetGraceMinutes\": 30\n}\n"
+    "stdout": "{\n  \"enabled\": false,\n  \"wip\": 1,\n  \"window\": null,\n  \"optInLabel\": \"auto\",\n  \"optOutLabel\": \"manual\",\n  \"agentPrefix\": \"worker-\",\n  \"staleMinutes\": 150,\n  \"maxAttempts\": 2,\n  \"pauseMinutesOnLimit\": 60,\n  \"promptExtra\": \"\",\n  \"prompts\": {\n    \"work\": null,\n    \"plan\": null,\n    \"research\": null,\n    \"merge\": null\n  },\n  \"mergeStrategy\": \"merge\",\n  \"reviewBeforeMerge\": true,\n  \"joinWorktrees\": \"none\",\n  \"worktreeSetup\": [],\n  \"worktreeSetupTimeoutMinutes\": 15,\n  \"claude\": {\n    \"command\": \"claude\",\n    \"model\": \"sonnet\",\n    \"effort\": null,\n    \"maxTurns\": 80,\n    \"timeoutMinutes\": 60,\n    \"permissionMode\": \"acceptEdits\",\n    \"allowedTools\": [\n      \"Read\",\n      \"Edit\",\n      \"Write\",\n      \"Glob\",\n      \"Grep\",\n      \"Bash(nullradix ticket show:*)\",\n      \"Bash(nullradix ticket list:*)\",\n      \"Bash(nullradix ticket comment:*)\",\n      \"Bash(nullradix ticket set:*)\",\n      \"Bash(nullradix ticket done:*)\",\n      \"Bash(nullradix step check:*)\",\n      \"Bash(nullradix step add:*)\",\n      \"Bash(nullradix step edit:*)\",\n      \"Bash(nullradix note add:*)\",\n      \"Bash(nullradix note list:*)\",\n      \"Bash(nullradix note seen:*)\",\n      \"Bash(nullradix note show:*)\",\n      \"Bash(nullradix question add:*)\",\n      \"Bash(nullradix question show:*)\",\n      \"Bash(nullradix question list:*)\",\n      \"Bash(nullradix question comment:*)\",\n      \"Bash(npm test:*)\",\n      \"Bash(npm run:*)\",\n      \"Bash(git status:*)\",\n      \"Bash(git diff:*)\",\n      \"Bash(git log:*)\",\n      \"Bash(git branch:*)\",\n      \"Bash(git add:*)\",\n      \"Bash(git commit:*)\"\n    ],\n    \"useSubscription\": true,\n    \"extraArgs\": [],\n    \"gitBashPath\": null\n  },\n  \"profiles\": [\n    {\n      \"id\": \"<ID-1>\",\n      \"name\": \"small\",\n      \"model\": \"sonnet\",\n      \"effort\": \"high\",\n      \"maxTurns\": 40,\n      \"timeoutMinutes\": 45,\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-2>\",\n      \"name\": \"medium\",\n      \"model\": \"opus\",\n      \"effort\": \"high\",\n      \"maxTurns\": 80,\n      \"timeoutMinutes\": 90,\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-3>\",\n      \"name\": \"large\",\n      \"model\": \"opus\",\n      \"effort\": \"max\",\n      \"maxTurns\": 150,\n      \"timeoutMinutes\": 120,\n      \"accounts\": []\n    }\n  ],\n  \"defaultProfile\": \"medium\",\n  \"rules\": [\n    {\n      \"id\": \"<ID-4>\",\n      \"when\": {\n        \"labels\": [\n          \"docs\",\n          \"typo\",\n          \"small\"\n        ],\n        \"priorities\": null,\n        \"filesMin\": null,\n        \"planMinChars\": null\n      },\n      \"profile\": \"small\",\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-5>\",\n      \"when\": {\n        \"labels\": [\n          \"architecture\",\n          \"refactoring\"\n        ],\n        \"priorities\": null,\n        \"filesMin\": null,\n        \"planMinChars\": null\n      },\n      \"profile\": \"large\",\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-6>\",\n      \"when\": {\n        \"labels\": null,\n        \"priorities\": [\n          \"urgent\"\n        ],\n        \"filesMin\": null,\n        \"planMinChars\": null\n      },\n      \"profile\": \"large\",\n      \"accounts\": []\n    },\n    {\n      \"id\": \"<ID-7>\",\n      \"when\": {\n        \"labels\": null,\n        \"priorities\": null,\n        \"filesMin\": 6,\n        \"planMinChars\": null\n      },\n      \"profile\": \"large\",\n      \"accounts\": []\n    }\n  ],\n  \"escalate\": true,\n  \"ladder\": [\n    \"small\",\n    \"medium\",\n    \"large\"\n  ],\n  \"allowFable\": false,\n  \"research\": {\n    \"auto\": false,\n    \"wip\": 1,\n    \"maxPerDay\": 10,\n    \"profile\": null\n  },\n  \"planning\": {\n    \"auto\": false,\n    \"wip\": 1,\n    \"acceptance\": true,\n    \"profile\": null\n  },\n  \"autopilot\": {\n    \"enabled\": false,\n    \"exceptLabel\": \"interactive\",\n    \"maxMergeSessions\": 3\n  },\n  \"accountStrategy\": \"most-free\",\n  \"accountLimitPercent\": 90,\n  \"accountReserveFiveHour\": 10,\n  \"accountReserveWeek\": 2,\n  \"accountResetGraceMinutes\": 30\n}\n"
   },
   {
     "cli": [
@@ -229,7 +242,7 @@
     "exitCode": 0,
     "name": "switch on with two tickets at once",
     "stderr": "",
-    "stdout": "saved dispatcher configuration, version 2 (be69cf85d1a6fc2f)\n"
+    "stdout": "saved dispatcher configuration, version 2 (99addd3c3d25a566)\n"
   },
   {
     "file": "<WORK>/custom.json",
@@ -247,7 +260,7 @@
     "exitCode": 0,
     "name": "save the custom configuration",
     "stderr": "",
-    "stdout": "saved dispatcher configuration, version 3 (17df489bca9e3e18)\n"
+    "stdout": "saved dispatcher configuration, version 3 (2fbaf59e38f60a42)\n"
   },
   {
     "name": "read the saved configuration",
@@ -277,9 +290,22 @@
               "Write",
               "Glob",
               "Grep",
-              "Bash(harness:*)",
-              "Bash(nullradix:*)",
-              "Bash(node:*)",
+              "Bash(nullradix ticket show:*)",
+              "Bash(nullradix ticket list:*)",
+              "Bash(nullradix ticket comment:*)",
+              "Bash(nullradix ticket set:*)",
+              "Bash(nullradix ticket done:*)",
+              "Bash(nullradix step check:*)",
+              "Bash(nullradix step add:*)",
+              "Bash(nullradix step edit:*)",
+              "Bash(nullradix note add:*)",
+              "Bash(nullradix note list:*)",
+              "Bash(nullradix note seen:*)",
+              "Bash(nullradix note show:*)",
+              "Bash(nullradix question add:*)",
+              "Bash(nullradix question show:*)",
+              "Bash(nullradix question list:*)",
+              "Bash(nullradix question comment:*)",
               "Bash(npm test:*)",
               "Bash(npm run:*)",
               "Bash(git status:*)",
@@ -376,7 +402,7 @@
           "worktreeSetup": [],
           "worktreeSetupTimeoutMinutes": 15
         },
-        "hash": "17df489bca9e3e18",
+        "hash": "2fbaf59e38f60a42",
         "updatedAt": "<TIME>",
         "version": 3
       },
@@ -392,7 +418,7 @@
     "exitCode": 0,
     "name": "show the saved configuration",
     "stderr": "",
-    "stdout": "dispatcher on, version 3 (17df489bca9e3e18)\nwindow 08:00-18:00, wip 2, attempts 3\nlabels in - out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default small):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts any\nladder small > medium\nrules: 1\n  1. labels architecture -> medium\n"
+    "stdout": "dispatcher on, version 3 (2fbaf59e38f60a42)\nwindow 08:00-18:00, wip 2, attempts 3\nlabels in - out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default small):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts any\nladder small > medium\nrules: 1\n  1. labels architecture -> medium\n"
   },
   {
     "cli": [
@@ -523,7 +549,7 @@
     "exitCode": 0,
     "name": "show after the refusals",
     "stderr": "",
-    "stdout": "dispatcher on, version 3 (17df489bca9e3e18)\nwindow 08:00-18:00, wip 2, attempts 3\nlabels in - out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default small):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts any\nladder small > medium\nrules: 1\n  1. labels architecture -> medium\n"
+    "stdout": "dispatcher on, version 3 (2fbaf59e38f60a42)\nwindow 08:00-18:00, wip 2, attempts 3\nlabels in - out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default small):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts any\nladder small > medium\nrules: 1\n  1. labels architecture -> medium\n"
   },
   {
     "cli": [
@@ -604,7 +630,7 @@
     "exitCode": 0,
     "name": "allow the account",
     "stderr": "",
-    "stdout": "saved dispatcher configuration, version 4 (aafb1e3fae3bba6a)\n"
+    "stdout": "saved dispatcher configuration, version 4 (39816b52d5cfe636)\n"
   },
   {
     "cli": [
@@ -615,7 +641,7 @@
     "exitCode": 0,
     "name": "show the accounts of the profiles",
     "stderr": "",
-    "stdout": "dispatcher on, version 4 (aafb1e3fae3bba6a)\nwindow 08:00-18:00, wip 2, attempts 3\nlabels in - out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default small):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts max,default\nladder small > medium\nrules: 1\n  1. priority urgent -> medium\n"
+    "stdout": "dispatcher on, version 4 (39816b52d5cfe636)\nwindow 08:00-18:00, wip 2, attempts 3\nlabels in - out manual, pause 60 min on limit\nmerge merge, review before merge true\nprofiles (default small):\n  small      sonnet   high     40 turns   45 min  accounts any\n  medium     opus     high     80 turns   90 min  accounts max,default\nladder small > medium\nrules: 1\n  1. priority urgent -> medium\n"
   },
   {
     "name": "read the final configuration",
@@ -645,9 +671,22 @@
               "Write",
               "Glob",
               "Grep",
-              "Bash(harness:*)",
-              "Bash(nullradix:*)",
-              "Bash(node:*)",
+              "Bash(nullradix ticket show:*)",
+              "Bash(nullradix ticket list:*)",
+              "Bash(nullradix ticket comment:*)",
+              "Bash(nullradix ticket set:*)",
+              "Bash(nullradix ticket done:*)",
+              "Bash(nullradix step check:*)",
+              "Bash(nullradix step add:*)",
+              "Bash(nullradix step edit:*)",
+              "Bash(nullradix note add:*)",
+              "Bash(nullradix note list:*)",
+              "Bash(nullradix note seen:*)",
+              "Bash(nullradix note show:*)",
+              "Bash(nullradix question add:*)",
+              "Bash(nullradix question show:*)",
+              "Bash(nullradix question list:*)",
+              "Bash(nullradix question comment:*)",
               "Bash(npm test:*)",
               "Bash(npm run:*)",
               "Bash(git status:*)",
@@ -749,7 +788,7 @@
           "worktreeSetup": [],
           "worktreeSetupTimeoutMinutes": 15
         },
-        "hash": "aafb1e3fae3bba6a",
+        "hash": "39816b52d5cfe636",
         "updatedAt": "<TIME>",
         "version": 4
       },

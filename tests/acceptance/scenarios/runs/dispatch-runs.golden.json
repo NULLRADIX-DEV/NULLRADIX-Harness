@@ -219,7 +219,7 @@
         "createdAt": "<TIME>",
         "dispatch": {
           "accountId": null,
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "work",
           "profile": {
             "effort": "high",
@@ -273,15 +273,44 @@
           "high",
           "--permission-mode",
           "acceptEdits",
+          "--disallowedTools",
+          "Bash(nullradix run:*)",
+          "Bash(nullradix theme:*)",
+          "Bash(nullradix customize:*)",
+          "Bash(nullradix install:*)",
+          "Bash(nullradix dispatcher:*)",
+          "Bash(nullradix account:*)",
+          "Bash(nullradix open:*)",
+          "Bash(nullradix ticket accept:*)",
+          "Bash(nullradix ticket return:*)",
+          "Bash(nullradix ticket merge:*)",
+          "Bash(nullradix question answer:*)",
+          "Bash(nullradix question discard:*)",
+          "Bash(nullradix question reopen:*)",
+          "Bash(nullradix review:*)",
+          "Bash(nullradix research start:*)",
           "--allowedTools",
           "Read",
           "Edit",
           "Write",
           "Glob",
           "Grep",
-          "Bash(harness:*)",
-          "Bash(nullradix:*)",
-          "Bash(node:*)",
+          "Bash(nullradix ticket show:*)",
+          "Bash(nullradix ticket list:*)",
+          "Bash(nullradix ticket comment:*)",
+          "Bash(nullradix ticket set:*)",
+          "Bash(nullradix ticket done:*)",
+          "Bash(nullradix step check:*)",
+          "Bash(nullradix step add:*)",
+          "Bash(nullradix step edit:*)",
+          "Bash(nullradix note add:*)",
+          "Bash(nullradix note list:*)",
+          "Bash(nullradix note seen:*)",
+          "Bash(nullradix note show:*)",
+          "Bash(nullradix question add:*)",
+          "Bash(nullradix question show:*)",
+          "Bash(nullradix question list:*)",
+          "Bash(nullradix question comment:*)",
           "Bash(npm test:*)",
           "Bash(npm run:*)",
           "Bash(git status:*)",
@@ -296,7 +325,7 @@
         "deniedTools": [],
         "dispatch": {
           "accountId": null,
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "work",
           "profile": {
             "effort": "high",
@@ -374,7 +403,7 @@
         "createdAt": "<TIME>",
         "dispatch": {
           "accountId": null,
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "merge",
           "profile": {
             "effort": "max",
@@ -428,15 +457,44 @@
           "max",
           "--permission-mode",
           "acceptEdits",
+          "--disallowedTools",
+          "Bash(nullradix run:*)",
+          "Bash(nullradix theme:*)",
+          "Bash(nullradix customize:*)",
+          "Bash(nullradix install:*)",
+          "Bash(nullradix dispatcher:*)",
+          "Bash(nullradix account:*)",
+          "Bash(nullradix open:*)",
+          "Bash(nullradix ticket accept:*)",
+          "Bash(nullradix ticket return:*)",
+          "Bash(nullradix ticket merge:*)",
+          "Bash(nullradix question answer:*)",
+          "Bash(nullradix question discard:*)",
+          "Bash(nullradix question reopen:*)",
+          "Bash(nullradix review:*)",
+          "Bash(nullradix research start:*)",
           "--allowedTools",
           "Read",
           "Edit",
           "Write",
           "Glob",
           "Grep",
-          "Bash(harness:*)",
-          "Bash(nullradix:*)",
-          "Bash(node:*)",
+          "Bash(nullradix ticket show:*)",
+          "Bash(nullradix ticket list:*)",
+          "Bash(nullradix ticket comment:*)",
+          "Bash(nullradix ticket set:*)",
+          "Bash(nullradix ticket done:*)",
+          "Bash(nullradix step check:*)",
+          "Bash(nullradix step add:*)",
+          "Bash(nullradix step edit:*)",
+          "Bash(nullradix note add:*)",
+          "Bash(nullradix note list:*)",
+          "Bash(nullradix note seen:*)",
+          "Bash(nullradix note show:*)",
+          "Bash(nullradix question add:*)",
+          "Bash(nullradix question show:*)",
+          "Bash(nullradix question list:*)",
+          "Bash(nullradix question comment:*)",
           "Bash(npm test:*)",
           "Bash(npm run:*)",
           "Bash(git status:*)",
@@ -453,7 +511,7 @@
         "deniedTools": [],
         "dispatch": {
           "accountId": null,
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "merge",
           "profile": {
             "effort": "max",
@@ -516,7 +574,7 @@
         "createdAt": "<TIME>",
         "dispatch": {
           "accountId": null,
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "research",
           "profile": {
             "effort": "high",
@@ -612,7 +670,7 @@
         "deniedTools": [],
         "dispatch": {
           "accountId": null,
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "research",
           "profile": {
             "effort": "high",
@@ -693,7 +751,7 @@
         "createdAt": "<TIME>",
         "dispatch": {
           "accountId": null,
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "plan",
           "profile": {
             "effort": "high",
@@ -816,7 +874,7 @@
         ],
         "dispatch": {
           "accountId": null,
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "plan",
           "profile": {
             "effort": "high",
@@ -893,7 +951,7 @@
         "createdAt": "<TIME>",
         "dispatch": {
           "accountId": null,
-          "configHash": "be69cf85d1a6fc2f",
+          "configHash": "99addd3c3d25a566",
           "kind": "work",
           "profile": {
             "effort": "high",
@@ -960,7 +1018,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": null,
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "merge",
               "profile": {
                 "effort": "max",
@@ -1005,7 +1063,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": null,
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "work",
               "profile": {
                 "effort": "high",
@@ -1078,7 +1136,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": null,
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "merge",
               "profile": {
                 "effort": "max",
@@ -1123,7 +1181,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": null,
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "work",
               "profile": {
                 "effort": "high",
@@ -1196,7 +1254,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": null,
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "plan",
               "profile": {
                 "effort": "high",
@@ -1269,7 +1327,7 @@
             "createdAt": "<TIME>",
             "dispatch": {
               "accountId": null,
-              "configHash": "be69cf85d1a6fc2f",
+              "configHash": "99addd3c3d25a566",
               "kind": "research",
               "profile": {
                 "effort": "high",

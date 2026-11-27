@@ -23,18 +23,15 @@ pub(crate) enum ThemeCommand {
     },
     /// Install a `.nullradix` package, or replace the installed theme with the same id
     Install {
-        /// The package file
+        /// The package file; code, network domains or a Claude part are confirmed in the app
         file: PathBuf,
-        /// Confirm that the package may hold code, network domains or a Claude part
-        #[arg(long)]
-        yes: bool,
     },
     /// Choose the theme the web UI shows
     Use {
         /// A built-in theme (nullradix, system, light, dark) or an installed id
         id: String,
     },
-    /// Show or switch the Claude part of the chosen theme in the Claude folders
+    /// Show the Claude part of the chosen theme in the Claude folders, or take it out
     Claude {
         #[command(subcommand)]
         action: Option<ClaudeAction>,
@@ -64,9 +61,9 @@ pub(crate) enum ThemeCommand {
 
 #[derive(Subcommand)]
 pub(crate) enum ClaudeAction {
-    /// Put the Claude part of the chosen theme into every Claude folder
+    /// Not here: only the person turns the Claude part on, in the app
     On,
-    /// Take it out again
+    /// Take the Claude part out of every Claude folder
     Off,
 }
 
@@ -146,49 +143,13 @@ pub(crate) fn note_code_is_off(theme: &ThemeDto) {
     }
 }
 
-/// A refusal of an uploaded package shows the facts and how to confirm.
-pub(crate) fn ask_for_yes(error: ClientError) -> anyhow::Error {
+/// A refused package shows its facts; a token cannot confirm, the person does that in the app.
+pub(crate) fn confirm_in_app(error: ClientError) -> anyhow::Error {
     match error {
         ClientError::ConfirmationRequired { detail, facts } => anyhow::anyhow!(
-            "{}\nrun it again with --yes to confirm",
+            "{}\nconfirm it in the app: only the person can allow code, a Claude part or network domains",
             facts_text(&detail, &facts)
         ),
-        other => other.into(),
-    }
-}
-
-/// The catalog install a refusal came from, to print the command that repeats it.
-pub(crate) struct CatalogInstall<'a> {
-    pub(crate) theme: &'a str,
-    pub(crate) source: &'a str,
-    pub(crate) replace: bool,
-}
-
-impl CatalogInstall<'_> {
-    fn command(&self, sha: &str) -> String {
-        format!(
-            "nullradix theme catalog install {} --source {}{} --confirm {sha}",
-            plain(self.theme),
-            plain(self.source),
-            if self.replace { " --replace" } else { "" },
-        )
-    }
-}
-
-/// A refusal of a catalog package names the checksum and the command to repeat.
-pub(crate) fn ask_for_checksum(error: ClientError, install: &CatalogInstall<'_>) -> anyhow::Error {
-    match error {
-        ClientError::ConfirmationRequired { detail, facts } => {
-            let text = facts_text(&detail, &facts);
-            match facts.sha256.as_deref() {
-                Some(sha) => anyhow::anyhow!(
-                    "{text}\n  checksum: {sha}\nto install exactly this package run: {command}",
-                    sha = plain(sha),
-                    command = install.command(&plain(sha)),
-                ),
-                None => anyhow::anyhow!("{text}\nthe daemon named no checksum to confirm"),
-            }
-        }
         other => other.into(),
     }
 }
@@ -196,7 +157,7 @@ pub(crate) fn ask_for_checksum(error: ClientError, install: &CatalogInstall<'_>)
 pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<ExitCode> {
     match command {
         ThemeCommand::List { json } => list(client, json)?,
-        ThemeCommand::Install { file, yes } => {
+        ThemeCommand::Install { file } => {
             let size = std::fs::metadata(&file)
                 .with_context(|| format!("cannot read {}", file.display()))?
                 .len();
@@ -208,7 +169,7 @@ pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<Exit
             }
             let bytes =
                 std::fs::read(&file).with_context(|| format!("cannot read {}", file.display()))?;
-            let theme = client.install_theme(&bytes, yes).map_err(ask_for_yes)?;
+            let theme = client.install_theme(&bytes).map_err(confirm_in_app)?;
             println!("installed {} {}", theme.id, theme.package_version);
             note_code_is_off(&theme);
         }
@@ -234,7 +195,9 @@ pub(crate) fn run(command: ThemeCommand, client: &Client) -> anyhow::Result<Exit
 
 fn claude(client: &Client, action: Option<&ClaudeAction>) -> anyhow::Result<()> {
     let status = match action {
-        Some(&ClaudeAction::On) => client.set_claude_theme(true)?,
+        Some(&ClaudeAction::On) => bail!(
+            "turn the Claude part on in the app: it runs code in every Claude session, so only the person can allow it"
+        ),
         Some(&ClaudeAction::Off) => client.set_claude_theme(false)?,
         None => client.claude_theme()?,
     };
@@ -614,57 +577,32 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_upload_shows_the_facts_and_asks_for_yes() {
-        let text = ask_for_yes(refused(false, None)).to_string();
+    fn a_refused_upload_shows_the_facts_and_sends_the_person_to_the_app() {
+        let text = confirm_in_app(refused(false, None)).to_string();
         let lines = [
             "night-blue contains code and network domains a.example.com",
             "  theme: Night Blue (night-blue) 1.0.0, new install",
             "  code: yes",
             "  claude part: no",
             "  network domains: a.example.com",
-            "run it again with --yes to confirm",
+            "confirm it in the app: only the person can allow code, a Claude part or network domains",
         ];
         assert_eq!(text, lines.join("\n"));
-        let update = ask_for_yes(refused(true, None)).to_string();
+        assert!(
+            !text.contains("--yes") && !text.contains("--confirm"),
+            "{text}"
+        );
+        let update = confirm_in_app(refused(true, None)).to_string();
         assert!(update.contains("1.0.0, update"), "{update}");
         assert!(
             update.contains("new in this update: network domains a.example.com"),
             "{update}"
         );
-        let other = ask_for_yes(ClientError::Refused {
+        let other = confirm_in_app(ClientError::Refused {
             status: 409,
             code: String::from("version-conflict"),
             detail: String::from("changed"),
         });
         assert!(other.to_string().contains("version-conflict"));
-    }
-
-    #[test]
-    fn a_refused_catalog_package_names_the_checksum_to_confirm() {
-        let install = CatalogInstall {
-            theme: "night-blue",
-            source: "src-1",
-            replace: false,
-        };
-        let text = ask_for_checksum(refused(false, Some("ab12")), &install).to_string();
-        assert!(text.contains("  checksum: ab12\n"), "{text}");
-        assert!(
-            text.ends_with(
-                "run: nullradix theme catalog install night-blue --source src-1 --confirm ab12"
-            ),
-            "{text}"
-        );
-        assert!(!text.contains("--yes"), "{text}");
-        let replacing = CatalogInstall {
-            replace: true,
-            ..install
-        };
-        let text = ask_for_checksum(refused(true, Some("ab12")), &replacing).to_string();
-        assert!(
-            text.ends_with("--source src-1 --replace --confirm ab12"),
-            "{text}"
-        );
-        let none = ask_for_checksum(refused(false, None), &install).to_string();
-        assert!(none.contains("no checksum"), "{none}");
     }
 }

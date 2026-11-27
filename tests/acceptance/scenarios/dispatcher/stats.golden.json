@@ -243,7 +243,7 @@
     "exitCode": 0,
     "name": "allow three attempts",
     "stderr": "",
-    "stdout": "saved dispatcher configuration, version 2 (fb1afefc20d8a472)\n"
+    "stdout": "saved dispatcher configuration, version 2 (b0c2ab5e3fb4c2da)\n"
   },
   {
     "cli": [

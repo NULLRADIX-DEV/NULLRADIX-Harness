@@ -74,6 +74,55 @@ pub(crate) fn require_token(principal: &Principal, action: &str) -> Result<(), A
     }
 }
 
+/// Header the CLI sends inside a dispatcher run, from `NULLRADIX_RUN`.
+pub const RUN_HEADER: &str = "x-nullradix-run";
+/// Header the CLI sends inside a Claude session, from `NULLRADIX_SESSION`.
+pub const SESSION_HEADER: &str = "x-nullradix-session";
+
+/// Whether the request says it comes from a run or a session of an agent; self-reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AgentContext(bool);
+
+impl AgentContext {
+    fn of(headers: &HeaderMap) -> Self {
+        Self(headers.contains_key(RUN_HEADER) || headers.contains_key(SESSION_HEADER))
+    }
+
+    pub(crate) const fn is_agent(self) -> bool {
+        self.0
+    }
+}
+
+/// Whether the person in the app sent the request: a browser session that names no agent.
+pub(crate) fn is_person(principal: &Principal, context: AgentContext) -> bool {
+    matches!(principal, Principal::Session { .. }) && !context.is_agent()
+}
+
+/// Lets only the person in the app through; tokens and requests of agents get `refusal`.
+pub(crate) fn require_person(
+    principal: &Principal,
+    context: AgentContext,
+    refusal: impl FnOnce() -> AppError,
+) -> Result<(), ApiError> {
+    if is_person(principal, context) {
+        Ok(())
+    } else {
+        Err(refusal().into())
+    }
+}
+
+/// Lets a person through in the app or at a terminal, but no run or session of an agent.
+pub(crate) fn refuse_agent(
+    context: AgentContext,
+    refusal: impl FnOnce() -> AppError,
+) -> Result<(), ApiError> {
+    if context.is_agent() {
+        Err(refusal().into())
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) async fn authenticate(
     State(state): State<ApiState>,
     mut request: Request,
@@ -112,7 +161,9 @@ pub(crate) async fn authenticate(
     };
     match principal {
         Ok(principal) => {
+            let context = AgentContext::of(request.headers());
             request.extensions_mut().insert(principal);
+            request.extensions_mut().insert(context);
             next.run(request).await
         }
         Err(error) => ApiError::from(error).into_response(),

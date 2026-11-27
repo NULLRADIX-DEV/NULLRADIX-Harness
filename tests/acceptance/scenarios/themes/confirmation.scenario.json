@@ -1,5 +1,5 @@
 {
-  "title": "A theme with code, network domains or a Claude part is installed only after a confirmation",
+  "title": "A theme with code, network domains or a Claude part is installed only after the person confirmed it in the app",
   "steps": [
     {
       "name": "manifest with a domain",
@@ -10,7 +10,10 @@
     },
     {
       "name": "stylesheet",
-      "file": { "path": "{{WORK}}/night-code/theme.css", "text": "a { color: red }\n" }
+      "file": {
+        "path": "{{WORK}}/night-code/theme.css",
+        "text": "a { color: red }\n"
+      }
     },
     {
       "name": "script",
@@ -21,23 +24,47 @@
     },
     {
       "name": "pack the folder",
-      "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v1.nullradix"] }
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v1.nullradix"]
+      }
     },
     {
       "name": "installing without confirming names code and domains",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v1.nullradix"] }
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v1.nullradix"]
+      }
+    },
+    {
+      "name": "a token that sends the confirmation is refused as well",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v1.nullradix"
+      }
     },
     {
       "name": "nothing was installed",
-      "http": { "method": "GET", "path": "/api/v1/themes" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes"
+      }
     },
     {
-      "name": "confirming installs the theme",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"] }
+      "name": "the person confirming in the app installs the theme",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v1.nullradix",
+        "auth": "session",
+        "keep": ["id", "packageVersion", "hasCode", "codeEnabled", "network"]
+      }
     },
     {
       "name": "the confirmed theme is listed",
-      "http": { "method": "GET", "path": "/api/v1/themes" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes"
+      }
     },
     {
       "name": "manifest of an update with the same code and domain",
@@ -48,15 +75,25 @@
     },
     {
       "name": "pack the update",
-      "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v2.nullradix"] }
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v2.nullradix"]
+      }
     },
     {
       "name": "an update that adds nothing new still asks because the package has code",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v2.nullradix"] }
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v2.nullradix"]
+      }
     },
     {
-      "name": "confirming installs the same-code update",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v2.nullradix", "--yes"] }
+      "name": "the person confirming in the app installs the same-code update",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v2.nullradix",
+        "auth": "session",
+        "keep": ["id", "packageVersion", "hasCode", "codeEnabled", "network"]
+      }
     },
     {
       "name": "manifest of an update with another domain",
@@ -67,19 +104,32 @@
     },
     {
       "name": "pack the update with a new domain",
-      "cli": { "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v3.nullradix"] }
+      "cli": {
+        "args": ["theme", "pack", "{{WORK}}/night-code", "--out", "{{WORK}}/v3.nullradix"]
+      }
     },
     {
       "name": "an update that adds a domain asks too",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v3.nullradix"] }
+      "cli": {
+        "args": ["theme", "install", "{{WORK}}/v3.nullradix"]
+      }
     },
     {
       "name": "the version stays",
-      "http": { "method": "GET", "path": "/api/v1/themes" }
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/themes"
+      }
     },
     {
-      "name": "confirming installs the update",
-      "cli": { "args": ["theme", "install", "{{WORK}}/v3.nullradix", "--yes"] }
+      "name": "the person confirming in the app installs the update",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v3.nullradix",
+        "auth": "session",
+        "keep": ["id", "packageVersion", "hasCode", "codeEnabled", "network"]
+      }
     }
   ]
 }

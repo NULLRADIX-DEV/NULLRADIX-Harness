@@ -1,13 +1,14 @@
 use axum::Json;
 use axum::extract::{Extension, State};
 use nullradix_app::AppError;
-use nullradix_app::auth::Principal;
+use nullradix_app::auth::{Principal, decision_needs_person};
 use nullradix_app::review::{BranchFile, ChangedFile, FilePatch, ReviewView};
 use nullradix_domain::{ReviewState, TestRun, Version};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::auth::{AgentContext, refuse_agent};
 use crate::tickets::{TicketDto, TicketPath};
 use crate::{ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
@@ -273,6 +274,7 @@ fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
     responses(
         (status = 200, description = "Accepted, also when it was before", body = TicketDto),
         (status = 401, body = Problem),
+        (status = 403, description = "`decision-needs-person`: the request says it comes from a run or session of an agent", body = Problem),
         (status = 404, description = "Unknown ticket", body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, description = "The ticket waits for no review", body = Problem),
@@ -281,9 +283,11 @@ fn version(value: Option<i64>) -> Result<Option<Version>, AppError> {
 pub(crate) async fn accept_review(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiPath(path): ApiPath<TicketPath>,
     ApiJson(input): ApiJson<AcceptReview>,
 ) -> Result<Json<TicketDto>, ApiError> {
+    refuse_agent(context, || decision_needs_person("accepting a review"))?;
     let view = state
         .decisions
         .accept(
@@ -335,7 +339,9 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use serde_json::{Value, json};
 
-    use crate::tests::{TestApi, bearer, local, send, test_api};
+    use crate::tests::{
+        TestApi, as_person, bearer, in_run, in_session, local, open_session, send, test_api,
+    };
 
     fn git(dir: &Path, args: &[&str]) {
         let status = Command::new("git")
@@ -516,6 +522,51 @@ mod tests {
         let (status, ticket) = post(&api, "/api/v1/tickets/arc-1/review/accept", &body).await;
         assert_eq!(status, StatusCode::OK, "{ticket}");
         assert_eq!(ticket["status"], "done");
+    }
+
+    /// Every way to accept `path` that names a run or a session is refused; the person may.
+    async fn accepting_stays_with_the_person(path: &str) {
+        let api = test_api().await;
+        let (_dir, version) = held(&api).await;
+        let cookie = open_session(&api).await;
+        let body = json!({ "version": version }).to_string();
+        for mark in [in_run, in_session] {
+            // a token and a browser session alike are refused when they name an agent
+            for as_session in [false, true] {
+                let builder = if as_session {
+                    as_person(Request::post(path), &cookie)
+                } else {
+                    bearer(Request::post(path), &api.token)
+                };
+                let request = mark(builder)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.clone()))
+                    .unwrap();
+                let (status, _, problem) = send(&api.router, request).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{path} {problem}");
+                assert_eq!(problem["code"], "decision-needs-person", "{path}");
+            }
+        }
+        let (_, held) = get(&api, "/api/v1/tickets/arc-1").await;
+        assert_eq!(held["ticket"]["status"], "blocked");
+
+        let request = as_person(Request::post(path), &cookie)
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let (status, _, ticket) = send(&api.router, request).await;
+        assert_eq!(status, StatusCode::OK, "{ticket}");
+        assert_eq!(ticket["status"], "done");
+    }
+
+    #[tokio::test]
+    async fn a_review_is_accepted_by_the_person_and_not_by_a_run_or_session_of_an_agent() {
+        accepting_stays_with_the_person("/api/v1/tickets/arc-1/review/accept").await;
+    }
+
+    #[tokio::test]
+    async fn a_ticket_is_accepted_by_the_person_and_not_by_a_run_or_session_of_an_agent() {
+        accepting_stays_with_the_person("/api/v1/tickets/arc-1/accept").await;
     }
 
     #[tokio::test]

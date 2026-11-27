@@ -120,6 +120,17 @@ pub struct Session {
     pub expires_at: Timestamp,
 }
 
+/// A run or session of an agent tried to decide something that stays with the person.
+#[must_use]
+pub fn decision_needs_person(action: &str) -> AppError {
+    AppError::forbidden(
+        "decision-needs-person",
+        format!(
+            "{action} stays with the person: do it in the app or in a terminal outside the run"
+        ),
+    )
+}
+
 /// Who sent a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Principal {

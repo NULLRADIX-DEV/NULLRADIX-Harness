@@ -256,7 +256,7 @@ pub(crate) async fn list_customizations(
             headers(("Location" = String, description = "URL of the customization"))),
         (status = 401, body = Problem),
         (status = 409, description = "Already customized: `customization-exists`", body = Problem),
-        (status = 422, description = "Bad name or content, or nothing shipped to copy: `customization-no-standard`", body = Problem),
+        (status = 422, description = "Bad name or content, a head key that is not allowed (`customization-head-refused`, with the keys as errors), or nothing shipped to copy: `customization-no-standard`", body = Problem),
     )
 )]
 pub(crate) async fn create_customization(
@@ -311,7 +311,7 @@ pub(crate) async fn get_customization(
         (status = 401, body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
-        (status = 422, body = Problem),
+        (status = 422, description = "Bad content or a head key that is not allowed: `customization-head-refused`", body = Problem),
     )
 )]
 pub(crate) async fn update_customization(
@@ -436,6 +436,53 @@ mod tests {
     #[allow(clippy::unnecessary_wraps, reason = "it is the body of a request")]
     fn create(point: &str, name: &str, content: &str) -> Option<Value> {
         Some(json!({ "point": point, "name": name, "content": content }))
+    }
+
+    #[tokio::test]
+    async fn a_head_with_keys_that_run_code_is_refused_with_the_keys_as_fields() {
+        let api = test_api().await;
+        let hooks = "---\nname: review\ndescription: Reviews\nallowed-tools: Bash\nhooks:\n  Stop: []\n---\nBody\n";
+        let (status, problem) = call(
+            &api,
+            "POST",
+            "/api/v1/customizations",
+            create("skill", "review", hooks),
+        )
+        .await;
+        assert_eq!(status, 422, "{problem}");
+        assert_eq!(problem["code"], "customization-head-refused");
+        assert_eq!(
+            problem["errors"],
+            json!([
+                { "field": "content", "message": "the head key allowed-tools is not allowed" },
+                { "field": "content", "message": "the head key hooks is not allowed" },
+            ])
+        );
+        let (_, list) = call(&api, "GET", "/api/v1/customizations", None).await;
+        assert_eq!(list, json!({ "items": [] }));
+
+        let (status, created) = call(
+            &api,
+            "POST",
+            "/api/v1/customizations",
+            create("skill", "review", SKILL),
+        )
+        .await;
+        assert_eq!(status, 201, "{created}");
+        let (status, problem) = call(
+            &api,
+            "PATCH",
+            "/api/v1/customizations/skill/review",
+            Some(json!({ "content": hooks, "version": 1 })),
+        )
+        .await;
+        assert_eq!(status, 422, "{problem}");
+        assert_eq!(problem["code"], "customization-head-refused");
+        let (_, read) = call(&api, "GET", "/api/v1/customizations/skill/review", None).await;
+        assert_eq!(
+            (&read["content"], &read["version"]),
+            (&json!(SKILL), &json!(1))
+        );
     }
 
     #[tokio::test]

@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::bail;
-use nullradix_client::{Client, ClientError, DiscoveryFile};
+use nullradix_client::{AgentContext, Client, ClientError, DiscoveryFile};
 use nullradix_os::Paths;
 
 use crate::config::Profile;
@@ -21,7 +21,9 @@ pub(crate) fn connect(profile: Profile, home: Option<&Path>) -> anyhow::Result<C
         bail!("the daemon is not running, start it with `nullradix serve`");
     }
     let token = token::read(&token::path(&paths))?.ok_or(ClientError::MissingToken)?;
-    let client = Client::new(discovery.address, CONNECT_TIMEOUT, TIMEOUT).with_token(token);
+    let client = Client::new(discovery.address, CONNECT_TIMEOUT, TIMEOUT)
+        .with_token(token)
+        .with_context(AgentContext::from_env());
     client.handshake()?;
     Ok(client)
 }

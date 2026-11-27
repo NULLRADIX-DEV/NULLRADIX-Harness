@@ -1,0 +1,124 @@
+{
+  "title": "Accepting a ticket that waits for a person stays with the person, not with a run or a session of an agent",
+  "steps": [
+    {
+      "name": "project",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects",
+        "body": {
+          "key": "ARC",
+          "name": "Arches"
+        }
+      },
+      "save": {
+        "project": "json.id"
+      }
+    },
+    {
+      "name": "board",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/projects/{{project}}/boards",
+        "body": {
+          "name": "Main"
+        }
+      },
+      "save": {
+        "board": "json.id"
+      }
+    },
+    {
+      "name": "the board to work on",
+      "cli": {
+        "args": ["board", "use", "{{board}}"]
+      }
+    },
+    {
+      "name": "first ticket",
+      "cli": {
+        "args": ["ticket", "create", "Login page", "--acceptance", "Users can log in"]
+      }
+    },
+    {
+      "name": "second ticket",
+      "cli": {
+        "args": ["ticket", "create", "Logout page", "--acceptance", "Users can log out"]
+      }
+    },
+    {
+      "name": "the first waits for a person",
+      "cli": {
+        "args": [
+          "ticket",
+          "set",
+          "ARC-1",
+          "--status",
+          "blocked",
+          "--blocked-reason",
+          "Human Interaction: look at it",
+          "--author",
+          "claude"
+        ]
+      }
+    },
+    {
+      "name": "the second waits for a person",
+      "cli": {
+        "args": [
+          "ticket",
+          "set",
+          "ARC-2",
+          "--status",
+          "blocked",
+          "--blocked-reason",
+          "Human Interaction: look at it",
+          "--author",
+          "claude"
+        ]
+      }
+    },
+    {
+      "name": "a run cannot accept it",
+      "cli": {
+        "args": ["ticket", "accept", "ARC-1"],
+        "env": {
+          "NULLRADIX_RUN": "run-1"
+        }
+      }
+    },
+    {
+      "name": "a session cannot accept it",
+      "cli": {
+        "args": ["ticket", "accept", "ARC-1"],
+        "env": {
+          "NULLRADIX_SESSION": "session-1"
+        }
+      }
+    },
+    {
+      "name": "the ticket still waits",
+      "http": {
+        "method": "GET",
+        "path": "/api/v1/tickets/ARC-1",
+        "keep": ["ticket.key", "ticket.status", "ticket.blockedReason"]
+      }
+    },
+    {
+      "name": "the person accepts at a terminal",
+      "cli": {
+        "args": ["ticket", "accept", "ARC-1"]
+      }
+    },
+    {
+      "name": "the person accepts the second in the app",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/tickets/ARC-2/accept",
+        "body": {},
+        "auth": "session",
+        "keep": ["key", "status"]
+      }
+    }
+  ]
+}

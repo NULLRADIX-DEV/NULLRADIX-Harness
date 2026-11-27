@@ -36,9 +36,13 @@
       }
     },
     {
-      "name": "install the confirmed package",
-      "cli": {
-        "args": ["theme", "install", "{{WORK}}/v1.nullradix", "--yes"]
+      "name": "the person installs the confirmed package",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/themes?confirmed=true",
+        "bodyFile": "{{WORK}}/v1.nullradix",
+        "auth": "session",
+        "keep": ["id", "version", "hasCode", "codeEnabled"]
       }
     },
     {
@@ -53,7 +57,10 @@
       "http": {
         "method": "PUT",
         "path": "/api/v1/themes/night-code/code",
-        "body": { "enabled": true, "version": 1 },
+        "body": {
+          "enabled": true,
+          "version": 1
+        },
         "auth": "session",
         "keep": ["id", "codeEnabled"]
       }
@@ -134,7 +141,9 @@
       "http": {
         "method": "PUT",
         "path": "/api/v1/themes/night-code/code",
-        "body": { "enabled": false },
+        "body": {
+          "enabled": false
+        },
         "keep": ["id", "codeEnabled"]
       }
     },

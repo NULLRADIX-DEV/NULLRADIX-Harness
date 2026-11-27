@@ -1,0 +1,289 @@
+[
+  {
+    "name": "project",
+    "request": {
+      "body": {
+        "key": "ARC",
+        "name": "Arches"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "id": "<ID-1>",
+        "key": "ARC",
+        "name": "Arches",
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>",
+      "status": 201
+    }
+  },
+  {
+    "name": "board",
+    "request": {
+      "body": {
+        "name": "Main"
+      },
+      "method": "POST",
+      "path": "/api/v1/projects/<ID-1>/boards"
+    },
+    "response": {
+      "json": {
+        "createdAt": "<TIME>",
+        "dispatchEnabled": true,
+        "id": "<ID-2>",
+        "name": "Main",
+        "openTickets": 0,
+        "ownerId": "<ID-3>",
+        "ownerName": "tester",
+        "projectId": "<ID-1>",
+        "projectKey": "ARC",
+        "repositoryId": null,
+        "repositoryName": null,
+        "updatedAt": "<TIME>",
+        "version": 1
+      },
+      "location": "/api/v1/projects/<ID-1>/boards/<ID-2>",
+      "status": 201
+    }
+  },
+  {
+    "cli": [
+      "board",
+      "use",
+      "<ID-2>"
+    ],
+    "exitCode": 0,
+    "name": "the board to work on",
+    "stderr": "",
+    "stdout": "active board: <ID-2> Main\n"
+  },
+  {
+    "cli": [
+      "question",
+      "add",
+      "Which store?",
+      "--option",
+      "File: one JSON file",
+      "--option",
+      "Db: SQLite next to the daemon",
+      "--author",
+      "claude"
+    ],
+    "exitCode": 0,
+    "name": "ask a question with options",
+    "stderr": "",
+    "stdout": "Question ARC-Q0001 created: Which store?\n"
+  },
+  {
+    "cli": [
+      "question",
+      "answer",
+      "ARC-Q1",
+      "--option",
+      "O1"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot answer it",
+    "stderr": "error: the daemon refused the request: answering a question stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "answer",
+      "ARC-Q1",
+      "--option",
+      "O1"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 1,
+    "name": "a session cannot answer it",
+    "stderr": "error: the daemon refused the request: answering a question stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "discard",
+      "ARC-Q1",
+      "--reason",
+      "not needed"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot discard it",
+    "stderr": "error: the daemon refused the request: discarding a question stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "name": "the question is still open",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/questions/ARC-Q1"
+    },
+    "response": {
+      "json": {
+        "question": {
+          "key": "ARC-Q0001",
+          "state": "open",
+          "version": 1
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "question",
+      "answer",
+      "ARC-Q1",
+      "--option",
+      "O2",
+      "--reason",
+      "fits"
+    ],
+    "exitCode": 0,
+    "name": "the person answers at a terminal",
+    "stderr": "",
+    "stdout": "ARC-Q0001 answered: option O2 \"Db\" chosen. Reason: fits\n"
+  },
+  {
+    "cli": [
+      "question",
+      "reopen",
+      "ARC-Q1",
+      "--reason",
+      "again"
+    ],
+    "env": {
+      "NULLRADIX_RUN": "run-1"
+    },
+    "exitCode": 1,
+    "name": "a run cannot reopen it",
+    "stderr": "error: the daemon refused the request: reopening a question stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "cli": [
+      "question",
+      "reopen",
+      "ARC-Q1",
+      "--reason",
+      "again"
+    ],
+    "env": {
+      "NULLRADIX_SESSION": "session-1"
+    },
+    "exitCode": 1,
+    "name": "a session cannot reopen it",
+    "stderr": "error: the daemon refused the request: reopening a question stays with the person: do it in the app or in a terminal outside the run (decision-needs-person)\n",
+    "stdout": ""
+  },
+  {
+    "name": "the question is still answered",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/questions/ARC-Q1"
+    },
+    "response": {
+      "json": {
+        "question": {
+          "decision": {
+            "option": "O2"
+          },
+          "key": "ARC-Q0001",
+          "state": "answered"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "question",
+      "reopen",
+      "ARC-Q1",
+      "--reason",
+      "again"
+    ],
+    "exitCode": 0,
+    "name": "the person reopens it at a terminal",
+    "stderr": "",
+    "stdout": "ARC-Q0001 reopened.\n"
+  },
+  {
+    "name": "the person discards it in the app",
+    "request": {
+      "auth": "session",
+      "body": {
+        "reason": "not needed"
+      },
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q1/discard"
+    },
+    "response": {
+      "json": {
+        "question": {
+          "key": "ARC-Q0001",
+          "state": "discarded"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the person reopens it in the app",
+    "request": {
+      "auth": "session",
+      "body": {
+        "reason": "we need it after all"
+      },
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q1/reopen"
+    },
+    "response": {
+      "json": {
+        "question": {
+          "key": "ARC-Q0001",
+          "state": "open"
+        }
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the person answers it in the app",
+    "request": {
+      "auth": "session",
+      "body": {
+        "option": "O1"
+      },
+      "method": "POST",
+      "path": "/api/v1/questions/ARC-Q1/answer"
+    },
+    "response": {
+      "json": {
+        "question": {
+          "decision": {
+            "option": "O1"
+          },
+          "key": "ARC-Q0001",
+          "state": "answered"
+        }
+      },
+      "status": 200
+    }
+  }
+]

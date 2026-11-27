@@ -53,6 +53,27 @@ async fn enabled(connection: &mut SqliteConnection) -> Result<bool, StoreError> 
         })
 }
 
+/// Turns the switch off inside a running write; `None` when it already was off.
+pub(crate) async fn turn_off(
+    connection: &mut SqliteConnection,
+    at: Timestamp,
+) -> Result<Option<Change>, StoreError> {
+    if !enabled(connection).await? {
+        return Ok(None);
+    }
+    put(connection, ENABLED_KEY, "false", at).await?;
+    Ok(Some(
+        change_feed::record(
+            connection,
+            Entity::Setting,
+            CLAUDE_THEME_FEED_ID,
+            ChangeOp::Update,
+            at,
+        )
+        .await?,
+    ))
+}
+
 #[async_trait]
 impl ClaudeThemeRepository for Store {
     async fn enabled(&self) -> Result<bool, AppError> {

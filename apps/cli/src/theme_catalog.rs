@@ -21,7 +21,7 @@ pub(crate) enum CatalogCommand {
     Add { url: String },
     /// Remove a source by its id
     Remove { id: String },
-    /// Install a theme from a source, or update it
+    /// Install a theme from a source, or update it; the app confirms code, domains or a Claude part
     Install {
         /// Theme id as the catalog lists it
         theme: String,
@@ -31,9 +31,6 @@ pub(crate) enum CatalogCommand {
         /// Replace a theme of the same id that was installed from another source or by upload
         #[arg(long)]
         replace: bool,
-        /// Checksum from the refusal; confirms the code, domains or Claude part of that package
-        #[arg(long, value_name = "SHA256")]
-        confirm: Option<String>,
     },
 }
 
@@ -59,14 +56,7 @@ pub(crate) fn run(command: CatalogCommand, client: &Client) -> anyhow::Result<()
             theme,
             source,
             replace,
-            confirm,
-        } => install(
-            client,
-            &theme,
-            source.as_deref(),
-            replace,
-            confirm.as_deref(),
-        ),
+        } => install(client, &theme, source.as_deref(), replace),
     }
 }
 
@@ -159,7 +149,6 @@ fn install(
     theme: &str,
     source: Option<&str>,
     replace: bool,
-    confirm: Option<&str>,
 ) -> anyhow::Result<()> {
     let source = if let Some(source) = source {
         source.to_owned()
@@ -182,15 +171,8 @@ fn install(
         }
     };
     let installed = client
-        .install_from_catalog(&source, theme, replace, confirm)
-        .map_err(|error| {
-            let install = crate::theme::CatalogInstall {
-                theme,
-                source: &source,
-                replace,
-            };
-            crate::theme::ask_for_checksum(error, &install)
-        })?;
+        .install_from_catalog(&source, theme, replace)
+        .map_err(crate::theme::confirm_in_app)?;
     println!(
         "installed {} {}",
         plain(&installed.id),

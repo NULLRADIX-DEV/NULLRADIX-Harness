@@ -248,7 +248,7 @@ async fn the_service_installs_selects_and_removes_against_the_database() {
         .await
         .unwrap()
         .theme;
-    service.select("night-blue").await.unwrap();
+    service.select("night-blue", true).await.unwrap();
     assert_eq!(service.list().await.unwrap().active, "night-blue");
 
     let again = service.install(archive, true, true).await.unwrap().theme;
