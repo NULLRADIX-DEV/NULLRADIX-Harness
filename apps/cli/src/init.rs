@@ -56,7 +56,9 @@ impl Rule {
         if !self.paths.is_empty() {
             text.push_str("paths:\n");
             for path in self.paths {
-                text.push_str(&format!("  - \"{path}\"\n"));
+                text.push_str("  - \"");
+                text.push_str(path);
+                text.push_str("\"\n");
             }
         }
         text.push_str("---\n");
