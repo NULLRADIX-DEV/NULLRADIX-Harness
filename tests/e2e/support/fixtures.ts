@@ -1,7 +1,7 @@
-import { test as base } from '@playwright/test';
+import { expect, test as base } from '@playwright/test';
 import { Daemon } from './daemon';
 
-export { expect } from '@playwright/test';
+export { expect };
 
 interface Fixtures {
   daemon: Daemon;
@@ -22,8 +22,13 @@ export const test = base.extend<Fixtures>({
     await use(daemon.baseUrl);
   },
   page: async ({ page, daemon }, use) => {
+    const violations: string[] = [];
+    page.on('console', (message) => {
+      if (message.text().includes('Content Security Policy')) violations.push(message.text());
+    });
     await page.goto(await daemon.handoff());
     await page.getByRole('navigation', { name: 'Main navigation' }).waitFor();
     await use(page);
+    expect(violations, 'CSP violations').toEqual([]);
   },
 });

@@ -71,6 +71,11 @@ mod tests {
         assert_eq!(headers["referrer-policy"], "no-referrer");
         let csp = headers["content-security-policy"].to_str().unwrap();
         for part in [
+            "default-src 'self'",
+            "script-src 'self'",
+            "worker-src 'self'",
+            "frame-src 'none'",
+            "form-action 'self'",
             "img-src 'self' data:",
             "font-src 'self' data:",
             "style-src 'self' 'unsafe-inline'",
@@ -79,6 +84,9 @@ mod tests {
         ] {
             assert!(csp.contains(part), "{part} missing in {csp}");
         }
+        assert!(!csp.contains("unsafe-eval"), "{csp}");
+        let script = csp.split("; ").find(|d| d.starts_with("script-src")).unwrap();
+        assert_eq!(script, "script-src 'self'");
 
         let (status, _, body) = get(&api.router, "/board/ARC-0001").await;
         assert_eq!(status, StatusCode::OK);

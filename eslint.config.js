@@ -43,8 +43,12 @@ export default defineConfig([
     languageOptions: { globals: globals.node },
   },
   {
-    files: ['apps/desktop/ui/**/*.js'],
+    files: ['apps/desktop/ui/**/*.js', 'web/public/**/*.js'],
     languageOptions: { globals: globals.browser },
+  },
+  {
+    files: ['web/public/**/*.js'],
+    rules: { 'no-empty': 'off', '@typescript-eslint/no-unused-vars': 'off' },
   },
   {
     files: ['web/src/**/*.{ts,tsx}'],
