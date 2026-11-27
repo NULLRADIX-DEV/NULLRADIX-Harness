@@ -8,16 +8,38 @@ use crate::command;
 const LIMIT: Duration = Duration::from_secs(20);
 const TITLE_MAX: usize = 100;
 const BODY_MAX: usize = 400;
-/// Id of Windows PowerShell, which every Windows install has registered for toasts.
 #[cfg(any(windows, test))]
-const WINDOWS_APP_ID: &str =
-    r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe";
+const TITLE_VAR: &str = "NULLRADIX_TOAST_TITLE";
+#[cfg(any(windows, test))]
+const BODY_VAR: &str = "NULLRADIX_TOAST_BODY";
+
+/// The script never holds the texts: it reads them from the environment and ends non-zero on failure.
+/// The id is the one of Windows PowerShell, which every Windows install has registered for toasts.
+#[cfg(any(windows, test))]
+const WINDOWS_SCRIPT: &str = r#"$ErrorActionPreference = 'Stop'
+try {
+  [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+  [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+  $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+  $xml.LoadXml('<toast><visual><binding template="ToastGeneric"><text/><text/></binding></visual></toast>')
+  $texts = $xml.GetElementsByTagName('text')
+  $texts.Item(0).InnerText = $env:NULLRADIX_TOAST_TITLE
+  $texts.Item(1).InnerText = $env:NULLRADIX_TOAST_BODY
+  $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+  [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe').Show($toast)
+} catch {
+  exit 1
+}
+"#;
 
 /// Shows a notice and waits until the system took it; a missing helper is an error.
 pub fn show_toast(title: &str, body: &str) -> io::Result<()> {
     let title = clean(title, TITLE_MAX);
     let body = clean(body, BODY_MAX);
-    let reply = platform_call(&title, &body)?;
+    check(&platform_call(&title, &body)?)
+}
+
+fn check(reply: &command::Reply) -> io::Result<()> {
     if reply.success {
         Ok(())
     } else {
@@ -30,11 +52,12 @@ pub fn show_toast(title: &str, body: &str) -> io::Result<()> {
 
 #[cfg(windows)]
 fn platform_call(title: &str, body: &str) -> io::Result<command::Reply> {
-    let args = ["-NoProfile", "-NonInteractive", "-Command", "-"].map(String::from);
-    command::run(
+    let args = windows_args();
+    command::run_env(
         "powershell",
         &args,
-        Some(windows_script(title, body).as_bytes()),
+        &[(TITLE_VAR, title), (BODY_VAR, body)],
+        None,
         LIMIT,
     )
 }
@@ -64,40 +87,58 @@ fn clean(text: &str, max: usize) -> String {
     cut
 }
 
+/// Base64 of the UTF-16 little-endian text, the form `-EncodedCommand` takes.
 #[cfg(any(windows, test))]
-fn xml_escape(text: &str) -> String {
+fn encoded_command(script: &str) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let [a, b, c] = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let group = (u32::from(a) << 16) | (u32::from(b) << 8) | u32::from(c);
+        for (index, shift) in [18, 12, 6, 0].into_iter().enumerate() {
+            if index <= chunk.len() {
+                out.push(char::from(ALPHABET[((group >> shift) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[cfg(any(windows, test))]
+fn windows_args() -> Vec<String> {
+    vec![
+        String::from("-NoProfile"),
+        String::from("-NonInteractive"),
+        String::from("-EncodedCommand"),
+        encoded_command(WINDOWS_SCRIPT),
+    ]
+}
+
+/// `notify-send` reads the body as markup.
+#[cfg(any(not(any(windows, target_os = "macos")), test))]
+fn markup_escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
-/// The PowerShell that shows the toast; escaped texts hold no quote, so single quotes are safe.
-#[cfg(any(windows, test))]
-fn windows_script(title: &str, body: &str) -> String {
-    let xml = format!(
-        "<toast><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual></toast>",
-        xml_escape(title),
-        xml_escape(body)
-    );
-    let xml = xml.replace('\'', "''");
-    format!(
-        "$ErrorActionPreference = 'Stop'\n\
-         [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null\n\
-         [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null\n\
-         $xml = New-Object Windows.Data.Xml.Dom.XmlDocument\n\
-         $xml.LoadXml('{xml}')\n\
-         $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)\n\
-         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{WINDOWS_APP_ID}').Show($toast)\n"
-    )
 }
 
 #[cfg(any(not(any(windows, target_os = "macos")), test))]
 fn linux_args(title: &str, body: &str) -> Vec<String> {
-    ["--app-name=NULLRADIX", "--", title, body]
-        .map(String::from)
-        .to_vec()
+    [
+        "--app-name=NULLRADIX",
+        "--",
+        title,
+        markup_escape(body).as_str(),
+    ]
+    .map(String::from)
+    .to_vec()
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -117,6 +158,14 @@ fn macos_args(title: &str, body: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
+    const HOSTILE: &[&str] = &[
+        "x\u{2019}+(calc)+\u{2019}",
+        "\u{2018}a\u{201A}b\u{201B}",
+        "`$(calc)` \"q\" 'q' $env:PATH",
+        "</text><text>x</text>",
+        "umlaute \u{e4}\u{f6}\u{fc} \u{1F600}",
+    ];
+
     #[test]
     fn texts_are_one_line_and_bounded() {
         assert_eq!(clean("a\nb\tc", 10), "a b c");
@@ -129,24 +178,52 @@ mod tests {
     }
 
     #[test]
-    fn the_windows_script_escapes_xml_and_quotes() {
-        let script = windows_script("It's <done>", "a & \"b\"");
-        assert!(
-            script.contains("<text>It&apos;s &lt;done&gt;</text>"),
-            "{script}"
-        );
-        assert!(
-            script.contains("<text>a &amp; &quot;b&quot;</text>"),
-            "{script}"
-        );
-        assert!(script.contains(WINDOWS_APP_ID));
+    fn the_windows_script_is_fixed_ascii_without_any_text() {
+        assert!(WINDOWS_SCRIPT.is_ascii());
+        // the same script whatever the notice says, so no text can reach the script source
+        let args = windows_args();
+        assert_eq!(args[2], "-EncodedCommand");
+        assert_eq!(args[3], encoded_command(WINDOWS_SCRIPT));
+        assert!(WINDOWS_SCRIPT.contains(&format!("$env:{TITLE_VAR}")));
+        assert!(WINDOWS_SCRIPT.contains(&format!("$env:{BODY_VAR}")));
+        for text in HOSTILE {
+            assert!(!WINDOWS_SCRIPT.contains(text));
+            assert!(args.iter().all(|arg| !arg.contains(text)));
+        }
+        // a failing toast must end the process non-zero
+        assert!(WINDOWS_SCRIPT.contains("catch {\n  exit 1\n}"));
+    }
+
+    #[test]
+    fn the_command_is_utf16_base64() {
+        assert_eq!(encoded_command("a"), "YQA=");
+        assert_eq!(encoded_command("ab"), "YQBiAA==");
+        assert_eq!(encoded_command("abc"), "YQBiAGMA");
+        assert_eq!(encoded_command("\u{e4}"), "5AA=");
+    }
+
+    #[test]
+    fn a_failing_helper_is_an_error_with_its_message() {
+        let failed = command::Reply {
+            success: false,
+            stdout: String::new(),
+            stderr: String::from(" boom \n"),
+        };
+        let error = check(&failed).unwrap_err();
+        assert!(error.to_string().contains("boom"), "{error}");
+        let fine = command::Reply {
+            success: true,
+            stdout: String::new(),
+            stderr: String::new(),
+        };
+        assert!(check(&fine).is_ok());
     }
 
     #[test]
     fn the_helper_arguments_keep_texts_apart_from_options() {
         assert_eq!(
-            linux_args("-t", "body"),
-            ["--app-name=NULLRADIX", "--", "-t", "body"]
+            linux_args("-t", "a <b> & c"),
+            ["--app-name=NULLRADIX", "--", "-t", "a &lt;b&gt; &amp; c"]
         );
         let mac = macos_args("T \"x\"", "a\\b");
         assert_eq!(mac[0], "-e");
@@ -154,5 +231,19 @@ mod tests {
             mac[1],
             "display notification \"a\\\\b\" with title \"T \\\"x\\\"\""
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "shows a real toast on this desktop"]
+    fn a_real_toast_with_hostile_text_shows_and_runs_no_code() {
+        let marker = std::env::temp_dir().join("nullradix-toast-injection");
+        let _ = std::fs::remove_file(&marker);
+        let title = format!(
+            "x\u{2019}+(New-Item -Path '{}' -ItemType File)+\u{2019}",
+            marker.display()
+        );
+        show_toast(&title, "umlaute \u{e4}\u{f6}\u{fc}").unwrap();
+        assert!(!marker.exists());
     }
 }

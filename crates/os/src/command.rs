@@ -20,9 +20,21 @@ pub(crate) fn run(
     input: Option<&[u8]>,
     limit: Duration,
 ) -> io::Result<Reply> {
+    run_env(program, args, &[], input, limit)
+}
+
+/// Like `run`, with extra environment variables for the helper.
+pub(crate) fn run_env(
+    program: &str,
+    args: &[String],
+    env: &[(&str, &str)],
+    input: Option<&[u8]>,
+    limit: Duration,
+) -> io::Result<Reply> {
     let mut command = Command::new(program);
     command
         .args(args)
+        .envs(env.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -100,6 +112,24 @@ mod tests {
         assert!(!reply.success);
         assert_eq!(reply.stdout.trim(), "out");
         assert_eq!(reply.stderr.trim(), "err");
+    }
+
+    #[test]
+    fn extra_variables_reach_the_helper() {
+        #[cfg(windows)]
+        let script = "echo %NULLRADIX_T%";
+        #[cfg(unix)]
+        let script = r#"echo "$NULLRADIX_T""#;
+        let (program, args) = shell(script);
+        let reply = run_env(
+            program,
+            &args,
+            &[("NULLRADIX_T", "a b")],
+            None,
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        assert_eq!(reply.stdout.trim(), "a b");
     }
 
     #[test]
