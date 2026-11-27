@@ -7,11 +7,11 @@ use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nix::errno::Errno;
 use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl};
@@ -289,6 +289,22 @@ pub(crate) fn prepare(command: &mut Command) -> io::Result<Option<Report>> {
         read: fs::File::from(read),
         write,
     }))
+}
+
+/// How long a reaper that reported a failure gets to end by itself before it is killed.
+pub(crate) const FAILED_REAPER_GRACE: Duration = Duration::from_secs(5);
+
+/// Waits up to `grace` for a child that ends itself; a kill would cut off what it writes at exit.
+pub(crate) fn end_failed(child: &mut Child, grace: Duration) -> io::Result<ExitStatus> {
+    let deadline = Instant::now() + grace;
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    let _ = child.kill();
+    child.wait()
 }
 
 /// A reaper that cannot be started is no missing program.
@@ -592,6 +608,20 @@ mod tests {
         assert_eq!(tree.wait().unwrap().code(), Some(3));
         let mut tree = ProcessTree::spawn(&mut script("kill -KILL $$")).unwrap();
         let status = tree.wait().unwrap();
+        assert_eq!((status.code(), status.signal()), (None, Some(9)));
+    }
+
+    #[test]
+    fn a_child_that_is_ending_is_waited_for_and_one_that_is_not_gets_killed() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 0.3; exit 5"])
+            .spawn()
+            .unwrap();
+        let status = end_failed(&mut child, Duration::from_secs(20)).unwrap();
+        assert_eq!((status.code(), status.signal()), (Some(5), None));
+        let mut staying = Command::new("sleep");
+        let mut child = staying.arg("60").spawn().unwrap();
+        let status = end_failed(&mut child, Duration::from_millis(100)).unwrap();
         assert_eq!((status.code(), status.signal()), (None, Some(9)));
     }
 
