@@ -249,6 +249,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             run::run(command, &client)
         }
         Command::RunSupervisor { dir } => {
+            nullradix_os::become_reaper().context("cannot own the run's process tree")?;
             nullradix_runner::supervise(&dir)
                 .with_context(|| format!("cannot record the result in {}", dir.display()))?;
             Ok(ExitCode::SUCCESS)

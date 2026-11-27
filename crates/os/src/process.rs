@@ -54,12 +54,27 @@ pub fn spawn_detached(program: &Path, args: &[OsString], cwd: &Path) -> io::Resu
     }
 }
 
-/// A process with all it starts, ended with it; only on Windows it also dies with its holder.
+/// Makes this process own the orphans below it, so its one tree ends with them; Linux only.
+#[cfg_attr(not(target_os = "linux"), allow(clippy::unnecessary_wraps))]
+pub fn become_reaper() -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::linux::become_reaper()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(())
+    }
+}
+
+/// A process with all it starts, ended with it and, on Windows and Linux, with its holder.
 #[derive(Debug)]
 pub struct ProcessTree {
     child: Child,
     // once reaped, the id of the main process may belong to an unrelated process
     reaped: bool,
+    #[cfg(target_os = "linux")]
+    guard: crate::linux::Guard,
     #[cfg(windows)]
     job: crate::windows::Job,
 }
@@ -69,10 +84,26 @@ impl ProcessTree {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
-            let child = command.process_group(0).spawn()?;
+            // macOS has no subreaper or parent-death signal, so only the group ends a tree there
+            #[cfg(target_os = "linux")]
+            let mut guard = {
+                let guard = crate::linux::Guard::start()?;
+                crate::linux::adopt_orphans(command);
+                guard
+            };
+            #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+            let mut child = command.process_group(0).spawn()?;
+            #[cfg(target_os = "linux")]
+            if let Err(error) = guard.watch(child.id()) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
             Ok(Self {
                 child,
                 reaped: false,
+                #[cfg(target_os = "linux")]
+                guard,
             })
         }
         #[cfg(windows)]
@@ -134,6 +165,8 @@ impl ProcessTree {
         if !self.reaped {
             // stragglers die first; a group with live members keeps its id
             let _ = self.kill_rest();
+            #[cfg(target_os = "linux")]
+            self.guard.release();
         }
         let status = self.child.wait()?;
         self.reaped = true;
@@ -184,6 +217,14 @@ impl ProcessTree {
     fn kill_rest(&self) -> io::Result<()> {
         use nix::errno::Errno;
         use nix::sys::signal::{Signal, killpg};
+        #[cfg(target_os = "linux")]
+        if crate::linux::is_reaper() {
+            let spare: Vec<u32> = [Some(self.child.id()), self.guard.id()]
+                .into_iter()
+                .flatten()
+                .collect();
+            crate::linux::sweep(&spare);
+        }
         match killpg(self.pid()?, Signal::SIGKILL) {
             Ok(()) | Err(Errno::ESRCH) => Ok(()),
             Err(error) => Err(io::Error::from(error)),
@@ -199,6 +240,8 @@ impl ProcessTree {
 impl Drop for ProcessTree {
     fn drop(&mut self) {
         if !self.reaped && self.kill().is_ok() {
+            #[cfg(target_os = "linux")]
+            self.guard.release();
             let _ = self.child.wait();
         }
     }
