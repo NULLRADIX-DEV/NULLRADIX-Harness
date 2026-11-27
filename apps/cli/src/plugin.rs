@@ -373,6 +373,25 @@ mod tests {
     }
 
     #[test]
+    fn the_staged_hook_arguments_are_a_hook_call_of_the_daemon_binary() {
+        for profile in [Profile::Release, Profile::Dev] {
+            let files = render(profile, "0.1.5").unwrap();
+            let hooks: Value =
+                serde_json::from_str(&files.iter().find(|(name, _)| name == HOOKS).unwrap().1)
+                    .unwrap();
+            for groups in hooks["hooks"].as_object().unwrap().values() {
+                let args: Vec<std::ffi::OsString> = groups[0]["hooks"][0]["args"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|arg| std::ffi::OsString::from(arg.as_str().unwrap()))
+                    .collect();
+                assert!(crate::hook::HookCall::parse(&args).is_some(), "{args:?}");
+            }
+        }
+    }
+
+    #[test]
     fn the_dev_plugin_is_a_separate_plugin_that_reports_to_the_dev_daemon() {
         let files = render(Profile::Dev, "0.1.5").unwrap();
         let manifest: Value =
