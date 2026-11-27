@@ -21,7 +21,7 @@ use super::detached::{
 };
 use super::local_time::LocalTime;
 use super::log::{DispatchLog, LogLevel};
-use super::outcome::{never_spawned, unpaused_outcome};
+use super::outcome::never_spawned;
 use super::pass::{DispatchPass, PassContext, PassReport, PassStep};
 use super::pause::{PauseHook, PauseKind};
 use super::runs::{DispatchRuns, StartDispatchRun};
@@ -483,6 +483,20 @@ impl ResearchRuns {
         Ok(outcome)
     }
 
+    /// A run that never spawned leaves no comment, so the start is tried again by the next pass.
+    async fn log_never_spawned(&self, run: &Run, key: &str) -> DispatchOutcome {
+        self.parts
+            .log
+            .write(
+                LogLevel::Warn,
+                &format!("research of {key} never started: {}", why_empty(run)),
+                Some(key),
+                Some(run.id()),
+            )
+            .await;
+        DispatchOutcome::StartFailed
+    }
+
     async fn outcome(
         &self,
         run: &Run,
@@ -516,26 +530,25 @@ impl ResearchRuns {
                 .await;
             return Ok(DispatchOutcome::Research);
         }
+        if never_spawned(run) {
+            return Ok(self.log_never_spawned(run, key).await);
+        }
         let kind = match run
             .result()
             .and_then(|result| result.abort.as_ref())
             .map(|abort| abort.category)
         {
             Some(AbortCategory::UsageLimit) => Some(PauseKind::UsageLimit),
-            Some(AbortCategory::StartFailed) if !never_spawned(run) => {
-                Some(PauseKind::ClaudeMissing)
-            }
+            Some(AbortCategory::StartFailed) => Some(PauseKind::ClaudeMissing),
             _ => None,
         };
-        // a run that never spawned counts for nothing and pauses nothing
-        let unpaused = unpaused_outcome(run);
         let outcome_of = |kind: PauseKind| match kind {
             PauseKind::UsageLimit => DispatchOutcome::PauseLimit,
             PauseKind::ClaudeMissing => DispatchOutcome::PauseClaudeMissing,
         };
         // a pass that stopped after the comment is picked up where it was
         if commented(&detail, run) {
-            return Ok(kind.map_or(unpaused, outcome_of));
+            return Ok(kind.map_or(DispatchOutcome::Other, outcome_of));
         }
         let actor = self.parts.starter.actor().await?;
         // a limit or missing Claude pauses as it does for tickets and counts for nothing
@@ -580,7 +593,7 @@ impl ResearchRuns {
                 Some(run.id()),
             )
             .await;
-        Ok(unpaused)
+        Ok(DispatchOutcome::Other)
     }
 
     /// The tickets of an autopilot question: open and asked by an agent of the dispatcher.

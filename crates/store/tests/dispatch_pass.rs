@@ -4602,7 +4602,7 @@ async fn missing_claude_in_a_research_pauses_the_dispatcher() {
 }
 
 #[tokio::test]
-async fn a_research_run_that_never_spawned_pauses_nothing_and_leaves_a_note() {
+async fn a_research_run_that_never_spawned_pauses_nothing_and_leaves_no_comment() {
     let f = fixture().await;
     let key = f.open_question("Which database?").await;
     f.dispatcher.service.start_research(&key).await.unwrap();
@@ -4613,10 +4613,7 @@ async fn a_research_run_that_never_spawned_pauses_nothing_and_leaves_a_note() {
     f.dispatcher.pass.run().await;
     assert_eq!(f.outcome(run).await, Some(DispatchOutcome::StartFailed));
     assert_eq!(f.paused_until().await, None);
-    let detail = f.questions.get(&key).await.unwrap();
-    assert_eq!(detail.comments.len(), 1);
-    let body = detail.comments[0].comment.record().body.as_str();
-    assert!(body.contains("no such directory"), "{body}");
+    assert!(f.questions.get(&key).await.unwrap().comments.is_empty());
     assert!(f.notice_kinds().is_empty());
 }
 
@@ -7437,7 +7434,7 @@ async fn missing_claude_in_a_planning_pauses_the_dispatcher() {
 }
 
 #[tokio::test]
-async fn a_planning_run_that_never_spawned_pauses_nothing_and_leaves_a_note() {
+async fn a_planning_run_that_never_spawned_pauses_nothing_and_leaves_no_comment() {
     let f = fixture().await;
     let key = f.unplanned("Plan me", None).await;
     f.dispatcher.service.start_planning(&key).await.unwrap();
@@ -7448,9 +7445,8 @@ async fn a_planning_run_that_never_spawned_pauses_nothing_and_leaves_a_note() {
     f.dispatcher.pass.run().await;
     assert_eq!(f.outcome(run).await, Some(DispatchOutcome::StartFailed));
     assert_eq!(f.paused_until().await, None);
-    let bodies = f.marked(&key, SystemMarker::PlanEmpty).await;
-    assert_eq!(bodies.len(), 1, "{bodies:?}");
-    assert!(bodies[0].contains("no such directory"), "{bodies:?}");
+    assert!(f.marked(&key, SystemMarker::PlanEmpty).await.is_empty());
+    assert!(f.comments.list(&key).await.unwrap().is_empty());
     assert!(f.notice_kinds().is_empty());
     assert!(f.marked(&key, SystemMarker::Pause).await.is_empty());
 }
