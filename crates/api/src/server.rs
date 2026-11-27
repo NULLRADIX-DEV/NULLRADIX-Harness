@@ -16,7 +16,7 @@ use crate::Limits;
 /// How long the accept loop rests after an error such as running out of files.
 const ACCEPT_PAUSE: Duration = Duration::from_secs(1);
 
-/// Serves HTTP/1 with a head timeout and a connection cap until `shutdown`; h2 has no idle timeout.
+/// Serves HTTP/1 with a head timeout and a connection cap until shutdown.
 pub async fn serve(
     listener: TcpListener,
     router: Router,
@@ -29,7 +29,7 @@ pub async fn serve(
         shutdown.await;
         trigger.cancel();
     });
-    // a slot is taken before accepting, so connections over the cap wait in the accept queue
+    // take a slot before accept; extra connections wait in the backlog
     let slots = Arc::new(Semaphore::new(limits.max_connections));
     // closed once every connection task has dropped its receiver
     let (running, alive) = watch::channel(());
@@ -92,9 +92,7 @@ async fn serve_connection(
     let mut http = http1::Builder::new();
     http.timer(TokioTimer::new())
         .header_read_timeout(header_read_timeout);
-    let connection = http
-        .serve_connection(TokioIo::new(stream), TowerToHyperService::new(router))
-        .with_upgrades();
+    let connection = http.serve_connection(TokioIo::new(stream), TowerToHyperService::new(router));
     tokio::pin!(connection);
     let mut stopping = false;
     loop {

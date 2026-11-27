@@ -34,7 +34,7 @@ fn should_buffer(request: &Request) -> bool {
         return false;
     }
     let headers = request.headers();
-    // a chunked body has no length to look at; its first 64 KiB are read to find out
+    // chunked bodies have no length; read up to 64 KiB
     if headers.contains_key(header::TRANSFER_ENCODING) {
         return true;
     }
@@ -45,7 +45,7 @@ fn should_buffer(request: &Request) -> bool {
         .is_some_and(|length| (1..=BUFFER_LIMIT).contains(&length))
 }
 
-/// The body whole when it ends within the limit, else the bytes read so far chained with the rest.
+/// The whole body within the limit, else the read prefix chained with the rest.
 async fn read_prefix(body: Body) -> Result<Body, axum::Error> {
     let mut rest = body.into_data_stream();
     let mut prefix = Vec::new();
@@ -250,7 +250,7 @@ mod tests {
         let answer =
             tokio::time::timeout(Duration::from_secs(30), api.router.clone().oneshot(request));
         let response = answer.await.expect("the request was ended").unwrap();
-        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert!(response.headers().contains_key("x-request-id"));
     }
 

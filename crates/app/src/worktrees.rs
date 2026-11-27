@@ -279,7 +279,11 @@ pub fn git_failed(args: &[&str], detail: &str) -> AppError {
     tracing::debug!(%command, %detail, "git failed");
     AppError::invalid(
         "git-failed",
-        format!("git failed (git {command}): {}", cap_text(&detail)),
+        format!(
+            "git failed (git {}): {}",
+            cap_text(&command),
+            cap_text(&detail)
+        ),
     )
 }
 

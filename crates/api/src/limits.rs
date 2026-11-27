@@ -11,7 +11,7 @@ use crate::{API_PREFIX, problem};
 
 /// A client gets this long for a request head, also between requests on one connection.
 const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
-/// Above the longest honest request: a theme download has a budget of 120 s.
+/// Above a theme download budget of 120 s; downloads queued behind four others may time out.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(150);
 /// Far above a person's tabs, CLI and hooks, and below a Unix soft limit of 256 files.
 const MAX_CONNECTIONS: usize = 128;
@@ -68,7 +68,7 @@ fn is_event_stream(request: &Request) -> bool {
         && request.uri().path().strip_prefix(API_PREFIX) == Some("/events")
 }
 
-/// Ends a request that takes longer than the limit; the event stream lives as long as its client.
+/// Ends slow requests; the event stream is exempt.
 pub(crate) async fn limit_request_time(
     State(limit): State<Duration>,
     request: Request,
@@ -79,8 +79,9 @@ pub(crate) async fn limit_request_time(
     }
     match tokio::time::timeout(limit, next.run(request)).await {
         Ok(response) => response,
+        // 408 makes Chromium resend the request on a reused connection
         Err(_) => problem::response(
-            StatusCode::REQUEST_TIMEOUT,
+            StatusCode::SERVICE_UNAVAILABLE,
             "request-timeout",
             "the request took too long",
         ),
@@ -116,14 +117,14 @@ mod tests {
         router.oneshot(request).await.unwrap().status()
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_slow_request_ends_with_a_problem() {
         let limit = Duration::from_millis(100);
         let response = router(limit)
             .oneshot(Request::get("/api/v1/other").body(Body::empty()).unwrap())
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         let body = axum::body::to_bytes(response.into_body(), 4096)
             .await
             .unwrap();
@@ -131,7 +132,7 @@ mod tests {
         assert_eq!(json["code"], "request-timeout");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_event_stream_and_quick_requests_are_not_cut() {
         let limit = Duration::from_millis(100);
         assert_eq!(
