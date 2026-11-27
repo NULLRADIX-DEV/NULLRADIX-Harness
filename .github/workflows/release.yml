@@ -192,7 +192,7 @@ jobs:
         with:
           projectPath: apps/desktop
           releaseId: ${{ needs.release-please.outputs.id }}
-          tauriScript: npm exec tauri
+          tauriScript: npm exec --no tauri
           args: --config tauri.release.conf.json --bundles ${{ matrix.bundles }}
 
   image:
