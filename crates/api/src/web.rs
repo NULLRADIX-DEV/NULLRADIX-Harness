@@ -17,8 +17,7 @@ pub(crate) async fn serve(dir: &Path, request: Request) -> Response {
         Ok(response) => response.into_response(),
         Err(never) => match never {},
     };
-    // hashed bundles never change; the shell and boot files must be revalidated together
-    // an unknown asset path falls back to the shell, which must not be cached as hashed
+    // hashed bundles never change; the shell, boot files and unknown paths are revalidated
     let shell = response
         .headers()
         .get(header::CONTENT_TYPE)
