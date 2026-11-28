@@ -121,11 +121,11 @@ jobs:
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest,cargo-llvm-cov
-      - run: cargo llvm-cov nextest --workspace --locked --profile ci
-      - run: cargo llvm-cov report --summary-only
+      - run: cargo llvm-cov nextest --workspace --locked --profile ci --failure-mode all
+      - run: cargo llvm-cov report --summary-only --failure-mode all
       - name: Domain and app coverage of at least 80 percent
         run: >-
-          cargo llvm-cov report --summary-only --fail-under-lines 80
+          cargo llvm-cov report --summary-only --failure-mode all --fail-under-lines 80
           --ignore-filename-regex '(apps|tests|xtask|crates[/\\](api|client|os|runner|store))[/\\]'
 
   query-cache:

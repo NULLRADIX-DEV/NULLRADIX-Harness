@@ -154,6 +154,8 @@ fn tests(root: &Path, reports: &mut Vec<Report>) {
                     "--workspace",
                     "--locked",
                     "--no-fail-fast",
+                    "--failure-mode",
+                    "all",
                 ],
             )
         } else {
@@ -181,6 +183,9 @@ fn tests(root: &Path, reports: &mut Vec<Report>) {
                 "llvm-cov",
                 "report",
                 "--summary-only",
+                // a test process killed at exit can leave a cut profile behind
+                "--failure-mode",
+                "all",
                 "--fail-under-lines",
                 "80",
                 "--ignore-filename-regex",
