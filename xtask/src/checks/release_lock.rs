@@ -9,6 +9,13 @@ use super::Violation;
 const CONFIG: &str = "release-please-config.json";
 const LOCKS: &[&str] = &["Cargo.lock", "apps/desktop/Cargo.lock"];
 const SELECTOR: &str = "@.name.value=='";
+/// Files whose version must move with the workspace, and where it sits.
+const VERSION_FILES: &[(&str, &str)] = &[
+    ("Cargo.toml", "$.workspace.package.version"),
+    ("apps/desktop/Cargo.toml", "$.package.version"),
+    ("apps/desktop/tauri.conf.json", "$.version"),
+    ("plugin/.claude-plugin/plugin.json", "$.version"),
+];
 
 /// Names of lockfile packages that come from this repository (no registry source).
 fn local_packages(lock: &str) -> Vec<String> {
@@ -41,6 +48,21 @@ fn bumped(config: &Value, lock_path: &str) -> Vec<String> {
         .collect()
 }
 
+/// Version files the config does not bump at the expected place.
+fn unbumped_files(config: &Value) -> Vec<&'static str> {
+    let files = config["packages"]["."]["extra-files"].as_array();
+    VERSION_FILES
+        .iter()
+        .filter(|(path, jsonpath)| {
+            !files
+                .into_iter()
+                .flatten()
+                .any(|file| file["path"] == *path && file["jsonpath"] == *jsonpath)
+        })
+        .map(|(path, _)| *path)
+        .collect()
+}
+
 fn missing(config: &Value, lock_path: &str, lock: &str) -> Vec<String> {
     let bumped = bumped(config, lock_path);
     local_packages(lock)
@@ -59,7 +81,14 @@ pub(super) fn run(root: &Path) -> Result<Vec<Violation>> {
         &fs::read_to_string(&config_path).with_context(|| format!("failed to read {CONFIG}"))?,
     )
     .with_context(|| format!("failed to parse {CONFIG}"))?;
-    let mut violations = Vec::new();
+    let mut violations: Vec<Violation> = unbumped_files(&config)
+        .into_iter()
+        .map(|path| Violation {
+            path: PathBuf::from(CONFIG),
+            line: 1,
+            message: format!("the version in {path} is not bumped by release-please"),
+        })
+        .collect();
     for lock_path in LOCKS {
         let lock = fs::read_to_string(root.join(lock_path))
             .with_context(|| format!("failed to read {lock_path}"))?;
@@ -126,6 +155,28 @@ mod tests {
             .len(),
             2
         );
+    }
+
+    #[test]
+    fn reports_a_version_file_without_entry() {
+        let mut files: Vec<Value> = VERSION_FILES
+            .iter()
+            .map(|(path, jsonpath)| serde_json::json!({ "path": path, "jsonpath": jsonpath }))
+            .collect();
+        let full = serde_json::json!({ "packages": { ".": { "extra-files": files.clone() } } });
+        assert_eq!(unbumped_files(&full), Vec::<&str>::new());
+        files.retain(|file| file["path"] != "plugin/.claude-plugin/plugin.json");
+        let partial = serde_json::json!({ "packages": { ".": { "extra-files": files } } });
+        assert_eq!(
+            unbumped_files(&partial),
+            ["plugin/.claude-plugin/plugin.json"]
+        );
+    }
+
+    #[test]
+    fn the_repository_config_bumps_every_version_file() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        assert_eq!(run(&root).unwrap().len(), 0);
     }
 
     #[test]
