@@ -857,6 +857,7 @@ mod tests {
                 (422, "network-path-refused"),
                 "{dir}"
             );
+            assert_eq!(json["errors"][0]["field"], "configDir", "{dir}");
         }
         let (_, list) = call(&api, Request::get("/api/v1/accounts"), None).await;
         assert_eq!(list["items"].as_array().unwrap().len(), 1);

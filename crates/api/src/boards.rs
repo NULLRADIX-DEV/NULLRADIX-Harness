@@ -591,6 +591,7 @@ mod tests {
                 (422, Some("network-path-refused")),
                 "{path}"
             );
+            assert_eq!(problem["errors"][0]["field"], "path", "{path}");
         }
         let lookup = format!("/api/v1/boards?runnerId={runner}&path=//attacker.example/share");
         let request = bearer(Request::get(lookup), &api.token)
@@ -601,5 +602,6 @@ mod tests {
             (status.as_u16(), problem["code"].as_str()),
             (422, Some("network-path-refused"))
         );
+        assert_eq!(problem["errors"][0]["field"], "path");
     }
 }

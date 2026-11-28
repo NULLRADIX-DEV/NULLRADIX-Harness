@@ -113,7 +113,7 @@ pub(crate) struct Config {
     pub(crate) paths: Paths,
     pub(crate) address: SocketAddr,
     pub(crate) allowed_hosts: Vec<String>,
-    /// Hosts whose shares boards, runs and accounts may use.
+    /// Hosts allowed as network shares.
     pub(crate) network_shares: Vec<String>,
     pub(crate) log_filter: String,
     pub(crate) web_dir: Option<PathBuf>,

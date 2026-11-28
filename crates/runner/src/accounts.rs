@@ -65,12 +65,17 @@ impl LocalAccountFolders {
 
     /// Whether the typed folder reaches an unlisted machine or a device.
     fn refused(&self, typed: &str) -> bool {
-        // a rooted rest after `~/` replaces the home folder when joined on Windows
-        let rest = typed
-            .strip_prefix("~/")
-            .or_else(|| typed.strip_prefix("~\\"));
-        self.shares.refuses(typed) || rest.is_some_and(|rest| self.shares.refuses(rest))
+        refuses_typed(&self.shares, typed)
     }
+}
+
+/// Whether a typed folder reaches an unlisted machine or a device, also behind `~/`.
+pub(crate) fn refuses_typed(shares: &NetworkShares, typed: &str) -> bool {
+    // on Windows a rooted rest replaces the home folder
+    let rest = typed
+        .strip_prefix("~/")
+        .or_else(|| typed.strip_prefix("~\\"));
+    shares.refuses(typed) || rest.is_some_and(|rest| shares.refuses(rest))
 }
 
 /// `resolved_key` for a refused folder, from its text alone.
@@ -140,7 +145,7 @@ impl AccountFolders for LocalAccountFolders {
         let path = self.root.join(slug.as_str());
         let made = path.clone();
         let root = self.root.clone();
-        // the login files lie here, and an older folder is tightened too
+        // private account folders, tightened when they are older
         tokio::task::spawn_blocking(move || {
             create_data_dir(&root)?;
             create_data_dir(&made)
@@ -156,8 +161,8 @@ impl AccountFolders for LocalAccountFolders {
             return Err(network_path_refused(dir.as_str()));
         }
         let path = self.expand(dir.as_str());
-        // a rooted path counts as absolute, as legacy did, so `\folder` passes on Windows
-        if !path.has_root() {
+        // a folder with a root but no drive is relative on Windows
+        if !path.is_absolute() {
             return Err(folder_relative(dir));
         }
         let exists = tokio::task::spawn_blocking(move || path.is_dir())
@@ -423,5 +428,17 @@ mod tests {
         assert!(listed.check(&doubled).await.is_ok());
         let other = folders(temp.path()).with_network_shares(NetworkShares::new(["elsewhere"]));
         assert!(other.check(&doubled).await.is_err());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_folder_without_a_drive_is_relative() {
+        let temp = tempfile::tempdir().unwrap();
+        let error = folders(temp.path())
+            .check(&ConfigDir::parse("\\folder").unwrap())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "account-invalid");
+        assert!(error.message().contains("absolute"), "{}", error.message());
     }
 }

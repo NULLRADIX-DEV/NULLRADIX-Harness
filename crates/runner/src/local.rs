@@ -86,6 +86,14 @@ impl LocalRunner {
         self
     }
 
+    /// Turns away a network path before any file call.
+    fn refuse_networks(&self, paths: &[&str]) -> Result<(), AppError> {
+        match paths.iter().find(|path| self.shares.refuses(path)) {
+            Some(path) => Err(network_path_refused(path)),
+            None => Ok(()),
+        }
+    }
+
     fn files(&self, run: Id<Run>) -> RunFiles {
         RunFiles::at(&self.runs.join(run.to_string()))
     }
@@ -133,7 +141,7 @@ impl RunnerPort for LocalRunner {
         let supervisor = self.supervisor.clone();
         let runs = self.runs.clone();
         blocking(move || {
-            // the prompt and transcript lie here, and older folders are tightened
+            // private run folders, tightened when they are older
             create_data_dir(&runs)?;
             create_data_dir(files.dir())?;
             let json = serde_json::to_vec_pretty(&file).map_err(io::Error::other)?;
@@ -186,18 +194,21 @@ impl RunnerPort for LocalRunner {
     }
 
     async fn create_worktree(&self, request: &NewWorktree) -> Result<CreatedWorktree, AppError> {
+        self.refuse_networks(&[&request.cwd, &request.root, &request.path])?;
         crate::worktree::create(request, self.plugin.as_deref()).await
     }
 
     async fn folders_exist(&self, paths: &[String]) -> Result<Vec<bool>, AppError> {
-        crate::worktree::folders_exist(paths).await
+        crate::worktree::folders_exist(paths, &self.shares).await
     }
 
     async fn ensure_worktree(&self, request: &EnsureWorktree) -> Result<EnsuredWorktree, AppError> {
+        self.refuse_networks(&[&request.root, &request.path])?;
         crate::ensure::ensure(request, self.plugin.as_deref()).await
     }
 
     async fn remove_worktree(&self, request: &RemoveWorktree) -> Result<WorktreeRemoval, AppError> {
+        self.refuse_networks(&[&request.cwd, &request.root, &request.path])?;
         crate::cleanup::remove(request).await
     }
 
@@ -216,14 +227,17 @@ impl RunnerPort for LocalRunner {
     }
 
     async fn session_changes(&self, request: &ChangeRequest) -> Result<SessionChanges, AppError> {
+        self.refuse_networks(&[&request.cwd])?;
         self.transcripts.changes(request).await
     }
 
     async fn session_diff(&self, request: &DiffRequest) -> Result<FileDiff, AppError> {
+        self.refuse_networks(&[&request.changes.cwd])?;
         self.transcripts.diff(request).await
     }
 
     async fn review_changes(&self, request: &ReviewRequest) -> Result<BranchChanges, AppError> {
+        self.refuse_networks(&[&request.root])?;
         crate::review::changes(request).await
     }
 
@@ -232,6 +246,7 @@ impl RunnerPort for LocalRunner {
         request: &ReviewRequest,
         path: &str,
     ) -> Result<FilePatch, AppError> {
+        self.refuse_networks(&[&request.root])?;
         crate::review::patch(request, path).await
     }
 
@@ -241,6 +256,7 @@ impl RunnerPort for LocalRunner {
         branch: &str,
         path: &str,
     ) -> Result<BranchFile, AppError> {
+        self.refuse_networks(&[root])?;
         crate::review::file(root, branch, path).await
     }
 }
@@ -362,7 +378,7 @@ mod tests {
         fs::create_dir(&runs).unwrap();
         fs::set_permissions(&runs, fs::Permissions::from_mode(0o755)).unwrap();
         let id = Id::from_uuid(uuid::Uuid::from_u128(4));
-        // the supervisor is missing, but the run folder is made before it is started
+        // the run folder is made before the missing supervisor fails
         let _ = runner(dir.path())
             .start(id, &spec(dir.path().to_path_buf()))
             .await;
@@ -411,5 +427,112 @@ mod tests {
         );
         let listed = runner(dir.path()).with_network_shares(NetworkShares::new([host]));
         assert!(listed.check(&spec).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn stored_network_paths_are_refused_at_every_git_boundary() {
+        use nullradix_app::review::ReviewRequest;
+        use nullradix_app::session_detail::{ChangeRequest, DiffRequest};
+        use nullradix_app::worktrees::{EnsureWorktree, NewWorktree, RemoveWorktree};
+        let dir = tempfile::tempdir().unwrap();
+        let runner = runner(dir.path());
+        let share = String::from("//srv/share/arches");
+        let local = text_of(dir.path());
+        let review = |root: &str| ReviewRequest {
+            root: root.to_owned(),
+            branch: String::from("ticket/a"),
+            target: None,
+        };
+        let changes = |cwd: &str| ChangeRequest {
+            cwd: cwd.to_owned(),
+            transcript: None,
+        };
+        let refused = |code: &str| assert_eq!(code, "network-path-refused");
+        for (root, path) in [(&share, &local), (&local, &share)] {
+            let new = NewWorktree {
+                cwd: local.clone(),
+                root: root.clone(),
+                branch: String::from("ticket/a"),
+                path: path.clone(),
+                target: None,
+            };
+            refused(runner.create_worktree(&new).await.unwrap_err().code());
+            let ensure = EnsureWorktree {
+                root: root.clone(),
+                branch: String::from("ticket/a"),
+                path: path.clone(),
+            };
+            refused(runner.ensure_worktree(&ensure).await.unwrap_err().code());
+            let remove = RemoveWorktree {
+                root: root.clone(),
+                path: path.clone(),
+                cwd: local.clone(),
+            };
+            refused(runner.remove_worktree(&remove).await.unwrap_err().code());
+        }
+        let new = NewWorktree {
+            cwd: share.clone(),
+            root: local.clone(),
+            branch: String::from("ticket/a"),
+            path: local.clone(),
+            target: None,
+        };
+        refused(runner.create_worktree(&new).await.unwrap_err().code());
+        refused(
+            runner
+                .review_changes(&review(&share))
+                .await
+                .unwrap_err()
+                .code(),
+        );
+        refused(
+            runner
+                .review_patch(&review(&share), "a.txt")
+                .await
+                .unwrap_err()
+                .code(),
+        );
+        refused(
+            runner
+                .review_file(&share, "ticket/a", "a.txt")
+                .await
+                .unwrap_err()
+                .code(),
+        );
+        refused(
+            runner
+                .session_changes(&changes(&share))
+                .await
+                .unwrap_err()
+                .code(),
+        );
+        let diff = DiffRequest {
+            changes: changes(&share),
+            path: String::from("a.txt"),
+        };
+        refused(runner.session_diff(&diff).await.unwrap_err().code());
+    }
+
+    fn text_of(path: &std::path::Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stored_share_is_reported_missing_without_looking_unless_its_host_is_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        // two leading slashes name a host to the check and the first folder to this system
+        let doubled = format!("/{}", dir.path().display());
+        let host = doubled
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap()
+            .to_owned();
+        let paths = [doubled, text_of(dir.path())];
+        let closed = runner(dir.path());
+        assert_eq!(closed.folders_exist(&paths).await.unwrap(), [false, true]);
+        let listed = runner(dir.path()).with_network_shares(NetworkShares::new([host]));
+        assert_eq!(listed.folders_exist(&paths).await.unwrap(), [true, true]);
     }
 }

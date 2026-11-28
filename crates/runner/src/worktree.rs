@@ -7,6 +7,7 @@ use nullradix_app::AppError;
 use nullradix_app::worktrees::{
     CreatedWorktree, NewWorktree, branch_taken, git_failed, no_commit, worktree_exists,
 };
+use nullradix_domain::NetworkShares;
 
 /// Allows long paths for this call even when the repository config could not be set.
 pub(crate) const LONG_PATHS: [&str; 2] = ["-c", "core.longpaths=true"];
@@ -144,12 +145,23 @@ pub(crate) async fn ensure_long_paths(cwd: &Path, windows: bool) -> Result<bool,
         .is_some())
 }
 
-/// Whether each folder exists, in the order given.
-pub(crate) async fn folders_exist(paths: &[String]) -> Result<Vec<bool>, AppError> {
-    let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
-    tokio::task::spawn_blocking(move || paths.iter().map(|path| path.is_dir()).collect())
-        .await
-        .map_err(AppError::internal)
+/// Whether each folder exists, a refused path counts as missing.
+pub(crate) async fn folders_exist(
+    paths: &[String],
+    shares: &NetworkShares,
+) -> Result<Vec<bool>, AppError> {
+    let paths: Vec<(PathBuf, bool)> = paths
+        .iter()
+        .map(|path| (PathBuf::from(path), shares.refuses(path)))
+        .collect();
+    tokio::task::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|(path, refused)| !refused && path.is_dir())
+            .collect()
+    })
+    .await
+    .map_err(AppError::internal)
 }
 
 #[cfg(test)]
@@ -208,9 +220,12 @@ mod tests {
             "ticket/ARC-0001-a"
         );
         assert_eq!(
-            folders_exist(&[wanted.path.clone(), text(&dir.path().join("nope"))])
-                .await
-                .unwrap(),
+            folders_exist(
+                &[wanted.path.clone(), text(&dir.path().join("nope"))],
+                &NetworkShares::default()
+            )
+            .await
+            .unwrap(),
             vec![true, false]
         );
         let again = create(&request(&root, "ticket/ARC-0001-b", None), None).await;

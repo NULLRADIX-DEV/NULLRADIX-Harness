@@ -63,6 +63,8 @@ pub fn create_private_dir(dir: &Path) -> io::Result<()> {
             .recursive(true)
             .mode(0o700)
             .create(dir)?;
+        let me = nix::unistd::Uid::effective().as_raw();
+        refuse_foreign(dir, &fs::symlink_metadata(dir)?, me)?;
         fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
     }
     #[cfg(windows)]
@@ -72,7 +74,24 @@ pub fn create_private_dir(dir: &Path) -> io::Result<()> {
     }
 }
 
-/// Creates `dir` private to its owner on Unix, and with the rights of its parent on Windows.
+/// Refuses a link or a folder of another user.
+#[cfg(unix)]
+fn refuse_foreign(dir: &Path, meta: &fs::Metadata, me: u32) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let reason = if meta.file_type().is_symlink() {
+        "it is a link"
+    } else if meta.uid() != me {
+        "another user owns it"
+    } else {
+        return Ok(());
+    };
+    Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("cannot make {} private, {reason}", dir.display()),
+    ))
+}
+
+/// Creates `dir` private to its owner on Unix and plain on Windows.
 pub fn create_data_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -219,6 +238,40 @@ mod tests {
         create_data_dir(&nested).unwrap();
         assert_eq!(mode_of(&old.join("runs")), 0o700);
         assert_eq!(mode_of(&nested), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_root_is_refused_and_its_target_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("elsewhere");
+        fs::create_dir(&target).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        let link = dir.path().join("data");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        for result in [create_private_dir(&link), create_data_dir(&link)] {
+            let error = result.unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert!(error.to_string().contains("cannot make"), "{error}");
+            assert!(error.to_string().contains("it is a link"), "{error}");
+        }
+        assert_eq!(mode_of(&target), 0o755);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_of_another_user_is_refused() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let meta = fs::symlink_metadata(dir.path()).unwrap();
+        assert!(refuse_foreign(dir.path(), &meta, meta.uid()).is_ok());
+        let error = refuse_foreign(dir.path(), &meta, meta.uid() + 1).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(
+            error.to_string().contains("another user owns it"),
+            "{error}"
+        );
     }
 
     #[cfg(unix)]

@@ -118,7 +118,13 @@
     "response": {
       "json": {
         "code": "network-path-refused",
-        "detail": "//attacker.example/share/claude reaches another machine or a device, list its host under network_shares in the config file to allow it",
+        "detail": "//attacker.example/share/claude is on another machine, add its host to network_shares under [server] in the config file to allow it",
+        "errors": [
+          {
+            "field": "configDir",
+            "message": "//attacker.example/share/claude is on another machine, add its host to network_shares under [server] in the config file to allow it"
+          }
+        ],
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "urn:nullradix:problem:network-path-refused"
@@ -139,7 +145,13 @@
     "response": {
       "json": {
         "code": "network-path-refused",
-        "detail": "\\\\?\\C:\\claude reaches another machine or a device, list its host under network_shares in the config file to allow it",
+        "detail": "\\\\?\\C:\\claude is a device path and can never be used",
+        "errors": [
+          {
+            "field": "configDir",
+            "message": "\\\\?\\C:\\claude is a device path and can never be used"
+          }
+        ],
         "status": 422,
         "title": "Unprocessable Entity",
         "type": "urn:nullradix:problem:network-path-refused"

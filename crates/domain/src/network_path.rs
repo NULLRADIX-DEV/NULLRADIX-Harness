@@ -24,7 +24,7 @@ fn normalized_host(host: &str) -> String {
     host.trim_end_matches('.').to_lowercase()
 }
 
-/// Pure text work, the same on every platform, and no file is touched.
+/// Pure text work, no file is touched.
 #[must_use]
 pub fn classify_path(path: &str) -> PathTarget {
     let text = path.trim();
@@ -55,7 +55,7 @@ pub fn classify_path(path: &str) -> PathTarget {
     }
 }
 
-/// Hosts whose shares may be used.
+/// Hosts allowed as network shares.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NetworkShares {
     hosts: Vec<String>,

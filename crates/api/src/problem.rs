@@ -24,7 +24,7 @@ pub struct Problem {
     /// Notes that already describe the finding, for `note-similar`; most similar first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub similar: Vec<SimilarNoteDto>,
-    /// Refused fields of the input, for `theme-manifest-invalid`.
+    /// The refused fields of the input.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<FieldProblemDto>,
     /// What to confirm before installing, for `theme-confirmation-required`.

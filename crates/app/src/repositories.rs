@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_domain::{
-    Checkout, CheckoutPath, Id, Repository, RepositoryError, RepositoryName, Runner, RunnerName,
-    RunnerOs,
+    Checkout, CheckoutPath, Id, PathTarget, Repository, RepositoryError, RepositoryName, Runner,
+    RunnerName, RunnerOs, classify_path,
 };
 
 use crate::review::{BranchChanges, BranchFile, FilePatch, ReviewRequest};
@@ -17,7 +17,7 @@ use crate::session_detail::{
 use crate::worktrees::{
     CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval,
 };
-use crate::{AppError, Change, ChangeSignal, Clock, ErrorKind, IdGenerator};
+use crate::{AppError, Change, ChangeSignal, Clock, ErrorKind, FieldProblem, IdGenerator};
 
 /// Name of the runner on the daemon's own machine.
 pub const LOCAL_RUNNER: &str = "local";
@@ -77,15 +77,28 @@ pub fn path_relative(path: &str) -> AppError {
     AppError::invalid("path-relative", format!("{path} is not an absolute path"))
 }
 
-/// A path to another machine or a device, refused before any file call touches it.
+/// The refusal of a network or device path.
 #[must_use]
 pub fn network_path_refused(path: &str) -> AppError {
-    AppError::invalid(
-        "network-path-refused",
-        format!(
-            "{path} reaches another machine or a device, list its host under network_shares in the config file to allow it"
+    let message = match classify_path(path) {
+        PathTarget::Device => format!("{path} is a device path and can never be used"),
+        _ => format!(
+            "{path} is on another machine, add its host to network_shares under [server] in the config file to allow it"
         ),
-    )
+    };
+    AppError::invalid("network-path-refused", message)
+}
+
+/// Names the input of a network path refusal.
+pub(crate) fn refusal_on(error: AppError, field: &str) -> AppError {
+    if error.code() != "network-path-refused" {
+        return error;
+    }
+    let message = error.message().to_owned();
+    error.with_fields(vec![FieldProblem {
+        field: field.to_owned(),
+        message,
+    }])
 }
 
 #[must_use]

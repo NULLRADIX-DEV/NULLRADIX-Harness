@@ -74,7 +74,7 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 /// How often the daemon checks on active runs.
 const RUN_POLL: Duration = Duration::from_millis(500);
 
-/// Creates the folders the daemon writes to for the owner only, and tightens older ones.
+/// Creates the daemon folders for the owner only.
 fn private_roots(paths: &Paths) -> anyhow::Result<()> {
     let runs = paths.data.join("runs");
     let accounts = paths.data.join("accounts");
@@ -92,7 +92,7 @@ fn private_roots(paths: &Paths) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Makes the database and the files SQLite keeps beside it readable by the owner only.
+/// Makes the database files private to the owner.
 fn private_database(path: &Path) -> io::Result<()> {
     nullradix_os::ensure_private_file(path)?;
     for suffix in ["-wal", "-shm"] {
@@ -533,8 +533,9 @@ fn login_runner(config: &Config) -> LocalLoginRunner {
         LocalLoginRunner::claude()
             .with_home(Some(config.paths.data.clone()))
             .with_default_folder(Some(config.paths.data.join(".claude")))
+            .with_network_shares(network_shares(config))
     } else {
-        LocalLoginRunner::claude()
+        LocalLoginRunner::claude().with_network_shares(network_shares(config))
     }
 }
 
@@ -556,11 +557,12 @@ fn account_folders(config: &Config) -> LocalAccountFolders {
 
 /// Claude's login files: the real ones, or none of them when a home override isolates the run.
 fn claude_logins(config: &Config) -> LocalClaudeLogins {
-    if config.isolated {
+    let logins = if config.isolated {
         LocalClaudeLogins::new(Some(config.paths.data.clone()), None)
     } else {
         LocalClaudeLogins::from_environment()
-    }
+    };
+    logins.with_network_shares(network_shares(config))
 }
 
 /// Favorites and session details, both read from what the runners found.
@@ -716,10 +718,10 @@ fn start_claude_theme(
         Arc::new(store.clone()),
         themes.clone(),
         Arc::new(store.clone()),
-        Arc::new(FolderSlots::new(
-            config.paths.themes(),
-            default_claude_dir(home),
-        )),
+        Arc::new(
+            FolderSlots::new(config.paths.themes(), default_claude_dir(home))
+                .with_network_shares(network_shares(config)),
+        ),
         Arc::new(SystemClock),
         signal.clone(),
     ))
