@@ -60,7 +60,7 @@ pub struct StoredSources {
     pub version: Version,
 }
 
-/// The sources in the order they were added; `version` is `None` until one was added.
+/// The sources in the order they were added; `version` is `None` while the list was never stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceList {
     pub sources: Vec<CatalogSource>,

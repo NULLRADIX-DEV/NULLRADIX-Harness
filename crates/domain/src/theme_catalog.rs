@@ -255,7 +255,7 @@ impl CatalogSource {
         }
     }
 
-    /// The official catalog with a fixed time, so its id and output stay stable.
+    /// Fixed time keeps the listed added time stable.
     #[must_use]
     pub fn official() -> Option<Self> {
         let url = CatalogUrl::parse(DEFAULT_SOURCE_URL, Reach::Public).ok()?;
