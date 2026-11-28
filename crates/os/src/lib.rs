@@ -37,7 +37,10 @@ pub use claude_slot::{
     clear as clear_claude_slot, inspect as inspect_claude_slot,
     settings_hash as claude_slot_settings_hash,
 };
-pub use files::{create_private_dir, write_atomic, write_private};
+pub use files::{
+    create_data_dir, create_private_dir, ensure_private_file, tighten_private_file, write_atomic,
+    write_private,
+};
 pub use local_time::{LocalZone, local_utc_offset_minutes};
 pub use paths::{Paths, PathsError, claude_config_dirs, home_dir};
 pub use process::{

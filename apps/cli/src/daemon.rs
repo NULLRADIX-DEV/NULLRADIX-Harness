@@ -1,5 +1,6 @@
 use std::env;
-use std::fs::{self, File, TryLockError};
+use std::fs::{File, TryLockError};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,7 +48,8 @@ use nullradix_app::usage::UsageService;
 use nullradix_app::worktrees::WorktreeService;
 use nullradix_app::{ChangeSignal, Clock, SystemClock, UuidV7Generator};
 use nullradix_client::{Discovery, DiscoveryFile, Spool};
-use nullradix_domain::{Actor, ConfigDir, Reach, Timestamp};
+use nullradix_domain::{Actor, ConfigDir, NetworkShares, Reach, Timestamp};
+use nullradix_os::Paths;
 use nullradix_runner::{
     CurlAssetFetcher, CurlCatalogFetcher, CurlTokenEndpoint, CurlUsageApi, LocalAccountFolders,
     LocalClaudeLogins, LocalDetached, LocalLoginRenewal, LocalLoginRunner, LocalRunner, LocalSetup,
@@ -72,10 +74,39 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 /// How often the daemon checks on active runs.
 const RUN_POLL: Duration = Duration::from_millis(500);
 
+/// Creates the daemon folders for the owner only.
+fn private_roots(paths: &Paths) -> anyhow::Result<()> {
+    let runs = paths.data.join("runs");
+    let accounts = paths.data.join("accounts");
+    for dir in [
+        &paths.data,
+        &paths.config,
+        &paths.cache,
+        &paths.logs,
+        &runs,
+        &accounts,
+    ] {
+        nullradix_os::create_data_dir(dir)
+            .with_context(|| format!("cannot create {}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Makes the database files private to the owner.
+fn private_database(path: &Path) -> io::Result<()> {
+    nullradix_os::ensure_private_file(path)?;
+    for suffix in ["-wal", "-shm"] {
+        let mut name = path.as_os_str().to_owned();
+        name.push(suffix);
+        nullradix_os::tighten_private_file(Path::new(&name))?;
+    }
+    Ok(())
+}
+
 pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
+    private_roots(&config.paths)?;
     let _logging = logging::init(&config.paths.logs, &config.log_filter)?;
     let data = &config.paths.data;
-    fs::create_dir_all(data).with_context(|| format!("cannot create {}", data.display()))?;
     let _lock = lock_profile(data)?;
     let discovery = DiscoveryFile::in_dir(data);
     // whatever is left belongs to a dead daemon, we hold the lock now
@@ -120,7 +151,9 @@ async fn listen(config: &Config, discovery: &DiscoveryFile) -> anyhow::Result<Tc
 
 #[allow(clippy::too_many_lines, reason = "wires every service of the daemon")]
 async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> {
-    let store = Store::open(&config.paths.data.join("nullradix.db"))
+    let database = config.paths.data.join("nullradix.db");
+    private_database(&database).context("cannot secure the database file")?;
+    let store = Store::open(&database)
         .await
         .context("cannot open the database")?;
     let auth = Arc::new(AuthService::new(
@@ -185,6 +218,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
             board: &board,
             notifier: start_notifier(config),
             plugin: config.profile.plugin_id(),
+            shares: network_shares(config),
         },
     );
     let limits = Limits::default();
@@ -324,6 +358,7 @@ struct DispatcherParts<'a> {
     board: &'a BoardServices,
     notifier: Arc<dyn Notifier>,
     plugin: String,
+    shares: NetworkShares,
 }
 
 /// What runs for the dispatcher and must end before the store closes.
@@ -380,8 +415,11 @@ fn start_dispatcher(
         limits: parts.usage,
         pauses: Arc::new(store.clone()),
         samples: Arc::new(store.clone()),
-        setup: Arc::new(LocalSetup),
-        detached: Arc::new(LocalDetached::new(Some(parts.plugin.clone()))),
+        setup: Arc::new(LocalSetup::default().with_network_shares(parts.shares.clone())),
+        detached: Arc::new(
+            LocalDetached::new(Some(parts.plugin.clone()))
+                .with_network_shares(parts.shares.clone()),
+        ),
         tracking: Arc::new(store.clone()),
         questions: parts.board.questions.clone(),
         actors: Arc::new(store.clone()),
@@ -395,7 +433,10 @@ fn start_dispatcher(
         worktrees: parts.board.worktrees.clone(),
         worktree_repository: Arc::new(store.clone()),
         merge_jobs: Arc::new(store.clone()),
-        merge_git: Arc::new(nullradix_runner::LocalMergeGit::new(Some(parts.plugin))),
+        merge_git: Arc::new(
+            nullradix_runner::LocalMergeGit::new(Some(parts.plugin))
+                .with_network_shares(parts.shares.clone()),
+        ),
         reviews: parts.board.reviews.clone(),
         clock: Arc::new(SystemClock),
         ids: Arc::new(UuidV7Generator),
@@ -500,14 +541,21 @@ fn login_runner(config: &Config) -> LocalLoginRunner {
         LocalLoginRunner::claude()
             .with_home(Some(config.paths.data.clone()))
             .with_default_folder(Some(config.paths.data.join(".claude")))
+            .with_network_shares(network_shares(config))
     } else {
-        LocalLoginRunner::claude()
+        LocalLoginRunner::claude().with_network_shares(network_shares(config))
     }
+}
+
+/// Hosts allowed for network paths of repositories, run folders and account folders.
+fn network_shares(config: &Config) -> NetworkShares {
+    NetworkShares::new(&config.network_shares)
 }
 
 /// New accounts get folders in the data folder; a home override also moves `~` there.
 fn account_folders(config: &Config) -> LocalAccountFolders {
-    let folders = LocalAccountFolders::new(config.paths.data.join("accounts"));
+    let folders = LocalAccountFolders::new(config.paths.data.join("accounts"))
+        .with_network_shares(network_shares(config));
     if config.isolated {
         folders.with_home(Some(config.paths.data.clone()))
     } else {
@@ -517,11 +565,12 @@ fn account_folders(config: &Config) -> LocalAccountFolders {
 
 /// Claude's login files: the real ones, or none of them when a home override isolates the run.
 fn claude_logins(config: &Config) -> LocalClaudeLogins {
-    if config.isolated {
+    let logins = if config.isolated {
         LocalClaudeLogins::new(Some(config.paths.data.clone()), None)
     } else {
         LocalClaudeLogins::from_environment()
-    }
+    };
+    logins.with_network_shares(network_shares(config))
 }
 
 /// Favorites and session details, both read from what the runners found.
@@ -677,10 +726,10 @@ fn start_claude_theme(
         Arc::new(store.clone()),
         themes.clone(),
         Arc::new(store.clone()),
-        Arc::new(FolderSlots::new(
-            config.paths.themes(),
-            default_claude_dir(home),
-        )),
+        Arc::new(
+            FolderSlots::new(config.paths.themes(), default_claude_dir(home))
+                .with_network_shares(network_shares(config)),
+        ),
         Arc::new(SystemClock),
         signal.clone(),
     ))
@@ -873,7 +922,8 @@ async fn start_runners(
     };
     let runner = Arc::new(
         local_runner(config.paths.data.join("runs"), supervisor, config.profile)
-            .with_live_transcript_roots(roots),
+            .with_live_transcript_roots(roots)
+            .with_network_shares(network_shares(config)),
     );
     let runners = RunnerService::start(
         Arc::new(store.clone()),
@@ -1022,6 +1072,7 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -1115,5 +1166,71 @@ mod tests {
             settings.contains("nullradix-dev@nullradix-dev-local"),
             "{settings}"
         );
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    fn set_mode(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_roots_are_private_and_older_open_ones_are_tightened() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = Paths::below(temp.path());
+        for old in [&paths.data, &paths.logs, &paths.data.join("runs")] {
+            fs::create_dir_all(old).unwrap();
+            set_mode(old, 0o755);
+        }
+        private_roots(&paths).unwrap();
+        for dir in [&paths.data, &paths.config, &paths.cache, &paths.logs] {
+            assert_eq!(mode_of(dir), 0o700, "{}", dir.display());
+        }
+        assert_eq!(mode_of(&paths.data.join("runs")), 0o700);
+        assert_eq!(mode_of(&paths.data.join("accounts")), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_new_database_and_its_wal_files_are_private() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("nullradix.db");
+        private_database(&path).unwrap();
+        assert_eq!(mode_of(&path), 0o600);
+        let store = Store::open(&path).await.unwrap();
+        for suffix in ["", "-wal", "-shm"] {
+            let file = PathBuf::from(format!("{}{suffix}", path.display()));
+            assert_eq!(mode_of(&file), 0o600, "{}", file.display());
+        }
+        store.close().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_database_files_of_an_older_install_are_tightened() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("nullradix.db");
+        // an open store keeps its wal files, like a killed daemon
+        let store = Store::open(&path).await.unwrap();
+        let files: Vec<PathBuf> = ["", "-wal", "-shm"]
+            .iter()
+            .map(|suffix| PathBuf::from(format!("{}{suffix}", path.display())))
+            .collect();
+        for file in &files {
+            assert!(file.exists(), "{}", file.display());
+            set_mode(file, 0o644);
+        }
+        private_database(&path).unwrap();
+        for file in &files {
+            assert_eq!(mode_of(file), 0o600, "{}", file.display());
+        }
+        store.close().await;
     }
 }

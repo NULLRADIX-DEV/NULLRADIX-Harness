@@ -12,6 +12,7 @@ use nullradix_domain::{
 use parking_lot::Mutex;
 
 use crate::auth::CommandRefusal;
+use crate::repositories::refusal_on;
 use crate::secrets::{SecretStore, SecretValue};
 use crate::usage::LoginRenewal;
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
@@ -293,7 +294,10 @@ impl AccountService {
             {
                 return Err(refusal.error(&["configDir"]));
             }
-            self.folders.check(dir).await?;
+            self.folders
+                .check(dir)
+                .await
+                .map_err(|error| refusal_on(error, "configDir"))?;
             let key = self.folders.key(dir);
             let other = existing.iter().find(|account| {
                 account

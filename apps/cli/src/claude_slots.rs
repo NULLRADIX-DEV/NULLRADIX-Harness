@@ -5,21 +5,41 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use nullradix_app::claude_theme::{ClaudeSlots, SlotApplied, SlotFailure, SlotState, SlotTheme};
-use nullradix_domain::{CLAUDE_DIR, SettingValue};
+use nullradix_domain::{CLAUDE_DIR, NetworkShares, SettingValue};
 use nullradix_os::{SlotError, SlotValue};
 
 /// Claude files of installed themes: the folder per theme id, and the default Claude folder.
 pub(crate) struct FolderSlots {
     themes: PathBuf,
     default_dir: Option<PathBuf>,
+    shares: NetworkShares,
 }
 
 impl FolderSlots {
-    pub(crate) const fn new(themes: PathBuf, default_dir: Option<PathBuf>) -> Self {
+    pub(crate) fn new(themes: PathBuf, default_dir: Option<PathBuf>) -> Self {
         Self {
             themes,
             default_dir,
+            shares: NetworkShares::default(),
         }
+    }
+
+    /// Lets Claude folders on these hosts be used.
+    pub(crate) fn with_network_shares(mut self, shares: NetworkShares) -> Self {
+        self.shares = shares;
+        self
+    }
+
+    /// Fails for a network path.
+    fn refuse(&self, dir: &str) -> Result<(), SlotFailure> {
+        if self.shares.refuses(dir) {
+            return Err(SlotFailure::Failed(
+                nullradix_app::repositories::network_path_refused(dir)
+                    .message()
+                    .to_owned(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -74,6 +94,7 @@ impl ClaudeSlots for FolderSlots {
     }
 
     async fn inspect(&self, dir: &str) -> Result<SlotState, SlotFailure> {
+        self.refuse(dir)?;
         let dir = PathBuf::from(dir);
         blocking(move || {
             Ok(
@@ -96,6 +117,7 @@ impl ClaudeSlots for FolderSlots {
     }
 
     async fn apply(&self, dir: &str, theme: &SlotTheme) -> Result<SlotApplied, SlotFailure> {
+        self.refuse(dir)?;
         let dir = PathBuf::from(dir);
         let source = self.themes.join(&theme.id).join(CLAUDE_DIR);
         let theme = theme.clone();
@@ -120,6 +142,9 @@ impl ClaudeSlots for FolderSlots {
     }
 
     async fn clear(&self, dir: &str) -> Result<bool, SlotFailure> {
+        if self.shares.refuses(dir) {
+            return Ok(false);
+        }
         let dir = PathBuf::from(dir);
         blocking(move || nullradix_os::clear_claude_slot(&dir).map_err(failure)).await
     }
@@ -297,5 +322,27 @@ mod tests {
             default_claude_dir(Some(home)),
             Some(PathBuf::from("/iso/.claude"))
         );
+    }
+
+    #[tokio::test]
+    async fn a_network_folder_of_an_account_is_never_inspected_written_or_cleared() {
+        let slots = FolderSlots::new(PathBuf::from("themes"), None);
+        let theme = SlotTheme {
+            id: String::from("night"),
+            version: String::from("1.0.0"),
+            name: String::from("Night"),
+            author: String::from("Ada"),
+            settings: BTreeMap::new(),
+        };
+        for dir in [
+            "//srv/share/claude",
+            "\\\\srv\\share\\claude",
+            "\\\\?\\C:\\claude",
+        ] {
+            let inspected = slots.inspect(dir).await.unwrap_err();
+            assert!(matches!(inspected, SlotFailure::Failed(_)), "{dir}");
+            assert!(slots.apply(dir, &theme).await.is_err(), "{dir}");
+            assert!(!slots.clear(dir).await.unwrap(), "{dir}");
+        }
     }
 }

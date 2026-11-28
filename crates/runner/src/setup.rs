@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::dispatch::setup::{SetupFailure, SetupOutcome, SetupRequest, WorktreeSetupPort};
-use nullradix_domain::WorktreeSetupStep;
+use nullradix_domain::{NetworkShares, WorktreeSetupStep};
 use nullradix_os::ProcessTree;
 use tokio_util::sync::CancellationToken;
 
@@ -18,8 +18,19 @@ const OUTPUT_KEPT: usize = 20_000;
 const POLL: Duration = Duration::from_millis(25);
 
 /// Runs setup commands as child processes of the daemon.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct LocalSetup;
+#[derive(Debug, Clone, Default)]
+pub struct LocalSetup {
+    shares: NetworkShares,
+}
+
+impl LocalSetup {
+    /// Lets worktrees on these hosts be used.
+    #[must_use]
+    pub fn with_network_shares(mut self, shares: NetworkShares) -> Self {
+        self.shares = shares;
+        self
+    }
+}
 
 #[async_trait]
 impl WorktreeSetupPort for LocalSetup {
@@ -28,6 +39,7 @@ impl WorktreeSetupPort for LocalSetup {
         request: &SetupRequest,
         cancel: &CancellationToken,
     ) -> Result<SetupOutcome, AppError> {
+        crate::git::refuse_networks(&self.shares, &[&request.root])?;
         let request = request.clone();
         let cancel = cancel.clone();
         tokio::task::spawn_blocking(move || run_steps(&request, &cancel))
@@ -226,7 +238,7 @@ mod tests {
     }
 
     async fn run(request: &SetupRequest) -> SetupOutcome {
-        LocalSetup
+        LocalSetup::default()
             .run(request, &CancellationToken::new())
             .await
             .unwrap()
@@ -431,10 +443,22 @@ mod tests {
         );
         let task = tokio::spawn({
             let cancel = cancel.clone();
-            async move { LocalSetup.run(&asked, &cancel).await.unwrap() }
+            async move { LocalSetup::default().run(&asked, &cancel).await.unwrap() }
         });
         tokio::time::sleep(Duration::from_millis(300)).await;
         cancel.cancel();
         assert_eq!(task.await.unwrap(), SetupOutcome::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn a_worktree_on_an_unlisted_share_gets_no_setup_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut share = request(dir.path(), &[(".", "echo x")], Duration::from_secs(5));
+        share.root = String::from("//srv/share/arches-worktrees/ARC-0001");
+        let error = LocalSetup::default()
+            .run(&share, &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "network-path-refused");
     }
 }

@@ -9,11 +9,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nullradix_app::secrets::SecretValue;
 use nullradix_app::usage::{ClaudeLogin, ClaudeLogins, LoginRead};
-use nullradix_domain::{ConfigDir, Timestamp};
+use nullradix_domain::{ConfigDir, NetworkShares, Timestamp};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::accounts::expand_home;
+use crate::accounts::{expand_home, refuses_typed};
 
 /// Claude Code writes `.credentials.json` in place on Windows, so a reader may see half a file.
 const UNREADABLE_RETRIES: u32 = 2;
@@ -28,6 +28,7 @@ pub struct LocalClaudeLogins {
     server_dir: Option<PathBuf>,
     delay: Duration,
     last: Mutex<HashMap<PathBuf, ClaudeLogin>>,
+    shares: NetworkShares,
 }
 
 impl LocalClaudeLogins {
@@ -47,7 +48,19 @@ impl LocalClaudeLogins {
             server_dir,
             delay: UNREADABLE_DELAY,
             last: Mutex::new(HashMap::new()),
+            shares: NetworkShares::default(),
         }
+    }
+
+    /// Lets account folders on these hosts be read.
+    #[must_use]
+    pub fn with_network_shares(mut self, shares: NetworkShares) -> Self {
+        self.shares = shares;
+        self
+    }
+
+    pub(crate) fn refused(&self, dir: Option<&ConfigDir>) -> bool {
+        dir.is_some_and(|dir| refuses_typed(&self.shares, dir.as_str()))
     }
 
     #[must_use]
@@ -169,6 +182,9 @@ fn parse_login(document: &Value) -> Option<ClaudeLogin> {
 #[async_trait]
 impl ClaudeLogins for LocalClaudeLogins {
     async fn read(&self, dir: Option<&ConfigDir>) -> LoginRead {
+        if self.refused(dir) {
+            return LoginRead::Missing;
+        }
         let file = self.credentials_file(dir);
         for attempt in 0..=UNREADABLE_RETRIES {
             let Some(text) = self.document(dir, file.clone()).await else {
@@ -194,6 +210,9 @@ impl ClaudeLogins for LocalClaudeLogins {
     }
 
     async fn email(&self, dir: Option<&ConfigDir>) -> Option<String> {
+        if self.refused(dir) {
+            return None;
+        }
         let file = self.identity_file(dir);
         let text = tokio::task::spawn_blocking(move || std::fs::read_to_string(file).ok())
             .await
@@ -387,5 +406,54 @@ mod tests {
         let document: Value = serde_json::from_str(LOGIN).unwrap();
         let login = parse_login(&document).unwrap();
         assert!(!format!("{login:?}").contains("sk-ant-oat01-fake-access"));
+    }
+
+    #[tokio::test]
+    async fn a_stored_network_folder_is_neither_read_nor_asked_for_its_email() {
+        let temp = tempfile::tempdir().unwrap();
+        let own = logins(temp.path());
+        for text in [
+            "//srv/share/claude",
+            "\\\\srv\\share\\claude",
+            "~/\\\\srv\\share",
+        ] {
+            let dir = ConfigDir::parse(text).unwrap();
+            assert!(
+                matches!(own.read(Some(&dir)).await, LoginRead::Missing),
+                "{text}"
+            );
+            assert_eq!(own.email(Some(&dir)).await, None, "{text}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_listed_share_is_read_like_any_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("max");
+        write(&folder, ".credentials.json", LOGIN);
+        write(
+            &folder,
+            ".claude.json",
+            r#"{"oauthAccount":{"emailAddress":"me@example.com"}}"#,
+        );
+        // two leading slashes name a host to the check and the first folder to this system
+        let doubled = ConfigDir::parse(&format!("/{}", folder.display())).unwrap();
+        let host = doubled
+            .as_str()
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap();
+        let closed = logins(temp.path());
+        assert!(matches!(
+            closed.read(Some(&doubled)).await,
+            LoginRead::Missing
+        ));
+        let listed = logins(temp.path()).with_network_shares(NetworkShares::new([host]));
+        assert!(matches!(
+            listed.read(Some(&doubled)).await,
+            LoginRead::Found(_)
+        ));
     }
 }

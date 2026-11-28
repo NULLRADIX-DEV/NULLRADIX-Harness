@@ -1,6 +1,6 @@
 //! What a session did, read on its runner from the transcript and the checkout.
 
-use nullradix_domain::SessionClient;
+use nullradix_domain::{PathTarget, SessionClient, classify_path};
 
 use crate::AppError;
 use crate::sessions::SessionLine;
@@ -317,6 +317,7 @@ pub fn check_transcript_path(path: &str) -> Result<(), AppError> {
     // a colon behind the drive names a data stream
     let stream = drive && normalized[2..].contains(':');
     let valid = (rooted || drive)
+        && classify_path(path) == PathTarget::Local
         && !stream
         && normalized.to_ascii_lowercase().ends_with(".jsonl")
         && !normalized.contains('\0')
@@ -392,6 +393,8 @@ mod tests {
             "\\\\?\\C:\\Users\\a\\x.jsonl",
             "\\\\.\\pipe\\x.jsonl",
             "\\\\.\\C:\\x.jsonl",
+            "\\??\\UNC\\host\\share\\x.jsonl",
+            "\\??\\C:\\Users\\a\\x.jsonl",
             "C:\\a\\b:s.jsonl",
         ] {
             assert_eq!(

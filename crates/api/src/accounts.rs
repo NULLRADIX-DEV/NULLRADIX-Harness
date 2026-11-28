@@ -836,4 +836,35 @@ mod tests {
         };
         assert!(!format!("{body:?}").contains(TOKEN));
     }
+
+    #[tokio::test]
+    async fn network_and_device_folders_are_refused_as_a_field_problem() {
+        let api = test_api().await;
+        let cookie = confirmed(&api).await;
+        for dir in [
+            "//attacker.example/share/claude",
+            "\\\\attacker.example\\share\\claude",
+            "\\\\?\\C:\\claude",
+            "~/\\\\attacker.example\\share",
+        ] {
+            let body = json!({ "name": "Max", "configDir": dir });
+            // the check for commands comes first for a token
+            let (status, json) =
+                call(&api, Request::post("/api/v1/accounts"), Some(body.clone())).await;
+            assert_eq!(
+                problem(status, &json),
+                (403, "command-change-needs-person"),
+                "{dir}"
+            );
+            let (status, json) = create_as(&api, &cookie, body).await;
+            assert_eq!(
+                problem(status, &json),
+                (422, "network-path-refused"),
+                "{dir}"
+            );
+            assert_eq!(json["errors"][0]["field"], "configDir", "{dir}");
+        }
+        let (_, list) = call(&api, Request::get("/api/v1/accounts"), None).await;
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
+    }
 }

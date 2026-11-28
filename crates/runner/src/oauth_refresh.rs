@@ -275,7 +275,7 @@ impl LocalLoginRenewal {
 #[async_trait]
 impl LoginRenewal for LocalLoginRenewal {
     async fn renew(&self, dir: Option<&ConfigDir>) -> Renewal {
-        if self.keychain {
+        if self.keychain || self.logins.refused(dir) {
             return Renewal::NeedsLogin;
         }
         let file = self.logins.credentials_file(dir);
@@ -990,5 +990,30 @@ mod tests {
             .await
             .unwrap_err();
         assert!(!error.contains("secret-refresh"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_share_with_an_expired_login_is_not_renewed_unless_its_host_is_listed() {
+        let endpoint = Endpoint::new(vec![granted()]);
+        let rig = rig(endpoint.clone(), Some(EXPIRED));
+        // two leading slashes name a host to the check and the first folder to this system
+        let doubled = ConfigDir::parse(&format!("/{}", rig.folder.display())).unwrap();
+        assert_eq!(rig.renewal.renew(Some(&doubled)).await, Renewal::NeedsLogin);
+        assert_eq!(endpoint.asks(), 0);
+        let host = doubled
+            .as_str()
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap();
+        let logins = Arc::new(
+            LocalClaudeLogins::new(None, None)
+                .with_network_shares(nullradix_domain::NetworkShares::new([host])),
+        );
+        let listed = LocalLoginRenewal::new(logins, endpoint.clone(), Arc::new(FixedClock))
+            .with_keychain(false);
+        assert_eq!(listed.renew(Some(&doubled)).await, Renewal::Renewed);
+        assert_eq!(endpoint.asks(), 1);
     }
 }

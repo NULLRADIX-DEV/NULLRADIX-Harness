@@ -10,10 +10,12 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::login::{LoginProcess, LoginRunner, LoginSpec, claude_not_found};
+use nullradix_app::repositories::network_path_refused;
+use nullradix_domain::NetworkShares;
 use nullradix_os::ProcessTree;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::accounts::expand_home;
+use crate::accounts::{expand_home, refuses_typed};
 
 const POLL: Duration = Duration::from_millis(100);
 /// Variables that would make Claude Code log in somewhere else than in the account's folder.
@@ -27,6 +29,7 @@ pub struct LocalLoginRunner {
     home: Option<PathBuf>,
     /// Folder for the default account, which otherwise follows the environment of the daemon.
     default_folder: Option<PathBuf>,
+    shares: NetworkShares,
 }
 
 /// How to start `command`; on Windows `claude` is a batch file that only `cmd` finds.
@@ -67,7 +70,15 @@ impl LocalLoginRunner {
             prefix,
             home: nullradix_os::home_dir(),
             default_folder: None,
+            shares: NetworkShares::default(),
         }
+    }
+
+    /// Lets account folders on these hosts be used.
+    #[must_use]
+    pub fn with_network_shares(mut self, shares: NetworkShares) -> Self {
+        self.shares = shares;
+        self
     }
 
     /// Uses `home` for `~` in account folders, as the folders and usage of the daemon do.
@@ -127,6 +138,11 @@ fn lines(pipe: impl std::io::Read + Send + 'static, output: mpsc::Sender<String>
 #[async_trait]
 impl LoginRunner for LocalLoginRunner {
     async fn start(&self, spec: &LoginSpec) -> Result<LoginProcess, AppError> {
+        if let Some(dir) = &spec.config_dir
+            && refuses_typed(&self.shares, dir.as_str())
+        {
+            return Err(network_path_refused(dir.as_str()));
+        }
         if spec.config_dir.is_none()
             && let Some(folder) = self.default_folder.clone()
         {
@@ -200,6 +216,8 @@ impl LoginRunner for LocalLoginRunner {
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
+
+    use nullradix_domain::ConfigDir;
 
     use super::*;
 
@@ -413,5 +431,22 @@ mod tests {
                 .get_envs()
                 .all(|(name, _)| name != "CLAUDE_CONFIG_DIR")
         );
+    }
+
+    #[tokio::test]
+    async fn a_stored_network_folder_is_refused_before_claude_starts() {
+        let runner = shell("echo started");
+        for text in [
+            "//srv/share/claude",
+            "\\\\srv\\share\\claude",
+            "~/\\\\srv\\share",
+        ] {
+            let spec = LoginSpec {
+                config_dir: Some(ConfigDir::parse(text).unwrap()),
+                email: None,
+            };
+            let error = runner.start(&spec).await.err().unwrap();
+            assert_eq!(error.code(), "network-path-refused", "{text}");
+        }
     }
 }

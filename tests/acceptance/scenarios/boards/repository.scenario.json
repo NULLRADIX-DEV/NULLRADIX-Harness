@@ -61,6 +61,26 @@
       }
     },
     {
+      "name": "a network path",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/repository",
+        "body": {
+          "runnerId": "{{runner}}",
+          "path": "//attacker.example/share/arches",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "a device path",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/projects/{{project}}/boards/{{board}}/repository",
+        "body": { "runnerId": "{{runner}}", "path": "\\\\.\\pipe\\arches", "version": 1 }
+      }
+    },
+    {
       "name": "an unknown runner",
       "http": {
         "method": "PUT",

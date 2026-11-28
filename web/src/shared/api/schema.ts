@@ -3218,7 +3218,7 @@ export interface components {
             code: string;
             confirmation?: components["schemas"]["ConfirmationDto"] | null;
             detail: string;
-            /** @description Refused fields of the input, for `theme-manifest-invalid`. */
+            /** @description The refused fields of the input. */
             errors?: components["schemas"]["FieldProblemDto"][];
             /** @description Key of the entity that already exists, such as `ARC-0007` for a duplicate ticket. */
             existing?: string | null;

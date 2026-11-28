@@ -16,6 +16,7 @@ mod id;
 mod inbox;
 mod merge;
 mod merge_session;
+mod network_path;
 mod note;
 mod project;
 mod question;
@@ -105,6 +106,7 @@ pub use merge_session::{
     merge_session_choice, merge_session_limit, previous_attempts, session_failed_note,
     session_started_note,
 };
+pub use network_path::{NetworkShares, PathTarget, classify_path};
 pub use note::{
     NOTE_LABELS_MAX, NOTE_REASON_MAX, NOTE_SEEN_IN_MAX, NOTE_TITLE_MAX, Note, NoteDraft, NoteError,
     NoteState, Sighting, TicketRef, check_note_labels, drop_reason, note_number, note_title,

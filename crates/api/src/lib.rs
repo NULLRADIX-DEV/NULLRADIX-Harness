@@ -1009,7 +1009,7 @@ pub(crate) mod tests {
                 limits: usage.clone(),
                 pauses: store.clone(),
                 samples: store.clone(),
-                setup: Arc::new(nullradix_runner::LocalSetup),
+                setup: Arc::new(nullradix_runner::LocalSetup::default()),
                 detached: Arc::new(nullradix_runner::LocalDetached::new(None)),
                 tracking: store.clone(),
                 questions: questions.clone(),

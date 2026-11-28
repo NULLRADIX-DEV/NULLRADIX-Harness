@@ -14850,7 +14850,7 @@
             "items": {
               "$ref": "#/components/schemas/FieldProblemDto"
             },
-            "description": "Refused fields of the input, for `theme-manifest-invalid`."
+            "description": "The refused fields of the input."
           },
           "existing": {
             "type": [

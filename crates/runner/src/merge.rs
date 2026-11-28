@@ -10,7 +10,7 @@ use nullradix_app::dispatch::merge_git::{
 };
 use nullradix_app::review::check_branch;
 use nullradix_app::worktrees::git_failed;
-use nullradix_domain::{HoldKind, MergeStrategy, SQUASH_LIST_MAX, hold_files};
+use nullradix_domain::{HoldKind, MergeStrategy, NetworkShares, SQUASH_LIST_MAX, hold_files};
 use tokio::io::AsyncReadExt;
 
 use crate::git::local_key;
@@ -35,13 +35,28 @@ const BUSY: [(&str, &str); 5] = [
 #[derive(Debug, Clone)]
 pub struct LocalMergeGit {
     plugin: Option<String>,
+    shares: NetworkShares,
 }
 
 impl LocalMergeGit {
     /// Merge worktrees get the plugin with this id switched on; `None` leaves them alone.
     #[must_use]
-    pub const fn new(plugin: Option<String>) -> Self {
-        Self { plugin }
+    pub fn new(plugin: Option<String>) -> Self {
+        Self {
+            plugin,
+            shares: NetworkShares::default(),
+        }
+    }
+
+    /// Lets checkouts on these hosts be used.
+    #[must_use]
+    pub fn with_network_shares(mut self, shares: NetworkShares) -> Self {
+        self.shares = shares;
+        self
+    }
+
+    fn refuse_networks(&self, paths: &[&str]) -> Result<(), AppError> {
+        crate::git::refuse_networks(&self.shares, paths)
     }
 }
 
@@ -840,11 +855,13 @@ async fn merge_at(
 #[async_trait]
 impl MergeGit for LocalMergeGit {
     async fn ensure_target(&self, root: &str, target: &str) -> Result<Option<String>, AppError> {
+        self.refuse_networks(&[root])?;
         checked(target)?;
         ensure_target(Path::new(root), target).await
     }
 
     async fn branch_tip(&self, root: &str, branch: &str) -> Result<Option<String>, AppError> {
+        self.refuse_networks(&[root])?;
         checked(branch)?;
         tip_of(Path::new(root), branch).await
     }
@@ -855,6 +872,7 @@ impl MergeGit for LocalMergeGit {
         branch: &str,
         target: Option<&str>,
     ) -> Result<bool, AppError> {
+        self.refuse_networks(&[root])?;
         checked(branch)?;
         let root = Path::new(root);
         let Some(tip) = tip_of(root, branch).await? else {
@@ -877,6 +895,7 @@ impl MergeGit for LocalMergeGit {
         branch: &str,
         target: Option<&str>,
     ) -> Result<Option<MergedEarlier>, AppError> {
+        self.refuse_networks(&[root])?;
         checked(branch)?;
         let root = Path::new(root);
         if tip_of(root, branch).await?.is_some() {
@@ -943,6 +962,7 @@ impl MergeGit for LocalMergeGit {
         root: &str,
         target: Option<&str>,
     ) -> Result<Option<TargetTip>, AppError> {
+        self.refuse_networks(&[root])?;
         let root = Path::new(root);
         let into = match target {
             Some(target) => {
@@ -960,6 +980,7 @@ impl MergeGit for LocalMergeGit {
     }
 
     async fn session_resolved(&self, check: &SessionCheck<'_>) -> Result<SessionVerdict, AppError> {
+        self.refuse_networks(&[check.root, check.folder])?;
         checked(check.branch)?;
         for commit in std::iter::once(check.target_head).chain(check.branch_tip) {
             if !commit_id(commit) {
@@ -1004,6 +1025,7 @@ impl MergeGit for LocalMergeGit {
         branch: &str,
         commit: &str,
     ) -> Result<bool, AppError> {
+        self.refuse_networks(&[root])?;
         checked(branch)?;
         if !commit_id(commit) {
             return Ok(false);
@@ -1012,6 +1034,7 @@ impl MergeGit for LocalMergeGit {
     }
 
     async fn merge(&self, request: &MergeRequest) -> Result<MergeOutcome, AppError> {
+        self.refuse_networks(&[&request.root])?;
         checked(&request.branch)?;
         if let Some(target) = &request.target {
             checked(target)?;
@@ -1026,6 +1049,7 @@ impl MergeGit for LocalMergeGit {
     }
 
     async fn delete_merged(&self, request: &DeleteBranch) -> Result<BranchDeletion, AppError> {
+        self.refuse_networks(&[&request.root])?;
         checked(&request.branch)?;
         checked(&request.into)?;
         let root = Path::new(&request.root);
@@ -1944,5 +1968,50 @@ exit 1
         fs::remove_file(&marker).unwrap();
         merged(&request(&root, Some("release"), MergeStrategy::Merge)).await;
         assert!(elsewhere.join("b.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn a_checkout_on_an_unlisted_share_is_refused_by_every_call() {
+        let port = LocalMergeGit::new(None);
+        let share = "//srv/share/arches";
+        let refused = |code: &str| assert_eq!(code, "network-path-refused");
+        refused(port.ensure_target(share, "main").await.unwrap_err().code());
+        refused(port.branch_tip(share, "ticket/x").await.unwrap_err().code());
+        refused(
+            port.integrated(share, "ticket/x", None)
+                .await
+                .unwrap_err()
+                .code(),
+        );
+        refused(
+            port.merged_earlier(share, "ticket/x", None)
+                .await
+                .unwrap_err()
+                .code(),
+        );
+        refused(port.target_tip(share, None).await.unwrap_err().code());
+        refused(
+            port.branch_contains(share, "ticket/x", "abc1234")
+                .await
+                .unwrap_err()
+                .code(),
+        );
+        let request = request(Path::new(share), None, MergeStrategy::Merge);
+        refused(port.merge(&request).await.unwrap_err().code());
+        let delete = DeleteBranch {
+            root: String::from(share),
+            branch: String::from("ticket/x"),
+            tip: String::from("abc1234"),
+            into: String::from("main"),
+        };
+        refused(port.delete_merged(&delete).await.unwrap_err().code());
+        let check = SessionCheck {
+            root: "/work/arches",
+            target_head: "abc1234",
+            branch_tip: None,
+            branch: "ticket/x",
+            folder: share,
+        };
+        refused(port.session_resolved(&check).await.unwrap_err().code());
     }
 }

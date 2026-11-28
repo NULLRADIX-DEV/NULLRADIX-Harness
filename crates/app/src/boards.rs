@@ -9,7 +9,7 @@ use nullradix_domain::{
 };
 
 use crate::projects::{self, ProjectRepository};
-use crate::repositories::RunnerService;
+use crate::repositories::{RunnerService, refusal_on};
 use crate::tickets::{self, TicketRepository};
 use crate::{AppError, Change, ChangeSignal, Clock, IdGenerator};
 
@@ -202,7 +202,11 @@ impl BoardService {
         if current.board.version() != expected {
             return Err(AppError::version_conflict("board", id));
         }
-        let repository = self.runners.checkout(runner, path).await?;
+        let repository = self
+            .runners
+            .checkout(runner, path)
+            .await
+            .map_err(|error| refusal_on(error, "path"))?;
         let name = repository.name().as_str().to_owned();
         self.point(current, Some(repository.id()), Some(name), expected)
             .await
@@ -247,7 +251,12 @@ impl BoardService {
         runner: Id<Runner>,
         path: &str,
     ) -> Result<Vec<BoardSummary>, AppError> {
-        match self.runners.key(runner, path).await? {
+        let found = self
+            .runners
+            .key(runner, path)
+            .await
+            .map_err(|error| refusal_on(error, "path"))?;
+        match found {
             Some(key) => self.repository.list_by_checkout(runner, &key).await,
             None => Ok(Vec::new()),
         }

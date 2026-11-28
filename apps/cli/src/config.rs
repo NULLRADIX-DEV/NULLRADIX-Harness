@@ -88,6 +88,7 @@ struct ServerSection {
     bind: Option<IpAddr>,
     port: Option<u16>,
     allowed_hosts: Vec<String>,
+    network_shares: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -112,6 +113,8 @@ pub(crate) struct Config {
     pub(crate) paths: Paths,
     pub(crate) address: SocketAddr,
     pub(crate) allowed_hosts: Vec<String>,
+    /// Hosts allowed as network shares.
+    pub(crate) network_shares: Vec<String>,
     pub(crate) log_filter: String,
     pub(crate) web_dir: Option<PathBuf>,
     /// Theme catalogs may also be http, local or private; for self-hosted catalogs.
@@ -184,6 +187,7 @@ impl Config {
             paths,
             address: SocketAddr::new(bind, port),
             allowed_hosts,
+            network_shares: file.server.network_shares,
             log_filter,
             web_dir,
             theme_catalog_local: overrides.theme_catalog_local,
@@ -274,6 +278,23 @@ allowed_hosts = [\"workbench.lan\"]
         let config =
             Config::load(Profile::Release, Some(home.path()), Overrides::default()).unwrap();
         assert_eq!(config.allowed_hosts, vec!["workbench.lan", "192.168.1.5"]);
+    }
+
+    #[test]
+    fn network_shares_are_read_from_the_server_section_and_empty_by_default() {
+        let home = tempfile::tempdir().unwrap();
+        let load = || Config::load(Profile::Release, Some(home.path()), Overrides::default());
+        assert_eq!(load().unwrap().network_shares, Vec::<String>::new());
+        write_config(
+            home.path(),
+            "[server]
+network_shares = [\"fileserver\", \"NAS.lan\"]
+",
+        );
+        assert_eq!(
+            load().unwrap().network_shares,
+            vec!["fileserver", "NAS.lan"]
+        );
     }
 
     #[test]

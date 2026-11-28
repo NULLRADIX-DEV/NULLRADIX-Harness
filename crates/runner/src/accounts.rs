@@ -5,7 +5,9 @@ use std::path::{Component, Path, PathBuf};
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::accounts::{AccountFolders, dir_not_owned, folder_missing, folder_relative};
-use nullradix_domain::{AccountSlug, ConfigDir, RunnerOs};
+use nullradix_app::repositories::network_path_refused;
+use nullradix_domain::{AccountSlug, ConfigDir, NetworkShares, RunnerOs};
+use nullradix_os::create_data_dir;
 
 use crate::git::local_key;
 
@@ -14,6 +16,7 @@ use crate::git::local_key;
 pub struct LocalAccountFolders {
     root: PathBuf,
     home: Option<PathBuf>,
+    shares: NetworkShares,
 }
 
 impl LocalAccountFolders {
@@ -22,7 +25,15 @@ impl LocalAccountFolders {
         Self {
             root,
             home: nullradix_os::home_dir(),
+            shares: NetworkShares::default(),
         }
+    }
+
+    /// Lets folders on these hosts be used.
+    #[must_use]
+    pub fn with_network_shares(mut self, shares: NetworkShares) -> Self {
+        self.shares = shares;
+        self
     }
 
     #[must_use]
@@ -36,6 +47,9 @@ impl LocalAccountFolders {
     pub fn transcript_roots(&self, base: Vec<PathBuf>, accounts: &[ConfigDir]) -> Vec<PathBuf> {
         let mut roots = base;
         for dir in accounts {
+            if self.refused(dir.as_str()) {
+                continue;
+            }
             let path = self.expand(dir.as_str());
             if path.is_absolute() && !roots.contains(&path) {
                 roots.push(path);
@@ -47,6 +61,31 @@ impl LocalAccountFolders {
     /// `~` and `~/...` stand for the home folder.
     fn expand(&self, typed: &str) -> PathBuf {
         expand_home(self.home.as_deref(), typed)
+    }
+
+    /// Whether the typed folder reaches an unlisted machine or a device.
+    fn refused(&self, typed: &str) -> bool {
+        refuses_typed(&self.shares, typed)
+    }
+}
+
+/// Whether a typed folder reaches an unlisted machine or a device, also behind `~/`.
+pub(crate) fn refuses_typed(shares: &NetworkShares, typed: &str) -> bool {
+    // on Windows a rooted rest replaces the home folder
+    let rest = typed
+        .strip_prefix("~/")
+        .or_else(|| typed.strip_prefix("~\\"));
+    shares.refuses(typed) || rest.is_some_and(|rest| shares.refuses(rest))
+}
+
+/// `resolved_key` for a refused folder, from its text alone.
+fn textual_key(typed: &str) -> String {
+    let text = typed.trim().replace('\\', "/");
+    let key = text.trim_end_matches('/');
+    if RunnerOs::current().ignores_path_case() {
+        key.to_lowercase()
+    } else {
+        key.to_owned()
     }
 }
 
@@ -105,17 +144,25 @@ impl AccountFolders for LocalAccountFolders {
     async fn create(&self, slug: &AccountSlug) -> Result<ConfigDir, AppError> {
         let path = self.root.join(slug.as_str());
         let made = path.clone();
-        tokio::task::spawn_blocking(move || std::fs::create_dir_all(made))
-            .await
-            .map_err(AppError::internal)?
-            .map_err(AppError::internal)?;
+        let root = self.root.clone();
+        // private account folders, tightened when they are older
+        tokio::task::spawn_blocking(move || {
+            create_data_dir(&root)?;
+            create_data_dir(&made)
+        })
+        .await
+        .map_err(AppError::internal)?
+        .map_err(AppError::internal)?;
         Ok(ConfigDir::from_stored(path.to_string_lossy().into_owned()))
     }
 
     async fn check(&self, dir: &ConfigDir) -> Result<(), AppError> {
+        if self.refused(dir.as_str()) {
+            return Err(network_path_refused(dir.as_str()));
+        }
         let path = self.expand(dir.as_str());
-        // a rooted path counts as absolute, as legacy did, so `\folder` passes on Windows
-        if !path.has_root() {
+        // a folder with a root but no drive is relative on Windows
+        if !path.is_absolute() {
             return Err(folder_relative(dir));
         }
         let exists = tokio::task::spawn_blocking(move || path.is_dir())
@@ -129,6 +176,9 @@ impl AccountFolders for LocalAccountFolders {
     }
 
     fn key(&self, dir: &ConfigDir) -> String {
+        if self.refused(dir.as_str()) {
+            return textual_key(dir.as_str());
+        }
         resolved_key(&self.expand(dir.as_str()))
     }
     fn slug_key(&self, slug: &AccountSlug) -> String {
@@ -136,6 +186,9 @@ impl AccountFolders for LocalAccountFolders {
     }
 
     fn owns(&self, dir: &ConfigDir) -> bool {
+        if self.refused(dir.as_str()) {
+            return false;
+        }
         let path = self.expand(dir.as_str());
         let climbs = path
             .components()
@@ -287,5 +340,105 @@ mod tests {
         folders.remove(&dir).await.unwrap();
         assert!(!Path::new(dir.as_str()).exists());
         folders.remove(&dir).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn account_folders_are_private_and_older_open_ones_are_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let folders = folders(temp.path());
+        let root = temp.path().join("accounts");
+        let old = root.join("max");
+        std::fs::create_dir_all(&old).unwrap();
+        for dir in [&root, &old] {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        folders
+            .create(&AccountSlug::parse("max").unwrap())
+            .await
+            .unwrap();
+        assert_eq!(mode_of(&root), 0o700);
+        assert_eq!(mode_of(&old), 0o700);
+        let fresh = folders
+            .create(&AccountSlug::parse("work").unwrap())
+            .await
+            .unwrap();
+        assert_eq!(mode_of(Path::new(fresh.as_str())), 0o700);
+    }
+
+    #[tokio::test]
+    async fn network_and_device_folders_are_refused_without_touching_them() {
+        let temp = tempfile::tempdir().unwrap();
+        let folders = folders(temp.path());
+        for text in [
+            "//server/share/claude",
+            "\\\\server\\share\\claude",
+            "\\\\?\\C:\\claude",
+            "\\\\.\\pipe\\claude",
+            "~\\\\\\server\\share",
+            "~/\\\\server\\share",
+        ] {
+            let dir = ConfigDir::parse(text).unwrap();
+            let error = folders.check(&dir).await.unwrap_err();
+            assert_eq!(error.code(), "network-path-refused", "{text}");
+            assert_eq!(error.kind(), ErrorKind::Invalid);
+            assert!(!folders.owns(&dir), "{text}");
+            assert!(
+                folders
+                    .transcript_roots(Vec::new(), std::slice::from_ref(&dir))
+                    .is_empty(),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refused_folder_has_a_key_from_its_text_alone() {
+        assert_eq!(textual_key(" \\\\srv\\x\\ "), "//srv/x");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = ConfigDir::parse("\\\\srv\\x\\").unwrap();
+        assert_eq!(folders(temp.path()).key(&dir), "//srv/x");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_share_is_refused_while_its_folder_exists_unless_its_host_is_listed() {
+        let temp = tempfile::tempdir().unwrap();
+        let existing = temp.path().join("claude");
+        std::fs::create_dir_all(&existing).unwrap();
+        // two leading slashes name a host to the check and the first folder to this system
+        let doubled = ConfigDir::parse(&format!("/{}", existing.display())).unwrap();
+        let closed = folders(temp.path());
+        let refused = closed.check(&doubled).await.unwrap_err();
+        assert_eq!(refused.code(), "network-path-refused");
+        let host = doubled
+            .as_str()
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap();
+        let listed = folders(temp.path()).with_network_shares(NetworkShares::new([host]));
+        assert!(listed.check(&doubled).await.is_ok());
+        let other = folders(temp.path()).with_network_shares(NetworkShares::new(["elsewhere"]));
+        assert!(other.check(&doubled).await.is_err());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_folder_without_a_drive_is_relative() {
+        let temp = tempfile::tempdir().unwrap();
+        let error = folders(temp.path())
+            .check(&ConfigDir::parse("\\folder").unwrap())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "account-invalid");
+        assert!(error.message().contains("absolute"), "{}", error.message());
     }
 }

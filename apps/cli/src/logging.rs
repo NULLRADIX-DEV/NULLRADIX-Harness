@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 
 use anyhow::Context;
@@ -12,7 +11,8 @@ const KEPT_LOG_FILES: usize = 14;
 
 /// Logs compact lines to stderr and JSON to a daily rolling file; keep the guard alive.
 pub(crate) fn init(logs: &Path, filter: &str) -> anyhow::Result<WorkerGuard> {
-    fs::create_dir_all(logs).with_context(|| format!("cannot create {}", logs.display()))?;
+    nullradix_os::create_data_dir(logs)
+        .with_context(|| format!("cannot create {}", logs.display()))?;
     let appender = Builder::new()
         .rotation(Rotation::DAILY)
         .filename_prefix("nullradix")
