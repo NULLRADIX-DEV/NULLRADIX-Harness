@@ -2546,7 +2546,7 @@ name = "nullradix-os"
 version = "0.1.0"
 dependencies = [
  "directories",
- "jiff 0.2.46",
+ "jiff 1.0.3",
  "nix",
  "open",
  "security-framework",
