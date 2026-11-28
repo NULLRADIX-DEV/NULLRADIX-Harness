@@ -7272,7 +7272,7 @@
           {
             "name": "v",
             "in": "query",
-            "description": "The `v` of the `previewUrl` in the list; an image asked for by it may be kept long.",
+            "description": "The version in the `previewUrl` allows a long browser cache.",
             "required": false,
             "schema": {
               "type": "string"
@@ -11170,7 +11170,7 @@
               "string",
               "null"
             ],
-            "description": "Path of the preview image on this daemon; the address the source names never leaves it."
+            "description": "Path of the preview on this daemon, never the address of the source."
           },
           "sdkVersion": {
             "type": "string",

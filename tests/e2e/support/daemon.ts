@@ -64,7 +64,7 @@ export class Daemon {
     this.extra = extra;
   }
 
-  // `extra` is for what a test needs on top of the scrubbed environment, such as local catalogs.
+  // Extra variables for a test on top of the scrubbed ones.
   static async start(mode = 'review', extra: NodeJS.ProcessEnv = {}): Promise<Daemon> {
     const home = await mkdtemp(join(tmpdir(), 'nullradix-e2e-'));
     const daemon = new Daemon(home, mode, extra);

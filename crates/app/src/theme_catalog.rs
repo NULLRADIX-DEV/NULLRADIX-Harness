@@ -282,7 +282,7 @@ fn with_checksum(error: AppError, sha256: &str) -> AppError {
     AppError::conflict(error.code(), error.message()).with_confirmation(facts)
 }
 
-/// A source whose index cannot be read: a refusal of its content is the caller's, the rest is not.
+/// A refused index is invalid input and any other failure is unavailable.
 fn index_failed(problem: SourceProblem) -> AppError {
     match problem.code {
         "catalog-address-refused" | "catalog-too-large" | "catalog-index-invalid" => {
@@ -300,8 +300,15 @@ fn sha256_hex(bytes: &[u8]) -> String {
     crate::auth::hex(&Sha256::digest(bytes))
 }
 
-/// The previews the last read index of a source names; a theme without one maps to `None`.
+/// The previews of the last read index, `None` for a theme without one.
 type Offered = HashMap<ThemeId, Option<CatalogPreview>>;
+
+/// The offers kept per source and how often a source was added or removed.
+#[derive(Default)]
+struct Remembered {
+    changes: u64,
+    sources: HashMap<SourceId, Arc<Offered>>,
+}
 
 /// The preview an index names for a theme of a source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -311,6 +318,40 @@ pub struct PreviewTarget {
     pub preview: CatalogPreview,
 }
 
+fn offers(parsed: &ParsedIndex) -> Offered {
+    parsed
+        .entries
+        .iter()
+        .map(|entry| (entry.id.clone(), entry.preview.clone()))
+        .collect()
+}
+
+fn theme_not_offered(theme: &ThemeId) -> AppError {
+    AppError::not_found(
+        "catalog-theme-not-found",
+        format!("the source does not offer {theme}"),
+    )
+}
+
+fn target_of(
+    offered: &Offered,
+    source: SourceId,
+    theme: ThemeId,
+) -> Result<PreviewTarget, AppError> {
+    match offered.get(&theme) {
+        None => Err(theme_not_offered(&theme)),
+        Some(None) => Err(AppError::not_found(
+            "catalog-preview-not-found",
+            format!("{theme} has no preview"),
+        )),
+        Some(Some(preview)) => Ok(PreviewTarget {
+            source,
+            theme,
+            preview: preview.clone(),
+        }),
+    }
+}
+
 pub struct CatalogService {
     repository: Arc<dyn SourcesRepository>,
     fetcher: Arc<dyn CatalogFetcher>,
@@ -318,9 +359,9 @@ pub struct CatalogService {
     clock: Arc<dyn Clock>,
     signal: ChangeSignal,
     reach: Reach,
-    /// What the newest read of each index offers, so a page of previews reads no index at all.
-    offered: parking_lot::Mutex<HashMap<SourceId, Arc<Offered>>>,
-    /// One index read per source at a time when previews ask before any index was read.
+    /// The newest read of each index, to answer previews without a read.
+    offered: parking_lot::Mutex<Remembered>,
+    /// One index read per source at a time for early previews.
     reads: Flights<SourceId>,
 }
 
@@ -397,6 +438,7 @@ impl CatalogService {
             .await?;
         write.commit().await?;
         self.signal.notify(&change);
+        self.forget_offered(source.id());
         Ok(source)
     }
 
@@ -421,11 +463,11 @@ impl CatalogService {
             .await?;
         write.commit().await?;
         self.signal.notify(&change);
-        self.offered.lock().remove(&id);
+        self.forget_offered(&id);
         Ok(())
     }
 
-    /// The preview the source names for the theme; the index is read only if none was before.
+    /// The preview of a theme, reading the index only if none was read.
     pub async fn preview_of(&self, source: &str, theme: &str) -> Result<PreviewTarget, AppError> {
         let id = SourceId::parse(source).ok_or_else(source_not_found)?;
         let theme = ThemeId::parse(theme)
@@ -436,31 +478,27 @@ impl CatalogService {
         } else {
             let _read = self.reads.enter(id.clone()).await;
             // whoever was ahead may have read it meanwhile
-            if self.offered_by(&id).is_none() {
-                self.read_index(&known).await.map_err(index_failed)?;
+            match self.offered_by(&id) {
+                Some(offered) => offered,
+                None => Arc::new(offers(
+                    &self.read_index(&known).await.map_err(index_failed)?,
+                )),
             }
-            self.offered_by(&id).ok_or_else(source_not_found)?
         };
-        let preview = match offered.get(&theme) {
-            None => {
-                return Err(AppError::not_found(
-                    "catalog-theme-not-found",
-                    format!("the source does not offer {theme}"),
-                ));
-            }
-            Some(None) => {
-                return Err(AppError::not_found(
-                    "catalog-preview-not-found",
-                    format!("{theme} has no preview"),
-                ));
-            }
-            Some(Some(preview)) => preview.clone(),
-        };
-        Ok(PreviewTarget {
-            source: id,
-            theme,
-            preview,
-        })
+        target_of(&offered, id, theme)
+    }
+
+    /// The preview of a theme without ever reading an index.
+    pub async fn offered_preview(
+        &self,
+        source: &SourceId,
+        theme: &ThemeId,
+    ) -> Result<PreviewTarget, AppError> {
+        self.source(source).await?;
+        let offered = self
+            .offered_by(source)
+            .ok_or_else(|| theme_not_offered(theme))?;
+        target_of(&offered, source.clone(), theme.clone())
     }
 
     #[cfg(test)]
@@ -469,7 +507,14 @@ impl CatalogService {
     }
 
     fn offered_by(&self, source: &SourceId) -> Option<Arc<Offered>> {
-        self.offered.lock().get(source).cloned()
+        self.offered.lock().sources.get(source).cloned()
+    }
+
+    /// Drops the offers of a source and bars reads in flight from restoring them.
+    fn forget_offered(&self, source: &SourceId) {
+        let mut remembered = self.offered.lock();
+        remembered.changes += 1;
+        remembered.sources.remove(source);
     }
 
     async fn source(&self, id: &SourceId) -> Result<CatalogSource, AppError> {
@@ -613,6 +658,7 @@ impl CatalogService {
     }
 
     async fn read_index(&self, source: &CatalogSource) -> Result<ParsedIndex, SourceProblem> {
+        let started = self.offered.lock().changes;
         // a stored address that the current reach refuses is never fetched
         let url = CatalogUrl::parse(source.url().as_str(), self.reach)
             .map_err(|_| fetch_problem(FetchError::Refused, "the source"))?;
@@ -625,14 +671,12 @@ impl CatalogService {
             code: "catalog-index-invalid",
             message: error.to_string(),
         })?;
-        let offered = parsed
-            .entries
-            .iter()
-            .map(|entry| (entry.id.clone(), entry.preview.clone()))
-            .collect();
-        self.offered
-            .lock()
-            .insert(source.id().clone(), Arc::new(offered));
+        let mut remembered = self.offered.lock();
+        if remembered.changes == started {
+            remembered
+                .sources
+                .insert(source.id().clone(), Arc::new(offers(&parsed)));
+        }
         Ok(parsed)
     }
 }

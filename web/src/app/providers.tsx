@@ -6,7 +6,7 @@ import { ThemeProvider } from '../shared/ui/ThemeProvider';
 import { SlotThemeContext } from '../shared/ui/useSlot';
 import { loadedInBuiltinShell } from './layout/ShellEscape';
 
-// A load into the built-in settings view plays no theme animation: the person left the theme.
+// No theme animation in the built-in settings, the theme was left.
 function LoadAnimation() {
   const [builtin] = useState(loadedInBuiltinShell);
   if (!builtin) return <StartAnimation />;

@@ -10,7 +10,7 @@ struct Slot {
     users: usize,
 }
 
-/// A lock per key that is held across the work; keys of other work never wait for it.
+/// A lock per key, held across the work.
 pub(crate) struct Flights<K> {
     slots: parking_lot::Mutex<HashMap<K, Slot>>,
 }
@@ -23,7 +23,7 @@ impl<K> Default for Flights<K> {
     }
 }
 
-/// The turn of one key; dropping it hands the key to the next waiter.
+/// The turn of one key, handed to the next waiter on drop.
 pub(crate) struct Flight<'a, K: Hash + Eq + Clone> {
     flights: &'a Flights<K>,
     key: K,
@@ -41,7 +41,7 @@ impl<K: Hash + Eq + Clone> Flights<K> {
             slot.users += 1;
             slot.lock.clone()
         };
-        // the flight exists before the wait, so a cancelled wait still counts itself out
+        // The flight exists before the wait to count out a cancelled wait.
         let mut flight = Flight {
             flights: self,
             key,
@@ -77,6 +77,8 @@ impl<K: Hash + Eq + Clone> Drop for Flight<'_, K> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[tokio::test]
@@ -118,7 +120,9 @@ mod tests {
     async fn other_keys_never_wait() {
         let flights = Flights::default();
         let _icon = flights.enter("icon").await;
-        let _font = flights.enter("font").await;
+        let _font = tokio::time::timeout(Duration::from_secs(5), flights.enter("font"))
+            .await
+            .expect("another key waited for the first");
         assert_eq!(flights.len(), 2);
     }
 }

@@ -33,7 +33,7 @@ fn webp() -> Vec<u8> {
     bytes
 }
 
-/// A semaphore that starts without permits.
+/// A semaphore without permits at the start.
 struct Permits(tokio::sync::Semaphore);
 
 impl Default for Permits {
@@ -43,7 +43,7 @@ impl Default for Permits {
 }
 
 impl Permits {
-    /// Waits for one arrival; a rule that never lets it come fails the test.
+    /// Waits for one arrival and fails the test if none comes.
     async fn arrived(&self) {
         let permit = tokio::time::timeout(Duration::from_secs(5), self.0.acquire())
             .await
@@ -52,7 +52,7 @@ impl Permits {
     }
 }
 
-/// Images by address; a gate holds each request until it is released.
+/// Images by address, each request held at a gate until released.
 #[derive(Default)]
 struct Hosts {
     answers: Mutex<BTreeMap<String, Result<Vec<u8>, FetchError>>>,
@@ -98,12 +98,15 @@ impl CatalogFetcher for Hosts {
     }
 }
 
-/// Kept files in memory; a cache that cannot write still hands the bytes back.
+/// Kept files in memory, handing the bytes back when a write fails.
 #[derive(Default)]
 struct MemoryPreviews {
     files: Mutex<BTreeMap<(String, String), Vec<u8>>>,
     puts: AtomicUsize,
     failing: Mutex<bool>,
+    hold_puts: Mutex<bool>,
+    put_entered: Permits,
+    put_release: Permits,
 }
 
 impl MemoryPreviews {
@@ -123,6 +126,11 @@ impl PreviewCache for MemoryPreviews {
 
     async fn put(&self, source: &SourceId, key: &str, bytes: Vec<u8>) -> Result<Stored, AppError> {
         self.puts.fetch_add(1, Ordering::SeqCst);
+        let held = *self.hold_puts.lock();
+        if held {
+            self.put_entered.0.add_permits(1);
+            self.put_release.0.acquire().await.unwrap().forget();
+        }
         if *self.failing.lock() {
             return Ok(Stored {
                 bytes,
@@ -211,7 +219,7 @@ fn offer(setup: &Setup, entries: &[Value]) {
         .answer(SOURCE, Ok(serde_json::to_vec(entries).unwrap()));
 }
 
-/// The way a page gets here: the list was browsed, which read the index.
+/// The way a page gets here: a browse has read the index.
 async fn browsed(entries: &[Value]) -> Setup {
     let setup = setup().await;
     offer(&setup, entries);
@@ -307,7 +315,7 @@ async fn only_png_jpeg_and_webp_are_served_and_by_what_they_are() {
             "{bytes:?}"
         );
     }
-    // nothing that is no image is kept
+    // Nothing but an image is kept.
     assert_eq!(setup.cache.puts.load(Ordering::SeqCst), 0);
     assert_eq!(setup.cache.kept(), 0);
 }
@@ -499,7 +507,7 @@ async fn the_index_is_read_once_when_previews_ask_before_any_was_read() {
     for _ in 0..100 {
         tokio::task::yield_now().await;
     }
-    // the others wait for the read that is on its way
+    // The others wait for the read in flight.
     assert_eq!(reads.arrivals.load(Ordering::SeqCst), 1);
     reads.release.0.add_permits(1);
     let mut codes = Vec::new();
@@ -695,4 +703,150 @@ async fn a_cache_that_cannot_write_still_serves_the_image() {
     let served = setup.previews.get(&setup.source, "ocean").await.unwrap();
     assert_eq!(served.data, png(10));
     assert_eq!(setup.cache.kept(), 0);
+}
+
+#[tokio::test]
+async fn a_source_added_again_during_the_download_keeps_nothing_and_reads_no_index() {
+    let setup = browsed(&[entry("ocean", Some(SHEET), 'a')]).await;
+    setup.hosts.serve(SHEET, Ok(png(10)));
+    *setup.hosts.gate.lock() = true;
+    let asking = {
+        let (previews, source) = (setup.previews.clone(), setup.source.clone());
+        tokio::spawn(async move { previews.get(&source, "ocean").await })
+    };
+    setup.hosts.entered.arrived().await;
+    let service = &setup.world.service;
+    service
+        .remove_source(&setup.source, Version::from_stored(1))
+        .await
+        .unwrap();
+    service.add_source(SOURCE).await.unwrap();
+    setup.hosts.release.0.add_permits(1);
+    let error = asking.await.unwrap().unwrap_err();
+    assert_eq!(
+        (error.kind(), error.code()),
+        (ErrorKind::NotFound, "catalog-theme-not-found")
+    );
+    assert_eq!(setup.cache.puts.load(Ordering::SeqCst), 0);
+    // only the browse read the index, the re-check under the flight did not
+    assert_eq!(setup.world.fetcher.asked.lock().len(), 1);
+    assert!(service.reads_are_idle());
+    assert!(setup.previews.flights.is_empty());
+}
+
+#[tokio::test]
+async fn a_source_removed_while_its_file_is_written_leaves_no_file() {
+    let setup = browsed(&[entry("ocean", Some(SHEET), 'a')]).await;
+    setup.hosts.serve(SHEET, Ok(png(10)));
+    *setup.cache.hold_puts.lock() = true;
+    let asking = {
+        let (previews, source) = (setup.previews.clone(), setup.source.clone());
+        tokio::spawn(async move { previews.get(&source, "ocean").await })
+    };
+    setup.cache.put_entered.arrived().await;
+    // The remove handler runs before the write ends.
+    setup
+        .world
+        .service
+        .remove_source(&setup.source, Version::from_stored(1))
+        .await
+        .unwrap();
+    setup.previews.forget(&setup.source).await;
+    setup.cache.put_release.0.add_permits(1);
+    let error = asking.await.unwrap().unwrap_err();
+    assert_eq!(error.code(), "catalog-source-not-found");
+    assert_eq!(setup.cache.kept(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_download_that_never_ends_fails_as_a_timeout_and_frees_its_place() {
+    let setup = browsed(&[entry("ocean", Some(SHEET), 'a')]).await;
+    setup.hosts.serve(SHEET, Ok(png(10)));
+    *setup.hosts.gate.lock() = true;
+    let asking = {
+        let (previews, source) = (setup.previews.clone(), setup.source.clone());
+        tokio::spawn(async move { previews.get(&source, "ocean").await })
+    };
+    // A paused clock makes the wait for the budget free.
+    let outcome = tokio::time::timeout(Duration::from_secs(120), asking)
+        .await
+        .expect("the download was not cut off")
+        .unwrap();
+    let error = outcome.unwrap_err();
+    assert_eq!(
+        (error.kind(), error.code()),
+        (ErrorKind::Unavailable, "catalog-timeout")
+    );
+    assert_eq!(
+        setup.previews.downloads.available_permits(),
+        MAX_PARALLEL_PREVIEWS
+    );
+    assert!(setup.previews.flights.is_empty());
+}
+
+/// A world whose index reads wait for a release.
+async fn slow_index() -> (Setup, Arc<SlowIndex>) {
+    let held = Arc::new(Mutex::new(None::<Arc<SlowIndex>>));
+    let keep = held.clone();
+    let world = world_with(Reach::Public, move |fetcher| {
+        let slow = Arc::new(SlowIndex {
+            inner: fetcher,
+            arrivals: AtomicUsize::new(0),
+            entered: Permits::default(),
+            release: Permits::default(),
+        });
+        *keep.lock() = Some(slow.clone());
+        slow
+    });
+    let setup = ready(world).await;
+    let reads = held.lock().clone().unwrap();
+    offer(&setup, &[entry("ocean", Some(SHEET), 'a')]);
+    (setup, reads)
+}
+
+async fn offered_code(setup: &Setup) -> Option<&'static str> {
+    let source = SourceId::parse(&setup.source).unwrap();
+    let theme = ThemeId::parse("ocean").unwrap();
+    setup
+        .world
+        .service
+        .offered_preview(&source, &theme)
+        .await
+        .err()
+        .map(|error| error.code())
+}
+
+#[tokio::test]
+async fn an_index_read_that_ends_after_a_removal_and_an_add_offers_nothing() {
+    let (setup, reads) = slow_index().await;
+    let service = setup.world.service.clone();
+    let browsing = tokio::spawn(async move { service.browse().await });
+    reads.entered.arrived().await;
+    let service = &setup.world.service;
+    service
+        .remove_source(&setup.source, Version::from_stored(1))
+        .await
+        .unwrap();
+    service.add_source(SOURCE).await.unwrap();
+    reads.release.0.add_permits(1);
+    browsing.await.unwrap().unwrap();
+    assert_eq!(offered_code(&setup).await, Some("catalog-theme-not-found"));
+}
+
+#[tokio::test]
+async fn an_index_read_that_ends_after_a_removal_offers_nothing_when_the_source_returns() {
+    let (setup, reads) = slow_index().await;
+    let service = setup.world.service.clone();
+    let browsing = tokio::spawn(async move { service.browse().await });
+    reads.entered.arrived().await;
+    setup
+        .world
+        .service
+        .remove_source(&setup.source, Version::from_stored(1))
+        .await
+        .unwrap();
+    reads.release.0.add_permits(1);
+    browsing.await.unwrap().unwrap();
+    setup.world.service.add_source(SOURCE).await.unwrap();
+    assert_eq!(offered_code(&setup).await, Some("catalog-theme-not-found"));
 }

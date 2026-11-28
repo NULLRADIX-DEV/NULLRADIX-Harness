@@ -2092,7 +2092,7 @@ export interface components {
             /** @description The installed version when the theme is installed. */
             installedVersion?: string | null;
             name: string;
-            /** @description Path of the preview image on this daemon; the address the source names never leaves it. */
+            /** @description Path of the preview on this daemon, never the address of the source. */
             previewUrl?: string | null;
             /** @description Range of SDK versions the theme runs with. */
             sdkVersion: string;
@@ -10041,7 +10041,7 @@ export interface operations {
     catalog_theme_preview: {
         parameters: {
             query?: {
-                /** @description The `v` of the `previewUrl` in the list; an image asked for by it may be kept long. */
+                /** @description The version in the `previewUrl` allows a long browser cache. */
                 v?: string;
             };
             header?: never;

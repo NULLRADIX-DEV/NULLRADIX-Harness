@@ -85,7 +85,7 @@ pub struct CatalogThemeDto {
     /// Whether the theme fits this version; incompatible themes cannot be installed.
     pub compatible: bool,
     pub description: Option<String>,
-    /// Path of the preview image on this daemon; the address the source names never leaves it.
+    /// Path of the preview on this daemon, never the address of the source.
     pub preview_url: Option<String>,
     pub state: CatalogStateDto,
     /// The installed version when the theme is installed.
@@ -241,7 +241,7 @@ pub(crate) struct InstallQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct PreviewQuery {
-    /// The `v` of the `previewUrl` in the list; an image asked for by it may be kept long.
+    /// The version in the `previewUrl` allows a long browser cache.
     v: Option<String>,
 }
 
@@ -956,7 +956,7 @@ main.js=run()",
         }
     }
 
-    /// A source that offers `night-blue` with a preview and `plain` without.
+    /// A source with a preview for `night-blue` and none for `plain`.
     async fn with_previews() -> (TestApi, String) {
         let api = test_api().await;
         let (_, added) = add(&api, SOURCE).await;
@@ -1040,14 +1040,15 @@ main.js=run()",
         for _ in 0..3 {
             assert_eq!(get(&api, &path).await.status, 200);
         }
-        let fetched = api
-            .fetcher
-            .asked
-            .lock()
-            .iter()
-            .filter(|url| url.as_str() == IMAGE)
-            .count();
-        assert_eq!(fetched, 1);
+        let fetched = |api: &TestApi| {
+            api.fetcher
+                .asked
+                .lock()
+                .iter()
+                .filter(|url| url.as_str() == IMAGE)
+                .count()
+        };
+        assert_eq!(fetched(&api), 1);
         let (_, list) = call(&api, "GET", "/api/v1/theme-catalog/sources", None).await;
         let version = list["version"].as_i64().unwrap();
         let remove = format!("/api/v1/theme-catalog/sources/{id}?version={version}");
@@ -1057,6 +1058,18 @@ main.js=run()",
             (gone.status, gone.code().as_deref()),
             (404, Some("catalog-source-not-found"))
         );
+        // The same address gives the same id and would find old files.
+        let (_, added) = add(&api, SOURCE).await;
+        assert_eq!(added["id"].as_str(), Some(id.as_str()));
+        api.fetcher.answer(
+            SOURCE,
+            Ok(preview_index(&[
+                ("night-blue", Some(IMAGE)),
+                ("plain", None),
+            ])),
+        );
+        assert_eq!(get(&api, &path).await.status, 200);
+        assert_eq!(fetched(&api), 2);
     }
 
     #[tokio::test]

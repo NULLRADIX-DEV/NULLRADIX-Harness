@@ -28,7 +28,7 @@ export function NullradixThemeHost({
   const settings = useHostSettings();
   const themeSettings = useHostThemeSettings(active);
   const colorScheme = useHostColorScheme();
-  // only places of the app; a navigation the router rejects ends here, not as an unhandled error
+  // A route the router rejects must end here and not as an unhandled error.
   const navigate = useCallback(
     (to: string) => {
       const path = appPathOf(to);

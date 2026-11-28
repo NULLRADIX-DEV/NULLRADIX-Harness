@@ -46,7 +46,7 @@ function stateText(theme: CatalogTheme): string {
   return 'Not installed';
 }
 
-// The path of the proxy the daemon names; nothing else, above all no address of a source, is shown.
+// The proxy path from the daemon is shown and never the address of a source.
 const PREVIEW_PATH =
   /^\/api\/v1\/theme-catalog\/sources\/[0-9a-f]{12}\/themes\/[a-z0-9-]+\/preview(\?v=[0-9a-f]+)?$/;
 
@@ -54,7 +54,7 @@ function previewSource(url: string | null | undefined): string | null {
   return typeof url === 'string' && PREVIEW_PATH.test(url) ? url : null;
 }
 
-// The image through the daemon; without one, or when it fails, a plain box with the first letter.
+// A plain box with the first letter stands in for a missing or failed image.
 function Preview({ theme }: { theme: CatalogTheme }) {
   const src = previewSource(theme.previewUrl);
   const [failed, setFailed] = useState(false);
@@ -79,7 +79,7 @@ function Preview({ theme }: { theme: CatalogTheme }) {
   );
 }
 
-function ThemeRow({ theme }: { theme: CatalogTheme }) {
+function ThemeRow({ theme, loadedAt }: { theme: CatalogTheme; loadedAt: number }) {
   const install = useInstallFromCatalog();
   const [confirming, setConfirming] = useState(false);
   const facts = confirmationOf(install.error);
@@ -88,7 +88,7 @@ function ThemeRow({ theme }: { theme: CatalogTheme }) {
   const label = theme.state === 'update' ? 'Update' : elsewhere ? 'Replace' : 'Install';
   return (
     <li className="theme-row">
-      <Preview key={theme.previewUrl ?? ''} theme={theme} />
+      <Preview key={`${theme.previewUrl ?? ''}@${String(loadedAt)}`} theme={theme} />
       <div className="theme-row-text">
         <strong>{theme.name}</strong>
         <div className="muted">
@@ -214,6 +214,13 @@ export function CatalogSection() {
   const add = useAddCatalogSource();
   const remove = useRemoveCatalogSource();
   const [url, setUrl] = useState('');
+  const liveSources = new Set(items.map((source) => source.id));
+  const offeredThemes = (themes.data?.items ?? []).filter((theme) =>
+    liveSources.has(theme.sourceId),
+  );
+  const statuses = (themes.data?.sources ?? []).filter((status) =>
+    liveSources.has(status.source.id),
+  );
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -287,11 +294,15 @@ export function CatalogSection() {
           {themes.isError && <FormError message="Could not load the catalog." />}
           {themes.data && (
             <>
-              <Problems sources={themes.data.sources} />
-              {themes.data.items.length === 0 && <p className="muted">No themes offered.</p>}
+              <Problems sources={statuses} />
+              {offeredThemes.length === 0 && <p className="muted">No themes offered.</p>}
               <ul className="theme-list" aria-label="Available themes">
-                {themes.data.items.map((theme) => (
-                  <ThemeRow key={`${theme.sourceId}/${theme.id}`} theme={theme} />
+                {offeredThemes.map((theme) => (
+                  <ThemeRow
+                    key={`${theme.sourceId}/${theme.id}`}
+                    theme={theme}
+                    loadedAt={themes.dataUpdatedAt}
+                  />
                 ))}
               </ul>
             </>

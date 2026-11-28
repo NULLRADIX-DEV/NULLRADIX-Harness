@@ -15,7 +15,7 @@ export function wantsBuiltinShell(state: unknown): boolean {
   );
 }
 
-// Whether the page was loaded on the settings the escape link showed in the built-in shell.
+// Tells if the page was loaded from the escape link of the built-in shell.
 export function loadedInBuiltinShell(): boolean {
   // the router keeps the state of a navigation under `usr` in the history entry
   const entry: unknown = window.history.state;

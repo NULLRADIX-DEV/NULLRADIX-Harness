@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import type { Page } from '@playwright/test';
 import { expect, test } from '../support/fixtures';
 
 // A 1x1 PNG.
@@ -18,7 +19,7 @@ interface Source {
   server: Server;
 }
 
-// An index and two images on a local address, which the daemon may reach in this mode.
+// A local index and local images, reachable in this mode.
 async function startSource(): Promise<Source> {
   const asked: IncomingMessage[] = [];
   const server = createServer((request, response) => {
@@ -60,14 +61,18 @@ async function startSource(): Promise<Source> {
 
 test('the catalog shows previews fetched by the daemon and never loads the source itself', async ({
   page,
+  browser,
   daemon,
 }) => {
   const source = await startSource();
   try {
     const browserAsked: string[] = [];
-    page.on('request', (request) => {
-      if (request.url().startsWith(source.origin)) browserAsked.push(request.url());
-    });
+    const watch = (watched: Page) => {
+      watched.on('request', (request) => {
+        if (request.url().startsWith(source.origin)) browserAsked.push(request.url());
+      });
+    };
+    watch(page);
     await daemon.api('POST', '/api/v1/theme-catalog/sources', {
       url: `${source.origin}/index.json`,
     });
@@ -79,17 +84,31 @@ test('the catalog shows previews fetched by the daemon and never loads the sourc
       'src',
       /^\/api\/v1\/theme-catalog\/sources\/[0-9a-f]{12}\//,
     );
-    // the image loads lazily, so it must come into view; it decoded if the daemon sent a real one
+    // The image loads lazily and decodes only if the daemon sent a real one.
     await image.scrollIntoViewIfNeeded();
     await expect(image).toHaveJSProperty('naturalWidth', 1);
 
-    // an image that is no PNG, JPEG or WebP, and an entry without one, show the plain box
+    // A bad image and an entry without one show the plain box.
     await expect(page.getByRole('img', { name: 'Preview of Cliff' })).toHaveCount(0);
     await expect(page.getByRole('img', { name: 'Preview of Plain' })).toHaveCount(0);
 
-    // the daemon asked for each image once, and the browser never asked the source
-    await page.reload();
-    await expect(image).toBeVisible();
+    // A fresh context avoids the immutable browser cache.
+    const fresh = await browser.newContext({ baseURL: daemon.baseUrl });
+    try {
+      const again = await fresh.newPage();
+      watch(again);
+      await again.goto(await daemon.handoff());
+      await again.getByRole('navigation', { name: 'Main navigation' }).waitFor();
+      await again.goto('/settings');
+      const second = again.getByRole('img', { name: 'Preview of Ocean' });
+      await expect(second).toBeVisible();
+      await expect(async () => {
+        await second.scrollIntoViewIfNeeded();
+        await expect(second).toHaveJSProperty('naturalWidth', 1);
+      }).toPass();
+    } finally {
+      await fresh.close();
+    }
     const paths = source.asked.map((request) => request.url ?? '');
     expect(paths.filter((path) => path === '/ocean.png')).toHaveLength(1);
     expect(paths).toContain('/cliff.svg');

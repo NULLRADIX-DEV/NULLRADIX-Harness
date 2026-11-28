@@ -1,7 +1,7 @@
-// Any origin works as the base: an address that leaves it is not a place of the app.
+// Any origin works as the base, as only the part after it is used.
 const BASE = 'http://app.invalid';
 
-// The path, query and hash of an address inside the app, resolved like the browser does; else null.
+// Path, query and hash of an address inside the app, else null.
 export function appPathOf(to: unknown): string | null {
   if (typeof to !== 'string' || !to.startsWith('/')) return null;
   let url: URL;
@@ -10,7 +10,7 @@ export function appPathOf(to: unknown): string | null {
   } catch {
     return null;
   }
-  // a path that starts with two slashes is read as a host by whoever follows it
+  // Two leading slashes would be read as a host by the browser.
   if (url.origin !== BASE || url.pathname.startsWith('//')) return null;
   return `${url.pathname}${url.search}${url.hash}`;
 }

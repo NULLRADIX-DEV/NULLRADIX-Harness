@@ -11,7 +11,7 @@ pub const MAX_PREVIEW_BYTES: u64 = 2 * 1024 * 1024;
 /// What the cache keeps of one source's previews.
 pub const MAX_PREVIEW_CACHE_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_PREVIEW_CACHE_FILES: usize = 1024;
-/// Characters of the fingerprint a page adds to the address, so a new image is fetched anew.
+/// Characters of the fingerprint a page adds to the address.
 pub const PREVIEW_VERSION_CHARS: usize = 16;
 
 /// The preview an index entry names.
@@ -51,7 +51,7 @@ impl CatalogPreview {
     }
 }
 
-/// The image kinds that are served; SVG and animated or exotic formats are not.
+/// The image kinds served, never SVG or animated ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewImage {
     Png,

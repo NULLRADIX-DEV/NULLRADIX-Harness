@@ -72,7 +72,7 @@ impl AssetCache for FolderAssets {
             bytes: MAX_CACHE_BYTES,
             files: MAX_CACHE_FILES,
         };
-        // the bytes go to the thread and come back, so they are not copied
+        // The bytes travel to the thread and back to avoid a copy.
         let (bytes, written) = tokio::task::spawn_blocking(move || {
             let written = nullradix_os::cache_write(&dir, &theme, &key, &bytes, budget);
             (bytes, written)
@@ -95,6 +95,43 @@ impl FolderPreviews {
     pub(crate) const fn new(dir: PathBuf) -> Self {
         Self { dir }
     }
+
+    /// Removes the folders of sources outside `keep`.
+    pub(crate) async fn prune(&self, keep: &[SourceId]) -> std::io::Result<usize> {
+        let (dir, keep) = (
+            self.dir.clone(),
+            keep.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        );
+        tokio::task::spawn_blocking(move || prune_folders(&dir, &keep))
+            .await
+            .map_err(std::io::Error::other)?
+    }
+}
+
+fn prune_folders(dir: &std::path::Path, keep: &[String]) -> std::io::Result<usize> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    let mut removed = 0;
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let owned = name
+            .to_str()
+            .is_some_and(|name| keep.iter().any(|kept| kept == name));
+        // a link or a file is not one of ours and stays
+        if owned || !entry.file_type()?.is_dir() {
+            continue;
+        }
+        match std::fs::remove_dir_all(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(removed)
 }
 
 #[async_trait]
@@ -115,7 +152,7 @@ impl PreviewCache for FolderPreviews {
             bytes: MAX_PREVIEW_CACHE_BYTES,
             files: MAX_PREVIEW_CACHE_FILES,
         };
-        // the bytes go to the thread and come back, so they are not copied
+        // The bytes travel to the thread and back to avoid a copy.
         let (bytes, written) = tokio::task::spawn_blocking(move || {
             let written = nullradix_os::cache_write(&dir, &source, &key, &bytes, budget);
             (bytes, written)
@@ -204,6 +241,25 @@ mod tests {
         assert_eq!(cache.get(&two, "ab12").await, Some(b"JPG".to_vec()));
         // clearing what is not there is no error
         cache.clear(&one).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn pruning_removes_the_folders_of_sources_that_are_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = FolderPreviews::new(dir.path().to_path_buf());
+        let (kept, gone) = (source("aaaaaaaaaaaa"), source("bbbbbbbbbbbb"));
+        cache.put(&kept, "ab12", b"PNG".to_vec()).await.unwrap();
+        cache.put(&gone, "ab12", b"JPG".to_vec()).await.unwrap();
+        std::fs::write(dir.path().join("stray.txt"), b"x").unwrap();
+        assert_eq!(cache.prune(std::slice::from_ref(&kept)).await.unwrap(), 1);
+        assert_eq!(cache.get(&kept, "ab12").await, Some(b"PNG".to_vec()));
+        assert_eq!(cache.get(&gone, "ab12").await, None);
+        assert!(!dir.path().join("bbbbbbbbbbbb").exists());
+        assert!(dir.path().join("stray.txt").exists());
+        // A second run finds nothing and a missing folder is fine.
+        assert_eq!(cache.prune(&[kept]).await.unwrap(), 0);
+        let absent = FolderPreviews::new(dir.path().join("absent"));
+        assert_eq!(absent.prune(&[]).await.unwrap(), 0);
     }
 
     #[tokio::test]

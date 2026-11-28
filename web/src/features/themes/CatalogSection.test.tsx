@@ -218,6 +218,25 @@ describe('CatalogSection', () => {
     expect(screen.getByText(/#2 \(broken\): sha256 must be 64 hex characters/)).toBeInTheDocument();
   });
 
+  it('shows only the themes and problems of sources that are still listed', async () => {
+    catalogServer({
+      sources: [source('aaaaaaaaaaaa', URL_A)],
+      themes: [offered(), offered({ sourceId: 'cccccccccccc', id: 'ghost', name: 'Ghost' })],
+      statuses: [
+        status(),
+        status({
+          source: source('cccccccccccc', 'https://gone.example.com/index.json'),
+          problem: { code: 'catalog-timeout', message: 'the source did not answer in time' },
+        }),
+      ],
+    });
+    renderApp('/settings');
+    const list = within(await screen.findByRole('list', { name: 'Available themes' }));
+    expect(list.getByText('Night Blue')).toBeInTheDocument();
+    expect(list.queryByText('Ghost')).not.toBeInTheDocument();
+    expect(screen.queryByText(/gone\.example\.com/)).not.toBeInTheDocument();
+  });
+
   it('removes a source with the version of the list it showed', async () => {
     const api = catalogServer({ sources: [source('aaaaaaaaaaaa', URL_A)], themes: [] });
     renderApp('/settings');
@@ -314,6 +333,22 @@ describe('CatalogSection previews', () => {
     expect(list.queryByRole('img')).not.toBeInTheDocument();
     expect(list.getByText('N')).toBeInTheDocument();
     expect(list.getByRole('button', { name: 'Install Night Blue' })).toBeInTheDocument();
+  });
+
+  it('tries a failed image again when the list is fetched again', async () => {
+    const api = catalogServer({
+      sources: [source('aaaaaaaaaaaa', URL_A)],
+      themes: [offered({ previewUrl: PROXY })],
+    });
+    renderApp('/settings');
+    const list = within(await screen.findByRole('list', { name: 'Available themes' }));
+    fireEvent.error(list.getByRole('img', { name: 'Preview of Night Blue' }));
+    expect(list.queryByRole('img')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => {
+      expect(api.requests('GET /api/v1/theme-catalog/themes')).toHaveLength(2);
+    });
+    expect(await list.findByRole('img', { name: 'Preview of Night Blue' })).toBeInTheDocument();
   });
 
   it('never puts an address that is not the proxy path of a source into an image', async () => {

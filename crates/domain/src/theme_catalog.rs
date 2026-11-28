@@ -617,9 +617,9 @@ mod tests {
         let again = build(&repacked).unwrap().preview.unwrap();
         assert_ne!(preview.fingerprint(), again.fingerprint());
         // the checksum counts in lower case
-        let mut upper = named;
-        upper.sha256 = Some("ab".repeat(32));
-        assert_eq!(build(&upper).unwrap().preview.unwrap(), preview);
+        let mut lower = named;
+        lower.sha256 = Some("ab".repeat(32));
+        assert_eq!(build(&lower).unwrap().preview.unwrap(), preview);
     }
 
     #[test]

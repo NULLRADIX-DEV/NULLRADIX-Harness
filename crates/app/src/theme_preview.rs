@@ -1,6 +1,7 @@
 //! The preview proxy: images of catalog entries are fetched here, never by the page.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use nullradix_domain::{MAX_PREVIEW_BYTES, PreviewImage, SourceId, ThemeId};
@@ -14,7 +15,10 @@ use crate::{AppError, auth};
 /// Previews fetched at the same time, all sources together.
 pub const MAX_PARALLEL_PREVIEWS: usize = 4;
 
-/// Bytes kept per source under a key; adapters keep the total below a budget.
+/// Time for one download with all its redirects.
+const DOWNLOAD_BUDGET: Duration = Duration::from_secs(60);
+
+/// Bytes kept per source under a key, each source below a budget.
 #[async_trait]
 pub trait PreviewCache: Send + Sync {
     /// A miss and an unreadable entry both give `None`.
@@ -24,7 +28,7 @@ pub trait PreviewCache: Send + Sync {
     async fn clear(&self, source: &SourceId) -> Result<(), AppError>;
 }
 
-/// A cache that keeps nothing.
+/// A cache without any storage.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoPreviewCache;
 
@@ -53,7 +57,7 @@ impl PreviewCache for NoPreviewCache {
 pub struct Preview {
     pub data: Vec<u8>,
     pub content_type: &'static str,
-    /// What the entry calls this image; a page that asked for it by this version may keep it long.
+    /// The version a page names to keep the image long.
     pub version: String,
 }
 
@@ -125,23 +129,35 @@ impl ThemePreviews {
         }
         let bytes = {
             let _permit = self.downloads.acquire().await.map_err(AppError::internal)?;
-            self.fetcher
-                .fetch(target.preview.url(), MAX_PREVIEW_BYTES)
-                .await
-                .map_err(|error| match error {
-                    FetchError::TooLarge => too_large(),
-                    other => fetch_failed(other, "the preview"),
-                })?
+            tokio::time::timeout(
+                DOWNLOAD_BUDGET,
+                self.fetcher.fetch(target.preview.url(), MAX_PREVIEW_BYTES),
+            )
+            .await
+            .unwrap_or(Err(FetchError::Timeout))
+            .map_err(|error| match error {
+                FetchError::TooLarge => too_large(),
+                other => fetch_failed(other, "the preview"),
+            })?
         };
         if bytes.len() as u64 > MAX_PREVIEW_BYTES {
             return Err(too_large());
         }
         let image = PreviewImage::sniff(&bytes).ok_or_else(not_an_image)?;
-        // the person may have removed the source meanwhile
+        // a source removed during the download keeps no file
         self.catalog
-            .preview_of(target.source.as_str(), target.theme.as_str())
+            .offered_preview(&target.source, &target.theme)
             .await?;
         let stored = self.cache.put(&target.source, &key, bytes).await?;
+        // a removal during the write has run its forget already
+        if let Err(gone) = self
+            .catalog
+            .offered_preview(&target.source, &target.theme)
+            .await
+        {
+            self.empty(&target.source).await;
+            return Err(gone);
+        }
         if let Some(error) = stored.error {
             tracing::warn!(%error, source = %target.source, "cannot cache a theme preview");
         }
@@ -152,17 +168,21 @@ impl ThemePreviews {
         })
     }
 
-    /// Drops what was kept for a source that is not one any more.
+    /// Drops what was kept for a removed source.
     pub async fn forget(&self, source: &str) {
         let Some(id) = SourceId::parse(source) else {
             return;
         };
-        if let Err(error) = self.cache.clear(&id).await {
-            tracing::warn!(%error, source = %id, "cannot empty the previews of a source");
+        self.empty(&id).await;
+    }
+
+    async fn empty(&self, source: &SourceId) {
+        if let Err(error) = self.cache.clear(source).await {
+            tracing::warn!(%error, %source, "cannot empty the previews of a source");
         }
     }
 
-    /// A kept image counts only if it still is one; anything else is fetched anew.
+    /// A kept file is served only if it is still an image.
     async fn cached(&self, source: &SourceId, key: &str, version: &str) -> Option<Preview> {
         let data = self.cache.get(source, key).await?;
         if data.len() as u64 > MAX_PREVIEW_BYTES {

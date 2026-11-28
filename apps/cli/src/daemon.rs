@@ -160,7 +160,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     .await?;
     let (themes, catalog, customizations, snippets) = start_extensions(config, &store, &signal);
     let theme_assets = start_theme_assets(config, &themes);
-    let theme_previews = start_theme_previews(config, &catalog);
+    let theme_previews = start_theme_previews(config, &catalog).await;
     let claude_theme = start_claude_theme(config, &store, &themes, &signal);
     if let Err(error) = claude_theme.reconcile().await {
         tracing::warn!(%error, "cannot sync the Claude theme");
@@ -564,19 +564,35 @@ fn start_theme_assets(config: &Config, themes: &Arc<ThemeService>) -> Arc<ThemeA
     ))
 }
 
-/// Where the preview proxy keeps its images; only a copy, so it lives in the cache folder.
+/// Previews are only a copy and live in the cache folder.
 fn theme_preview_cache(config: &Config) -> std::path::PathBuf {
     config.paths.cache.join("theme-previews")
 }
 
-/// The preview proxy fetches like the catalog does: public https unless local catalogs are on.
-fn start_theme_previews(config: &Config, catalog: &Arc<CatalogService>) -> Arc<ThemePreviews> {
+/// The preview proxy has the same reach as the catalog.
+async fn start_theme_previews(
+    config: &Config,
+    catalog: &Arc<CatalogService>,
+) -> Arc<ThemePreviews> {
+    let folder = crate::theme_assets::FolderPreviews::new(theme_preview_cache(config));
+    // A stop in the middle of a removal leaves a folder of a missing source.
+    match catalog.sources().await {
+        Ok(list) => {
+            let ids: Vec<_> = list
+                .sources
+                .iter()
+                .map(|source| source.id().clone())
+                .collect();
+            if let Err(error) = folder.prune(&ids).await {
+                tracing::warn!(%error, "cannot remove the previews of removed sources");
+            }
+        }
+        Err(error) => tracing::warn!(%error, "cannot list the sources to prune their previews"),
+    }
     Arc::new(ThemePreviews::new(
         catalog.clone(),
         Arc::new(CurlCatalogFetcher::new(catalog_reach(config))),
-        Arc::new(crate::theme_assets::FolderPreviews::new(
-            theme_preview_cache(config),
-        )),
+        Arc::new(folder),
     ))
 }
 
