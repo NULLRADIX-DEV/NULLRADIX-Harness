@@ -2,6 +2,7 @@
 
 mod launch;
 mod tray;
+mod update;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -46,11 +47,14 @@ pub fn run() -> Result<(), tauri::Error> {
     let shell = Arc::new(Shell::default());
     let mut builder = tauri::Builder::default();
     if INSTALLED {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| show(app)));
+        builder = builder
+            .plugin(tauri_plugin_single_instance::init(|app, _, _| show(app)))
+            .plugin(tauri_plugin_updater::Builder::new().build());
     }
     let window_shell = Arc::clone(&shell);
     builder
         .manage(Arc::clone(&shell))
+        .manage(Arc::new(update::Updates::new(INSTALLED)))
         .setup(move |app| {
             let hidden = env::args_os().any(|arg| arg == HIDDEN);
             let guard = Arc::clone(&window_shell);
@@ -62,9 +66,10 @@ pub fn run() -> Result<(), tauri::Error> {
                 .on_navigation(move |url| allow(&guard, url))
                 .build()?;
             match tray(app) {
-                Ok(rows) => {
+                Ok((rows, update_item)) => {
                     window_shell.has_tray.store(true, Ordering::SeqCst);
                     tray::watch(app.handle(), rows);
+                    update::check_at_start(app.handle(), &update_item);
                 }
                 Err(error) => eprintln!("no tray icon, closing the window quits: {error}"),
             }
@@ -234,11 +239,19 @@ fn show(app: &AppHandle) {
     }
 }
 
-fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
+fn tray(app: &App) -> tauri::Result<(tray::Rows<tauri::Wry>, MenuItem<tauri::Wry>)> {
     let initial = tray::texts(&tray::Snapshot::default());
     let open = MenuItem::with_id(app, "open", "Open NULLRADIX", true, None::<&str>)?;
     let again = MenuItem::with_id(app, "reconnect", "Reconnect", true, None::<&str>)?;
     let confirm = MenuItem::with_id(app, "confirm", "Confirm changes", true, None::<&str>)?;
+    let update_state = app.state::<Arc<update::Updates>>().state();
+    let update_item = MenuItem::with_id(
+        app,
+        "update",
+        update_state.label(),
+        update_state.enabled(),
+        None::<&str>,
+    )?;
     // the status lines only show; they cannot be clicked
     let dispatcher = MenuItem::with_id(
         app,
@@ -255,6 +268,7 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
             &open,
             &again,
             &confirm,
+            &update_item,
             &PredefinedMenuItem::separator(app)?,
             &dispatcher,
             &inbox,
@@ -262,6 +276,7 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
             &quit,
         ],
     )?;
+    let clicked = update_item.clone();
     let mut builder = TrayIconBuilder::with_id(tray::TRAY_ID)
         .tooltip(&initial.tooltip)
         .menu(&menu)
@@ -274,6 +289,7 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
                 let app = app.clone();
                 thread::spawn(move || confirm_changes(&app));
             }
+            "update" => update::click(app, &clicked),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -292,7 +308,7 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
         builder = builder.icon(icon.clone());
     }
     builder.build(app)?;
-    Ok(tray::Rows { dispatcher, inbox })
+    Ok((tray::Rows { dispatcher, inbox }, update_item))
 }
 
 /// Leaves a failure where a windowed build, which has no console, can show it later.
@@ -351,6 +367,34 @@ mod tests {
             confirm_target(None, Some(&daemon)),
             ConfirmTarget::NotSignedIn
         );
+    }
+
+    fn config(text: &str) -> serde_json::Value {
+        serde_json::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn the_updater_config_is_one_the_plugin_accepts() {
+        let base = config(include_str!("../tauri.conf.json"));
+        let updater: tauri_plugin_updater::Config =
+            serde_json::from_value(base["plugins"]["updater"].clone()).unwrap();
+        assert_eq!(updater.endpoints.len(), 1);
+        assert!(updater.endpoints.iter().all(|url| url.scheme() == "https"));
+        assert!(updater.pubkey.len() > 100);
+        assert!(
+            updater
+                .windows
+                .is_some_and(|windows| windows.install_mode.to_string() == "passive")
+        );
+    }
+
+    #[test]
+    fn only_release_builds_make_signed_updater_files() {
+        let release = config(include_str!("../tauri.release.conf.json"));
+        assert_eq!(release["bundle"]["createUpdaterArtifacts"], true);
+        // a development build has no signing key
+        let base = config(include_str!("../tauri.conf.json"));
+        assert!(base["bundle"].get("createUpdaterArtifacts").is_none());
     }
 
     #[test]

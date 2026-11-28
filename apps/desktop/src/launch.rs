@@ -11,6 +11,8 @@ use nullradix_os::{Paths, PathsError, process_alive, spawn_detached};
 use url::Url;
 
 const STARTUP: Duration = Duration::from_secs(20);
+/// The daemon waits up to 10 s for open connections, then closes its database.
+const STOP: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(150);
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -31,6 +33,8 @@ pub(crate) enum LaunchError {
     Stopped(PathBuf),
     #[error("the daemon did not start within {} seconds; its log is in {}", STARTUP.as_secs(), .0.display())]
     Timeout(PathBuf),
+    #[error("the daemon did not stop within {} seconds", STOP.as_secs())]
+    StopTimeout,
     #[error(
         "the running daemon (pid {pid}) speaks API version {found}, this app needs {expected}; quit that daemon and open NULLRADIX again"
     )]
@@ -199,12 +203,49 @@ fn signed_client(setup: &Setup) -> Result<(Client, Discovery), LaunchError> {
         Some(discovery) => discovery,
         None => start(setup, &paths)?,
     };
-    let token_path = token::path(&paths);
+    let client = local_client(&paths, &discovery)?;
+    Ok((client, discovery))
+}
+
+fn local_client(paths: &Paths, discovery: &Discovery) -> Result<Client, LaunchError> {
+    let token_path = token::path(paths);
     let token = token::read(&token_path)
         .map_err(LaunchError::Token)?
         .ok_or(LaunchError::MissingToken(token_path))?;
-    let client = Client::new(discovery.address, CONNECT_TIMEOUT, TIMEOUT).with_token(token);
-    Ok((client, discovery))
+    Ok(Client::new(discovery.address, CONNECT_TIMEOUT, TIMEOUT).with_token(token))
+}
+
+/// The daemon of these paths while its process lives, whatever API version it speaks.
+fn alive(paths: &Paths) -> Result<Option<Discovery>, LaunchError> {
+    Ok(DiscoveryFile::in_dir(&paths.data)
+        .read()?
+        .filter(Discovery::process_alive))
+}
+
+/// How many runs have not ended; none when no daemon runs. Their supervisors outlive the daemon.
+pub(crate) fn active_runs(setup: &Setup) -> Result<usize, LaunchError> {
+    let paths = setup.paths()?;
+    let Some(discovery) = alive(&paths)? else {
+        return Ok(0);
+    };
+    Ok(local_client(&paths, &discovery)?.active_run_count()?)
+}
+
+/// Asks the running daemon to exit and waits until its process is gone; no daemon is fine.
+pub(crate) fn stop_daemon(setup: &Setup) -> Result<(), LaunchError> {
+    let paths = setup.paths()?;
+    let Some(discovery) = alive(&paths)? else {
+        return Ok(());
+    };
+    local_client(&paths, &discovery)?.stop_daemon()?;
+    let deadline = Instant::now() + STOP;
+    while Instant::now() < deadline {
+        if !process_alive(discovery.pid) {
+            return Ok(());
+        }
+        thread::sleep(POLL);
+    }
+    Err(LaunchError::StopTimeout)
 }
 
 /// Finds the running daemon or starts one, then asks it for a one-time sign-in URL.
@@ -371,6 +412,44 @@ mod tests {
                 .as_deref()
                 .is_some_and(|text| text.contains("no-such-nullradix")),
             "{error:?}"
+        );
+    }
+
+    #[test]
+    fn stopping_and_counting_need_no_daemon() {
+        let home = tempfile::tempdir().unwrap();
+        let setup = Setup {
+            profile: "dev",
+            home: Some(home.path().to_path_buf()),
+            daemon: home.path().join("nullradix"),
+            web_dir: None,
+        };
+        stop_daemon(&setup).unwrap();
+        assert_eq!(active_runs(&setup).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_dead_daemon_in_the_discovery_file_counts_as_none() {
+        let home = tempfile::tempdir().unwrap();
+        let paths = Paths::below(home.path());
+        fs::create_dir_all(&paths.data).unwrap();
+        let record = Discovery {
+            pid: u32::MAX - 1,
+            address: std::net::SocketAddr::from(([127, 0, 0, 1], 9)),
+            version: String::from("0.1.0"),
+            api_version: 1,
+            started_at: 0,
+        };
+        DiscoveryFile::in_dir(&paths.data).write(&record).unwrap();
+        assert!(alive(&paths).unwrap().is_none());
+        let live = Discovery {
+            pid: std::process::id(),
+            ..record
+        };
+        DiscoveryFile::in_dir(&paths.data).write(&live).unwrap();
+        assert_eq!(
+            alive(&paths).unwrap().map(|found| found.pid),
+            Some(live.pid)
         );
     }
 
