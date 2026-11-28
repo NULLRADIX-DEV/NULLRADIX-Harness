@@ -1673,6 +1673,43 @@
         }
       }
     },
+    "/api/v1/daemon/stop": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "stop_daemon",
+        "responses": {
+          "202": {
+            "description": "The daemon ends open requests and exits; its runs go on"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "token-required for a browser session, daemon-stop-needs-person for a run or session of an agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/dispatcher": {
       "get": {
         "tags": [

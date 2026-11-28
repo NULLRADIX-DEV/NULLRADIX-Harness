@@ -8,6 +8,7 @@ mod body_guard;
 mod claude_theme;
 mod comments;
 mod customizations;
+mod daemon_stop;
 mod dispatch_runs;
 mod dispatch_stats;
 mod dispatcher_config;
@@ -415,6 +416,7 @@ fn dispatcher_routes() -> OpenApiRouter<ApiState> {
 fn routes() -> OpenApiRouter<ApiState> {
     let v1 = OpenApiRouter::new()
         .routes(routes!(health::health))
+        .routes(routes!(daemon_stop::stop_daemon))
         .routes(routes!(auth::create_handoff))
         .routes(routes!(auth::redeem_handoff))
         .routes(routes!(auth::logout))

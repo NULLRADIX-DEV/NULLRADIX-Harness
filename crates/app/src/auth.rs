@@ -159,6 +159,15 @@ pub fn decision_needs_person(action: &str) -> AppError {
     )
 }
 
+/// A run or session of an agent tried to stop the daemon.
+#[must_use]
+pub fn stopping_needs_person() -> AppError {
+    AppError::forbidden(
+        "daemon-stop-needs-person",
+        "only the person can stop the daemon, not a run or session of an agent",
+    )
+}
+
 /// The cookie came without the key of its tab, or with a foreign key.
 #[must_use]
 pub fn session_key_invalid(message: &str) -> AppError {

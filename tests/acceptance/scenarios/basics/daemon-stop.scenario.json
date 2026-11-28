@@ -1,0 +1,23 @@
+{
+  "title": "Only a token outside runs stops the daemon",
+  "steps": [
+    {
+      "name": "stop without a credential",
+      "http": { "method": "POST", "path": "/api/v1/daemon/stop", "auth": "none" }
+    },
+    {
+      "name": "stop from a browser session",
+      "http": { "method": "POST", "path": "/api/v1/daemon/stop", "auth": "session" }
+    },
+    {
+      "name": "stop from a run",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/daemon/stop",
+        "headers": { "X-Nullradix-Run": "run-1" }
+      }
+    },
+    { "name": "still running", "cli": { "args": ["status"] } },
+    { "name": "stop", "http": { "method": "POST", "path": "/api/v1/daemon/stop" } }
+  ]
+}

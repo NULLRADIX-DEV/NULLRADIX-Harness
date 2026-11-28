@@ -3,6 +3,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -11,6 +12,12 @@ use nullradix_os::{Paths, PathsError, process_alive, spawn_detached};
 use url::Url;
 
 const STARTUP: Duration = Duration::from_secs(20);
+/// Shutdown waits up to 10 s each for requests, the scheduler, a pass and setups.
+const STOP: Duration = Duration::from_secs(60);
+#[cfg(windows)]
+const RELEASE_TRIES: u32 = 10;
+#[cfg(windows)]
+const RELEASE_PAUSE: Duration = Duration::from_millis(300);
 const POLL: Duration = Duration::from_millis(150);
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -31,6 +38,10 @@ pub(crate) enum LaunchError {
     Stopped(PathBuf),
     #[error("the daemon did not start within {} seconds; its log is in {}", STARTUP.as_secs(), .0.display())]
     Timeout(PathBuf),
+    #[error("an update is installing; the daemon stays down until the app restarts")]
+    Updating,
+    #[error("the daemon did not stop within {} seconds", STOP.as_secs())]
+    StopTimeout,
     #[error(
         "the running daemon (pid {pid}) speaks API version {found}, this app needs {expected}; quit that daemon and open NULLRADIX again"
     )]
@@ -199,12 +210,88 @@ fn signed_client(setup: &Setup) -> Result<(Client, Discovery), LaunchError> {
         Some(discovery) => discovery,
         None => start(setup, &paths)?,
     };
-    let token_path = token::path(&paths);
+    let client = local_client(&paths, &discovery)?;
+    Ok((client, discovery))
+}
+
+fn local_client(paths: &Paths, discovery: &Discovery) -> Result<Client, LaunchError> {
+    let token_path = token::path(paths);
     let token = token::read(&token_path)
         .map_err(LaunchError::Token)?
         .ok_or(LaunchError::MissingToken(token_path))?;
-    let client = Client::new(discovery.address, CONNECT_TIMEOUT, TIMEOUT).with_token(token);
-    Ok((client, discovery))
+    Ok(Client::new(discovery.address, CONNECT_TIMEOUT, TIMEOUT).with_token(token))
+}
+
+/// The daemon of these paths while its process lives, whatever API version it speaks.
+fn alive(paths: &Paths) -> Result<Option<Discovery>, LaunchError> {
+    Ok(DiscoveryFile::in_dir(&paths.data)
+        .read()?
+        .filter(Discovery::process_alive))
+}
+
+/// Whether a process holds the program open; Windows refuses write access to such a file.
+#[cfg(windows)]
+pub(crate) fn program_in_use(program: &Path) -> bool {
+    match fs::OpenOptions::new().write(true).open(program) {
+        Ok(_) => false,
+        Err(error) => is_busy(&error),
+    }
+}
+
+/// Sharing violation, lock violation or a mapped image; other errors name no holder.
+#[cfg(windows)]
+fn is_busy(error: &io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(32 | 33 | 1224))
+}
+
+/// Waits briefly for the last holder of the program to let go; false when one stays.
+#[cfg(windows)]
+pub(crate) fn program_released(program: &Path) -> bool {
+    for _ in 0..RELEASE_TRIES {
+        if !program_in_use(program) {
+            return true;
+        }
+        thread::sleep(RELEASE_PAUSE);
+    }
+    !program_in_use(program)
+}
+
+/// Only Windows locks a running program against being replaced.
+#[cfg(not(windows))]
+pub(crate) fn program_released(_program: &Path) -> bool {
+    true
+}
+
+/// Set while an update installs; no caller may start a daemon then.
+static DAEMON_HELD_DOWN: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn hold_daemon_down(held: bool) {
+    DAEMON_HELD_DOWN.store(held, Ordering::SeqCst);
+}
+
+fn refuse_start(held: bool) -> Result<(), LaunchError> {
+    if held {
+        Err(LaunchError::Updating)
+    } else {
+        Ok(())
+    }
+}
+
+/// Asks the daemon to exit and waits until its process is gone; no daemon means nothing to do.
+pub(crate) fn stop_daemon(setup: &Setup) -> Result<(), LaunchError> {
+    let paths = setup.paths()?;
+    let Some(discovery) = alive(&paths)? else {
+        return Ok(());
+    };
+    local_client(&paths, &discovery)?.stop_daemon()?;
+    let deadline = Instant::now() + STOP;
+    while Instant::now() < deadline {
+        if !process_alive(discovery.pid) {
+            return Ok(());
+        }
+        thread::sleep(POLL);
+    }
+    Err(LaunchError::StopTimeout)
 }
 
 /// Finds the running daemon or starts one, then asks it for a one-time sign-in URL.
@@ -246,6 +333,7 @@ fn running(paths: &Paths) -> Result<Option<Discovery>, LaunchError> {
 
 /// Starts a detached daemon, which outlives this shell, and waits until it answers.
 fn start(setup: &Setup, paths: &Paths) -> Result<Discovery, LaunchError> {
+    refuse_start(DAEMON_HELD_DOWN.load(Ordering::SeqCst))?;
     fs::create_dir_all(&paths.data).map_err(|source| LaunchError::DataDir {
         path: paths.data.clone(),
         source,
@@ -272,7 +360,12 @@ fn start(setup: &Setup, paths: &Paths) -> Result<Discovery, LaunchError> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Mutex, PoisonError};
+
     use super::*;
+
+    /// Tests that start a daemon or flip the hold take turns.
+    static HELD_FLAG: Mutex<()> = Mutex::new(());
 
     fn args(text: &[&str]) -> Vec<OsString> {
         text.iter().map(OsString::from).collect()
@@ -358,6 +451,7 @@ mod tests {
 
     #[test]
     fn a_missing_daemon_binary_is_reported_with_its_path() {
+        let _serial = HELD_FLAG.lock().unwrap_or_else(PoisonError::into_inner);
         let home = tempfile::tempdir().unwrap();
         let setup = Setup {
             profile: "dev",
@@ -371,6 +465,109 @@ mod tests {
                 .as_deref()
                 .is_some_and(|text| text.contains("no-such-nullradix")),
             "{error:?}"
+        );
+    }
+
+    #[test]
+    fn stopping_needs_no_daemon() {
+        let home = tempfile::tempdir().unwrap();
+        let setup = Setup {
+            profile: "dev",
+            home: Some(home.path().to_path_buf()),
+            daemon: home.path().join("nullradix"),
+            web_dir: None,
+        };
+        stop_daemon(&setup).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_program_nobody_holds_is_free() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("nullradix");
+        assert!(!program_in_use(&program), "missing");
+        fs::write(&program, "x").unwrap();
+        assert!(!program_in_use(&program));
+        assert!(program_released(&program));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_running_program_is_in_use() {
+        let running = env::current_exe().unwrap();
+        assert!(program_in_use(&running));
+        assert!(!program_released(&running));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_program_held_without_write_sharing_is_in_use_until_it_is_closed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("nullradix.exe");
+        fs::write(&program, "x").unwrap();
+        let holder = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&program)
+            .unwrap();
+        assert!(program_in_use(&program));
+        drop(holder);
+        assert!(!program_in_use(&program));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn only_busy_errors_mean_a_holder() {
+        let denied = io::Error::from(io::ErrorKind::PermissionDenied);
+        assert!(!is_busy(&denied));
+        assert!(!is_busy(&io::Error::from(io::ErrorKind::NotFound)));
+        assert!(is_busy(&io::Error::from_raw_os_error(32)));
+        assert!(is_busy(&io::Error::from_raw_os_error(1224)));
+    }
+
+    #[test]
+    fn no_daemon_starts_while_an_update_installs() {
+        assert!(refuse_start(false).is_ok());
+        assert!(matches!(refuse_start(true), Err(LaunchError::Updating)));
+        let _serial = HELD_FLAG.lock().unwrap_or_else(PoisonError::into_inner);
+        let home = tempfile::tempdir().unwrap();
+        let setup = Setup {
+            profile: "dev",
+            home: Some(home.path().to_path_buf()),
+            daemon: home.path().join("nullradix"),
+            web_dir: None,
+        };
+        hold_daemon_down(true);
+        let held = sign_in_url(&setup).err();
+        hold_daemon_down(false);
+        assert!(matches!(held, Some(LaunchError::Updating)), "{held:?}");
+        // the gate sits before anything is created or spawned
+        assert!(!setup.paths().unwrap().data.exists());
+    }
+
+    #[test]
+    fn a_dead_daemon_in_the_discovery_file_counts_as_none() {
+        let home = tempfile::tempdir().unwrap();
+        let paths = Paths::below(home.path());
+        fs::create_dir_all(&paths.data).unwrap();
+        let record = Discovery {
+            pid: u32::MAX - 1,
+            address: std::net::SocketAddr::from(([127, 0, 0, 1], 9)),
+            version: String::from("0.1.0"),
+            api_version: 1,
+            started_at: 0,
+        };
+        DiscoveryFile::in_dir(&paths.data).write(&record).unwrap();
+        assert!(alive(&paths).unwrap().is_none());
+        let live = Discovery {
+            pid: std::process::id(),
+            ..record
+        };
+        DiscoveryFile::in_dir(&paths.data).write(&live).unwrap();
+        assert_eq!(
+            alive(&paths).unwrap().map(|found| found.pid),
+            Some(live.pid)
         );
     }
 

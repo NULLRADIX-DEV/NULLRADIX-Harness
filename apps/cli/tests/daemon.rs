@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 mod common;
 
-use common::{Daemon, nullradix};
+use common::{Daemon, local_client, nullradix};
 
 fn status(home: &Path) -> Output {
     nullradix(home).arg("status").output().unwrap()
@@ -190,4 +190,22 @@ fn a_run_outlives_a_daemon_restart() {
     let followed = run(home.path(), &["run", "logs", &id, "--follow"]);
     assert!(followed.status.success(), "{followed:?}");
     assert_eq!(stdout(&followed).trim(), "done");
+}
+
+/// Shutdown waits up to 10 s each for requests, the scheduler, a pass and setups.
+const STOP_GRACE: Duration = Duration::from_secs(60);
+
+#[test]
+fn the_stop_route_ends_the_daemon_and_removes_its_discovery_file() {
+    let home = tempfile::tempdir().unwrap();
+    let mut daemon = Daemon::start(home.path());
+    let discovery = home.path().join("data").join("daemon.json");
+    assert!(discovery.is_file());
+    local_client(home.path()).stop_daemon().unwrap();
+    let status = daemon.wait_for_exit(STOP_GRACE);
+    assert!(
+        status.is_some_and(|status| status.success()),
+        "the daemon did not end cleanly: {status:?}"
+    );
+    assert!(!discovery.exists());
 }

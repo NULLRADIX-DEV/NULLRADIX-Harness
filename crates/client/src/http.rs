@@ -218,6 +218,17 @@ impl Client {
         Ok(health)
     }
 
+    /// Asks the daemon to exit; the answer comes before it is gone, and its runs go on.
+    pub fn stop_daemon(&self) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/daemon/stop"))
+            .header("Authorization", &self.authorization()?)
+            .send_empty()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 202)
+    }
+
     /// One-time code that opens a browser session.
     pub fn create_handoff(&self) -> Result<Handoff, ClientError> {
         let mut response = self
@@ -2198,6 +2209,26 @@ mod tests {
             .create_step_up_code()
             .unwrap_err();
         assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
+    }
+
+    #[test]
+    fn stops_the_daemon_with_the_local_token_only() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, PATIENT, PATIENT);
+        assert!(matches!(
+            client.stop_daemon(),
+            Err(ClientError::MissingToken)
+        ));
+        let stranger = Secret::parse(&"c".repeat(64)).unwrap();
+        let refused = client.clone().with_token(stranger).stop_daemon();
+        assert!(matches!(
+            refused,
+            Err(ClientError::Refused { status: 401, .. })
+        ));
+        client
+            .with_token(daemon.token.clone())
+            .stop_daemon()
+            .unwrap();
     }
 
     #[test]

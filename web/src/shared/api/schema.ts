@@ -325,6 +325,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/daemon/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stop_daemon"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dispatcher": {
         parameters: {
             query?: never;
@@ -5884,6 +5900,41 @@ export interface operations {
             };
             /** @description Nothing shipped: `customization-no-standard` */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    stop_daemon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The daemon ends open requests and exits; its runs go on */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description token-required for a browser session, daemon-stop-needs-person for a run or session of an agent */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

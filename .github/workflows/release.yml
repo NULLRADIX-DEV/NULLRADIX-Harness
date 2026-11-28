@@ -137,6 +137,7 @@ jobs:
     needs: [release-please, web, cli]
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - target: windows-x64
@@ -189,9 +190,13 @@ jobs:
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           releaseId: ${{ needs.release-please.outputs.id }}
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
           tauriScript: npm exec --no tauri
           args: --config tauri.release.conf.json --bundles ${{ matrix.bundles }}
 
@@ -322,7 +327,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.release-please.outputs.tag }}
-        run: gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --dir "${RUNNER_TEMP}/dist" --pattern '*.exe' --pattern '*.msi' --pattern '*.AppImage' --pattern '*.deb'
+        run: gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --dir "${RUNNER_TEMP}/dist" --pattern '*.exe' --pattern '*.msi' --pattern '*.AppImage' --pattern '*.deb' --pattern '*.sig' --pattern 'latest.json'
       - uses: anchore/sbom-action@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
         with:
           path: .
