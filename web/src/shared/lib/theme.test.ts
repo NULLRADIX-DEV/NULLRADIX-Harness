@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_THEME_MODE,
   INSTALLED_STORAGE_KEY,
@@ -138,7 +138,7 @@ describe('installed looks', () => {
     }
   });
 
-  it('shows the scheme and replaces the stylesheet in place', () => {
+  it('shows the scheme and swaps the stylesheet', () => {
     const root = document.documentElement;
     applyInstalledTheme(root, look);
     applyInstalledTheme(root, look);
@@ -149,5 +149,98 @@ describe('installed looks', () => {
     expect(root.dataset['themeMode']).toBe('night-blue');
     removeThemeStylesheet();
     expect(document.getElementById(THEME_LINK_ID)).toBeNull();
+  });
+});
+
+describe('theme stylesheet order', () => {
+  const look = {
+    id: 'night-blue',
+    scheme: 'dark' as const,
+    styleUrl: '/api/v1/themes/night-blue/files/theme.css?v=1',
+    startColor: null,
+  };
+
+  afterEach(() => {
+    document.head.replaceChildren();
+  });
+
+  function addLink(href: string, id?: string): HTMLLinkElement {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    if (id) link.id = id;
+    document.head.appendChild(link);
+    return link;
+  }
+
+  // the head as boot-theme.js leaves it: the theme link comes before the built app stylesheet
+  function bootHead(styleUrl: string): HTMLLinkElement {
+    addLink('/boot-start.css');
+    const boot = addLink(styleUrl, THEME_LINK_ID);
+    addLink('/assets/index-abc123.css');
+    return boot;
+  }
+
+  function hrefs(): (string | null)[] {
+    return [...document.head.querySelectorAll('link')].map((link) => link.getAttribute('href'));
+  }
+
+  it('moves an early link with the same href after the app stylesheet', () => {
+    const boot = bootHead(look.styleUrl);
+    applyInstalledTheme(document.documentElement, look);
+    const link = document.getElementById(THEME_LINK_ID);
+    expect(link).not.toBe(boot);
+    expect(document.head.lastElementChild).toBe(link);
+    expect(link?.getAttribute('href')).toBe(look.styleUrl);
+    // the early link keeps showing the theme until the placed one has loaded
+    expect(boot.isConnected).toBe(true);
+    link?.dispatchEvent(new Event('load'));
+    expect(boot.isConnected).toBe(false);
+    expect(hrefs()).toEqual(['/boot-start.css', '/assets/index-abc123.css', look.styleUrl]);
+  });
+
+  it('drops the early link also when the placed one fails to load', () => {
+    const boot = bootHead(look.styleUrl);
+    applyInstalledTheme(document.documentElement, look);
+    document.getElementById(THEME_LINK_ID)?.dispatchEvent(new Event('error'));
+    expect(boot.isConnected).toBe(false);
+  });
+
+  it('leaves a link that already comes after the app stylesheet', () => {
+    addLink('/assets/index-abc123.css');
+    applyInstalledTheme(document.documentElement, look);
+    const link = document.getElementById(THEME_LINK_ID);
+    applyInstalledTheme(document.documentElement, look);
+    expect(document.getElementById(THEME_LINK_ID)).toBe(link);
+    expect(document.head.querySelectorAll('link')).toHaveLength(2);
+  });
+
+  it('puts the link of a newly chosen theme after the app stylesheet', () => {
+    bootHead(look.styleUrl);
+    const next = { ...look, id: 'synthwave', styleUrl: '/api/v1/themes/synthwave/theme.css' };
+    applyInstalledTheme(document.documentElement, next);
+    expect(hrefs()).toEqual(['/boot-start.css', '/assets/index-abc123.css', next.styleUrl]);
+    expect(document.documentElement.dataset['themeMode']).toBe('synthwave');
+  });
+
+  it('keeps the snippets last', () => {
+    bootHead(look.styleUrl);
+    const snippets = addLink('/api/v1/snippets/active.css?v=a1.1');
+    snippets.dataset['snippets'] = '';
+    const next = { ...look, styleUrl: '/other.css' };
+    applyInstalledTheme(document.documentElement, next);
+    expect(hrefs()).toEqual([
+      '/boot-start.css',
+      '/assets/index-abc123.css',
+      '/other.css',
+      '/api/v1/snippets/active.css?v=a1.1',
+    ]);
+  });
+
+  it('removes the early link together with the placed one', () => {
+    bootHead(look.styleUrl);
+    applyInstalledTheme(document.documentElement, look);
+    removeThemeStylesheet();
+    expect(hrefs()).toEqual(['/boot-start.css', '/assets/index-abc123.css']);
   });
 });

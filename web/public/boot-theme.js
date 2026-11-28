@@ -24,6 +24,7 @@
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   document.documentElement.dataset.themeMode = mode;
   if (look) {
+    // comes before the app stylesheet here; applyInstalledTheme moves it after it on mount
     var link = document.createElement('link');
     link.id = 'nullradix-theme-css';
     link.rel = 'stylesheet';

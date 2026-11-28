@@ -120,25 +120,60 @@ export function saveInstalledLook(
   }
 }
 
+// A theme link that stays in place until its correctly placed copy has loaded.
+const STALE_THEME_LINK_SELECTOR = 'link[data-theme-stale]';
+
+const STYLESHEET_SELECTOR = 'link[rel~="stylesheet"], style';
+
+// Same specificity as the host's dark variables, so the theme wins only after every app stylesheet.
+function isAfterAppStyles(link: Element): boolean {
+  if (link.parentElement !== link.ownerDocument.head) return false;
+  for (let next = link.nextElementSibling; next; next = next.nextElementSibling) {
+    if (next.matches(STYLESHEET_SELECTOR) && !next.matches(SNIPPETS_LINK_SELECTOR)) return false;
+  }
+  return true;
+}
+
+function placeAfterAppStyles(doc: Document, link: HTMLLinkElement): void {
+  const snippets = doc.head.querySelector(SNIPPETS_LINK_SELECTOR);
+  if (snippets) snippets.before(link);
+  else doc.head.appendChild(link);
+}
+
+function removeStaleThemeLinks(doc: Document): void {
+  for (const stale of doc.querySelectorAll(STALE_THEME_LINK_SELECTOR)) stale.remove();
+}
+
 // Shows an installed theme: its scheme, its mode and its stylesheet after the app styles.
 export function applyInstalledTheme(root: HTMLElement, look: InstalledLook): void {
   root.dataset['theme'] = look.scheme;
   root.dataset['themeMode'] = look.id;
   const doc = root.ownerDocument;
   const existing = doc.getElementById(THEME_LINK_ID);
-  if (existing instanceof HTMLLinkElement && existing.getAttribute('href') === look.styleUrl) {
-    return;
-  }
+  const sameHref =
+    existing instanceof HTMLLinkElement && existing.getAttribute('href') === look.styleUrl;
+  if (sameHref && isAfterAppStyles(existing)) return;
   const link = doc.createElement('link');
   link.id = THEME_LINK_ID;
   link.rel = 'stylesheet';
   link.href = look.styleUrl;
-  const snippets = doc.querySelector(SNIPPETS_LINK_SELECTOR);
-  if (existing) existing.replaceWith(link);
-  else if (snippets) snippets.before(link);
-  else doc.head.appendChild(link);
+  removeStaleThemeLinks(doc);
+  if (existing && sameHref) {
+    // the early boot link shows the theme until the placed copy has loaded, so it never drops out
+    existing.removeAttribute('id');
+    existing.setAttribute('data-theme-stale', '');
+    const dropStale = () => {
+      existing.remove();
+    };
+    link.addEventListener('load', dropStale, { once: true });
+    link.addEventListener('error', dropStale, { once: true });
+  } else {
+    existing?.remove();
+  }
+  placeAfterAppStyles(doc, link);
 }
 
 export function removeThemeStylesheet(doc: Document = document): void {
   doc.getElementById(THEME_LINK_ID)?.remove();
+  removeStaleThemeLinks(doc);
 }
