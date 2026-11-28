@@ -1673,6 +1673,43 @@
         }
       }
     },
+    "/api/v1/daemon/stop": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "stop_daemon",
+        "responses": {
+          "202": {
+            "description": "The daemon ends open requests and exits; its runs go on"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sessions cannot stop the daemon; neither can runs of agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/dispatcher": {
       "get": {
         "tags": [

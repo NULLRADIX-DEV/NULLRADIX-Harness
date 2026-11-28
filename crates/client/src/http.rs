@@ -16,11 +16,11 @@ use nullradix_api::{
     ProjectList, PromoteNote, PromotedNote, PromptDetail, PromptKindDto, PromptListDto,
     PromptPreviewDto, QuestionCommentDto, QuestionDetailDto, QuestionList, RUN_HEADER,
     RebaseCustomization, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RetryMerge,
-    ReturnReview, RunDto, RunList, RunOutput, RunnerList, SESSION_HEADER, SaveThemeSettings,
-    SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository,
-    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, StepUpCode,
-    SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto,
-    TicketList, TranscriptPageDto, TurnOffCode, UpdateAccount, UpdateCustomization,
+    ReturnReview, RunDto, RunList, RunOutput, RunStatusDto, RunnerList, SESSION_HEADER,
+    SaveThemeSettings, SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList,
+    SetBoardRepository, SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket,
+    StepUpCode, SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto,
+    TicketDto, TicketList, TranscriptPageDto, TurnOffCode, UpdateAccount, UpdateCustomization,
     UpdateDispatcher, UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
@@ -64,6 +64,8 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(150);
 const GET_ATTEMPTS: u32 = 4;
 const GET_PAUSE: Duration = Duration::from_millis(100);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
+/// The most runs the daemon lists at once; a run that has not ended is among the newest.
+const ACTIVE_RUN_LOOKBACK: u32 = 500;
 
 /// Whether the connection failed or dropped; only safe to repeat for reads.
 fn is_transient(error: &ureq::Error) -> bool {
@@ -216,6 +218,17 @@ impl Client {
             });
         }
         Ok(health)
+    }
+
+    /// Asks the daemon to exit; the answer comes before it is gone, and its runs go on.
+    pub fn stop_daemon(&self) -> Result<(), ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/daemon/stop"))
+            .header("Authorization", &self.authorization()?)
+            .send_empty()
+            .map_err(|source| self.unreachable(source))?;
+        expect_empty(&mut response, 202)
     }
 
     /// One-time code that opens a browser session.
@@ -610,6 +623,16 @@ impl Client {
 
     pub fn list_runs(&self, limit: u32) -> Result<RunList, ClientError> {
         self.get_json(&format!("/runs?limit={limit}"))
+    }
+
+    /// How many runs have not ended; their supervisors go on without the daemon.
+    pub fn active_run_count(&self) -> Result<usize, ClientError> {
+        let runs = self.list_runs(ACTIVE_RUN_LOOKBACK)?;
+        Ok(runs
+            .items
+            .iter()
+            .filter(|run| matches!(run.status, RunStatusDto::Starting | RunStatusDto::Running))
+            .count())
     }
 
     pub fn start_run(&self, input: &StartRun) -> Result<RunDto, ClientError> {
@@ -2198,6 +2221,33 @@ mod tests {
             .create_step_up_code()
             .unwrap_err();
         assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
+    }
+
+    #[test]
+    fn stops_the_daemon_with_the_local_token_only() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, PATIENT, PATIENT);
+        assert!(matches!(
+            client.stop_daemon(),
+            Err(ClientError::MissingToken)
+        ));
+        let stranger = Secret::parse(&"c".repeat(64)).unwrap();
+        let refused = client.clone().with_token(stranger).stop_daemon();
+        assert!(matches!(
+            refused,
+            Err(ClientError::Refused { status: 401, .. })
+        ));
+        client
+            .with_token(daemon.token.clone())
+            .stop_daemon()
+            .unwrap();
+    }
+
+    #[test]
+    fn a_fresh_daemon_has_no_active_runs() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, PATIENT, PATIENT).with_token(daemon.token.clone());
+        assert_eq!(client.active_run_count().unwrap(), 0);
     }
 
     #[test]

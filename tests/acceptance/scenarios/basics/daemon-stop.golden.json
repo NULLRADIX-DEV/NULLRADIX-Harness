@@ -1,0 +1,77 @@
+[
+  {
+    "name": "stop without a credential",
+    "request": {
+      "auth": "none",
+      "method": "POST",
+      "path": "/api/v1/daemon/stop"
+    },
+    "response": {
+      "json": {
+        "code": "credentials-missing",
+        "detail": "this route needs a token or a session",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:credentials-missing"
+      },
+      "status": 401
+    }
+  },
+  {
+    "name": "stop from a browser session",
+    "request": {
+      "auth": "session",
+      "method": "POST",
+      "path": "/api/v1/daemon/stop"
+    },
+    "response": {
+      "json": {
+        "code": "token-required",
+        "detail": "only token holders can stop the daemon",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:token-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "stop from a run",
+    "request": {
+      "headers": {
+        "X-Nullradix-Run": "run-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/daemon/stop"
+    },
+    "response": {
+      "json": {
+        "code": "decision-needs-person",
+        "detail": "stopping the daemon stays with the person: do it in the app or in a terminal outside the run",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:decision-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "cli": [
+      "status"
+    ],
+    "exitCode": 0,
+    "name": "still running",
+    "stderr": "",
+    "stdout": "daemon <VERSION> is running at <ADDRESS> (pid <PID>)\n"
+  },
+  {
+    "name": "stop",
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/daemon/stop"
+    },
+    "response": {
+      "status": 202
+    }
+  }
+]
