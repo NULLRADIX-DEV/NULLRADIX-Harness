@@ -78,6 +78,7 @@ use nullradix_app::sessions::SessionService;
 use nullradix_app::snippets::SnippetService;
 use nullradix_app::theme_catalog::CatalogService;
 use nullradix_app::theme_fetch::ThemeAssets;
+use nullradix_app::theme_preview::ThemePreviews;
 use nullradix_app::themes::ThemeService;
 use nullradix_app::tickets::TicketService;
 use nullradix_app::usage::UsageService;
@@ -268,6 +269,7 @@ pub struct ApiState {
     pub favorites: Arc<FavoriteService>,
     pub themes: Arc<ThemeService>,
     pub theme_assets: Arc<ThemeAssets>,
+    pub theme_previews: Arc<ThemePreviews>,
     pub catalog: Arc<CatalogService>,
     pub claude_theme: Arc<ClaudeThemeService>,
     pub autostart: Arc<AutostartService>,
@@ -325,6 +327,7 @@ fn extension_routes(router: OpenApiRouter<ApiState>) -> OpenApiRouter<ApiState> 
         .routes(routes!(theme_catalog::remove_catalog_source))
         .routes(routes!(theme_catalog::browse_catalog))
         .routes(routes!(theme_catalog::install_catalog_theme))
+        .routes(routes!(theme_catalog::catalog_theme_preview))
         .routes(routes!(
             customizations::list_customizations,
             customizations::create_customization
@@ -963,6 +966,11 @@ pub(crate) mod tests {
             signal.clone(),
             nullradix_domain::Reach::Public,
         ));
+        let theme_previews = Arc::new(ThemePreviews::new(
+            catalog.clone(),
+            fetcher.clone(),
+            Arc::new(crate::theme_catalog::fake::Previews::default()),
+        ));
         let dispatcher_config = Arc::new(DispatcherConfigService::new(
             store.clone(),
             store.clone(),
@@ -1052,6 +1060,7 @@ pub(crate) mod tests {
             favorites,
             themes: themes.clone(),
             theme_assets,
+            theme_previews,
             claude_theme: Arc::new(nullradix_app::claude_theme::ClaudeThemeService::new(
                 store.clone(),
                 themes.clone(),

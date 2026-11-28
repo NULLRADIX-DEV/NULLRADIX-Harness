@@ -2,6 +2,7 @@
 
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use nullradix_app::AppError;
 use nullradix_app::auth::Principal;
@@ -13,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::{AgentContext, is_person};
-use crate::themes::ThemeDto;
-use crate::{ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
+use crate::themes::{ASSET_CSP, ThemeDto};
+use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -84,6 +85,8 @@ pub struct CatalogThemeDto {
     /// Whether the theme fits this version; incompatible themes cannot be installed.
     pub compatible: bool,
     pub description: Option<String>,
+    /// Path of the preview on this daemon, never the address of the source.
+    pub preview_url: Option<String>,
     pub state: CatalogStateDto,
     /// The installed version when the theme is installed.
     pub installed_version: Option<String>,
@@ -113,6 +116,14 @@ impl From<&CatalogTheme> for CatalogThemeDto {
             sdk_version: capped(&entry.sdk_version),
             compatible: entry.compatible,
             description: entry.description.clone(),
+            preview_url: entry.preview.as_ref().map(|preview| {
+                format!(
+                    "{API_PREFIX}/theme-catalog/sources/{}/themes/{}/preview?v={}",
+                    theme.source,
+                    entry.id,
+                    preview.version()
+                )
+            }),
             state,
             installed_version,
         }
@@ -229,6 +240,13 @@ pub(crate) struct InstallQuery {
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+pub(crate) struct PreviewQuery {
+    /// The version in the `previewUrl` allows a long browser cache.
+    v: Option<String>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct RemoveSourceQuery {
     /// Version of the source list the removal is based on.
     version: i64,
@@ -300,6 +318,7 @@ pub(crate) async fn remove_catalog_source(
         .catalog
         .remove_source(&path.id, AppError::client_version(query.version)?)
         .await?;
+    state.theme_previews.forget(&path.id).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -365,14 +384,90 @@ pub(crate) async fn install_catalog_theme(
     Ok((status, headers, Json(dto)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/theme-catalog/sources/{id}/themes/{theme}/preview",
+    tag = "themes",
+    params(InstallPath, PreviewQuery),
+    responses(
+        (status = 200, description = "The preview image the source names for the theme, fetched by the daemon: a PNG, JPEG or WebP of at most 2 MiB, never SVG; it is kept per source and changes with the address or the package checksum of the entry", content_type = "image/*", body = Vec<u8>),
+        (status = 401, body = Problem),
+        (status = 404, description = "`catalog-source-not-found`, `catalog-theme-not-found` or `catalog-preview-not-found` (the entry names no preview)", body = Problem),
+        (status = 422, description = "`theme-id-invalid`; `catalog-preview-invalid` (not a PNG, JPEG or WebP); `catalog-too-large` above 2 MiB; `catalog-address-refused`; `catalog-index-invalid`", body = Problem),
+        (status = 503, description = "The source or the image host fails: `catalog-timeout`, `catalog-unreachable`, `catalog-http-error`", body = Problem),
+    )
+)]
+pub(crate) async fn catalog_theme_preview(
+    State(state): State<ApiState>,
+    ApiPath(path): ApiPath<InstallPath>,
+    ApiQuery(query): ApiQuery<PreviewQuery>,
+) -> Result<Response, ApiError> {
+    let preview = state.theme_previews.get(&path.id, &path.theme).await?;
+    // an image asked for by its version never changes under it
+    let cache = if query.v.as_deref() == Some(preview.version.as_str()) {
+        "private, max-age=31536000, immutable"
+    } else {
+        "private, max-age=300"
+    };
+    Ok((
+        [
+            (header::CONTENT_TYPE, preview.content_type),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            // a file of another origin must not run script or load anything on the app origin
+            (header::CONTENT_SECURITY_POLICY, ASSET_CSP),
+            (header::CACHE_CONTROL, cache),
+        ],
+        preview.data,
+    )
+        .into_response())
+}
+
 #[cfg(test)]
 pub(crate) mod fake {
     use std::collections::HashMap;
 
     use async_trait::async_trait;
+    use nullradix_app::AppError;
     use nullradix_app::theme_catalog::{CatalogFetcher, FetchError};
-    use nullradix_domain::CatalogUrl;
+    use nullradix_app::theme_fetch::Stored;
+    use nullradix_app::theme_preview::PreviewCache;
+    use nullradix_domain::{CatalogUrl, SourceId};
     use parking_lot::Mutex;
+
+    /// Kept preview images in memory.
+    #[derive(Default)]
+    pub(crate) struct Previews {
+        files: Mutex<HashMap<(String, String), Vec<u8>>>,
+    }
+
+    #[async_trait]
+    impl PreviewCache for Previews {
+        async fn get(&self, source: &SourceId, key: &str) -> Option<Vec<u8>> {
+            self.files
+                .lock()
+                .get(&(source.to_string(), key.to_owned()))
+                .cloned()
+        }
+
+        async fn put(
+            &self,
+            source: &SourceId,
+            key: &str,
+            bytes: Vec<u8>,
+        ) -> Result<Stored, AppError> {
+            self.files
+                .lock()
+                .insert((source.to_string(), key.to_owned()), bytes.clone());
+            Ok(Stored { bytes, error: None })
+        }
+
+        async fn clear(&self, source: &SourceId) -> Result<(), AppError> {
+            self.files
+                .lock()
+                .retain(|(owner, _), _| owner != source.as_str());
+            Ok(())
+        }
+    }
 
     /// Answers by address; a missing answer is unreachable.
     #[derive(Default)]
@@ -673,6 +768,10 @@ mod tests {
                 "POST",
                 "/api/v1/theme-catalog/sources/abcdef123456/themes/x-y/install",
             ),
+            (
+                "GET",
+                "/api/v1/theme-catalog/sources/abcdef123456/themes/x-y/preview",
+            ),
         ] {
             let request = local(Request::builder().method(method).uri(path))
                 .body(Body::empty())
@@ -796,5 +895,322 @@ main.js=run()",
             (409, Some("theme-confirmation-required"))
         );
         assert_eq!(enabled().await, json!(true));
+    }
+
+    const IMAGE: &str = "https://images.example.com/night-blue.png";
+    const SHEET: [u8; 12] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4];
+
+    fn preview_index(entries: &[(&str, Option<&str>)]) -> Vec<u8> {
+        let items: Vec<Value> = entries
+            .iter()
+            .map(|(id, preview)| {
+                let mut entry = json!({
+                    "id": id, "name": id, "version": "1.2.0", "sdkVersion": "^2.0",
+                    "downloadUrl": PACKAGE, "sha256": "ab".repeat(32)
+                });
+                if let Some(preview) = preview {
+                    entry["preview"] = json!(preview);
+                }
+                entry
+            })
+            .collect();
+        json!(items).to_string().into_bytes()
+    }
+
+    struct Reply {
+        status: u16,
+        headers: axum::http::HeaderMap,
+        body: Vec<u8>,
+    }
+
+    impl Reply {
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers.get(name).and_then(|value| value.to_str().ok())
+        }
+
+        fn code(&self) -> Option<String> {
+            let problem: Value = serde_json::from_slice(&self.body).ok()?;
+            problem["code"].as_str().map(str::to_owned)
+        }
+    }
+
+    async fn get(api: &TestApi, path: &str) -> Reply {
+        let request = bearer(Request::get(path), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        reply(api, request).await
+    }
+
+    async fn reply(api: &TestApi, request: Request<Body>) -> Reply {
+        let response = tower::ServiceExt::oneshot(api.router.clone(), request)
+            .await
+            .unwrap();
+        let (status, headers) = (response.status().as_u16(), response.headers().clone());
+        let body = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024)
+            .await
+            .unwrap();
+        Reply {
+            status,
+            headers,
+            body: body.to_vec(),
+        }
+    }
+
+    /// A source with a preview for `night-blue` and none for `plain`.
+    async fn with_previews() -> (TestApi, String) {
+        let api = test_api().await;
+        let (_, added) = add(&api, SOURCE).await;
+        let id = added["id"].as_str().unwrap().to_owned();
+        api.fetcher.answer(
+            SOURCE,
+            Ok(preview_index(&[
+                ("night-blue", Some(IMAGE)),
+                ("plain", None),
+            ])),
+        );
+        (api, id)
+    }
+
+    /// What the fake host answers to the address of the image.
+    type Answer = Result<Vec<u8>, FetchError>;
+
+    fn preview_path(id: &str, theme: &str) -> String {
+        format!("/api/v1/theme-catalog/sources/{id}/themes/{theme}/preview")
+    }
+
+    #[tokio::test]
+    async fn the_list_names_the_path_of_the_proxy_and_never_the_address_of_the_image() {
+        let (api, id) = with_previews().await;
+        let (_, catalog) = call(&api, "GET", "/api/v1/theme-catalog/themes", None).await;
+        let items = catalog["items"].as_array().unwrap();
+        let named = items
+            .iter()
+            .find(|item| item["id"] == "night-blue")
+            .unwrap();
+        let url = named["previewUrl"].as_str().unwrap();
+        assert!(
+            url.starts_with(&format!("{}?v=", preview_path(&id, "night-blue"))),
+            "{url}"
+        );
+        let plain = items.iter().find(|item| item["id"] == "plain").unwrap();
+        assert!(plain["previewUrl"].is_null());
+        assert!(!catalog.to_string().contains("images.example.com"));
+    }
+
+    #[tokio::test]
+    async fn a_preview_is_served_as_an_image_that_cannot_run_anything() {
+        let (api, id) = with_previews().await;
+        api.fetcher.answer(IMAGE, Ok(SHEET.to_vec()));
+        let (_, catalog) = call(&api, "GET", "/api/v1/theme-catalog/themes", None).await;
+        let items = catalog["items"].as_array().unwrap();
+        let named = items
+            .iter()
+            .find(|item| item["id"] == "night-blue")
+            .unwrap();
+        let url = named["previewUrl"].as_str().unwrap().to_owned();
+        let reply = get(&api, &url).await;
+        assert_eq!(
+            (reply.status, reply.body.as_slice()),
+            (200, SHEET.as_slice())
+        );
+        assert_eq!(reply.header("content-type"), Some("image/png"));
+        assert_eq!(reply.header("x-content-type-options"), Some("nosniff"));
+        let csp = reply.header("content-security-policy").unwrap();
+        assert!(csp.starts_with("sandbox; default-src 'none'"), "{csp}");
+        assert!(!csp.contains("script-src"), "{csp}");
+        assert!(reply.headers.get("set-cookie").is_none());
+        // a known type is shown as it is
+        assert!(reply.headers.get("content-disposition").is_none());
+        // asked for by its version it never changes, else the browser asks again soon
+        assert_eq!(
+            reply.header("cache-control"),
+            Some("private, max-age=31536000, immutable")
+        );
+        let stale = get(&api, &preview_path(&id, "night-blue")).await;
+        assert_eq!(stale.header("cache-control"), Some("private, max-age=300"));
+        let wrong = get(&api, &format!("{}?v=0000", preview_path(&id, "night-blue"))).await;
+        assert_eq!(wrong.header("cache-control"), Some("private, max-age=300"));
+    }
+
+    #[tokio::test]
+    async fn a_preview_is_fetched_once_and_kept_until_its_source_is_removed() {
+        let (api, id) = with_previews().await;
+        api.fetcher.answer(IMAGE, Ok(SHEET.to_vec()));
+        let path = preview_path(&id, "night-blue");
+        for _ in 0..3 {
+            assert_eq!(get(&api, &path).await.status, 200);
+        }
+        let fetched = |api: &TestApi| {
+            api.fetcher
+                .asked
+                .lock()
+                .iter()
+                .filter(|url| url.as_str() == IMAGE)
+                .count()
+        };
+        assert_eq!(fetched(&api), 1);
+        let (_, list) = call(&api, "GET", "/api/v1/theme-catalog/sources", None).await;
+        let version = list["version"].as_i64().unwrap();
+        let remove = format!("/api/v1/theme-catalog/sources/{id}?version={version}");
+        assert_eq!(call(&api, "DELETE", &remove, None).await.0, 204);
+        let gone = get(&api, &path).await;
+        assert_eq!(
+            (gone.status, gone.code().as_deref()),
+            (404, Some("catalog-source-not-found"))
+        );
+        // The same address gives the same id and would find old files.
+        let (_, added) = add(&api, SOURCE).await;
+        assert_eq!(added["id"].as_str(), Some(id.as_str()));
+        api.fetcher.answer(
+            SOURCE,
+            Ok(preview_index(&[
+                ("night-blue", Some(IMAGE)),
+                ("plain", None),
+            ])),
+        );
+        assert_eq!(get(&api, &path).await.status, 200);
+        assert_eq!(fetched(&api), 2);
+    }
+
+    #[tokio::test]
+    async fn any_signed_in_caller_may_look_at_a_preview() {
+        let (api, id) = with_previews().await;
+        api.fetcher.answer(IMAGE, Ok(SHEET.to_vec()));
+        let path = preview_path(&id, "night-blue");
+        assert_eq!(get(&api, &path).await.status, 200);
+        let cookie = open_session(&api).await;
+        let request = local(Request::get(&path))
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(reply(&api, request).await.status, 200);
+        let request = local(Request::get(&path)).body(Body::empty()).unwrap();
+        assert_eq!(reply(&api, request).await.status, 401);
+    }
+
+    #[tokio::test]
+    async fn every_refusal_has_its_status_and_code() {
+        let (api, id) = with_previews().await;
+        let big = {
+            let mut bytes = SHEET.to_vec();
+            bytes.resize(2 * 1024 * 1024 + 1, 0);
+            bytes
+        };
+        let svg = b"<svg xmlns=http://www.w3.org/2000/svg><script>alert(1)</script></svg>";
+        let night = preview_path(&id, "night-blue");
+        let cases: Vec<(String, Option<Answer>, u16, &str)> = vec![
+            (
+                preview_path("zzzzzzzzzzzz", "night-blue"),
+                None,
+                404,
+                "catalog-source-not-found",
+            ),
+            (
+                preview_path("000000000000", "night-blue"),
+                None,
+                404,
+                "catalog-source-not-found",
+            ),
+            (
+                preview_path(&id, "forest"),
+                None,
+                404,
+                "catalog-theme-not-found",
+            ),
+            (
+                preview_path(&id, "plain"),
+                None,
+                404,
+                "catalog-preview-not-found",
+            ),
+            (preview_path(&id, "Bad.Id"), None, 422, "theme-id-invalid"),
+            (
+                night.clone(),
+                Some(Ok(svg.to_vec())),
+                422,
+                "catalog-preview-invalid",
+            ),
+            (
+                night.clone(),
+                Some(Ok(b"GIF89a-x".to_vec())),
+                422,
+                "catalog-preview-invalid",
+            ),
+            (night.clone(), Some(Ok(big)), 422, "catalog-too-large"),
+            (
+                night.clone(),
+                Some(Err(FetchError::TooLarge)),
+                422,
+                "catalog-too-large",
+            ),
+            (
+                night.clone(),
+                Some(Err(FetchError::Refused)),
+                422,
+                "catalog-address-refused",
+            ),
+            (
+                night.clone(),
+                Some(Err(FetchError::Timeout)),
+                503,
+                "catalog-timeout",
+            ),
+            (
+                night.clone(),
+                Some(Err(FetchError::Unreachable)),
+                503,
+                "catalog-unreachable",
+            ),
+            (
+                night.clone(),
+                Some(Err(FetchError::Status(404))),
+                503,
+                "catalog-http-error",
+            ),
+        ];
+        for (path, answer, status, code) in cases {
+            if let Some(answer) = answer {
+                api.fetcher.answer(IMAGE, answer);
+            }
+            let reply = get(&api, &path).await;
+            assert_eq!(
+                (reply.status, reply.code().as_deref()),
+                (status, Some(code)),
+                "{path}"
+            );
+            assert!(reply.header("content-type").unwrap().contains("json"));
+        }
+        // a fix on the host is seen at once: nothing wrong was kept
+        api.fetcher.answer(IMAGE, Ok(SHEET.to_vec()));
+        assert_eq!(get(&api, &night).await.status, 200);
+    }
+
+    #[tokio::test]
+    async fn a_preview_address_that_is_not_public_https_skips_the_entry() {
+        let api = test_api().await;
+        let (_, added) = add(&api, SOURCE).await;
+        let id = added["id"].as_str().unwrap().to_owned();
+        api.fetcher.answer(
+            SOURCE,
+            Ok(preview_index(&[
+                ("night-blue", Some("http://images.example.com/a.png")),
+                ("plain", Some("https://127.0.0.1/a.png")),
+            ])),
+        );
+        let (_, catalog) = call(&api, "GET", "/api/v1/theme-catalog/themes", None).await;
+        assert_eq!(catalog["items"].as_array().unwrap().len(), 0);
+        let reason = catalog["sources"][0]["skipped"][0]["reason"]
+            .as_str()
+            .unwrap();
+        assert!(reason.starts_with("preview: "), "{reason}");
+        let refused = get(&api, &preview_path(&id, "night-blue")).await;
+        assert_eq!(refused.code().as_deref(), Some("catalog-theme-not-found"));
+        assert!(
+            api.fetcher
+                .asked
+                .lock()
+                .iter()
+                .all(|url| !url.contains("images."))
+        );
     }
 }

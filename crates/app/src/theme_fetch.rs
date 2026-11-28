@@ -1,6 +1,5 @@
 //! The asset proxy: a theme with its code on loads resources only from the domains it declares.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +10,7 @@ use nullradix_domain::{
 };
 use sha2::{Digest, Sha256};
 
+use crate::flights::Flights;
 use crate::theme_catalog::FetchError;
 use crate::themes::{AssetGrant, ThemeService};
 use crate::{AppError, auth};
@@ -121,60 +121,6 @@ pub const MAX_PARALLEL_ARCHIVES: usize = 4;
 
 type FlightKey = (ThemeId, String);
 
-/// The lock of one resource and how many flights use it, waiting or not.
-struct Slot {
-    lock: Arc<tokio::sync::Mutex<()>>,
-    users: usize,
-}
-
-/// One download per resource at a time: the others wait and then find it cached.
-#[derive(Default)]
-struct Flights {
-    slots: parking_lot::Mutex<HashMap<FlightKey, Slot>>,
-}
-
-struct Flight<'a> {
-    flights: &'a Flights,
-    key: FlightKey,
-    guard: Option<tokio::sync::OwnedMutexGuard<()>>,
-}
-
-impl Flights {
-    async fn enter(&self, theme: &ThemeId, key: &str) -> Flight<'_> {
-        let key = (theme.clone(), key.to_owned());
-        let lock = {
-            let mut slots = self.slots.lock();
-            let slot = slots.entry(key.clone()).or_insert_with(|| Slot {
-                lock: Arc::default(),
-                users: 0,
-            });
-            slot.users += 1;
-            slot.lock.clone()
-        };
-        // the flight exists before the wait, so a cancelled wait still counts itself out
-        let mut flight = Flight {
-            flights: self,
-            key,
-            guard: None,
-        };
-        flight.guard = Some(lock.lock_owned().await);
-        flight
-    }
-}
-
-impl Drop for Flight<'_> {
-    fn drop(&mut self) {
-        self.guard.take();
-        let mut slots = self.flights.slots.lock();
-        if let Some(slot) = slots.get_mut(&self.key) {
-            slot.users = slot.users.saturating_sub(1);
-            if slot.users == 0 {
-                slots.remove(&self.key);
-            }
-        }
-    }
-}
-
 /// What a page asks the proxy for.
 #[derive(Debug, Clone, Copy)]
 pub struct AssetRequest<'a> {
@@ -280,7 +226,7 @@ pub struct ThemeAssets {
     fetcher: Arc<dyn AssetFetcher>,
     entries: Arc<dyn ZipEntries>,
     cache: Arc<dyn AssetCache>,
-    flights: Flights,
+    flights: Flights<FlightKey>,
     downloads: tokio::sync::Semaphore,
     archives: tokio::sync::Semaphore,
 }
@@ -374,7 +320,10 @@ impl ThemeAssets {
         } else {
             // never wait for a flight while holding a permit: a slow download would block all
             drop(permit);
-            let flight = self.flights.enter(&grant.id, &archive_key).await;
+            let flight = self
+                .flights
+                .enter((grant.id.clone(), archive_key.clone()))
+                .await;
             let permit = self.archives.acquire().await.map_err(AppError::internal)?;
             // the flight ahead may have cut this file meanwhile
             if let Some(cached) = self.cached_entry(&grant.id, &key).await {
@@ -436,7 +385,7 @@ impl ThemeAssets {
         if let Some(bytes) = self.cached(grant, &key, sum, max).await? {
             return Ok(bytes);
         }
-        let _flight = self.flights.enter(&grant.id, &key).await;
+        let _flight = self.flights.enter((grant.id.clone(), key.clone())).await;
         self.load(grant, url, sum, max, &key).await
     }
 
@@ -1425,7 +1374,7 @@ mod tests {
         assert_eq!(data, [b"ROCK".to_vec(), b"SAND".to_vec(), b"ROCK".to_vec()]);
         assert_eq!(setup.hosts.asked(), [jar]);
         // nothing is left of the waiting lists
-        assert!(setup.assets.flights.slots.lock().is_empty());
+        assert!(setup.assets.flights.is_empty());
     }
 
     #[tokio::test]
@@ -1441,7 +1390,7 @@ mod tests {
             setup.assets.fetch(request(ICON)).await.unwrap().data,
             b"PNG"
         );
-        assert!(setup.assets.flights.slots.lock().is_empty());
+        assert!(setup.assets.flights.is_empty());
     }
 
     #[tokio::test]
@@ -1483,43 +1432,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_wait_cancelled_after_the_lock_was_handed_over_leaves_no_entry() {
-        let flights = Flights::default();
-        let theme = ThemeId::parse("night-blue").unwrap();
-        let first = flights.enter(&theme, "icon").await;
-        let mut waiting = Box::pin(flights.enter(&theme, "icon"));
-        // the waiter polls once and queues, then the lock is handed to it unpolled
-        tokio::select! {
-            biased;
-            _ = &mut waiting => unreachable!("the first flight still holds the lock"),
-            () = std::future::ready(()) => {}
-        }
-        drop(first);
-        drop(waiting);
-        assert!(flights.slots.lock().is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_slot_stays_while_anyone_waits_and_goes_with_the_last() {
-        let flights = Flights::default();
-        let theme = ThemeId::parse("night-blue").unwrap();
-        let first = flights.enter(&theme, "icon").await;
-        let mut waiting = Box::pin(flights.enter(&theme, "icon"));
-        tokio::select! {
-            biased;
-            _ = &mut waiting => unreachable!("the first flight still holds the lock"),
-            () = std::future::ready(()) => {}
-        }
-        drop(first);
-        // the waiter keeps the slot until it is done too
-        assert_eq!(flights.slots.lock().len(), 1);
-        let second = waiting.await;
-        assert_eq!(flights.slots.lock().len(), 1);
-        drop(second);
-        assert!(flights.slots.lock().is_empty());
-    }
-
-    #[tokio::test]
     async fn after_a_failed_download_the_next_waiter_downloads_alone() {
         let setup = setup(true).await;
         setup.hosts.serve(
@@ -1554,7 +1466,7 @@ mod tests {
         assert_eq!(third.await.unwrap().unwrap().data, b"PNG");
         assert_eq!(setup.hosts.asked().len(), 2);
         assert_eq!(setup.hosts.peak.load(Ordering::SeqCst), 1);
-        assert!(setup.assets.flights.slots.lock().is_empty());
+        assert!(setup.assets.flights.is_empty());
     }
 
     #[tokio::test]
@@ -1686,7 +1598,7 @@ mod tests {
             assert_eq!(task.await.unwrap().unwrap().data, expected.as_bytes());
         }
         assert_eq!(setup.hosts.asked(), [slow]);
-        assert!(setup.assets.flights.slots.lock().is_empty());
+        assert!(setup.assets.flights.is_empty());
     }
 
     #[tokio::test]
@@ -1761,7 +1673,7 @@ mod tests {
             assert_eq!(task.await.unwrap().unwrap().data, expected.as_bytes());
         }
         assert_eq!(setup.hosts.asked(), [jar]);
-        assert!(assets.flights.slots.lock().is_empty());
+        assert!(assets.flights.is_empty());
     }
 
     #[tokio::test]

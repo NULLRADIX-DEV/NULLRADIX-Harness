@@ -50,21 +50,24 @@ export class Daemon {
   readonly work: string;
   private readonly gitConfig: string;
   private readonly mode: string;
+  private readonly extra: NodeJS.ProcessEnv;
   private child: ChildProcess | undefined;
   private port = 0;
   private token = '';
   private ended: Promise<void> = Promise.resolve();
 
-  private constructor(home: string, mode: string) {
+  private constructor(home: string, mode: string, extra: NodeJS.ProcessEnv) {
     this.home = home;
     this.work = join(home, 'work');
     this.gitConfig = join(home, 'gitconfig');
     this.mode = mode;
+    this.extra = extra;
   }
 
-  static async start(mode = 'review'): Promise<Daemon> {
+  // Extra variables for a test on top of the scrubbed ones.
+  static async start(mode = 'review', extra: NodeJS.ProcessEnv = {}): Promise<Daemon> {
     const home = await mkdtemp(join(tmpdir(), 'nullradix-e2e-'));
-    const daemon = new Daemon(home, mode);
+    const daemon = new Daemon(home, mode, extra);
     await mkdir(daemon.work, { recursive: true });
     // an empty global config keeps the machine's identity, signing and line endings out of git
     await writeFile(daemon.gitConfig, '');
@@ -100,6 +103,7 @@ export class Daemon {
       GIT_AUTHOR_EMAIL: 't@example.com',
       GIT_COMMITTER_NAME: 't',
       GIT_COMMITTER_EMAIL: 't@example.com',
+      ...this.extra,
     };
   }
 

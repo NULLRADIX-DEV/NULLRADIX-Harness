@@ -29,6 +29,7 @@ mod text;
 mod theme;
 mod theme_catalog;
 mod theme_fetch;
+mod theme_preview;
 mod theme_risk;
 mod theme_settings;
 mod ticket;
@@ -156,6 +157,10 @@ pub use theme_catalog::{
 pub use theme_fetch::{
     AssetUrl, AssetUrlError, MAX_ARCHIVE_BYTES, MAX_ASSET_BYTES, MAX_CACHE_BYTES, MAX_CACHE_FILES,
     MAX_REDIRECTS, check_asset_entry, foreign_content_type, parse_sha256,
+};
+pub use theme_preview::{
+    CatalogPreview, MAX_PREVIEW_BYTES, MAX_PREVIEW_CACHE_BYTES, MAX_PREVIEW_CACHE_FILES,
+    PREVIEW_VERSION_CHARS, PreviewImage,
 };
 pub use theme_risk::{RiskAdded, ThemeRisk, inspect_package};
 pub use theme_settings::{SETTING_VALUE_MAX, SettingValue, ThemeSettingValues};

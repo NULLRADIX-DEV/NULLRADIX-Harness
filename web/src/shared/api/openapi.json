@@ -7244,6 +7244,99 @@
         }
       }
     },
+    "/api/v1/theme-catalog/sources/{id}/themes/{theme}/preview": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "operationId": "catalog_theme_preview",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Source id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "theme",
+            "in": "path",
+            "description": "Theme id as the source offers it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "v",
+            "in": "query",
+            "description": "The version in the `previewUrl` allows a long browser cache.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The preview image the source names for the theme, fetched by the daemon: a PNG, JPEG or WebP of at most 2 MiB, never SVG; it is kept per source and changes with the address or the package checksum of the entry",
+            "content": {
+              "image/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`catalog-source-not-found`, `catalog-theme-not-found` or `catalog-preview-not-found` (the entry names no preview)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`theme-id-invalid`; `catalog-preview-invalid` (not a PNG, JPEG or WebP); `catalog-too-large` above 2 MiB; `catalog-address-refused`; `catalog-index-invalid`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The source or the image host fails: `catalog-timeout`, `catalog-unreachable`, `catalog-http-error`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/theme-catalog/themes": {
       "get": {
         "tags": [
@@ -11071,6 +11164,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "previewUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Path of the preview on this daemon, never the address of the source."
           },
           "sdkVersion": {
             "type": "string",

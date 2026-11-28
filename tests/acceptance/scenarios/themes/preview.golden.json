@@ -1,0 +1,134 @@
+[
+  {
+    "name": "a source id of the wrong shape is unknown",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources/not-a-source/themes/night-blue/preview"
+    },
+    "response": {
+      "json": {
+        "code": "catalog-source-not-found",
+        "detail": "no such catalog source",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:catalog-source-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "a source that was never added is unknown",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources/000000000000/themes/night-blue/preview"
+    },
+    "response": {
+      "json": {
+        "code": "catalog-source-not-found",
+        "detail": "no such catalog source",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:catalog-source-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "name": "add a source over https",
+    "request": {
+      "body": {
+        "url": "https://themes.example.com/index.json"
+      },
+      "method": "POST",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "addedAt": "<TIME>",
+        "id": "6450515911e9",
+        "url": "https://themes.example.com/index.json"
+      },
+      "location": "/api/v1/theme-catalog/sources",
+      "status": 201
+    }
+  },
+  {
+    "name": "a theme id with capitals and a dot is refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources/6450515911e9/themes/Bad.Id/preview"
+    },
+    "response": {
+      "json": {
+        "code": "theme-id-invalid",
+        "detail": "a theme id has 2 to 40 characters from a-z, 0-9 and -",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-id-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a theme id that climbs out of its folder is refused",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources/6450515911e9/themes/..%2Fnight-blue/preview"
+    },
+    "response": {
+      "json": {
+        "code": "theme-id-invalid",
+        "detail": "a theme id has 2 to 40 characters from a-z, 0-9 and -",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:theme-id-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "the preview needs a token",
+    "request": {
+      "auth": "none",
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources/6450515911e9/themes/night-blue/preview"
+    },
+    "response": {
+      "json": {
+        "code": "credentials-missing",
+        "detail": "this route needs a token or a session",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:credentials-missing"
+      },
+      "status": 401
+    }
+  },
+  {
+    "name": "remove the source",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/theme-catalog/sources/6450515911e9?version=1"
+    },
+    "response": {
+      "status": 204
+    }
+  },
+  {
+    "name": "a removed source offers no preview",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources/6450515911e9/themes/night-blue/preview"
+    },
+    "response": {
+      "json": {
+        "code": "catalog-source-not-found",
+        "detail": "no such catalog source",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:catalog-source-not-found"
+      },
+      "status": 404
+    }
+  }
+]
