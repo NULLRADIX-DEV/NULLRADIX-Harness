@@ -2148,7 +2148,7 @@ export interface components {
             items: components["schemas"]["CatalogSourceDto"][];
             /**
              * Format: int64
-             * @description Version of the list for removing; 0 while no source was ever added.
+             * @description Version of the list for removing; 0 while the list was never stored.
              */
             version: number;
         };
@@ -10269,7 +10269,7 @@ export interface operations {
     remove_catalog_source: {
         parameters: {
             query: {
-                /** @description Version of the source list the removal is based on. */
+                /** @description Version of the source list the removal is based on; 0 while it was never stored. */
                 version: number;
             };
             header?: never;

@@ -149,6 +149,9 @@ struct ServeArgs {
     /// Let theme catalogs use http and local or private hosts
     #[arg(long, env = "NULLRADIX_THEME_CATALOG_LOCAL")]
     theme_catalog_local: bool,
+    /// Do not offer the official theme catalog while the list of sources is untouched
+    #[arg(long, env = "NULLRADIX_NO_DEFAULT_THEME_CATALOG")]
+    no_default_theme_catalog: bool,
 }
 
 fn main() -> ExitCode {
@@ -190,6 +193,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 log: args.log,
                 web_dir: args.web_dir,
                 theme_catalog_local: args.theme_catalog_local,
+                no_default_theme_catalog: args.no_default_theme_catalog,
             };
             let config = Config::load(profile, cli.home.as_deref(), overrides)?;
             daemon::run(&config)?;

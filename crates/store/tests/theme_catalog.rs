@@ -135,7 +135,7 @@ async fn removing_survives_a_new_service_over_the_same_store() {
         .unwrap();
     let second = service(&store);
     second
-        .remove_source(added.id().as_str(), Version::from_stored(2))
+        .remove_source(added.id().as_str(), Some(Version::from_stored(2)))
         .await
         .unwrap();
     let list = first.sources().await.unwrap();

@@ -94,6 +94,7 @@ export class Daemon {
       NULLRADIX_HOME: this.home,
       NULLRADIX_PROFILE: 'dev',
       NULLRADIX_PERSON: 'tester',
+      NULLRADIX_NO_DEFAULT_THEME_CATALOG: 'true',
       NULLRADIX_CLAUDE: fakeClaudeBinary,
       FAKE_CLAUDE_MODE: this.mode,
       CLAUDE_CONFIG_DIR: join(this.work, 'claude-config'),

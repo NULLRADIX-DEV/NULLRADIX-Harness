@@ -629,7 +629,7 @@ async fn a_source_removed_during_the_download_keeps_nothing() {
     setup
         .world
         .service
-        .remove_source(&setup.source, Version::from_stored(1))
+        .remove_source(&setup.source, Some(Version::from_stored(1)))
         .await
         .unwrap();
     setup.hosts.release.0.add_permits(1);
@@ -646,7 +646,7 @@ async fn a_removed_source_offers_no_previews_even_when_it_is_added_again() {
     setup
         .world
         .service
-        .remove_source(&setup.source, Version::from_stored(1))
+        .remove_source(&setup.source, Some(Version::from_stored(1)))
         .await
         .unwrap();
     setup.previews.forget(&setup.source).await;
@@ -717,7 +717,7 @@ async fn a_source_added_again_during_the_download_keeps_nothing_and_reads_no_ind
     setup.hosts.entered.arrived().await;
     let service = &setup.world.service;
     service
-        .remove_source(&setup.source, Version::from_stored(1))
+        .remove_source(&setup.source, Some(Version::from_stored(1)))
         .await
         .unwrap();
     service.add_source(SOURCE).await.unwrap();
@@ -748,7 +748,7 @@ async fn a_source_removed_while_its_file_is_written_leaves_no_file() {
     setup
         .world
         .service
-        .remove_source(&setup.source, Version::from_stored(1))
+        .remove_source(&setup.source, Some(Version::from_stored(1)))
         .await
         .unwrap();
     setup.previews.forget(&setup.source).await;
@@ -824,7 +824,7 @@ async fn an_index_read_that_ends_after_a_removal_and_an_add_offers_nothing() {
     reads.entered.arrived().await;
     let service = &setup.world.service;
     service
-        .remove_source(&setup.source, Version::from_stored(1))
+        .remove_source(&setup.source, Some(Version::from_stored(1)))
         .await
         .unwrap();
     service.add_source(SOURCE).await.unwrap();
@@ -842,7 +842,7 @@ async fn an_index_read_that_ends_after_a_removal_offers_nothing_when_the_source_
     setup
         .world
         .service
-        .remove_source(&setup.source, Version::from_stored(1))
+        .remove_source(&setup.source, Some(Version::from_stored(1)))
         .await
         .unwrap();
     reads.release.0.add_permits(1);

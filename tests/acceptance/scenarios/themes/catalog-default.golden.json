@@ -1,0 +1,77 @@
+[
+  {
+    "name": "the official source is listed without a stored list",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "items": [
+          {
+            "addedAt": "<TIME>",
+            "id": "3af4673a283c",
+            "url": "https://github.com/NULLRADIX-DEV/NULLRADIX-Themes/releases/download/catalog/index.json"
+          }
+        ],
+        "version": 0
+      },
+      "status": 200
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "catalog",
+      "remove",
+      "3af4673a283c"
+    ],
+    "exitCode": 0,
+    "name": "remove it over the cli",
+    "stderr": "",
+    "stdout": "removed 3af4673a283c\n"
+  },
+  {
+    "name": "the list stays empty",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/theme-catalog/sources"
+    },
+    "response": {
+      "json": {
+        "items": [],
+        "version": 1
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "removing it again finds nothing",
+    "request": {
+      "method": "DELETE",
+      "path": "/api/v1/theme-catalog/sources/3af4673a283c?version=1"
+    },
+    "response": {
+      "json": {
+        "code": "catalog-source-not-found",
+        "detail": "no such catalog source",
+        "status": 404,
+        "title": "Not Found",
+        "type": "urn:nullradix:problem:catalog-source-not-found"
+      },
+      "status": 404
+    }
+  },
+  {
+    "cli": [
+      "theme",
+      "catalog",
+      "add",
+      "https://github.com/NULLRADIX-DEV/NULLRADIX-Themes/releases/download/catalog/index.json"
+    ],
+    "exitCode": 0,
+    "name": "add it again by hand",
+    "stderr": "",
+    "stdout": "added 3af4673a283c https://github.com/NULLRADIX-DEV/NULLRADIX-Themes/releases/download/catalog/index.json\n"
+  }
+]
