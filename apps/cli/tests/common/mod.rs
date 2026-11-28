@@ -64,3 +64,30 @@ impl Drop for Daemon {
         let _ = self.0.wait();
     }
 }
+
+impl Daemon {
+    /// The exit status once the daemon has ended, or none when it still runs after `within`.
+    pub(crate) fn wait_for_exit(&mut self, within: Duration) -> Option<std::process::ExitStatus> {
+        let deadline = Instant::now() + within;
+        loop {
+            if let Some(status) = self.0.try_wait().unwrap() {
+                return Some(status);
+            }
+            if Instant::now() > deadline {
+                return None;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+/// A client with the token of the daemon of this home.
+pub(crate) fn local_client(home: &Path) -> nullradix_client::Client {
+    let discovery = nullradix_client::DiscoveryFile::in_dir(&home.join("data"))
+        .read()
+        .unwrap()
+        .unwrap();
+    let token = std::fs::read_to_string(home.join("config").join("cli-token")).unwrap();
+    nullradix_client::Client::new(discovery.address, STARTUP, STARTUP)
+        .with_token(nullradix_app::auth::Secret::parse(token.trim()).unwrap())
+}

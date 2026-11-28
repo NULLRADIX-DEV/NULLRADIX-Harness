@@ -11,8 +11,10 @@ use nullradix_os::{Paths, PathsError, process_alive, spawn_detached};
 use url::Url;
 
 const STARTUP: Duration = Duration::from_secs(20);
-/// The daemon waits up to 10 s for open connections, then closes its database.
-const STOP: Duration = Duration::from_secs(30);
+/// Shutdown waits up to 10 s each for requests, the scheduler, a pass and setups.
+const STOP: Duration = Duration::from_secs(60);
+const RELEASE_TRIES: u32 = 10;
+const RELEASE_PAUSE: Duration = Duration::from_millis(300);
 const POLL: Duration = Duration::from_millis(150);
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -222,16 +224,36 @@ fn alive(paths: &Paths) -> Result<Option<Discovery>, LaunchError> {
         .filter(Discovery::process_alive))
 }
 
-/// How many runs have not ended; none when no daemon runs. Their supervisors outlive the daemon.
-pub(crate) fn active_runs(setup: &Setup) -> Result<usize, LaunchError> {
-    let paths = setup.paths()?;
-    let Some(discovery) = alive(&paths)? else {
-        return Ok(0);
-    };
-    Ok(local_client(&paths, &discovery)?.active_run_count()?)
+/// Whether another process holds the program open, so an installer could not replace it.
+pub(crate) fn program_in_use(program: &Path) -> bool {
+    match fs::OpenOptions::new().write(true).open(program) {
+        Ok(_) => false,
+        Err(error) => is_busy(&error),
+    }
 }
 
-/// Asks the running daemon to exit and waits until its process is gone; no daemon is fine.
+/// A running image or a lock refuses write access; other failures say nothing about a holder.
+fn is_busy(error: &io::Error) -> bool {
+    if cfg!(windows) {
+        // sharing violation, lock violation, file with a mapped image
+        matches!(error.raw_os_error(), Some(32 | 33 | 1224))
+    } else {
+        error.kind() == io::ErrorKind::ExecutableFileBusy
+    }
+}
+
+/// Waits briefly for the last holder of the program to let go; false when one stays.
+pub(crate) fn program_released(program: &Path) -> bool {
+    for _ in 0..RELEASE_TRIES {
+        if !program_in_use(program) {
+            return true;
+        }
+        thread::sleep(RELEASE_PAUSE);
+    }
+    !program_in_use(program)
+}
+
+/// Asks the daemon to exit and waits until its process is gone; no daemon means nothing to do.
 pub(crate) fn stop_daemon(setup: &Setup) -> Result<(), LaunchError> {
     let paths = setup.paths()?;
     let Some(discovery) = alive(&paths)? else {
@@ -416,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn stopping_and_counting_need_no_daemon() {
+    fn stopping_needs_no_daemon() {
         let home = tempfile::tempdir().unwrap();
         let setup = Setup {
             profile: "dev",
@@ -425,7 +447,54 @@ mod tests {
             web_dir: None,
         };
         stop_daemon(&setup).unwrap();
-        assert_eq!(active_runs(&setup).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_program_nobody_holds_is_free() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("nullradix");
+        assert!(!program_in_use(&program), "missing");
+        fs::write(&program, "x").unwrap();
+        assert!(!program_in_use(&program));
+        assert!(program_released(&program));
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn a_running_program_is_in_use() {
+        let running = env::current_exe().unwrap();
+        assert!(program_in_use(&running));
+        assert!(!program_released(&running));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_program_held_without_write_sharing_is_in_use_until_it_is_closed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("nullradix.exe");
+        fs::write(&program, "x").unwrap();
+        let holder = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&program)
+            .unwrap();
+        assert!(program_in_use(&program));
+        drop(holder);
+        assert!(!program_in_use(&program));
+    }
+
+    #[test]
+    fn only_busy_errors_mean_a_holder() {
+        let denied = io::Error::from(io::ErrorKind::PermissionDenied);
+        assert!(!is_busy(&denied));
+        assert!(!is_busy(&io::Error::from(io::ErrorKind::NotFound)));
+        if cfg!(windows) {
+            assert!(is_busy(&io::Error::from_raw_os_error(32)));
+            assert!(is_busy(&io::Error::from_raw_os_error(1224)));
+        } else {
+            assert!(is_busy(&io::Error::from(io::ErrorKind::ExecutableFileBusy)));
+        }
     }
 
     #[test]

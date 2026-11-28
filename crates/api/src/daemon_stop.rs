@@ -1,6 +1,6 @@
 use axum::extract::{Extension, State};
 use axum::http::StatusCode;
-use nullradix_app::auth::{Principal, decision_needs_person};
+use nullradix_app::auth::{Principal, stopping_needs_person};
 
 use crate::auth::{AgentContext, refuse_agent, require_token};
 use crate::{ApiError, ApiState, Problem};
@@ -22,7 +22,7 @@ pub(crate) async fn stop_daemon(
     Extension(context): Extension<AgentContext>,
 ) -> Result<StatusCode, ApiError> {
     require_token(&principal, "stop the daemon")?;
-    refuse_agent(context, || decision_needs_person("stopping the daemon"))?;
+    refuse_agent(context, stopping_needs_person)?;
     state.shutdown.cancel();
     Ok(StatusCode::ACCEPTED)
 }
@@ -66,7 +66,7 @@ mod tests {
                 .unwrap();
             let (status, _, json) = send(&api.router, request).await;
             assert_eq!(status, StatusCode::FORBIDDEN);
-            assert_eq!(json["code"], "decision-needs-person");
+            assert_eq!(json["code"], "daemon-stop-needs-person");
         }
         let request = local(Request::post("/api/v1/daemon/stop"))
             .body(Body::empty())

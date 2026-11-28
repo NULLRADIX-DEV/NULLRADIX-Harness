@@ -120,6 +120,10 @@ fn local_page(error: Option<&str>) -> Option<Url> {
 
 /// Signs the window in again in the background, unless that is already under way.
 fn reconnect(app: &AppHandle) {
+    // a sign-in now would start the daemon again under the installer
+    if app.state::<Arc<update::Updates>>().installing() {
+        return;
+    }
     let shell = app.state::<Arc<Shell>>().inner().clone();
     if shell.signing_in.swap(true, Ordering::SeqCst) {
         return;

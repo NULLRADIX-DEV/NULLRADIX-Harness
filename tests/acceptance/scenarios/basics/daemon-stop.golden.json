@@ -46,11 +46,11 @@
     },
     "response": {
       "json": {
-        "code": "decision-needs-person",
-        "detail": "stopping the daemon stays with the person: do it in the app or in a terminal outside the run",
+        "code": "daemon-stop-needs-person",
+        "detail": "only the person can stop the daemon, not a run or session of an agent",
         "status": 403,
         "title": "Forbidden",
-        "type": "urn:nullradix:problem:decision-needs-person"
+        "type": "urn:nullradix:problem:daemon-stop-needs-person"
       },
       "status": 403
     }

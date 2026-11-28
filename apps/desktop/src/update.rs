@@ -19,15 +19,35 @@ pub(crate) enum UpdateState {
     UpToDate,
     Found(String),
     Installing(String),
-    /// Runs still hold the daemon program, which the installer must replace.
+    /// Something still holds the daemon program, which the installer must replace.
     Waiting {
         version: String,
-        runs: usize,
     },
-    Failed,
+    Failed(Reason),
 }
 
-/// What a click starts.
+/// Where a failed update stopped; the details go to the log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Reason {
+    Check,
+    Setup,
+    Download,
+    Daemon,
+    Installer,
+}
+
+impl Reason {
+    const fn word(self) -> &'static str {
+        match self {
+            Self::Check => "check",
+            Self::Setup => "setup",
+            Self::Download => "download",
+            Self::Daemon => "daemon did not stop",
+            Self::Installer => "installer",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Action {
     Check,
@@ -55,19 +75,18 @@ impl UpdateState {
             Self::UpToDate => String::from("Up to date (check again)"),
             Self::Found(version) => format!("Install update {version}"),
             Self::Installing(version) => format!("Installing update {version}..."),
-            Self::Waiting { version, runs } => format!(
-                "Install update {version} ({runs} {} still running)",
-                if *runs == 1 { "run" } else { "runs" }
-            ),
-            Self::Failed => String::from("Update failed (check again)"),
+            Self::Waiting { version } => {
+                format!("Install update {version} (runs still active)")
+            }
+            Self::Failed(reason) => format!("Update failed: {} (check again)", reason.word()),
         }
     }
 
     /// What a click does here, and the state it moves to while that works.
     pub(crate) fn press(&self) -> Option<(Action, Self)> {
         match self {
-            Self::Idle | Self::UpToDate | Self::Failed => Some((Action::Check, Self::Checking)),
-            Self::Found(version) | Self::Waiting { version, .. } => {
+            Self::Idle | Self::UpToDate | Self::Failed(_) => Some((Action::Check, Self::Checking)),
+            Self::Found(version) | Self::Waiting { version } => {
                 Some((Action::Install, Self::Installing(version.clone())))
             }
             Self::Off | Self::Checking | Self::Installing(_) => None,
@@ -84,14 +103,9 @@ pub(crate) fn after_check(checked: Checked, asked: bool) -> UpdateState {
     match checked {
         Checked::Newer(version) => UpdateState::Found(version),
         Checked::Current if asked => UpdateState::UpToDate,
-        Checked::Failed if asked => UpdateState::Failed,
+        Checked::Failed if asked => UpdateState::Failed(Reason::Check),
         Checked::Current | Checked::Failed => UpdateState::Idle,
     }
-}
-
-/// Runs lock the daemon program only on Windows; elsewhere an installer replaces it freely.
-pub(crate) const fn blocking_runs(active: usize, windows: bool) -> usize {
-    if windows { active } else { 0 }
 }
 
 struct Inner {
@@ -99,7 +113,6 @@ struct Inner {
     found: Option<Update>,
 }
 
-/// The state of the item and the update it found.
 pub(crate) struct Updates {
     inner: Mutex<Inner>,
 }
@@ -120,6 +133,11 @@ impl Updates {
 
     pub(crate) fn state(&self) -> UpdateState {
         self.lock().state.clone()
+    }
+
+    /// The daemon is going down or being replaced, so nothing may start it again.
+    pub(crate) fn installing(&self) -> bool {
+        matches!(self.lock().state, UpdateState::Installing(_))
     }
 
     /// Starts what a click means in the current state; two clicks never start two jobs.
@@ -190,7 +208,7 @@ fn check(app: &AppHandle, item: &MenuItem<Wry>, updates: &Updates, asked: bool) 
         Ok(Some(update)) => (Checked::Newer(update.version.clone()), Some(update)),
         Ok(None) => (Checked::Current, None),
         Err(error) => {
-            eprintln!("cannot check for updates: {error}");
+            log(&UpdateError::Check(error), asked);
             (Checked::Failed, None)
         }
     };
@@ -200,64 +218,95 @@ fn check(app: &AppHandle, item: &MenuItem<Wry>, updates: &Updates, asked: bool) 
 }
 
 #[derive(Debug, thiserror::Error)]
-enum InstallError {
-    #[error(transparent)]
-    Launch(#[from] LaunchError),
+enum UpdateError {
+    #[error("cannot check for updates: {0}")]
+    Check(tauri_plugin_updater::Error),
+    #[error("cannot start the update: {0}")]
+    Setup(LaunchError),
     #[error("cannot download the update: {0}")]
     Download(tauri_plugin_updater::Error),
+    #[error("cannot stop the daemon for the update: {0}")]
+    Daemon(LaunchError),
     #[error("the installer failed: {0}")]
-    Install(tauri_plugin_updater::Error),
+    Installer(tauri_plugin_updater::Error),
+    #[error("a process still holds the daemon program")]
+    Held,
+}
+
+impl UpdateError {
+    const fn reason(&self) -> Reason {
+        match self {
+            Self::Check(_) => Reason::Check,
+            Self::Setup(_) => Reason::Setup,
+            Self::Download(_) => Reason::Download,
+            Self::Daemon(_) => Reason::Daemon,
+            Self::Installer(_) | Self::Held => Reason::Installer,
+        }
+    }
+
+    /// Whether the daemon may be down, so it has to be started again.
+    const fn daemon_may_be_down(&self) -> bool {
+        matches!(self, Self::Daemon(_) | Self::Installer(_) | Self::Held)
+    }
+}
+
+/// Release builds have no console, so failures the person asked about go to desktop.log.
+fn log(error: &UpdateError, asked: bool) {
+    if asked {
+        crate::report_failure(error);
+    } else {
+        eprintln!("{error}");
+    }
 }
 
 fn install(app: &AppHandle, item: &MenuItem<Wry>, updates: &Updates, update: &Update) {
-    let held = Setup::from_env()
-        .and_then(|setup| launch::active_runs(&setup))
-        .map(|active| blocking_runs(active, cfg!(windows)));
-    match held {
-        Ok(0) => {}
-        Ok(runs) => {
-            let waiting = UpdateState::Waiting {
-                version: update.version.clone(),
-                runs,
-            };
-            updates.set(waiting.clone(), Some(update.clone()));
-            render(item, &waiting);
-            return;
-        }
-        Err(error) => {
-            give_up(item, updates, &InstallError::from(error));
-            return;
-        }
+    let Err(error) = replace(app, update) else {
+        return;
+    };
+    let held = matches!(error, UpdateError::Held);
+    if !held {
+        log(&error, true);
     }
-    if let Err(error) = replace(app, update) {
-        give_up(item, updates, &error);
-        // after the download the daemon may be down; this starts it again
-        if !matches!(error, InstallError::Download(_)) {
-            crate::reconnect(app);
+    let state = if held {
+        UpdateState::Waiting {
+            version: update.version.clone(),
         }
+    } else {
+        UpdateState::Failed(error.reason())
+    };
+    updates.set(state.clone(), held.then(|| update.clone()));
+    render(item, &state);
+    if error.daemon_may_be_down() {
+        crate::reconnect(app);
     }
-}
-
-fn give_up(item: &MenuItem<Wry>, updates: &Updates, error: &InstallError) {
-    eprintln!("cannot install the update: {error}");
-    updates.set(UpdateState::Failed, None);
-    render(item, &UpdateState::Failed);
 }
 
 /// Downloads first, so the daemon is down only while the installer runs.
-fn replace(app: &AppHandle, update: &Update) -> Result<(), InstallError> {
-    let setup = Setup::from_env()?;
+fn replace(app: &AppHandle, update: &Update) -> Result<(), UpdateError> {
+    let setup = Setup::from_env().map_err(UpdateError::Setup)?;
     let bytes = tauri::async_runtime::block_on(update.download(|_, _| {}, || {}))
-        .map_err(InstallError::Download)?;
-    launch::stop_daemon(&setup)?;
+        .map_err(UpdateError::Download)?;
+    launch::stop_daemon(&setup).map_err(UpdateError::Daemon)?;
+    // runs and calls of the CLI outlive the daemon and keep the program open
+    if cfg!(windows) && !launch::program_released(&setup.daemon) {
+        return Err(UpdateError::Held);
+    }
     // on Windows the installer ends this process and starts the new app itself
-    update.install(&bytes).map_err(InstallError::Install)?;
+    update.install(&bytes).map_err(UpdateError::Installer)?;
     app.restart()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn version() -> String {
+        String::from("0.2.0")
+    }
+
+    fn waiting() -> UpdateState {
+        UpdateState::Waiting { version: version() }
+    }
 
     #[test]
     fn a_development_build_never_checks() {
@@ -269,24 +318,20 @@ mod tests {
 
     #[test]
     fn the_labels_say_what_a_click_does() {
-        let found = UpdateState::Found(String::from("0.2.0"));
+        let found = UpdateState::Found(version());
         assert_eq!(UpdateState::Idle.label(), "Check for updates");
         assert_eq!(found.label(), "Install update 0.2.0");
         assert_eq!(
-            UpdateState::Installing(String::from("0.2.0")).label(),
+            UpdateState::Installing(version()).label(),
             "Installing update 0.2.0..."
         );
-        let waiting = |runs| UpdateState::Waiting {
-            version: String::from("0.2.0"),
-            runs,
-        };
         assert_eq!(
-            waiting(1).label(),
-            "Install update 0.2.0 (1 run still running)"
+            waiting().label(),
+            "Install update 0.2.0 (runs still active)"
         );
         assert_eq!(
-            waiting(3).label(),
-            "Install update 0.2.0 (3 runs still running)"
+            UpdateState::Failed(Reason::Download).label(),
+            "Update failed: download (check again)"
         );
         for state in [
             UpdateState::Off,
@@ -294,8 +339,8 @@ mod tests {
             UpdateState::Checking,
             UpdateState::UpToDate,
             found,
-            waiting(2),
-            UpdateState::Failed,
+            waiting(),
+            UpdateState::Failed(Reason::Daemon),
         ] {
             assert!(state.label().is_ascii(), "{state:?}");
         }
@@ -306,18 +351,12 @@ mod tests {
         for state in [
             UpdateState::Idle,
             UpdateState::UpToDate,
-            UpdateState::Failed,
+            UpdateState::Failed(Reason::Installer),
         ] {
             assert_eq!(state.press(), Some((Action::Check, UpdateState::Checking)));
         }
-        let installing = UpdateState::Installing(String::from("0.2.0"));
-        for state in [
-            UpdateState::Found(String::from("0.2.0")),
-            UpdateState::Waiting {
-                version: String::from("0.2.0"),
-                runs: 2,
-            },
-        ] {
+        let installing = UpdateState::Installing(version());
+        for state in [UpdateState::Found(version()), waiting()] {
             assert_eq!(state.press(), Some((Action::Install, installing.clone())));
         }
         assert_eq!(UpdateState::Checking.press(), None);
@@ -327,21 +366,34 @@ mod tests {
 
     #[test]
     fn only_a_newer_version_shows_without_a_click() {
-        let newer = || Checked::Newer(String::from("0.2.0"));
-        let found = UpdateState::Found(String::from("0.2.0"));
+        let newer = || Checked::Newer(version());
+        let found = UpdateState::Found(version());
         assert_eq!(after_check(newer(), false), found);
         assert_eq!(after_check(newer(), true), found);
         assert_eq!(after_check(Checked::Current, false), UpdateState::Idle);
         assert_eq!(after_check(Checked::Failed, false), UpdateState::Idle);
         assert_eq!(after_check(Checked::Current, true), UpdateState::UpToDate);
-        assert_eq!(after_check(Checked::Failed, true), UpdateState::Failed);
+        assert_eq!(
+            after_check(Checked::Failed, true),
+            UpdateState::Failed(Reason::Check)
+        );
     }
 
     #[test]
-    fn active_runs_block_the_installer_only_on_windows() {
-        assert_eq!(blocking_runs(2, true), 2);
-        assert_eq!(blocking_runs(2, false), 0);
-        assert_eq!(blocking_runs(0, true), 0);
+    fn a_failure_names_where_it_stopped_and_whether_the_daemon_may_be_down() {
+        let launch = || LaunchError::StopTimeout;
+        let installer = || tauri_plugin_updater::Error::EmptyEndpoints;
+        let cases = [
+            (UpdateError::Setup(launch()), Reason::Setup, false),
+            (UpdateError::Download(installer()), Reason::Download, false),
+            (UpdateError::Daemon(launch()), Reason::Daemon, true),
+            (UpdateError::Installer(installer()), Reason::Installer, true),
+            (UpdateError::Held, Reason::Installer, true),
+        ];
+        for (error, reason, down) in cases {
+            assert_eq!(error.reason(), reason, "{error}");
+            assert_eq!(error.daemon_may_be_down(), down, "{error}");
+        }
     }
 
     #[test]
@@ -350,7 +402,7 @@ mod tests {
         assert!(matches!(updates.press(None), Some((Action::Check, None))));
         assert_eq!(updates.state(), UpdateState::Checking);
         assert!(updates.press(None).is_none());
-        updates.set(UpdateState::Found(String::from("0.2.0")), None);
+        updates.set(UpdateState::Found(version()), None);
         // found without an update to install falls back instead of installing nothing
         assert!(updates.press(None).is_none());
         assert_eq!(updates.state(), UpdateState::Idle);
@@ -360,14 +412,31 @@ mod tests {
     #[test]
     fn the_start_of_the_app_may_check_but_not_install() {
         let updates = Updates::new(true);
-        updates.set(UpdateState::Failed, None);
+        updates.set(UpdateState::Failed(Reason::Check), None);
         assert!(updates.press(Some(Action::Install)).is_none());
-        assert_eq!(updates.state(), UpdateState::Failed);
+        assert_eq!(updates.state(), UpdateState::Failed(Reason::Check));
         assert!(updates.press(Some(Action::Check)).is_some());
         assert_eq!(updates.state(), UpdateState::Checking);
-        let waiting = Updates::new(true);
-        waiting.set(UpdateState::Found(String::from("0.2.0")), None);
-        assert!(waiting.press(Some(Action::Check)).is_none());
-        assert_eq!(waiting.state(), UpdateState::Found(String::from("0.2.0")));
+        let found = Updates::new(true);
+        found.set(UpdateState::Found(version()), None);
+        assert!(found.press(Some(Action::Check)).is_none());
+        assert_eq!(found.state(), UpdateState::Found(version()));
+    }
+
+    #[test]
+    fn only_an_install_under_way_holds_the_daemon_down() {
+        let updates = Updates::new(true);
+        assert!(!updates.installing());
+        for state in [
+            UpdateState::Checking,
+            UpdateState::Found(version()),
+            waiting(),
+            UpdateState::Failed(Reason::Daemon),
+        ] {
+            updates.set(state, None);
+            assert!(!updates.installing());
+        }
+        updates.set(UpdateState::Installing(version()), None);
+        assert!(updates.installing());
     }
 }
