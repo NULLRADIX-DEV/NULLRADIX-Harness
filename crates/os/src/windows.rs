@@ -736,7 +736,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
-    use windows_sys::Win32::System::Console::GetConsoleCP;
+    use windows_sys::Win32::System::Console::{GetConsoleCP, GetConsoleWindow};
 
     use super::*;
 
@@ -792,9 +792,13 @@ mod tests {
         if !dir.join(CONSOLE_PROBE).exists() {
             return;
         }
-        // SAFETY: reads this process's console code page, which is 0 without a console.
-        let page = unsafe { GetConsoleCP() };
-        std::fs::write(dir.join("console"), page.to_string()).unwrap();
+        // SAFETY: both only read this process's console; 0 and null mean none.
+        let (page, window) = unsafe { (GetConsoleCP(), GetConsoleWindow()) };
+        let answer = format!(
+            "{page} {}",
+            if window.is_null() { "hidden" } else { "shown" }
+        );
+        std::fs::write(dir.join("console"), answer).unwrap();
     }
 
     #[test]
@@ -802,21 +806,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(CONSOLE_PROBE), "").unwrap();
         let args = ["--exact", "windows::tests::console_probe", "--ignored"].map(OsString::from);
-        spawn_detached(&std::env::current_exe().unwrap(), &args, dir.path()).unwrap();
-        let answer = dir.path().join("console");
+        let pid = spawn_detached(&std::env::current_exe().unwrap(), &args, dir.path()).unwrap();
         let started = Instant::now();
-        let page = loop {
-            if let Ok(page) = std::fs::read_to_string(&answer)
-                && !page.is_empty()
-            {
-                break page;
-            }
-            assert!(started.elapsed() < Duration::from_secs(30), "no answer");
+        // the probe's working folder is the temp folder, which cannot go while it runs
+        while process_alive(pid) {
+            assert!(
+                started.elapsed() < Duration::from_secs(30),
+                "the probe hangs"
+            );
             std::thread::sleep(Duration::from_millis(50));
-        };
+        }
+        let answer = std::fs::read_to_string(dir.path().join("console")).unwrap();
+        let (page, window) = answer.split_once(' ').unwrap();
         assert_ne!(
             page, "0",
             "without a console every console child opens a window"
+        );
+        assert_eq!(
+            window, "hidden",
+            "a shown console is a window on the screen"
         );
     }
 
