@@ -2538,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "axum-extra",
@@ -2564,7 +2564,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -2586,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nullradix-api",
  "nullradix-app",
@@ -2600,7 +2600,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nullradix-client",
  "nullradix-os",
@@ -2616,7 +2616,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-domain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cssparser 0.38.0",
  "semver",
@@ -2629,7 +2629,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-os"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "directories",
  "jiff 0.2.46",
