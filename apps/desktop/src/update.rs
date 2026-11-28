@@ -19,7 +19,7 @@ pub(crate) enum UpdateState {
     UpToDate,
     Found(String),
     Installing(String),
-    /// Something still holds the daemon program, which the installer must replace.
+    /// A process holds the daemon program that the installer must replace.
     Waiting {
         version: String,
     },
@@ -76,7 +76,7 @@ impl UpdateState {
             Self::Found(version) => format!("Install update {version}"),
             Self::Installing(version) => format!("Installing update {version}..."),
             Self::Waiting { version } => {
-                format!("Install update {version} (runs still active)")
+                format!("Install update {version} (daemon program still in use)")
             }
             Self::Failed(reason) => format!("Update failed: {} (check again)", reason.word()),
         }
@@ -135,7 +135,7 @@ impl Updates {
         self.lock().state.clone()
     }
 
-    /// The daemon is going down or being replaced, so nothing may start it again.
+    /// An install is under way and nothing may start the daemon.
     pub(crate) fn installing(&self) -> bool {
         matches!(self.lock().state, UpdateState::Installing(_))
     }
@@ -229,8 +229,6 @@ enum UpdateError {
     Daemon(LaunchError),
     #[error("the installer failed: {0}")]
     Installer(tauri_plugin_updater::Error),
-    #[error("a process still holds the daemon program")]
-    Held,
 }
 
 impl UpdateError {
@@ -240,17 +238,52 @@ impl UpdateError {
             Self::Setup(_) => Reason::Setup,
             Self::Download(_) => Reason::Download,
             Self::Daemon(_) => Reason::Daemon,
-            Self::Installer(_) | Self::Held => Reason::Installer,
+            Self::Installer(_) => Reason::Installer,
         }
     }
 
-    /// Whether the daemon may be down, so it has to be started again.
+    /// From the stop on the daemon may be down and has to be started again.
     const fn daemon_may_be_down(&self) -> bool {
-        matches!(self, Self::Daemon(_) | Self::Installer(_) | Self::Held)
+        matches!(self, Self::Daemon(_) | Self::Installer(_))
     }
 }
 
-/// Release builds have no console, so failures the person asked about go to desktop.log.
+/// What kept an install from finishing.
+enum Blocked {
+    /// A process still holds the daemon program, and only waiting helps.
+    Held,
+    Failed(UpdateError),
+}
+
+impl From<UpdateError> for Blocked {
+    fn from(error: UpdateError) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl Blocked {
+    /// The state to show and whether the update stays for another click.
+    fn outcome(&self, version: &str) -> (UpdateState, bool) {
+        match self {
+            Self::Held => (
+                UpdateState::Waiting {
+                    version: version.to_owned(),
+                },
+                true,
+            ),
+            Self::Failed(error) => (UpdateState::Failed(error.reason()), false),
+        }
+    }
+
+    const fn daemon_may_be_down(&self) -> bool {
+        match self {
+            Self::Held => true,
+            Self::Failed(error) => error.daemon_may_be_down(),
+        }
+    }
+}
+
+/// Release builds have no console; failures the person asked about go to desktop.log.
 fn log(error: &UpdateError, asked: bool) {
     if asked {
         crate::report_failure(error);
@@ -260,36 +293,31 @@ fn log(error: &UpdateError, asked: bool) {
 }
 
 fn install(app: &AppHandle, item: &MenuItem<Wry>, updates: &Updates, update: &Update) {
-    let Err(error) = replace(app, update) else {
+    launch::hold_daemon_down(true);
+    let Err(blocked) = replace(app, update) else {
         return;
     };
-    let held = matches!(error, UpdateError::Held);
-    if !held {
-        log(&error, true);
+    launch::hold_daemon_down(false);
+    if let Blocked::Failed(error) = &blocked {
+        log(error, true);
     }
-    let state = if held {
-        UpdateState::Waiting {
-            version: update.version.clone(),
-        }
-    } else {
-        UpdateState::Failed(error.reason())
-    };
-    updates.set(state.clone(), held.then(|| update.clone()));
+    let (state, keep) = blocked.outcome(&update.version);
+    updates.set(state.clone(), keep.then(|| update.clone()));
     render(item, &state);
-    if error.daemon_may_be_down() {
+    if blocked.daemon_may_be_down() {
         crate::reconnect(app);
     }
 }
 
-/// Downloads first, so the daemon is down only while the installer runs.
-fn replace(app: &AppHandle, update: &Update) -> Result<(), UpdateError> {
+/// Downloads first; the daemon is down only from the stop until the installer has run.
+fn replace(app: &AppHandle, update: &Update) -> Result<(), Blocked> {
     let setup = Setup::from_env().map_err(UpdateError::Setup)?;
     let bytes = tauri::async_runtime::block_on(update.download(|_, _| {}, || {}))
         .map_err(UpdateError::Download)?;
     launch::stop_daemon(&setup).map_err(UpdateError::Daemon)?;
-    // runs and calls of the CLI outlive the daemon and keep the program open
-    if cfg!(windows) && !launch::program_released(&setup.daemon) {
-        return Err(UpdateError::Held);
+    // runs and CLI calls outlive the daemon and may still hold its program
+    if !launch::program_released(&setup.daemon) {
+        return Err(Blocked::Held);
     }
     // on Windows the installer ends this process and starts the new app itself
     update.install(&bytes).map_err(UpdateError::Installer)?;
@@ -327,7 +355,7 @@ mod tests {
         );
         assert_eq!(
             waiting().label(),
-            "Install update 0.2.0 (runs still active)"
+            "Install update 0.2.0 (daemon program still in use)"
         );
         assert_eq!(
             UpdateState::Failed(Reason::Download).label(),
@@ -388,12 +416,24 @@ mod tests {
             (UpdateError::Download(installer()), Reason::Download, false),
             (UpdateError::Daemon(launch()), Reason::Daemon, true),
             (UpdateError::Installer(installer()), Reason::Installer, true),
-            (UpdateError::Held, Reason::Installer, true),
         ];
         for (error, reason, down) in cases {
             assert_eq!(error.reason(), reason, "{error}");
             assert_eq!(error.daemon_may_be_down(), down, "{error}");
         }
+    }
+
+    #[test]
+    fn a_held_program_waits_with_the_update_and_a_failure_drops_it() {
+        let (state, keep) = Blocked::Held.outcome("0.2.0");
+        assert_eq!(state, waiting());
+        assert!(keep && Blocked::Held.daemon_may_be_down());
+        let failed = Blocked::from(UpdateError::Download(
+            tauri_plugin_updater::Error::EmptyEndpoints,
+        ));
+        let (state, keep) = failed.outcome("0.2.0");
+        assert_eq!(state, UpdateState::Failed(Reason::Download));
+        assert!(!keep && !failed.daemon_may_be_down());
     }
 
     #[test]

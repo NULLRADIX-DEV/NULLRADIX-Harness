@@ -3,6 +3,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -13,7 +14,9 @@ use url::Url;
 const STARTUP: Duration = Duration::from_secs(20);
 /// Shutdown waits up to 10 s each for requests, the scheduler, a pass and setups.
 const STOP: Duration = Duration::from_secs(60);
+#[cfg(windows)]
 const RELEASE_TRIES: u32 = 10;
+#[cfg(windows)]
 const RELEASE_PAUSE: Duration = Duration::from_millis(300);
 const POLL: Duration = Duration::from_millis(150);
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
@@ -35,6 +38,8 @@ pub(crate) enum LaunchError {
     Stopped(PathBuf),
     #[error("the daemon did not start within {} seconds; its log is in {}", STARTUP.as_secs(), .0.display())]
     Timeout(PathBuf),
+    #[error("an update is installing; the daemon stays down until the app restarts")]
+    Updating,
     #[error("the daemon did not stop within {} seconds", STOP.as_secs())]
     StopTimeout,
     #[error(
@@ -224,7 +229,8 @@ fn alive(paths: &Paths) -> Result<Option<Discovery>, LaunchError> {
         .filter(Discovery::process_alive))
 }
 
-/// Whether another process holds the program open, so an installer could not replace it.
+/// Whether a process holds the program open; Windows refuses write access to such a file.
+#[cfg(windows)]
 pub(crate) fn program_in_use(program: &Path) -> bool {
     match fs::OpenOptions::new().write(true).open(program) {
         Ok(_) => false,
@@ -232,17 +238,14 @@ pub(crate) fn program_in_use(program: &Path) -> bool {
     }
 }
 
-/// A running image or a lock refuses write access; other failures say nothing about a holder.
+/// Sharing violation, lock violation or a mapped image; other errors name no holder.
+#[cfg(windows)]
 fn is_busy(error: &io::Error) -> bool {
-    if cfg!(windows) {
-        // sharing violation, lock violation, file with a mapped image
-        matches!(error.raw_os_error(), Some(32 | 33 | 1224))
-    } else {
-        error.kind() == io::ErrorKind::ExecutableFileBusy
-    }
+    matches!(error.raw_os_error(), Some(32 | 33 | 1224))
 }
 
 /// Waits briefly for the last holder of the program to let go; false when one stays.
+#[cfg(windows)]
 pub(crate) fn program_released(program: &Path) -> bool {
     for _ in 0..RELEASE_TRIES {
         if !program_in_use(program) {
@@ -251,6 +254,27 @@ pub(crate) fn program_released(program: &Path) -> bool {
         thread::sleep(RELEASE_PAUSE);
     }
     !program_in_use(program)
+}
+
+/// Only Windows locks a running program against being replaced.
+#[cfg(not(windows))]
+pub(crate) fn program_released(_program: &Path) -> bool {
+    true
+}
+
+/// Set while an update installs; no caller may start a daemon then.
+static DAEMON_HELD_DOWN: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn hold_daemon_down(held: bool) {
+    DAEMON_HELD_DOWN.store(held, Ordering::SeqCst);
+}
+
+fn refuse_start(held: bool) -> Result<(), LaunchError> {
+    if held {
+        Err(LaunchError::Updating)
+    } else {
+        Ok(())
+    }
 }
 
 /// Asks the daemon to exit and waits until its process is gone; no daemon means nothing to do.
@@ -309,6 +333,7 @@ fn running(paths: &Paths) -> Result<Option<Discovery>, LaunchError> {
 
 /// Starts a detached daemon, which outlives this shell, and waits until it answers.
 fn start(setup: &Setup, paths: &Paths) -> Result<Discovery, LaunchError> {
+    refuse_start(DAEMON_HELD_DOWN.load(Ordering::SeqCst))?;
     fs::create_dir_all(&paths.data).map_err(|source| LaunchError::DataDir {
         path: paths.data.clone(),
         source,
@@ -335,7 +360,12 @@ fn start(setup: &Setup, paths: &Paths) -> Result<Discovery, LaunchError> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Mutex, PoisonError};
+
     use super::*;
+
+    /// Tests that start a daemon or flip the hold take turns.
+    static HELD_FLAG: Mutex<()> = Mutex::new(());
 
     fn args(text: &[&str]) -> Vec<OsString> {
         text.iter().map(OsString::from).collect()
@@ -421,6 +451,7 @@ mod tests {
 
     #[test]
     fn a_missing_daemon_binary_is_reported_with_its_path() {
+        let _serial = HELD_FLAG.lock().unwrap_or_else(PoisonError::into_inner);
         let home = tempfile::tempdir().unwrap();
         let setup = Setup {
             profile: "dev",
@@ -449,6 +480,7 @@ mod tests {
         stop_daemon(&setup).unwrap();
     }
 
+    #[cfg(windows)]
     #[test]
     fn a_program_nobody_holds_is_free() {
         let dir = tempfile::tempdir().unwrap();
@@ -459,7 +491,7 @@ mod tests {
         assert!(program_released(&program));
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(windows)]
     #[test]
     fn a_running_program_is_in_use() {
         let running = env::current_exe().unwrap();
@@ -484,17 +516,34 @@ mod tests {
         assert!(!program_in_use(&program));
     }
 
+    #[cfg(windows)]
     #[test]
     fn only_busy_errors_mean_a_holder() {
         let denied = io::Error::from(io::ErrorKind::PermissionDenied);
         assert!(!is_busy(&denied));
         assert!(!is_busy(&io::Error::from(io::ErrorKind::NotFound)));
-        if cfg!(windows) {
-            assert!(is_busy(&io::Error::from_raw_os_error(32)));
-            assert!(is_busy(&io::Error::from_raw_os_error(1224)));
-        } else {
-            assert!(is_busy(&io::Error::from(io::ErrorKind::ExecutableFileBusy)));
-        }
+        assert!(is_busy(&io::Error::from_raw_os_error(32)));
+        assert!(is_busy(&io::Error::from_raw_os_error(1224)));
+    }
+
+    #[test]
+    fn no_daemon_starts_while_an_update_installs() {
+        assert!(refuse_start(false).is_ok());
+        assert!(matches!(refuse_start(true), Err(LaunchError::Updating)));
+        let _serial = HELD_FLAG.lock().unwrap_or_else(PoisonError::into_inner);
+        let home = tempfile::tempdir().unwrap();
+        let setup = Setup {
+            profile: "dev",
+            home: Some(home.path().to_path_buf()),
+            daemon: home.path().join("nullradix"),
+            web_dir: None,
+        };
+        hold_daemon_down(true);
+        let held = sign_in_url(&setup).err();
+        hold_daemon_down(false);
+        assert!(matches!(held, Some(LaunchError::Updating)), "{held:?}");
+        // the gate sits before anything is created or spawned
+        assert!(!setup.paths().unwrap().data.exists());
     }
 
     #[test]

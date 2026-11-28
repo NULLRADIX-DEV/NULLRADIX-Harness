@@ -5933,7 +5933,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Sessions cannot stop the daemon; neither can runs of agents */
+            /** @description token-required for a browser session, daemon-stop-needs-person for a run or session of an agent */
             403: {
                 headers: {
                     [name: string]: unknown;

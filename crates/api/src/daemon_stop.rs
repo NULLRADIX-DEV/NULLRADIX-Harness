@@ -13,7 +13,7 @@ use crate::{ApiError, ApiState, Problem};
     responses(
         (status = 202, description = "The daemon ends open requests and exits; its runs go on"),
         (status = 401, body = Problem),
-        (status = 403, description = "Sessions cannot stop the daemon; neither can runs of agents", body = Problem),
+        (status = 403, description = "token-required for a browser session, daemon-stop-needs-person for a run or session of an agent", body = Problem),
     )
 )]
 pub(crate) async fn stop_daemon(
