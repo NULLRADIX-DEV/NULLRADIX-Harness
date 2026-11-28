@@ -1,0 +1,100 @@
+{
+  "title": "Changing what runs as a command needs a confirmed session; a token can only turn the check on",
+  "steps": [
+    {
+      "name": "the check is on by default",
+      "http": { "method": "GET", "path": "/api/v1/settings/step-up" }
+    },
+    {
+      "name": "a token cannot turn it off",
+      "http": { "method": "PUT", "path": "/api/v1/settings/step-up", "body": { "required": false } }
+    },
+    {
+      "name": "a session needs a code to turn it off",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/step-up",
+        "body": { "required": false },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "a code nobody made does not turn it off",
+      "http": {
+        "method": "PUT",
+        "path": "/api/v1/settings/step-up",
+        "body": { "required": false, "code": "nope" },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "a token may turn it on",
+      "http": { "method": "PUT", "path": "/api/v1/settings/step-up", "body": { "required": true } }
+    },
+    {
+      "name": "a session shows no confirmation",
+      "http": { "method": "GET", "path": "/api/v1/auth/me", "auth": "session" }
+    },
+    {
+      "name": "the cookie of a session alone is nobody",
+      "http": { "method": "GET", "path": "/api/v1/auth/me", "auth": "sessionNoKey" }
+    },
+    {
+      "name": "the key of another tab is refused",
+      "http": { "method": "GET", "path": "/api/v1/auth/me", "auth": "sessionWrongKey" }
+    },
+    {
+      "name": "a token cannot confirm a session",
+      "http": { "method": "POST", "path": "/api/v1/auth/step-up", "body": { "code": "nope" } }
+    },
+    {
+      "name": "a code nobody made is refused",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/auth/step-up",
+        "body": { "code": "nope" },
+        "auth": "session"
+      }
+    },
+    {
+      "name": "a session cannot make codes",
+      "http": { "method": "POST", "path": "/api/v1/auth/step-up-codes", "auth": "session" }
+    },
+    {
+      "name": "a run cannot make codes",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/auth/step-up-codes",
+        "headers": { "X-Nullradix-Run": "run-1" }
+      }
+    },
+    {
+      "name": "a session cannot make turn-off codes",
+      "http": { "method": "POST", "path": "/api/v1/auth/turn-off-codes", "auth": "session" }
+    },
+    {
+      "name": "a run cannot make turn-off codes",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/auth/turn-off-codes",
+        "headers": { "X-Nullradix-Run": "run-1" }
+      }
+    },
+    {
+      "name": "a run cannot open a browser session",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/auth/handoffs",
+        "headers": { "X-Nullradix-Run": "run-1" }
+      }
+    },
+    {
+      "name": "a session cannot open another one",
+      "http": { "method": "POST", "path": "/api/v1/auth/handoffs", "auth": "session" }
+    },
+    {
+      "name": "codes need a credential",
+      "http": { "method": "POST", "path": "/api/v1/auth/step-up-codes", "auth": "none" }
+    }
+  ]
+}

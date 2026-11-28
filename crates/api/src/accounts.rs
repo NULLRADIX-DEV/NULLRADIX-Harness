@@ -1,16 +1,18 @@
 use std::fmt;
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use nullradix_app::AppError;
 use nullradix_app::accounts::AccountPatch;
+use nullradix_app::auth::Principal;
 use nullradix_app::dispatch::accounts::AccountPause;
 use nullradix_domain::{Account, Id};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::auth::{AgentContext, command_writer};
 use crate::tickets::present;
 use crate::{API_PREFIX, ApiError, ApiJson, ApiPath, ApiQuery, ApiState, Problem};
 
@@ -206,17 +208,24 @@ pub(crate) async fn list_accounts(
         (status = 201, body = AccountDto,
             headers(("Location" = String, description = "URL of the new account"))),
         (status = 401, body = Problem),
+        (status = 403, description = "A folder outside the accounts folder runs commands: `command-change-needs-person` for tokens and agents, `step-up-required` for a session without a confirmation", body = Problem),
         (status = 409, description = "The folder belongs to another account", body = Problem),
         (status = 422, body = Problem),
     )
 )]
 pub(crate) async fn create_account(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiJson(input): ApiJson<CreateAccount>,
 ) -> Result<(StatusCode, HeaderMap, Json<AccountDto>), ApiError> {
+    let refusal = state
+        .auth
+        .command_refusal(command_writer(&principal, context))
+        .await?;
     let account = state
         .accounts
-        .create(&input.name, input.config_dir.as_deref())
+        .create(&input.name, input.config_dir.as_deref(), refusal)
         .await?;
     crate::claude_theme::resync(&state).await;
     let account = AccountDto::from(account);
@@ -380,7 +389,7 @@ mod tests {
     use axum::http::Request;
     use serde_json::json;
 
-    use crate::tests::{TestApi, bearer, send, test_api};
+    use crate::tests::{TestApi, as_person, bearer, in_run, open_session, send, test_api};
 
     const TOKEN: &str = "sk-ant-oat01-fake-token";
 
@@ -397,6 +406,31 @@ mod tests {
             None => request.body(Body::empty()),
         }
         .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        (status, json)
+    }
+
+    /// A browser session confirmed for command changes.
+    async fn confirmed(api: &TestApi) -> String {
+        let cookie = open_session(api).await;
+        let code = api.auth.create_step_up_code().unwrap();
+        let request = as_person(Request::post("/api/v1/auth/step-up"), &cookie)
+            .header("content-type", "application/json")
+            .body(Body::from(json!({ "code": code.expose() }).to_string()))
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, 200);
+        cookie
+    }
+
+    async fn create_as(
+        api: &TestApi,
+        cookie: &str,
+        body: serde_json::Value,
+    ) -> (axum::http::StatusCode, serde_json::Value) {
+        let request = as_person(Request::post("/api/v1/accounts"), cookie)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
         let (status, _, json) = send(&api.router, request).await;
         (status, json)
     }
@@ -523,10 +557,11 @@ mod tests {
         let foreign = tempfile::tempdir().unwrap();
         let (_, list) = call(&api, Request::get("/api/v1/accounts"), None).await;
         let default = list["items"][0]["id"].as_str().unwrap().to_owned();
-        let (status, work) = call(
+        let cookie = confirmed(&api).await;
+        let (status, work) = create_as(
             &api,
-            Request::post("/api/v1/accounts"),
-            Some(json!({ "name": "Work", "configDir": foreign.path().to_string_lossy() })),
+            &cookie,
+            json!({ "name": "Work", "configDir": foreign.path().to_string_lossy() }),
         )
         .await;
         assert_eq!(status, 201);
@@ -565,6 +600,68 @@ mod tests {
         assert!(foreign.path().is_dir());
     }
     #[tokio::test]
+    async fn a_folder_outside_the_accounts_folder_needs_the_person_and_a_confirmation() {
+        let api = test_api().await;
+        let foreign = tempfile::tempdir().unwrap();
+        let body = json!({ "name": "Work", "configDir": foreign.path().to_string_lossy() });
+        let (status, json) =
+            call(&api, Request::post("/api/v1/accounts"), Some(body.clone())).await;
+        assert_eq!(problem(status, &json), (403, "command-change-needs-person"));
+        assert_eq!(json["errors"][0]["field"], "configDir");
+        // a run is no person either, even in the confirmed browser session
+        let cookie = confirmed(&api).await;
+        let request = in_run(as_person(Request::post("/api/v1/accounts"), &cookie))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        assert_eq!(problem(status, &json), (403, "command-change-needs-person"));
+        let plain = open_session(&api).await;
+        let (status, json) = create_as(&api, &plain, body.clone()).await;
+        assert_eq!(problem(status, &json), (403, "step-up-required"));
+        assert_eq!(json["errors"][0]["field"], "configDir");
+        let (status, _) = create_as(&api, &cookie, body).await;
+        assert_eq!(status, 201);
+        let (_, list) = call(&api, Request::get("/api/v1/accounts"), None).await;
+        assert_eq!(list["items"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_folder_below_the_accounts_folder_is_free_for_everyone() {
+        let api = test_api().await;
+        let (_, list) = call(&api, Request::get("/api/v1/accounts"), None).await;
+        let root = std::path::PathBuf::from(list["accountsDir"].as_str().unwrap());
+        let own = root.join("own");
+        std::fs::create_dir_all(&own).unwrap();
+        let (status, _) = call(
+            &api,
+            Request::post("/api/v1/accounts"),
+            Some(json!({ "name": "Own", "configDir": own.to_string_lossy() })),
+        )
+        .await;
+        assert_eq!(status, 201);
+        let plain = open_session(&api).await;
+        let other = root.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let (status, _) = create_as(
+            &api,
+            &plain,
+            json!({ "name": "Other", "configDir": other.to_string_lossy() }),
+        )
+        .await;
+        assert_eq!(status, 201);
+        // a way out of the folder does not count as below it
+        let climbing = root.join("own").join("..").join("..");
+        let (status, json) = call(
+            &api,
+            Request::post("/api/v1/accounts"),
+            Some(json!({ "name": "Up", "configDir": climbing.to_string_lossy() })),
+        )
+        .await;
+        assert_eq!(problem(status, &json), (403, "command-change-needs-person"));
+    }
+
+    #[tokio::test]
     async fn validates_input_with_problem_details() {
         let api = test_api().await;
         let (status, json) = call(
@@ -581,10 +678,11 @@ mod tests {
         )
         .await;
         assert_eq!(problem(status, &json), (422, "input-invalid"));
-        let (status, json) = call(
+        let cookie = confirmed(&api).await;
+        let (status, json) = create_as(
             &api,
-            Request::post("/api/v1/accounts"),
-            Some(json!({ "name": "Max", "configDir": "relative/dir" })),
+            &cookie,
+            json!({ "name": "Max", "configDir": "relative/dir" }),
         )
         .await;
         assert_eq!(problem(status, &json), (422, "account-invalid"));

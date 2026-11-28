@@ -153,14 +153,82 @@ fn sign_in(app: &AppHandle, shell: &Shell) {
     }
 }
 
+/// Whether the window may be handed a confirmation code.
+#[derive(Debug, PartialEq, Eq)]
+enum ConfirmTarget {
+    /// The window shows the daemon it was signed in to.
+    Deliver,
+    /// The window shows the local page or another origin.
+    NotSignedIn,
+}
+
+/// Only a window still showing the signed-in daemon gets a code, never another page.
+fn confirm_target(shown: Option<&Url>, daemon: Option<&Url>) -> ConfirmTarget {
+    match (shown, daemon) {
+        (Some(shown), Some(daemon)) if !is_local(shown) && shown.origin() == daemon.origin() => {
+            ConfirmTarget::Deliver
+        }
+        _ => ConfirmTarget::NotSignedIn,
+    }
+}
+
+const NOT_SIGNED_IN: &str =
+    "This window is not signed in. Choose Reconnect in the tray menu, then confirm again.";
+
+/// Brings the window to the front, also from the tray or when it is minimized.
+fn raise(window: &tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+/// Says on the local page what is wrong: the window is not signed in.
+fn report_not_signed_in(window: &tauri::WebviewWindow) {
+    raise(window);
+    if let Some(page) = local_page(Some(NOT_SIGNED_IN))
+        && let Err(error) = window.navigate(page)
+    {
+        eprintln!("cannot show the page: {error}");
+    }
+}
+
+/// Hands the signed-in window a code in its fragment: no other page can read it.
+fn confirm_changes(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN) else {
+        return;
+    };
+    let shell = app.state::<Arc<Shell>>().inner().clone();
+    let target = |window: &tauri::WebviewWindow| {
+        confirm_target(window.url().ok().as_ref(), shell.daemon().as_ref())
+    };
+    if target(&window) == ConfirmTarget::NotSignedIn {
+        report_not_signed_in(&window);
+        return;
+    }
+    let resources = app.path().resource_dir().ok();
+    let code = Setup::from_env()
+        .map(|setup| setup.with_resources(resources.as_deref()))
+        .and_then(|setup| launch::step_up_code(&setup));
+    match code {
+        // the window may have moved on while the code was made
+        Ok(_) if target(&window) == ConfirmTarget::NotSignedIn => report_not_signed_in(&window),
+        // hex needs no quoting in a script string
+        Ok(code) => {
+            if let Err(error) = window.eval(format!("window.location.hash = 'confirm={code}'")) {
+                eprintln!("cannot confirm: {error}");
+            }
+            raise(&window);
+        }
+        Err(error) => eprintln!("cannot confirm: {error}"),
+    }
+}
+
 /// Brings the window up and signs in again when it is not showing the daemon.
 fn show(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN) else {
         return;
     };
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_focus();
+    raise(&window);
     if window.url().is_ok_and(|url| is_local(&url)) {
         reconnect(app);
     }
@@ -170,6 +238,7 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
     let initial = tray::texts(&tray::Snapshot::default());
     let open = MenuItem::with_id(app, "open", "Open NULLRADIX", true, None::<&str>)?;
     let again = MenuItem::with_id(app, "reconnect", "Reconnect", true, None::<&str>)?;
+    let confirm = MenuItem::with_id(app, "confirm", "Confirm changes", true, None::<&str>)?;
     // the status lines only show; they cannot be clicked
     let dispatcher = MenuItem::with_id(
         app,
@@ -185,6 +254,7 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
         &[
             &open,
             &again,
+            &confirm,
             &PredefinedMenuItem::separator(app)?,
             &dispatcher,
             &inbox,
@@ -200,6 +270,10 @@ fn tray(app: &App) -> tauri::Result<tray::Rows<tauri::Wry>> {
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show(app),
             "reconnect" => reconnect(app),
+            "confirm" => {
+                let app = app.clone();
+                thread::spawn(move || confirm_changes(&app));
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -255,6 +329,28 @@ mod tests {
             &shell,
             &Url::parse("ftp://127.0.0.1:4712/").unwrap()
         ));
+    }
+
+    #[test]
+    fn a_code_goes_only_to_a_window_that_shows_the_signed_in_daemon() {
+        let daemon = Url::parse("http://127.0.0.1:4711/").unwrap();
+        let board = daemon.join("/board").unwrap();
+        let other_port = Url::parse("http://127.0.0.1:4712/board").unwrap();
+        let elsewhere = Url::parse("https://example.com/").unwrap();
+        let local = local_page(None).unwrap();
+        let deliver = |shown: &Url| confirm_target(Some(shown), Some(&daemon));
+        assert_eq!(deliver(&board), ConfirmTarget::Deliver);
+        assert_eq!(deliver(&other_port), ConfirmTarget::NotSignedIn);
+        assert_eq!(deliver(&elsewhere), ConfirmTarget::NotSignedIn);
+        assert_eq!(deliver(&local), ConfirmTarget::NotSignedIn);
+        assert_eq!(
+            confirm_target(Some(&board), None),
+            ConfirmTarget::NotSignedIn
+        );
+        assert_eq!(
+            confirm_target(None, Some(&daemon)),
+            ConfirmTarget::NotSignedIn
+        );
     }
 
     #[test]

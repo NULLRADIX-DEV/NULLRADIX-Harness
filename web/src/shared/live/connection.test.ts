@@ -125,6 +125,21 @@ describe('ChangeStreamConnection', () => {
     expect(FakeEventSource.instances).toHaveLength(4);
   });
 
+  it('puts the key of the tab in the query, with the position to resume from', () => {
+    const key = 'ab'.repeat(32);
+    window.sessionStorage.setItem('nullradix-tab-key', key);
+    try {
+      const { source } = setup();
+      expect(source.url).toBe(`/api/v1/events?k=${key}`);
+      source.emit('change', change(7), '7');
+      source.fail();
+      vi.advanceTimersByTime(1_000);
+      expect(FakeEventSource.latest().url).toBe(`/api/v1/events?since=7&k=${key}`);
+    } finally {
+      window.sessionStorage.clear();
+    }
+  });
+
   it('invalidates everything on reset', () => {
     const { invalidate, source } = setup();
     source.emit('reset', {}, '9');

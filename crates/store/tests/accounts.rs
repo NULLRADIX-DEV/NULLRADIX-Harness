@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nullradix_app::accounts::{AccountFolders, AccountPatch, AccountService};
+use nullradix_app::auth::CommandRefusal;
 use nullradix_app::secrets::{MemorySecretStore, SecretStore};
 use nullradix_app::{
     AppError, ChangeFeed, ChangeOp, ChangeSignal, Entity, ErrorKind, SystemClock, UuidV7Generator,
@@ -102,7 +103,7 @@ impl Fixture {
     }
 
     async fn add(&self, name: &str) -> Account {
-        self.accounts.create(name, None).await.unwrap()
+        self.accounts.create(name, None, None).await.unwrap()
     }
 }
 
@@ -179,23 +180,26 @@ async fn an_existing_folder_can_be_taken_over_once() {
         .push(String::from("/profiles/work"));
     let work = f
         .accounts
-        .create("Work", Some(" /profiles/work "))
+        .create("Work", Some(" /profiles/work "), None)
         .await
         .unwrap();
     assert_eq!(work.config_dir().unwrap().as_str(), "/profiles/work");
 
     let taken = f
         .accounts
-        .create("Other", Some("/PROFILES/work"))
+        .create("Other", Some("/PROFILES/work"), None)
         .await
         .unwrap_err();
     assert_eq!(code(&taken), (ErrorKind::Conflict, "account-dir-taken"));
-    let relative = f.accounts.create("Rel", Some("profiles/work")).await;
+    let relative = f.accounts.create("Rel", Some("profiles/work"), None).await;
     assert_eq!(
         code(&relative.unwrap_err()),
         (ErrorKind::Invalid, "account-invalid")
     );
-    let missing = f.accounts.create("Gone", Some("/profiles/gone")).await;
+    let missing = f
+        .accounts
+        .create("Gone", Some("/profiles/gone"), None)
+        .await;
     assert_eq!(
         code(&missing.unwrap_err()),
         (ErrorKind::Invalid, "account-invalid")
@@ -204,11 +208,73 @@ async fn an_existing_folder_can_be_taken_over_once() {
 }
 
 #[tokio::test]
+async fn a_folder_outside_the_accounts_folder_is_refused_when_commands_are_closed() {
+    let f = fixture().await;
+    f.folders
+        .existing
+        .lock()
+        .unwrap()
+        .push(String::from("/profiles/work"));
+    let before = f.accounts.list().await.unwrap().len();
+    let unconfirmed = f
+        .accounts
+        .create(
+            "Work",
+            Some("/profiles/work"),
+            Some(CommandRefusal::NeedsStepUp),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        code(&unconfirmed),
+        (ErrorKind::Forbidden, "step-up-required")
+    );
+    let token = f
+        .accounts
+        .create(
+            "Work",
+            Some("/profiles/work"),
+            Some(CommandRefusal::NeedsPerson),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        code(&token),
+        (ErrorKind::Forbidden, "command-change-needs-person")
+    );
+    assert_eq!(f.accounts.list().await.unwrap().len(), before);
+
+    let own = f
+        .accounts
+        .create("Own", None, Some(CommandRefusal::NeedsStepUp))
+        .await
+        .unwrap();
+    assert!(own.config_dir().unwrap().as_str().starts_with("/accounts/"));
+    f.folders
+        .existing
+        .lock()
+        .unwrap()
+        .push(String::from("/accounts/bob"));
+    f.accounts
+        .create(
+            "Bob",
+            Some("/accounts/bob"),
+            Some(CommandRefusal::NeedsStepUp),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn names_are_validated() {
     let f = fixture().await;
-    let blank = f.accounts.create("  ", None).await.unwrap_err();
+    let blank = f.accounts.create("  ", None, None).await.unwrap_err();
     assert_eq!(code(&blank), (ErrorKind::Invalid, "account-invalid"));
-    let long = f.accounts.create(&"x".repeat(61), None).await.unwrap_err();
+    let long = f
+        .accounts
+        .create(&"x".repeat(61), None, None)
+        .await
+        .unwrap_err();
     assert_eq!(code(&long), (ErrorKind::Invalid, "value-too-long"));
     assert!(f.folders.existing.lock().unwrap().is_empty());
 }
@@ -388,7 +454,7 @@ async fn folders_outside_the_accounts_folder_are_never_deleted() {
         .push(String::from("/profiles/work"));
     let work = f
         .accounts
-        .create("Work", Some("/profiles/work"))
+        .create("Work", Some("/profiles/work"), None)
         .await
         .unwrap();
     let refused = f
@@ -570,7 +636,7 @@ async fn a_new_slug_never_gets_the_folder_of_another_account() {
         .push(String::from("/Accounts/BOB"));
     let work = f
         .accounts
-        .create("Work", Some("/Accounts/BOB"))
+        .create("Work", Some("/Accounts/BOB"), None)
         .await
         .unwrap();
     assert_eq!(work.config_dir().unwrap().as_str(), "/Accounts/BOB");
@@ -645,7 +711,7 @@ async fn flaky() -> (Arc<AccountService>, Arc<Flaky>, Arc<MemorySecretStore>) {
 #[tokio::test]
 async fn a_failed_update_leaves_no_new_token_and_keeps_the_old_one() {
     let (accounts, repository, secrets) = flaky().await;
-    let max = accounts.create("Max", None).await.unwrap();
+    let max = accounts.create("Max", None, None).await.unwrap();
     let key = format!("account-token/{}", max.id());
     repository
         .fail_updates
@@ -672,7 +738,7 @@ async fn a_failed_update_leaves_no_new_token_and_keeps_the_old_one() {
 #[tokio::test]
 async fn a_stale_version_leaves_the_stored_token_alone() {
     let (accounts, _, secrets) = flaky().await;
-    let max = accounts.create("Max", None).await.unwrap();
+    let max = accounts.create("Max", None, None).await.unwrap();
     let set = accounts
         .set_token(max.id(), TOKEN, max.version())
         .await
@@ -689,7 +755,7 @@ async fn a_stale_version_leaves_the_stored_token_alone() {
 #[tokio::test]
 async fn racing_token_writes_leave_the_token_of_the_one_that_won() {
     let (accounts, _, secrets) = flaky().await;
-    let max = accounts.create("Max", None).await.unwrap();
+    let max = accounts.create("Max", None, None).await.unwrap();
     let (id, version) = (max.id(), max.version());
     let first = tokio::spawn({
         let accounts = accounts.clone();
@@ -710,7 +776,7 @@ async fn racing_token_writes_leave_the_token_of_the_one_that_won() {
 #[tokio::test]
 async fn a_removed_account_leaves_no_token_and_takes_no_new_one() {
     let (accounts, _, secrets) = flaky().await;
-    let max = accounts.create("Max", None).await.unwrap();
+    let max = accounts.create("Max", None, None).await.unwrap();
     let set = accounts
         .set_token(max.id(), TOKEN, max.version())
         .await
@@ -802,7 +868,7 @@ async fn a_removal_holds_the_login_renewal_of_the_folder_until_it_is_done() {
     .with_renewal(Arc::new(Renewer {
         events: events.clone(),
     }));
-    let max = accounts.create("Max", None).await.unwrap();
+    let max = accounts.create("Max", None, None).await.unwrap();
     f.folders
         .fail_once
         .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -860,7 +926,7 @@ async fn a_secret_store_that_cannot_delete_leaves_the_account_and_its_token_as_t
         Arc::new(UuidV7Generator),
         ChangeSignal::new(),
     );
-    let max = accounts.create("Max", None).await.unwrap();
+    let max = accounts.create("Max", None, None).await.unwrap();
     let set = accounts
         .set_token(max.id(), TOKEN, max.version())
         .await

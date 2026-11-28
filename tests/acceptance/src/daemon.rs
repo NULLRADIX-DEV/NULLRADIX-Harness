@@ -134,7 +134,7 @@ pub(crate) struct Daemon {
     pub(crate) work: PathBuf,
     env: BTreeMap<String, String>,
     nullradix: PathBuf,
-    session: OnceCell<String>,
+    session: OnceCell<(String, String)>,
 }
 
 impl Daemon {
@@ -234,10 +234,10 @@ impl Daemon {
         format!("http://{}{path}", self.address)
     }
 
-    /// The cookie of a browser session, opened on first use with a handoff like the app does.
-    pub(crate) fn session_cookie(&self) -> anyhow::Result<&str> {
-        if let Some(cookie) = self.session.get() {
-            return Ok(cookie);
+    /// Cookie and tab key of a browser session, opened on first use with a handoff.
+    pub(crate) fn session_cookie(&self) -> anyhow::Result<&(String, String)> {
+        if let Some(session) = self.session.get() {
+            return Ok(session);
         }
         let agent: Agent = Agent::config_builder()
             .http_status_as_error(false)
@@ -263,7 +263,15 @@ impl Daemon {
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.split(';').next())
             .context("the handoff set no session cookie")?;
-        Ok(self.session.get_or_init(|| cookie.to_owned()))
+        let key = redeemed
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("/#k="))
+            .context("the handoff gave no key for the tab")?;
+        Ok(self
+            .session
+            .get_or_init(|| (cookie.to_owned(), key.to_owned())))
     }
 }
 

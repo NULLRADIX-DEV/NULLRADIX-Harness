@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { components } from '../api/schema';
+import { KEY_QUERY, readTabKey } from '../api/tabKey';
 import type { ChangeRegistry } from './registry';
 
 export type Change = components['schemas']['ChangeDto'];
@@ -61,9 +62,13 @@ export class ChangeStreamConnection {
 
   private connect(): void {
     const path = this.options.path ?? EVENTS_PATH;
-    // A new EventSource sends no Last-Event-ID, so resume through the query.
-    const url = this.lastSeq === null ? path : `${path}?since=${String(this.lastSeq)}`;
-    const source = new EventSource(url);
+    // A new EventSource sends no headers, hence position and key in the query.
+    const query = new URLSearchParams();
+    if (this.lastSeq !== null) query.set('since', String(this.lastSeq));
+    const key = readTabKey();
+    if (key !== null) query.set(KEY_QUERY, key);
+    const text = query.toString();
+    const source = new EventSource(text === '' ? path : `${path}?${text}`);
     this.source = source;
     source.addEventListener('open', () => {
       this.attempt = 0;

@@ -1,6 +1,7 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
 import { api } from '../../shared/api/client';
-import { unwrap } from '../../shared/api/errors';
+import { isProblem, unwrap } from '../../shared/api/errors';
+import { askForTabKey } from '../../shared/api/tabKey';
 
 export const SESSION_RECHECK_MS = 5_000;
 
@@ -8,12 +9,22 @@ export const sessionKeys = {
   all: ['auth', 'me'] as const,
 };
 
+function isKeyProblem({ response, error }: { response: Response; error?: unknown }): boolean {
+  return (
+    response.status === 401 &&
+    isProblem(error) &&
+    (error.code === 'session-key-invalid' || error.code === 'session-key-missing')
+  );
+}
+
 // No session is `null`, not an error: a query without data turns pending on each refetch.
 export function sessionQuery() {
   return queryOptions({
     queryKey: sessionKeys.all,
     queryFn: async () => {
-      const result = await api.GET('/api/v1/auth/me');
+      let result = await api.GET('/api/v1/auth/me');
+      // the key of this tab may be one behind: another tab may know the current one
+      if (isKeyProblem(result) && (await askForTabKey())) result = await api.GET('/api/v1/auth/me');
       return result.response.status === 401 ? null : unwrap(result);
     },
     // Another tab may finish `nullradix open`, or the daemon may come back.

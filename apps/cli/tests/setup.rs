@@ -157,16 +157,59 @@ fn install_dry_run_without_a_daemon_names_the_default_folder_and_writes_nothing(
 }
 
 #[test]
-fn install_dry_run_lists_the_folder_of_every_account() {
+fn a_token_cannot_add_an_account_with_a_folder_of_its_own() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     let work = temp.path().join("claude-work");
     fs::create_dir_all(&work).unwrap();
     let _daemon = Daemon::start(&home);
-    let added = run(
+
+    let refused = run(
         &home,
         &["account", "add", "Work", "--dir", work.to_str().unwrap()],
     );
+
+    assert!(!refused.status.success(), "{refused:?}");
+    let message = String::from_utf8_lossy(&refused.stderr);
+    assert!(message.contains("command-change-needs-person"), "{message}");
+}
+
+#[test]
+fn confirm_turn_off_prints_a_code_and_no_link_and_no_agent_may_ask() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let _daemon = Daemon::start(&home);
+
+    let printed = run(&home, &["confirm", "--turn-off"]);
+
+    assert!(printed.status.success(), "{printed:?}");
+    let text = stdout(&printed);
+    let code = text
+        .lines()
+        .find_map(|line| line.strip_prefix("turn-off code: "))
+        .unwrap();
+    assert_eq!(code.len(), 64, "{text}");
+    assert!(!text.contains("http"), "{text}");
+    let both = run(&home, &["confirm", "--turn-off", "--no-open"]);
+    assert!(!both.status.success());
+    let refused = nullradix(&home)
+        .env("NULLRADIX_RUN", "run-1")
+        .args(["confirm", "--turn-off"])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success(), "{refused:?}");
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("decision-needs-person"),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn install_dry_run_lists_the_folder_of_every_account() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let _daemon = Daemon::start(&home);
+    let added = run(&home, &["account", "add", "Work"]);
     assert!(added.status.success(), "{added:?}");
 
     let output = run(&home, &["install", "--dry-run", "--json"]);
@@ -180,7 +223,7 @@ fn install_dry_run_lists_the_folder_of_every_account() {
         .map(|target| target["dir"].as_str().unwrap())
         .collect();
     assert_eq!(dirs.len(), 2, "{dirs:?}");
-    assert!(dirs.iter().any(|dir| dir.contains("claude-work")));
+    assert!(dirs.iter().any(|dir| dir.ends_with("work")), "{dirs:?}");
     let default = home.join("data").join(".claude").display().to_string();
     assert!(dirs.contains(&default.as_str()), "{dirs:?} lacks {default}");
     assert!(!home.join("data").join("plugin").exists());

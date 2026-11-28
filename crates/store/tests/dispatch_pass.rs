@@ -1048,7 +1048,10 @@ impl Fixture {
         let view = self.config.get().await.unwrap();
         let mut config = view.config;
         change(&mut config);
-        self.config.update(config, view.version).await.unwrap();
+        self.config
+            .update(config, view.version, None)
+            .await
+            .unwrap();
     }
 
     async fn enable(&self) {
@@ -3055,7 +3058,7 @@ const HOUR: i64 = 60 * MINUTE;
 
 impl Fixture {
     async fn account(&self, name: &str) -> Account {
-        self.accounts.create(name, None).await.unwrap()
+        self.accounts.create(name, None, None).await.unwrap()
     }
 
     async fn disable(&self, slug: &str) {

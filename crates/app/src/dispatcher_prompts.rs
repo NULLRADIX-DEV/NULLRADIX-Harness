@@ -218,7 +218,8 @@ impl DispatcherPromptService {
     ) -> Result<PromptState, AppError> {
         let mut config = self.config.get().await?.config;
         config.prompts.set(kind, template);
-        let saved = self.config.update(config, expected).await?;
+        // only a template changes and never a command field
+        let saved = self.config.update(config, expected, None).await?;
         Ok(state(&saved, kind))
     }
 

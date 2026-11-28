@@ -41,6 +41,7 @@
     },
     "response": {
       "json": {
+        "elevatedUntil": null,
         "kind": "token"
       },
       "status": 200

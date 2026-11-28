@@ -79,6 +79,16 @@
               }
             }
           },
+          "403": {
+            "description": "A folder outside the accounts folder runs commands: `command-change-needs-person` for tokens and agents, `step-up-required` for a session without a confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "409": {
             "description": "The folder belongs to another account",
             "content": {
@@ -837,7 +847,7 @@
         ],
         "responses": {
           "303": {
-            "description": "Sets the session cookie and opens the web UI"
+            "description": "Sets the session cookie and opens the web UI with the key of the tab in the fragment"
           },
           "401": {
             "content": {
@@ -881,7 +891,7 @@
             }
           },
           "403": {
-            "description": "Sessions cannot create handoffs",
+            "description": "Sessions cannot create handoffs; neither can runs of agents",
             "content": {
               "application/json": {
                 "schema": {
@@ -920,6 +930,7 @@
         },
         "security": [
           {
+            "key": [],
             "session": []
           }
         ]
@@ -951,6 +962,159 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/auth/step-up": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "redeem_step_up",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemStepUp"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The session may change command fields for a few minutes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Elevation"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the person in the app can confirm",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The code is unknown, expired or used up (`step-up-code-invalid`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "key": [],
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/step-up-codes": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "create_step_up_code",
+        "responses": {
+          "201": {
+            "description": "Code that confirms a browser session for a few minutes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpCode"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sessions cannot create codes; neither can runs of agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/turn-off-codes": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "create_turn_off_code",
+        "responses": {
+          "201": {
+            "description": "Code that lets the person turn the confirmation off once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnOffCode"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sessions cannot create codes; neither can runs of agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/api/v1/boards": {
@@ -1674,6 +1838,16 @@
               }
             }
           },
+          "403": {
+            "description": "`command-change-needs-person`: a token or an agent changed a field that runs commands; `step-up-required`: the session has no fresh confirmation (see `nullradix confirm`); the fields are listed in `errors`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2189,6 +2363,15 @@
             "schema": {
               "type": "integer",
               "format": "int64"
+            }
+          },
+          {
+            "name": "k",
+            "in": "query",
+            "description": "Key of the tab: an event stream cannot send headers.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -6476,6 +6659,90 @@
             }
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/step-up": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "step_up_setting",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpSetting"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "set_step_up_setting",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStepUp"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpSetting"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Turning it off needs the person in the app and a fresh code (`step-up-code-required`); a token or an agent may only turn it on (`command-change-needs-person`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The code is unknown, expired or used up (`step-up-code-invalid`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12843,6 +13110,20 @@
           }
         }
       },
+      "Elevation": {
+        "type": "object",
+        "description": "How long the session may change command fields now.",
+        "required": [
+          "elevatedUntil"
+        ],
+        "properties": {
+          "elevatedUntil": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds."
+          }
+        }
+      },
       "EntityDto": {
         "type": "string",
         "enum": [
@@ -13733,6 +14014,14 @@
           "kind"
         ],
         "properties": {
+          "elevatedUntil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unix milliseconds until the confirmation ends, or none."
+          },
           "kind": {
             "$ref": "#/components/schemas/PrincipalKind"
           }
@@ -15282,6 +15571,18 @@
           }
         }
       },
+      "RedeemStepUp": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "ReleaseTicket": {
         "type": "object",
         "properties": {
@@ -16717,6 +17018,26 @@
         },
         "additionalProperties": false
       },
+      "SetStepUp": {
+        "type": "object",
+        "description": "Sets the switch, and turning it off uses up a fresh code.",
+        "required": [
+          "required"
+        ],
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Code of `nullradix confirm --turn-off`, needed only to turn the check off."
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "SetThemeCode": {
         "type": "object",
         "required": [
@@ -17261,6 +17582,35 @@
           },
           "text": {
             "type": "string"
+          }
+        }
+      },
+      "StepUpCode": {
+        "type": "object",
+        "description": "One-time code the person gives to the page to confirm the session.",
+        "required": [
+          "code",
+          "path"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Address of the page with the code in its fragment, relative to the daemon."
+          }
+        }
+      },
+      "StepUpSetting": {
+        "type": "object",
+        "description": "Whether changing command fields needs a confirmation first.",
+        "required": [
+          "required"
+        ],
+        "properties": {
+          "required": {
+            "type": "boolean"
           }
         }
       },
@@ -18358,6 +18708,18 @@
           }
         }
       },
+      "TurnOffCode": {
+        "type": "object",
+        "description": "One-time code for turning the check off, printed by a terminal and no link.",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
       "UpdateAccount": {
         "type": "object",
         "description": "A change of fields; left out fields stay, `null` removes a limit.",
@@ -18860,6 +19222,11 @@
         "type": "http",
         "scheme": "bearer"
       },
+      "key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-nullradix-key"
+      },
       "session": {
         "type": "apiKey",
         "in": "cookie",
@@ -18872,6 +19239,7 @@
       "bearer": []
     },
     {
+      "key": [],
       "session": []
     }
   ]

@@ -158,7 +158,7 @@ async fn fixture() -> Fixture {
 
 impl Fixture {
     async fn account(&self, name: &str) -> Account {
-        self.accounts.create(name, None).await.unwrap()
+        self.accounts.create(name, None, None).await.unwrap()
     }
 
     fn control(&self, index: usize) -> Control {

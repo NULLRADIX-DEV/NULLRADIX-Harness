@@ -95,7 +95,10 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub use accounts::{AccountDto, AccountList, CreateAccount, SetRunToken, UpdateAccount};
-pub use auth::{Handoff, Me, PrincipalKind, RUN_HEADER, SESSION_COOKIE, SESSION_HEADER};
+pub use auth::{
+    Elevation, Handoff, KEY_HEADER, Me, PrincipalKind, RUN_HEADER, RedeemStepUp, SESSION_COOKIE,
+    SESSION_HEADER, SetStepUp, StepUpCode, StepUpSetting, TurnOffCode,
+};
 pub use autostart::{AutostartDto, SetAutostart};
 pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
 pub use claude_theme::{ClaudeThemeDto, ClaudeThemeStateDto, ClaudeThemeTargetDto, SetClaudeTheme};
@@ -208,7 +211,7 @@ pub const API_PREFIX: &str = "/api/v1";
     info(title = "NULLRADIX API"),
     components(schemas(Problem, ChangeDto, StreamPosition)),
     modifiers(&SecuritySchemes),
-    security(("bearer" = []), ("session" = []))
+    security(("bearer" = []), ("session" = [], "key" = []))
 )]
 struct ApiDoc;
 
@@ -224,6 +227,10 @@ impl Modify for SecuritySchemes {
         components.add_security_scheme(
             "session",
             SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new(SESSION_COOKIE))),
+        );
+        components.add_security_scheme(
+            "key",
+            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new(KEY_HEADER))),
         );
     }
 }
@@ -359,6 +366,14 @@ fn run_routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(dispatch_runs::screenshot))
 }
 
+fn step_up_routes() -> OpenApiRouter<ApiState> {
+    OpenApiRouter::new()
+        .routes(routes!(auth::create_step_up_code))
+        .routes(routes!(auth::create_turn_off_code))
+        .routes(routes!(auth::redeem_step_up))
+        .routes(routes!(auth::step_up_setting, auth::set_step_up_setting))
+}
+
 fn review_routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::new()
         .routes(routes!(merge::list_merges))
@@ -482,6 +497,7 @@ fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(hooks::receive_hook))
         .routes(routes!(hooks::list_hook_events))
         .merge(account_routes())
+        .merge(step_up_routes())
         .merge(run_routes())
         .merge(review_routes());
     let v1 = extension_routes(v1).merge(dispatcher_routes());
@@ -1104,7 +1120,10 @@ pub(crate) mod tests {
         }
     }
 
-    /// Redeems a handoff and returns the session cookie as `name=value`.
+    /// Name of the second pair from `open_session`, sent as the key header.
+    pub(crate) const KEY_PAIR: &str = "nullradix_key";
+
+    /// Redeems a handoff and returns the cookie and the tab key as two pairs.
     pub(crate) async fn open_session(api: &TestApi) -> String {
         let code = api.auth.create_handoff().unwrap();
         let request = local(Request::get(format!(
@@ -1115,14 +1134,52 @@ pub(crate) mod tests {
         .unwrap();
         let response = api.router.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
-        assert_eq!(response.headers()[header::LOCATION], "/");
+        let location = response.headers()[header::LOCATION].to_str().unwrap();
+        let key = location.strip_prefix("/#k=").unwrap().to_owned();
+        assert_eq!(key.len(), 64);
         let cookie = response.headers()[header::SET_COOKIE]
             .to_str()
             .unwrap()
             .to_owned();
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
+        let session = cookie.split(';').next().unwrap();
+        format!("{session}; {KEY_PAIR}={key}")
+    }
+
+    /// The cookie of a session without the key of its tab.
+    pub(crate) fn without_key(cookie: &str) -> String {
         cookie.split(';').next().unwrap().to_owned()
+    }
+
+    /// The key of a session opened with `open_session`.
+    pub(crate) fn key_of(cookie: &str) -> String {
+        cookie
+            .split("; ")
+            .find_map(|pair| pair.strip_prefix(&format!("{KEY_PAIR}=")))
+            .unwrap()
+            .to_owned()
+    }
+
+    /// Browsers send the key with every call, taken here from the extra cookie pair.
+    fn stamp_key(request: &mut Request<Body>) {
+        if request.headers().contains_key(crate::KEY_HEADER) {
+            return;
+        }
+        let key = request
+            .headers()
+            .get(header::COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|text| {
+                text.split("; ")
+                    .find_map(|pair| pair.strip_prefix(&format!("{KEY_PAIR}=")))
+                    .map(str::to_owned)
+            });
+        if let Some(key) = key {
+            request
+                .headers_mut()
+                .insert(crate::KEY_HEADER, HeaderValue::from_str(&key).unwrap());
+        }
     }
 
     pub(crate) fn local(request: axum::http::request::Builder) -> axum::http::request::Builder {
@@ -1162,6 +1219,8 @@ pub(crate) mod tests {
         router: &Router,
         request: Request<Body>,
     ) -> (StatusCode, Option<HeaderValue>, serde_json::Value) {
+        let mut request = request;
+        stamp_key(&mut request);
         let response = router.clone().oneshot(request).await.unwrap();
         let status = response.status();
         let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
@@ -1217,6 +1276,32 @@ pub(crate) mod tests {
         assert!(json.contains("NULLRADIX API"));
         assert!(json.contains("\"Problem\""));
         assert!(json.contains("\"nullradix_session\""));
+    }
+
+    #[test]
+    fn openapi_document_asks_for_the_tab_key_with_the_session() {
+        let json: serde_json::Value = serde_json::from_str(&openapi_json().unwrap()).unwrap();
+        let key = &json["components"]["securitySchemes"]["key"];
+        assert_eq!(
+            (
+                key["type"].as_str(),
+                key["in"].as_str(),
+                key["name"].as_str()
+            ),
+            (Some("apiKey"), Some("header"), Some("x-nullradix-key"))
+        );
+        assert_eq!(
+            json["security"],
+            serde_json::json!([{ "bearer": [] }, { "session": [], "key": [] }])
+        );
+        let events = &json["paths"]["/api/v1/events"]["get"]["parameters"];
+        assert!(
+            events
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|param| param["name"] == "k")
+        );
     }
 
     #[test]

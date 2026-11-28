@@ -197,6 +197,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["redeem_step_up"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/step-up-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_step_up_code"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/turn-off-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_turn_off_code"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/boards": {
         parameters: {
             query?: never;
@@ -1182,6 +1230,22 @@ export interface paths {
         };
         get: operations["claude_theme"];
         put: operations["set_claude_theme"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["step_up_setting"];
+        put: operations["set_step_up_setting"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2603,6 +2667,14 @@ export interface components {
             problems: components["schemas"]["FindingDto"][];
             source: components["schemas"]["SourceDto"];
         };
+        /** @description How long the session may change command fields now. */
+        Elevation: {
+            /**
+             * Format: int64
+             * @description Unix milliseconds.
+             */
+            elevatedUntil: number;
+        };
         /** @enum {string} */
         EntityDto: "project" | "board" | "ticket" | "run" | "runner" | "repository" | "worktree" | "comment" | "note" | "question" | "session" | "inbox-order" | "favorite" | "account" | "theme" | "setting" | "customization" | "snippet" | "dispatcher-config" | "dispatcher-state";
         /** @enum {string} */
@@ -2880,6 +2952,11 @@ export interface components {
         };
         /** @description The caller as the daemon sees it. */
         Me: {
+            /**
+             * Format: int64
+             * @description Unix milliseconds until the confirmation ends, or none.
+             */
+            elevatedUntil?: number | null;
             kind: components["schemas"]["PrincipalKind"];
         };
         /** @description The merge of a worktree's branch into its target. */
@@ -3364,6 +3441,9 @@ export interface components {
             event: components["schemas"]["HookEventDto"];
             kind: components["schemas"]["HookKindDto"];
         };
+        RedeemStepUp: {
+            code: string;
+        };
         ReleaseTicket: {
             /** @description Name to write under, such as `claude`; the acting person when left out. */
             author?: string | null;
@@ -3819,6 +3899,12 @@ export interface components {
              */
             version: number;
         };
+        /** @description Sets the switch, and turning it off uses up a fresh code. */
+        SetStepUp: {
+            /** @description Code of `nullradix confirm --turn-off`, needed only to turn the check off. */
+            code?: string | null;
+            required: boolean;
+        };
         SetThemeCode: {
             /** @description Let the web UI run `main.js` of the theme while it is chosen, or stop it. */
             enabled: boolean;
@@ -4009,6 +4095,16 @@ export interface components {
             /** Format: int32 */
             number: number;
             text: string;
+        };
+        /** @description One-time code the person gives to the page to confirm the session. */
+        StepUpCode: {
+            code: string;
+            /** @description Address of the page with the code in its fragment, relative to the daemon. */
+            path: string;
+        };
+        /** @description Whether changing command fields needs a confirmation first. */
+        StepUpSetting: {
+            required: boolean;
         };
         /** @description Data of the `ready` and `reset` events: the position the stream continues from. */
         StreamPosition: {
@@ -4331,6 +4427,10 @@ export interface components {
              */
             skipped: number;
         };
+        /** @description One-time code for turning the check off, printed by a terminal and no link. */
+        TurnOffCode: {
+            code: string;
+        };
         /** @description A change of fields; left out fields stay, `null` removes a limit. */
         UpdateAccount: {
             enabled?: boolean | null;
@@ -4533,6 +4633,15 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A folder outside the accounts folder runs commands: `command-change-needs-person` for tokens and agents, `step-up-required` for a session without a confirmation */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5134,7 +5243,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Sets the session cookie and opens the web UI */
+            /** @description Sets the session cookie and opens the web UI with the key of the tab in the fragment */
             303: {
                 headers: {
                     [name: string]: unknown;
@@ -5177,7 +5286,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Sessions cannot create handoffs */
+            /** @description Sessions cannot create handoffs; neither can runs of agents */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5232,6 +5341,130 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    redeem_step_up: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedeemStepUp"];
+            };
+        };
+        responses: {
+            /** @description The session may change command fields for a few minutes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Elevation"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Only the person in the app can confirm */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The code is unknown, expired or used up (`step-up-code-invalid`) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_step_up_code: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Code that confirms a browser session for a few minutes */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepUpCode"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sessions cannot create codes; neither can runs of agents */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_turn_off_code: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Code that lets the person turn the confirmation off once */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnOffCode"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sessions cannot create codes; neither can runs of agents */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5802,6 +6035,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `command-change-needs-person`: a token or an agent changed a field that runs commands; `step-up-required`: the session has no fresh confirmation (see `nullradix confirm`); the fields are listed in `errors` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6219,6 +6461,8 @@ export interface operations {
             query?: {
                 /** @description Replay changes after this sequence number; `Last-Event-ID` takes precedence. */
                 since?: number;
+                /** @description Key of the tab: an event stream cannot send headers. */
+                k?: string;
             };
             header?: never;
             path?: never;
@@ -9435,6 +9679,82 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    step_up_setting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepUpSetting"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_step_up_setting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetStepUp"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepUpSetting"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Turning it off needs the person in the app and a fresh code (`step-up-code-required`); a token or an agent may only turn it on (`command-change-needs-person`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The code is unknown, expired or used up (`step-up-code-invalid`) */
             422: {
                 headers: {
                     [name: string]: unknown;

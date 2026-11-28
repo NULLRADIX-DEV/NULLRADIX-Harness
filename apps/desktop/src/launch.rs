@@ -192,8 +192,8 @@ fn daemon_beside(program: &Path) -> PathBuf {
     beside
 }
 
-/// Finds the running daemon or starts one, then asks it for a one-time sign-in URL.
-pub(crate) fn sign_in_url(setup: &Setup) -> Result<Url, LaunchError> {
+/// A client with the local token, after starting a daemon when none runs.
+fn signed_client(setup: &Setup) -> Result<(Client, Discovery), LaunchError> {
     let paths = setup.paths()?;
     let discovery = match running(&paths)? {
         Some(discovery) => discovery,
@@ -204,8 +204,20 @@ pub(crate) fn sign_in_url(setup: &Setup) -> Result<Url, LaunchError> {
         .map_err(LaunchError::Token)?
         .ok_or(LaunchError::MissingToken(token_path))?;
     let client = Client::new(discovery.address, CONNECT_TIMEOUT, TIMEOUT).with_token(token);
+    Ok((client, discovery))
+}
+
+/// Finds the running daemon or starts one, then asks it for a one-time sign-in URL.
+pub(crate) fn sign_in_url(setup: &Setup) -> Result<Url, LaunchError> {
+    let (client, discovery) = signed_client(setup)?;
     let handoff = client.create_handoff()?;
     Ok(daemon_origin(&discovery)?.join(&handoff.path)?)
+}
+
+/// A one-time code to confirm the signed-in window for command changes.
+pub(crate) fn step_up_code(setup: &Setup) -> Result<String, LaunchError> {
+    let (client, _) = signed_client(setup)?;
+    Ok(client.create_step_up_code()?.code)
 }
 
 pub(crate) fn daemon_origin(discovery: &Discovery) -> Result<Url, url::ParseError> {

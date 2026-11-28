@@ -6,6 +6,7 @@ mod claude;
 mod claude_slots;
 mod comment;
 mod config;
+mod confirm;
 mod connect;
 mod customize;
 mod daemon;
@@ -79,6 +80,8 @@ enum Command {
     Install(install::InstallArgs),
     /// Open the web UI in the browser
     Open,
+    /// Confirm the open browser session to change command fields.
+    Confirm(confirm::ConfirmArgs),
     /// Manage the Claude accounts runs are spread over
     #[command(subcommand)]
     Account(account::AccountCommand),
@@ -196,6 +199,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Init(args) => init::run(&args, profile, cli.home.as_deref()),
         Command::Install(args) => install::run(&args, profile, cli.home.as_deref()),
         Command::Open => open::run(profile, cli.home.as_deref()),
+        Command::Confirm(args) => confirm::run(&args, profile, cli.home.as_deref()),
         Command::Account(command) => {
             let client = connect::connect(profile, cli.home.as_deref())?;
             account::run(command, &client)

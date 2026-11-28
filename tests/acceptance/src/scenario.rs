@@ -44,6 +44,10 @@ pub(crate) enum Auth {
     Token,
     /// A browser session of the person: cookie and same-origin header, no token.
     Session,
+    /// The cookie of the session without the key of its tab.
+    SessionNoKey,
+    /// The cookie of the session with a foreign key.
+    SessionWrongKey,
     None,
 }
 
@@ -59,6 +63,9 @@ pub(crate) struct Http {
     pub(crate) body_file: Option<String>,
     #[serde(default)]
     pub(crate) auth: Auth,
+    /// More request headers, such as `X-Nullradix-Run` to act like an agent.
+    #[serde(default)]
+    pub(crate) headers: BTreeMap<String, String>,
     /// Dotted paths of the JSON response to record; the rest varies from day to day.
     #[serde(default)]
     pub(crate) keep: Vec<String>,

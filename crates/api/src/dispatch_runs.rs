@@ -727,7 +727,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::screenshot_response;
-    use crate::tests::{TestApi, bearer, local, send, test_api};
+    use crate::tests::{TestApi, bearer, local, open_session, send, test_api};
 
     async fn get(api: &TestApi, path: &str) -> (u16, Value) {
         let request = bearer(Request::get(path), &api.token)
@@ -839,10 +839,9 @@ mod tests {
         let body = json!({
             "kind": "work", "subjectKey": "ARC-0001", "prompt": "Go.", "cwd": cwd
         });
-        let code = api.auth.create_handoff().unwrap();
-        let session = api.auth.redeem_handoff(&code).await.unwrap();
+        let cookie = open_session(&api).await;
         let request = local(Request::post("/api/v1/dispatcher/runs"))
-            .header("cookie", format!("nullradix_session={}", session.expose()))
+            .header("cookie", &cookie)
             .header("origin", "http://127.0.0.1:4711")
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))

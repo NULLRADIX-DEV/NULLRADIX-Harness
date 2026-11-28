@@ -333,7 +333,7 @@ mod tests {
     use axum::http::Request;
     use serde_json::json;
 
-    use crate::tests::{bearer, local, send, test_api};
+    use crate::tests::{bearer, local, open_session, send, test_api};
 
     #[tokio::test]
     async fn only_token_holders_start_runs_and_failures_are_recorded() {
@@ -341,10 +341,9 @@ mod tests {
         let cwd = std::env::temp_dir();
         let body = json!({ "label": "echo", "program": "echo", "cwd": cwd });
 
-        let code = api.auth.create_handoff().unwrap();
-        let session = api.auth.redeem_handoff(&code).await.unwrap();
+        let cookie = open_session(&api).await;
         let request = local(Request::post("/api/v1/runs"))
-            .header("cookie", format!("nullradix_session={}", session.expose()))
+            .header("cookie", &cookie)
             .header("origin", "http://127.0.0.1:4711")
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))

@@ -1,0 +1,342 @@
+[
+  {
+    "name": "the check is on by default",
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "required": true
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a token cannot turn it off",
+    "request": {
+      "body": {
+        "required": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "command-change-needs-person",
+        "detail": "fields that run commands can only be changed by the person in the app",
+        "errors": [
+          {
+            "field": "required",
+            "message": "only the person in the app can change this"
+          }
+        ],
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:command-change-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a session needs a code to turn it off",
+    "request": {
+      "auth": "session",
+      "body": {
+        "required": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "step-up-code-required",
+        "detail": "turning the confirmation off needs a fresh code: run `nullradix confirm --turn-off` and enter it",
+        "errors": [
+          {
+            "field": "code",
+            "message": "enter the code that nullradix confirm --turn-off printed"
+          }
+        ],
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:step-up-code-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a code nobody made does not turn it off",
+    "request": {
+      "auth": "session",
+      "body": {
+        "code": "nope",
+        "required": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "step-up-code-invalid",
+        "detail": "the code for turning the confirmation off is unknown or expired",
+        "errors": [
+          {
+            "field": "code",
+            "message": "run nullradix confirm --turn-off again for a new code"
+          }
+        ],
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:step-up-code-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a token may turn it on",
+    "request": {
+      "body": {
+        "required": true
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "required": true
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "a session shows no confirmation",
+    "request": {
+      "auth": "session",
+      "method": "GET",
+      "path": "/api/v1/auth/me"
+    },
+    "response": {
+      "json": {
+        "elevatedUntil": null,
+        "kind": "session"
+      },
+      "status": 200
+    }
+  },
+  {
+    "name": "the cookie of a session alone is nobody",
+    "request": {
+      "auth": "sessionNoKey",
+      "method": "GET",
+      "path": "/api/v1/auth/me"
+    },
+    "response": {
+      "json": {
+        "code": "session-key-missing",
+        "detail": "this tab has no key for the session: open NULLRADIX again",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:session-key-missing"
+      },
+      "status": 401
+    }
+  },
+  {
+    "name": "the key of another tab is refused",
+    "request": {
+      "auth": "sessionWrongKey",
+      "method": "GET",
+      "path": "/api/v1/auth/me"
+    },
+    "response": {
+      "json": {
+        "code": "session-key-invalid",
+        "detail": "the key does not belong to this session: open NULLRADIX again",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:session-key-invalid"
+      },
+      "status": 401
+    }
+  },
+  {
+    "name": "a token cannot confirm a session",
+    "request": {
+      "body": {
+        "code": "nope"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "session-required",
+        "detail": "only the person in the app can confirm",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:session-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a code nobody made is refused",
+    "request": {
+      "auth": "session",
+      "body": {
+        "code": "nope"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "step-up-code-invalid",
+        "detail": "the confirmation code is unknown or expired",
+        "errors": [
+          {
+            "field": "code",
+            "message": "run nullradix confirm again for a new code"
+          }
+        ],
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:step-up-code-invalid"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a session cannot make codes",
+    "request": {
+      "auth": "session",
+      "method": "POST",
+      "path": "/api/v1/auth/step-up-codes"
+    },
+    "response": {
+      "json": {
+        "code": "token-required",
+        "detail": "only token holders can confirm changes",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:token-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a run cannot make codes",
+    "request": {
+      "headers": {
+        "X-Nullradix-Run": "run-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/step-up-codes"
+    },
+    "response": {
+      "json": {
+        "code": "decision-needs-person",
+        "detail": "confirming a change of commands stays with the person: do it in the app or in a terminal outside the run",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:decision-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a session cannot make turn-off codes",
+    "request": {
+      "auth": "session",
+      "method": "POST",
+      "path": "/api/v1/auth/turn-off-codes"
+    },
+    "response": {
+      "json": {
+        "code": "token-required",
+        "detail": "only token holders can confirm changes",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:token-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a run cannot make turn-off codes",
+    "request": {
+      "headers": {
+        "X-Nullradix-Run": "run-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/turn-off-codes"
+    },
+    "response": {
+      "json": {
+        "code": "decision-needs-person",
+        "detail": "turning the confirmation off stays with the person: do it in the app or in a terminal outside the run",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:decision-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a run cannot open a browser session",
+    "request": {
+      "headers": {
+        "X-Nullradix-Run": "run-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/handoffs"
+    },
+    "response": {
+      "json": {
+        "code": "decision-needs-person",
+        "detail": "opening a browser session stays with the person: do it in the app or in a terminal outside the run",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:decision-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a session cannot open another one",
+    "request": {
+      "auth": "session",
+      "method": "POST",
+      "path": "/api/v1/auth/handoffs"
+    },
+    "response": {
+      "json": {
+        "code": "token-required",
+        "detail": "only token holders can open browser sessions",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:token-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "codes need a credential",
+    "request": {
+      "auth": "none",
+      "method": "POST",
+      "path": "/api/v1/auth/step-up-codes"
+    },
+    "response": {
+      "json": {
+        "code": "credentials-missing",
+        "detail": "this route needs a token or a session",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:credentials-missing"
+      },
+      "status": 401
+    }
+  }
+]

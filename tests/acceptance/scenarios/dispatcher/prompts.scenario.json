@@ -57,15 +57,10 @@
       "cli": { "args": ["question", "answer", "ARC-Q1", "--option", "O2", "--reason", "fits"] }
     },
     {
-      "name": "an extra instruction and a setup step",
+      "name": "an extra instruction",
       "file": {
         "path": "{{WORK}}/setup.json",
-        "lines": [
-          {
-            "promptExtra": "House rule: no any.",
-            "worktreeSetup": [{ "cwd": "web", "run": "npm ci" }]
-          }
-        ]
+        "lines": [{ "promptExtra": "House rule: no any." }]
       }
     },
     {
@@ -213,7 +208,7 @@
       "cli": { "args": ["dispatcher", "prompt", "preview", "plan", "ARC-1"] }
     },
     {
-      "name": "the setup step and the extra stayed",
+      "name": "the extra stayed",
       "cli": { "args": ["dispatcher", "config", "show", "--json"] }
     }
   ]

@@ -10,11 +10,27 @@ use nullradix_domain::{Id, Timestamp};
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
-use crate::{AppError, Clock, IdGenerator};
+use crate::{AppError, Change, Clock, FieldProblem, IdGenerator};
+
+/// Entity id of the step-up switch in the change feed: it takes only UUIDs.
+pub const STEP_UP_FEED_ID: uuid::Uuid =
+    uuid::Uuid::from_u128(0x6e75_6c6c_7261_6469_7800_7374_6570_7570);
 
 const SECRET_BYTES: usize = 32;
-const HANDOFF_LIFETIME: Duration = Duration::from_secs(60);
-const SESSION_LIFETIME: Duration = Duration::from_hours(30 * 24);
+/// A handoff code is opened at once by whoever asked for it.
+const HANDOFF_LIFETIME: Duration = Duration::from_secs(15);
+/// A session ends this long after it began, whatever it did since.
+const SESSION_LIFETIME: Duration = Duration::from_hours(7 * 24);
+/// A session ends this long after its last request.
+const SESSION_IDLE: Duration = Duration::from_hours(12);
+/// The time of the last request is only written back this often.
+const SEEN_EVERY: Duration = Duration::from_mins(1);
+/// A step-up code is passed on by the person after a terminal printed it.
+const STEP_UP_CODE_LIFETIME: Duration = Duration::from_mins(2);
+/// How long a confirmed session may change the command fields.
+const ELEVATION: Duration = Duration::from_mins(10);
+/// At most this many codes wait for redeeming, the oldest make room.
+const PENDING_CODES: usize = 64;
 
 /// Random credential shown to a client once; only its hash is stored.
 #[derive(Clone, PartialEq, Eq)]
@@ -116,8 +132,20 @@ pub struct ApiToken {
 pub struct Session {
     pub id: Id<Session>,
     pub hash: SecretHash,
+    /// Hash of the key held by the opening tab.
+    pub key_hash: SecretHash,
     pub created_at: Timestamp,
     pub expires_at: Timestamp,
+    pub last_seen_at: Timestamp,
+    /// Until when the session was confirmed to change command fields.
+    pub elevated_until: Option<Timestamp>,
+}
+
+/// The secrets of a new session: the cookie value and the key the tab keeps.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionSecrets {
+    pub session: Secret,
+    pub key: Secret,
 }
 
 /// A run or session of an agent tried to decide something that stays with the person.
@@ -131,11 +159,130 @@ pub fn decision_needs_person(action: &str) -> AppError {
     )
 }
 
+/// The cookie came without the key of its tab, or with a foreign key.
+#[must_use]
+pub fn session_key_invalid(message: &str) -> AppError {
+    AppError::unauthorized("session-key-invalid", message)
+}
+
+/// A route for browser sessions was called another way.
+#[must_use]
+pub fn session_required(message: &str) -> AppError {
+    AppError::forbidden("session-required", message)
+}
+
 /// Who sent a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Principal {
-    Token { id: Id<ApiToken>, kind: TokenKind },
-    Session { id: Id<Session> },
+    Token {
+        id: Id<ApiToken>,
+        kind: TokenKind,
+    },
+    Session {
+        id: Id<Session>,
+        /// Until when the session is confirmed to change command fields, if it still is.
+        elevated_until: Option<Timestamp>,
+    },
+}
+
+/// Who asks to change command fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandWriter {
+    /// The person in the app, with or without a fresh confirmation.
+    Person { elevated: bool },
+    /// A token or any request naming an agent.
+    Other,
+}
+
+/// Why command fields may not change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandRefusal {
+    NeedsPerson,
+    NeedsStepUp,
+}
+
+/// How the person gets a confirmation, as the refusal tells it.
+const HOW_TO_CONFIRM: &str = "run `nullradix confirm` in a terminal and open the link";
+/// The same through the tray menu of the desktop shell.
+const HOW_TO_CONFIRM_TRAY: &str = "or choose Confirm changes in the tray menu";
+
+/// The code is unknown, expired or used up.
+#[must_use]
+pub fn step_up_code_invalid() -> AppError {
+    AppError::invalid(
+        "step-up-code-invalid",
+        "the confirmation code is unknown or expired",
+    )
+    .with_fields(vec![FieldProblem {
+        field: String::from("code"),
+        message: String::from("run nullradix confirm again for a new code"),
+    }])
+}
+
+impl CommandRefusal {
+    /// The error naming each field about to change.
+    #[must_use]
+    pub fn error(self, fields: &[&str]) -> AppError {
+        let message = match self {
+            Self::NeedsPerson => "only the person in the app can change this",
+            Self::NeedsStepUp => "needs a confirmation first",
+        };
+        let problems = fields
+            .iter()
+            .map(|field| FieldProblem {
+                field: (*field).to_owned(),
+                message: message.to_owned(),
+            })
+            .collect();
+        match self {
+            Self::NeedsPerson => AppError::forbidden(
+                "command-change-needs-person",
+                "fields that run commands can only be changed by the person in the app",
+            ),
+            Self::NeedsStepUp => AppError::forbidden(
+                "step-up-required",
+                format!(
+                    "changing fields that run commands needs a confirmation: {HOW_TO_CONFIRM}, {HOW_TO_CONFIRM_TRAY}, then save again"
+                ),
+            ),
+        }
+        .with_fields(problems)
+    }
+}
+
+/// The code for turning the check off is unknown, expired, used up or of the other kind.
+#[must_use]
+pub fn turn_off_code_invalid() -> AppError {
+    AppError::invalid(
+        "step-up-code-invalid",
+        "the code for turning the confirmation off is unknown or expired",
+    )
+    .with_fields(vec![FieldProblem {
+        field: String::from("code"),
+        message: String::from("run nullradix confirm --turn-off again for a new code"),
+    }])
+}
+
+/// Turning the confirmation off needs a code of its own, not only a confirmed session.
+#[must_use]
+pub fn step_up_code_required() -> AppError {
+    AppError::forbidden(
+        "step-up-code-required",
+        "turning the confirmation off needs a fresh code: run `nullradix confirm --turn-off` and enter it",
+    )
+    .with_fields(vec![FieldProblem {
+        field: String::from("code"),
+        message: String::from("enter the code that nullradix confirm --turn-off printed"),
+    }])
+}
+
+/// What storing the step-up switch did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StepUpChange {
+    Unchanged,
+    Changed(Change),
+    /// The switch was on and turning it off was not allowed yet.
+    TurnOffRefused,
 }
 
 #[async_trait]
@@ -146,7 +293,33 @@ pub trait AuthRepository: Send + Sync {
     async fn session_by_hash(&self, hash: &SecretHash) -> Result<Option<Session>, AppError>;
     async fn insert_session(&self, session: &Session) -> Result<(), AppError>;
     async fn delete_session(&self, id: Id<Session>) -> Result<(), AppError>;
-    async fn delete_expired_sessions(&self, now: Timestamp) -> Result<u64, AppError>;
+    /// Removes sessions past their end or idle since `idle_before`.
+    async fn delete_expired_sessions(
+        &self,
+        now: Timestamp,
+        idle_before: Timestamp,
+    ) -> Result<u64, AppError>;
+    async fn touch_session(&self, id: Id<Session>, at: Timestamp) -> Result<(), AppError>;
+    /// Confirms the session until `until` and returns false when it is gone.
+    async fn elevate_session(&self, id: Id<Session>, until: Timestamp) -> Result<bool, AppError>;
+    /// Whether command fields need a confirmation, on until the person turns it off.
+    async fn step_up_required(&self) -> Result<bool, AppError>;
+    /// Stores the switch and decides inside the write whether turning it off is allowed.
+    async fn set_step_up_required(
+        &self,
+        required: bool,
+        turn_off_allowed: bool,
+        at: Timestamp,
+    ) -> Result<StepUpChange, AppError>;
+}
+
+/// What a request brought to prove its session.
+#[derive(Clone, Copy)]
+enum Presented<'a> {
+    /// The key of the tab, if it sent one.
+    Key(Option<&'a Secret>),
+    /// Only the cookie, for a file a page loads.
+    Asset,
 }
 
 pub struct AuthService {
@@ -154,6 +327,9 @@ pub struct AuthService {
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     handoffs: Mutex<HashMap<SecretHash, Timestamp>>,
+    step_up_codes: Mutex<HashMap<SecretHash, Timestamp>>,
+    /// Kept apart: a link or the tray never hands one out, and elevation codes do not fit here.
+    turn_off_codes: Mutex<HashMap<SecretHash, Timestamp>>,
 }
 
 impl fmt::Debug for AuthService {
@@ -164,6 +340,10 @@ impl fmt::Debug for AuthService {
 
 fn unauthorized(code: &'static str, message: &str) -> AppError {
     AppError::unauthorized(code, message)
+}
+
+fn millis(span: Duration) -> i64 {
+    i64::try_from(span.as_millis()).unwrap_or(i64::MAX)
 }
 
 fn later(now: Timestamp, lifetime: Duration) -> Result<Timestamp, AppError> {
@@ -183,6 +363,8 @@ impl AuthService {
             clock,
             ids,
             handoffs: Mutex::new(HashMap::new()),
+            step_up_codes: Mutex::new(HashMap::new()),
+            turn_off_codes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -221,54 +403,206 @@ impl AuthService {
         })
     }
 
-    /// One-time code a token holder exchanges for a browser session within a minute.
+    /// One-time code a token holder exchanges for a browser session within seconds.
     pub fn create_handoff(&self) -> Result<Secret, AppError> {
+        self.issue_code(&self.handoffs, HANDOFF_LIFETIME)
+    }
+
+    fn issue_code(
+        &self,
+        codes: &Mutex<HashMap<SecretHash, Timestamp>>,
+        lifetime: Duration,
+    ) -> Result<Secret, AppError> {
         let now = self.clock.now();
         let code = Secret::generate()?;
-        let mut handoffs = self.handoffs.lock();
-        handoffs.retain(|_, expires_at| *expires_at > now);
-        handoffs.insert(code.hash(), later(now, HANDOFF_LIFETIME)?);
+        let until = later(now, lifetime)?;
+        let mut codes = codes.lock();
+        codes.retain(|_, expires_at| *expires_at > now);
+        if codes.len() >= PENDING_CODES
+            && let Some(oldest) = codes
+                .iter()
+                .min_by_key(|(_, expires_at)| **expires_at)
+                .map(|(hash, _)| hash.clone())
+        {
+            codes.remove(&oldest);
+        }
+        codes.insert(code.hash(), until);
         Ok(code)
     }
 
-    /// Redeems a handoff code and returns the secret of the new session.
-    pub async fn redeem_handoff(&self, code: &Secret) -> Result<Secret, AppError> {
+    /// Takes a known live code, and a code works once.
+    fn spend_code(&self, codes: &Mutex<HashMap<SecretHash, Timestamp>>, code: &Secret) -> bool {
         let now = self.clock.now();
-        let expires_at = self.handoffs.lock().remove(&code.hash());
-        if expires_at.is_none_or(|expires_at| expires_at <= now) {
+        let expires_at = codes.lock().remove(&code.hash());
+        expires_at.is_some_and(|expires_at| expires_at > now)
+    }
+
+    /// Redeems a handoff code and returns the secrets of the new session.
+    pub async fn redeem_handoff(&self, code: &Secret) -> Result<SessionSecrets, AppError> {
+        if !self.spend_code(&self.handoffs, code) {
             return Err(unauthorized(
                 "handoff-invalid",
                 "the handoff code is unknown or expired",
             ));
         }
-        let secret = Secret::generate()?;
+        let now = self.clock.now();
+        let secrets = SessionSecrets {
+            session: Secret::generate()?,
+            key: Secret::generate()?,
+        };
         let session = Session {
             id: self.ids.as_ref().next(),
-            hash: secret.hash(),
+            hash: secrets.session.hash(),
+            key_hash: secrets.key.hash(),
             created_at: now,
             expires_at: later(now, SESSION_LIFETIME)?,
+            last_seen_at: now,
+            elevated_until: None,
         };
         self.repository.insert_session(&session).await?;
-        Ok(secret)
+        Ok(secrets)
     }
 
-    pub async fn authenticate_session(&self, secret: &Secret) -> Result<Principal, AppError> {
+    /// A session needs its cookie and the key of its tab: the cookie alone is nobody.
+    pub async fn authenticate_session(
+        &self,
+        secret: &Secret,
+        key: Option<&Secret>,
+    ) -> Result<Principal, AppError> {
+        self.session_principal(secret, Presented::Key(key)).await
+    }
+
+    /// For files a page loads without a key, a live cookie is enough and keeps nothing alive.
+    pub async fn authenticate_asset_session(&self, secret: &Secret) -> Result<Principal, AppError> {
+        self.session_principal(secret, Presented::Asset).await
+    }
+
+    async fn session_principal(
+        &self,
+        secret: &Secret,
+        presented: Presented<'_>,
+    ) -> Result<Principal, AppError> {
         let session = self
             .repository
             .session_by_hash(&secret.hash())
             .await?
             .ok_or_else(|| unauthorized("session-invalid", "the session is not valid"))?;
-        if session.expires_at <= self.clock.now() {
+        let keyed = matches!(presented, Presented::Key(_));
+        if let Presented::Key(brought) = presented {
+            let brought = brought.ok_or_else(|| {
+                unauthorized(
+                    "session-key-missing",
+                    "this tab has no key for the session: open NULLRADIX again",
+                )
+            })?;
+            if brought.hash() != session.key_hash {
+                return Err(session_key_invalid(
+                    "the key does not belong to this session: open NULLRADIX again",
+                ));
+            }
+        }
+        let now = self.clock.now();
+        let since_seen = now.as_millis() - session.last_seen_at.as_millis();
+        if session.expires_at <= now || since_seen >= millis(SESSION_IDLE) {
             self.repository.delete_session(session.id).await?;
             return Err(unauthorized("session-expired", "the session has expired"));
         }
-        Ok(Principal::Session { id: session.id })
+        if keyed && since_seen >= millis(SEEN_EVERY) {
+            self.repository.touch_session(session.id, now).await?;
+        }
+        Ok(Principal::Session {
+            id: session.id,
+            // an asset request writes nothing and is never confirmed
+            elevated_until: session.elevated_until.filter(|until| keyed && *until > now),
+        })
+    }
+
+    /// A code a token holder hands to the person for the page.
+    pub fn create_step_up_code(&self) -> Result<Secret, AppError> {
+        self.issue_code(&self.step_up_codes, STEP_UP_CODE_LIFETIME)
+    }
+
+    /// A code for turning the check off, printed by a terminal and never shown as a link.
+    pub fn create_turn_off_code(&self) -> Result<Secret, AppError> {
+        self.issue_code(&self.turn_off_codes, STEP_UP_CODE_LIFETIME)
+    }
+
+    /// Confirms the session for a while and returns the end time.
+    pub async fn redeem_step_up(
+        &self,
+        session: Id<Session>,
+        code: &Secret,
+    ) -> Result<Timestamp, AppError> {
+        if !self.spend_code(&self.step_up_codes, code) {
+            return Err(step_up_code_invalid());
+        }
+        let until = later(self.clock.now(), ELEVATION)?;
+        if !self.repository.elevate_session(session, until).await? {
+            return Err(unauthorized("session-invalid", "the session is not valid"));
+        }
+        Ok(until)
+    }
+
+    /// Whether command fields need a confirmation, on until the person turns it off.
+    pub async fn step_up_required(&self) -> Result<bool, AppError> {
+        self.repository.step_up_required().await
+    }
+
+    /// Sets the switch, deciding in the store write and spending a code only for a turn-off.
+    pub async fn set_step_up(
+        &self,
+        required: bool,
+        writer: CommandWriter,
+        code: Option<&str>,
+    ) -> Result<Option<Change>, AppError> {
+        let now = self.clock.now();
+        let first = self
+            .repository
+            .set_step_up_required(required, required, now)
+            .await?;
+        match first {
+            StepUpChange::Unchanged => return Ok(None),
+            StepUpChange::Changed(change) => return Ok(Some(change)),
+            StepUpChange::TurnOffRefused => {}
+        }
+        if matches!(writer, CommandWriter::Other) {
+            return Err(CommandRefusal::NeedsPerson.error(&["required"]));
+        }
+        let code = code.ok_or_else(step_up_code_required)?;
+        let code = Secret::parse(code).ok_or_else(turn_off_code_invalid)?;
+        if !self.spend_code(&self.turn_off_codes, &code) {
+            return Err(turn_off_code_invalid());
+        }
+        match self
+            .repository
+            .set_step_up_required(false, true, now)
+            .await?
+        {
+            StepUpChange::Changed(change) => Ok(Some(change)),
+            StepUpChange::Unchanged => Ok(None),
+            StepUpChange::TurnOffRefused => Err(CommandRefusal::NeedsPerson.error(&["required"])),
+        }
+    }
+
+    /// Why `writer` may not change command fields now, or None when it may.
+    pub async fn command_refusal(
+        &self,
+        writer: CommandWriter,
+    ) -> Result<Option<CommandRefusal>, AppError> {
+        Ok(match writer {
+            CommandWriter::Other => Some(CommandRefusal::NeedsPerson),
+            CommandWriter::Person { elevated } => {
+                (!elevated && self.step_up_required().await?).then_some(CommandRefusal::NeedsStepUp)
+            }
+        })
     }
 
     /// Removes sessions that can no longer be used; returns how many were removed.
     pub async fn prune_expired_sessions(&self) -> Result<u64, AppError> {
+        let now = self.clock.now();
+        let idle_before = Timestamp::from_millis(now.as_millis() - millis(SESSION_IDLE));
         self.repository
-            .delete_expired_sessions(self.clock.now())
+            .delete_expired_sessions(now, idle_before)
             .await
     }
 

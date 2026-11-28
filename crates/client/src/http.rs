@@ -18,10 +18,10 @@ use nullradix_api::{
     RebaseCustomization, ReleaseTicket, RenameBoard, RenameProject, RepositoryList, RetryMerge,
     ReturnReview, RunDto, RunList, RunOutput, RunnerList, SESSION_HEADER, SaveThemeSettings,
     SeenNote, SessionChangesDto, SessionDetailDto, SessionDto, SessionList, SetBoardRepository,
-    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, SubmitResearch,
-    ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto, TicketList,
-    TranscriptPageDto, UpdateAccount, UpdateCustomization, UpdateDispatcher,
-    UpdateDispatcherConfig, UpdateTicket, WritePlan,
+    SetPrompt, SetRunToken, StartLogin, StartRun, StartTicket, StartedTicket, StepUpCode,
+    SubmitResearch, ThemeDto, ThemeListDto, ThemeSettingsDto, TicketDetailDto, TicketDto,
+    TicketList, TranscriptPageDto, TurnOffCode, UpdateAccount, UpdateCustomization,
+    UpdateDispatcher, UpdateDispatcherConfig, UpdateTicket, WritePlan,
 };
 use nullradix_app::auth::Secret;
 use serde::de::DeserializeOwned;
@@ -223,6 +223,28 @@ impl Client {
         let mut response = self
             .agent
             .post(&self.url("/auth/handoffs"))
+            .header("Authorization", &self.authorization()?)
+            .send_empty()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    /// One-time code to confirm a browser session for command changes.
+    pub fn create_step_up_code(&self) -> Result<StepUpCode, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/auth/step-up-codes"))
+            .header("Authorization", &self.authorization()?)
+            .send_empty()
+            .map_err(|source| self.unreachable(source))?;
+        decode(&mut response, 201)
+    }
+
+    /// One-time code for turning the confirmation off, never part of a link or menu.
+    pub fn create_turn_off_code(&self) -> Result<TurnOffCode, ClientError> {
+        let mut response = self
+            .agent
+            .post(&self.url("/auth/turn-off-codes"))
             .header("Authorization", &self.authorization()?)
             .send_empty()
             .map_err(|source| self.unreachable(source))?;
@@ -1609,10 +1631,20 @@ fn describe(problem: &Problem) -> String {
     if problem.errors.is_empty() {
         return problem.detail.clone();
     }
-    let fields: Vec<String> = problem
-        .errors
+    // fields with the same message are listed once
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for error in &problem.errors {
+        match groups
+            .iter_mut()
+            .find(|(message, _)| *message == error.message)
+        {
+            Some((_, fields)) => fields.push(&error.field),
+            None => groups.push((&error.message, vec![&error.field])),
+        }
+    }
+    let fields: Vec<String> = groups
         .iter()
-        .map(|error| format!("{}: {}", error.field, error.message))
+        .map(|(message, fields)| format!("{}: {message}", fields.join(", ")))
         .collect();
     format!("{}: {}", problem.detail, fields.join("; "))
 }
@@ -2122,6 +2154,71 @@ mod tests {
 
         let stranger = Secret::parse(&"c".repeat(64)).unwrap();
         let refused = client.with_token(stranger).create_handoff().unwrap_err();
+        assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
+    }
+
+    #[test]
+    fn fields_that_share_a_message_are_listed_once_with_it() {
+        use nullradix_api::FieldProblemDto;
+        let field = |name: &str, message: &str| FieldProblemDto {
+            field: name.to_owned(),
+            message: message.to_owned(),
+        };
+        let problem = Problem {
+            problem_type: String::new(),
+            title: String::new(),
+            status: 403,
+            detail: String::from("no"),
+            code: String::from("x"),
+            existing: None,
+            similar: Vec::new(),
+            errors: vec![field("a", "m"), field("b", "n"), field("c", "m")],
+            confirmation: None,
+        };
+        assert_eq!(describe(&problem), "no: a, c: m; b: n");
+    }
+
+    #[test]
+    fn creates_step_up_codes_with_the_local_token_only() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, PATIENT, PATIENT);
+        assert!(matches!(
+            client.create_step_up_code(),
+            Err(ClientError::MissingToken)
+        ));
+        let code = client
+            .clone()
+            .with_token(daemon.token.clone())
+            .create_step_up_code()
+            .unwrap();
+        assert_eq!(code.path, format!("/#confirm={}", code.code));
+        let stranger = Secret::parse(&"c".repeat(64)).unwrap();
+        let refused = client
+            .with_token(stranger)
+            .create_step_up_code()
+            .unwrap_err();
+        assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
+    }
+
+    #[test]
+    fn creates_turn_off_codes_with_the_local_token_only() {
+        let daemon = spawn_daemon();
+        let client = Client::new(daemon.address, PATIENT, PATIENT);
+        assert!(matches!(
+            client.create_turn_off_code(),
+            Err(ClientError::MissingToken)
+        ));
+        let code = client
+            .clone()
+            .with_token(daemon.token.clone())
+            .create_turn_off_code()
+            .unwrap();
+        assert_eq!(code.code.len(), 64);
+        let stranger = Secret::parse(&"c".repeat(64)).unwrap();
+        let refused = client
+            .with_token(stranger)
+            .create_turn_off_code()
+            .unwrap_err();
         assert!(matches!(refused, ClientError::Refused { status: 401, .. }));
     }
 

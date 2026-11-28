@@ -221,7 +221,7 @@ impl LoginService {
         } else {
             email.as_deref().unwrap_or("New account")
         };
-        let account = self.accounts.create(shown, None).await?;
+        let account = self.accounts.create(shown, None, None).await?;
         let status = self.start(&account, email, !named).await?;
         Ok((account, status))
     }

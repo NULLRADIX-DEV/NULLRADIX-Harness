@@ -233,7 +233,7 @@ async fn a_blank_template_resets_and_the_rest_of_the_configuration_stays() {
     }];
     let config = f
         .config
-        .update(config.config, config.version)
+        .update(config.config, config.version, None)
         .await
         .unwrap();
     let saved = f
@@ -361,7 +361,7 @@ async fn a_work_preview_for_a_ticket_uses_its_facts() {
         run: String::from("npm ci"),
     }];
     f.config
-        .update(config.config, config.version)
+        .update(config.config, config.version, None)
         .await
         .unwrap();
 
@@ -392,7 +392,7 @@ async fn autopilot_follows_the_ticket_labels_in_the_preview() {
     let mut config = f.config.get().await.unwrap();
     config.config.autopilot.enabled = true;
     f.config
-        .update(config.config, config.version)
+        .update(config.config, config.version, None)
         .await
         .unwrap();
     let preview = f

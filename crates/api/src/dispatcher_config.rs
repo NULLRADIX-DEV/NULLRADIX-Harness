@@ -1,6 +1,7 @@
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use nullradix_app::AppError;
+use nullradix_app::auth::Principal;
 use nullradix_app::dispatcher_config::ConfigView;
 use nullradix_domain::{
     AccountStrategy, AutopilotSettings, ClaudeSettings, DispatcherConfig, JoinWorktrees,
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::auth::{AgentContext, command_writer};
 use crate::{ApiError, ApiJson, ApiState, Problem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -554,6 +556,7 @@ pub(crate) async fn get_dispatcher_config(
     responses(
         (status = 200, body = DispatcherConfigView),
         (status = 401, body = Problem),
+        (status = 403, description = "`command-change-needs-person`: a token or an agent changed a field that runs commands; `step-up-required`: the session has no fresh confirmation (see `nullradix confirm`); the fields are listed in `errors`", body = Problem),
         (status = 404, body = Problem),
         (status = 409, description = "Stale version", body = Problem),
         (status = 422, description = "Invalid fields, listed in `errors`", body = Problem),
@@ -561,12 +564,18 @@ pub(crate) async fn get_dispatcher_config(
 )]
 pub(crate) async fn update_dispatcher_config(
     State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
     ApiJson(input): ApiJson<UpdateDispatcherConfig>,
 ) -> Result<Json<DispatcherConfigView>, ApiError> {
     let expected = AppError::client_version(input.version)?;
+    let refusal = state
+        .auth
+        .command_refusal(command_writer(&principal, context))
+        .await?;
     let view = state
         .dispatcher_config
-        .update(input.config.into(), expected)
+        .update(input.config.into(), expected, refusal)
         .await?;
     Ok(Json(view.into()))
 }

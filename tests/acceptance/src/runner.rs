@@ -140,7 +140,15 @@ fn http_step(
         (None, Some(bytes)) => Content::Bytes(bytes),
         (None, None) => Content::Nothing,
     };
-    let reply = request(agent, daemon, &http.method, &path, content, http.auth)?;
+    let reply = request(
+        agent,
+        daemon,
+        &http.method,
+        &path,
+        content,
+        http.auth,
+        &http.headers,
+    )?;
     let mut request = Map::new();
     request.insert(String::from("method"), Value::from(http.method.clone()));
     request.insert(String::from("path"), Value::from(path));
@@ -149,9 +157,18 @@ fn http_step(
         Auth::Session => {
             request.insert(String::from("auth"), Value::from("session"));
         }
+        Auth::SessionNoKey => {
+            request.insert(String::from("auth"), Value::from("sessionNoKey"));
+        }
+        Auth::SessionWrongKey => {
+            request.insert(String::from("auth"), Value::from("sessionWrongKey"));
+        }
         Auth::None => {
             request.insert(String::from("auth"), Value::from("none"));
         }
+    }
+    if !http.headers.is_empty() {
+        request.insert(String::from("headers"), json!(http.headers));
     }
     if let Some(body) = body {
         request.insert(String::from("body"), body);
@@ -225,12 +242,28 @@ enum Content<'a> {
 }
 
 /// The headers that tell the daemon who asks.
-fn credentials(daemon: &Daemon, auth: Auth) -> anyhow::Result<Vec<(&'static str, String)>> {
+fn credentials(daemon: &Daemon, auth: Auth) -> anyhow::Result<Vec<(String, String)>> {
     Ok(match auth {
-        Auth::Token => vec![("Authorization", format!("Bearer {}", daemon.token))],
-        Auth::Session => vec![
-            ("Cookie", daemon.session_cookie()?.to_owned()),
-            ("Origin", format!("http://{}", daemon.address)),
+        Auth::Token => vec![(
+            String::from("Authorization"),
+            format!("Bearer {}", daemon.token),
+        )],
+        Auth::Session => {
+            let (cookie, key) = daemon.session_cookie()?;
+            vec![
+                (String::from("Cookie"), cookie.clone()),
+                (String::from("X-Nullradix-Key"), key.clone()),
+                (String::from("Origin"), format!("http://{}", daemon.address)),
+            ]
+        }
+        Auth::SessionNoKey => vec![
+            (String::from("Cookie"), daemon.session_cookie()?.0.clone()),
+            (String::from("Origin"), format!("http://{}", daemon.address)),
+        ],
+        Auth::SessionWrongKey => vec![
+            (String::from("Cookie"), daemon.session_cookie()?.0.clone()),
+            (String::from("X-Nullradix-Key"), "d".repeat(64)),
+            (String::from("Origin"), format!("http://{}", daemon.address)),
         ],
         Auth::None => Vec::new(),
     })
@@ -243,15 +276,19 @@ fn request(
     path: &str,
     content: Content<'_>,
     auth: Auth,
+    extra: &BTreeMap<String, String>,
 ) -> anyhow::Result<Reply> {
     let url = daemon.url(path);
-    let headers = credentials(daemon, auth)?;
+    let mut headers = credentials(daemon, auth)?;
+    for (name, value) in extra {
+        headers.push((name.clone(), value.clone()));
+    }
     let mut response = match method {
         "GET" => get_retrying(agent, &url, &headers)?,
         "DELETE" => {
             let mut builder = agent.delete(&url);
             for (name, value) in &headers {
-                builder = builder.header(*name, value);
+                builder = builder.header(name.as_str(), value);
             }
             builder
                 .call()
@@ -264,7 +301,7 @@ fn request(
                 _ => agent.put(&url),
             };
             for (name, value) in &headers {
-                builder = builder.header(*name, value);
+                builder = builder.header(name.as_str(), value);
             }
             match content {
                 Content::Json(body) => builder.send_json(body),
@@ -306,13 +343,13 @@ fn request(
 fn get_retrying(
     agent: &Agent,
     url: &str,
-    headers: &[(&'static str, String)],
+    headers: &[(String, String)],
 ) -> anyhow::Result<ureq::http::Response<ureq::Body>> {
     let deadline = Instant::now() + REQUEST_LIMIT;
     loop {
         let mut builder = agent.get(url);
         for (name, value) in headers {
-            builder = builder.header(*name, value);
+            builder = builder.header(name.as_str(), value);
         }
         match builder.call() {
             Ok(response) => return Ok(response),
@@ -420,7 +457,15 @@ fn wait_step(
     let path = fill(&wait.path, saved);
     let deadline = Instant::now() + Duration::from_millis(wait.timeout_ms);
     loop {
-        let reply = request(agent, daemon, "GET", &path, Content::Nothing, Auth::Token)?;
+        let reply = request(
+            agent,
+            daemon,
+            "GET",
+            &path,
+            Content::Nothing,
+            Auth::Token,
+            &BTreeMap::new(),
+        )?;
         let seen = match &reply.payload {
             Payload::Json(json) => field(json, &wait.field).cloned(),
             _ => None,

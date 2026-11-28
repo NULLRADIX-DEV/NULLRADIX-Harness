@@ -1061,7 +1061,7 @@ mod tests {
             shutdown.clone(),
         );
 
-        let max = accounts.create("Max", None).await.unwrap();
+        let max = accounts.create("Max", None, None).await.unwrap();
         let folder = PathBuf::from(max.config_dir().unwrap().as_str());
         for _ in 0..200 {
             if roots.get().contains(&folder) {
