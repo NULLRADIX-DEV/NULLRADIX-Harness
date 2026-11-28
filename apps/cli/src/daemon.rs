@@ -1048,15 +1048,17 @@ async fn shutdown_signal() {
 
     #[cfg(windows)]
     let terminate = async {
-        use tokio::signal::windows::{ctrl_close, ctrl_shutdown};
-        match (ctrl_close(), ctrl_shutdown()) {
-            (Ok(mut close), Ok(mut shutdown)) => {
+        use tokio::signal::windows::{ctrl_close, ctrl_logoff, ctrl_shutdown};
+        // the daemon's hidden console gets logoff at sign-out and restart, not shutdown
+        match (ctrl_close(), ctrl_shutdown(), ctrl_logoff()) {
+            (Ok(mut close), Ok(mut shutdown), Ok(mut logoff)) => {
                 tokio::select! {
                     _ = close.recv() => {},
                     _ = shutdown.recv() => {},
+                    _ = logoff.recv() => {},
                 }
             }
-            (Err(error), _) | (_, Err(error)) => {
+            (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
                 tracing::error!(%error, "cannot listen for console close events");
                 std::future::pending::<()>().await;
             }

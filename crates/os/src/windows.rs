@@ -54,9 +54,9 @@ use windows_sys::Win32::System::Registry::{
 };
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED,
-    CreateProcessW, DETACHED_PROCESS, GetCurrentProcess, GetExitCodeProcess, OpenProcess,
-    OpenProcessToken, OpenThread, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
-    ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOW, THREAD_SUSPEND_RESUME,
+    CreateProcessW, GetCurrentProcess, GetExitCodeProcess, OpenProcess, OpenProcessToken,
+    OpenThread, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, ResumeThread,
+    STARTF_USESTDHANDLES, STARTUPINFOW, THREAD_SUSPEND_RESUME,
 };
 
 const STILL_ACTIVE: u32 = 259;
@@ -82,7 +82,8 @@ const BACKSLASH: u16 = b'\\' as u16;
 /// `CreateProcessW` without handle inheritance, which `std::process` cannot do.
 pub(crate) fn spawn_detached(program: &Path, args: &[OsString], cwd: &Path) -> io::Result<u32> {
     let cwd: Vec<u16> = cwd.as_os_str().encode_wide().chain(iter::once(0)).collect();
-    let base = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+    // a hidden console, not none: console programs it starts would each open a window
+    let base = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
     let detached = create_process(
         &mut command_line(program, args),
         &cwd,
@@ -735,6 +736,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
+    use windows_sys::Win32::System::Console::{GetConsoleCP, GetConsoleWindow};
 
     use super::*;
 
@@ -776,6 +778,53 @@ mod tests {
         assert!(
             started.elapsed() < Duration::from_secs(2),
             "the pipe stayed open"
+        );
+    }
+
+    const CONSOLE_PROBE: &str = "nullradix-console-probe";
+
+    #[test]
+    #[ignore = "started by detached_processes_get_a_hidden_console"]
+    fn console_probe() {
+        let Ok(dir) = std::env::current_dir() else {
+            return;
+        };
+        if !dir.join(CONSOLE_PROBE).exists() {
+            return;
+        }
+        // SAFETY: both only read this process's console; 0 and null mean none.
+        let (page, window) = unsafe { (GetConsoleCP(), GetConsoleWindow()) };
+        let answer = format!(
+            "{page} {}",
+            if window.is_null() { "hidden" } else { "shown" }
+        );
+        std::fs::write(dir.join("console"), answer).unwrap();
+    }
+
+    #[test]
+    fn detached_processes_get_a_hidden_console() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(CONSOLE_PROBE), "").unwrap();
+        let args = ["--exact", "windows::tests::console_probe", "--ignored"].map(OsString::from);
+        let pid = spawn_detached(&std::env::current_exe().unwrap(), &args, dir.path()).unwrap();
+        let started = Instant::now();
+        // the probe's working folder is the temp folder, which cannot go while it runs
+        while process_alive(pid) {
+            assert!(
+                started.elapsed() < Duration::from_secs(30),
+                "the probe hangs"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let answer = std::fs::read_to_string(dir.path().join("console")).unwrap();
+        let (page, window) = answer.split_once(' ').unwrap();
+        assert_ne!(
+            page, "0",
+            "without a console every console child opens a window"
+        );
+        assert_eq!(
+            window, "hidden",
+            "a shown console is a window on the screen"
         );
     }
 
