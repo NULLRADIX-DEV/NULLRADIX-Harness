@@ -3,14 +3,20 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use nullradix_app::AppError;
-use nullradix_app::repositories::{Located, not_a_git_project, path_missing, path_relative};
-use nullradix_domain::RunnerOs;
+use nullradix_app::repositories::{
+    Located, network_path_refused, not_a_git_project, path_missing, path_relative,
+};
+use nullradix_domain::{NetworkShares, RunnerOs};
 
 /// The repository the absolute folder `path` belongs to; worktrees resolve to their main checkout.
-pub(crate) async fn locate(path: &str) -> Result<Located, AppError> {
+pub(crate) async fn locate(path: &str, shares: &NetworkShares) -> Result<Located, AppError> {
     let path = path.trim();
     if path.is_empty() {
         return Err(path_missing());
+    }
+    // a stat or git call on a share already sends the credentials of the user
+    if shares.refuses(path) {
+        return Err(network_path_refused(path));
     }
     let folder = PathBuf::from(path);
     if !folder.is_absolute() {
@@ -211,6 +217,10 @@ mod tests {
         path.to_string_lossy().into_owned()
     }
 
+    fn open() -> NetworkShares {
+        NetworkShares::default()
+    }
+
     fn repository(path: &Path) {
         fs::create_dir_all(path).unwrap();
         git(path, &["init", "-q"]);
@@ -224,12 +234,12 @@ mod tests {
         repository(&main);
         fs::create_dir_all(main.join("src/deep")).unwrap();
         git(&main, &["worktree", "add", "-q", "../wt-1"]);
-        let located = run(locate(&text(&main))).unwrap();
+        let located = run(locate(&text(&main), &open())).unwrap();
         assert_eq!(located.name, "Arches");
         assert!(located.root.ends_with("/Arches"), "{}", located.root);
         assert!(!located.root.contains('\\'));
         for folder in [main.join("src/deep"), dir.path().join("wt-1")] {
-            let other = run(locate(&format!("  {}  ", text(&folder)))).unwrap();
+            let other = run(locate(&format!("  {}  ", text(&folder)), &open())).unwrap();
             assert_eq!(other, located, "{}", folder.display());
         }
         let common = run(common_dir_git(&dir.path().join("wt-1"))).unwrap();
@@ -247,18 +257,18 @@ mod tests {
         repository(&library);
         repository(&outer);
         git(&outer, &["submodule", "add", "-q", &text(&library), "lib"]);
-        let inner = run(locate(&text(&outer.join("lib")))).unwrap();
+        let inner = run(locate(&text(&outer.join("lib")), &open())).unwrap();
         assert_eq!(inner.name, "lib");
         assert!(inner.root.ends_with("/outer/lib"), "{}", inner.root);
         let common = run(common_dir_git(&outer.join("lib"))).unwrap();
         assert_eq!(main_root(Path::new(&common)), inner.root);
-        assert_eq!(run(locate(&text(&outer))).unwrap().name, "outer");
+        assert_eq!(run(locate(&text(&outer), &open())).unwrap().name, "outer");
     }
 
     #[test]
     fn refuses_blank_relative_and_foreign_paths() {
         let dir = tempfile::tempdir().unwrap();
-        let code = |path: &str| run(locate(path)).unwrap_err().code();
+        let code = |path: &str| run(locate(path, &open())).unwrap_err().code();
         assert_eq!(code(" "), "path-missing");
         assert_eq!(code("relative/path"), "path-relative");
         assert_eq!(
@@ -266,6 +276,42 @@ mod tests {
             "not-a-git-project"
         );
         assert_eq!(root_fast(dir.path()), None);
+    }
+
+    #[test]
+    fn network_and_device_paths_are_refused() {
+        let code = |path: &str| run(locate(path, &open())).unwrap_err().code();
+        for path in [
+            "//server/share/repo",
+            "\\\\server\\share\\repo",
+            "  //Server/share",
+            "\\\\?\\C:\\repo",
+            "\\\\?\\UNC\\server\\share",
+            "\\\\.\\pipe\\name",
+            "///repo",
+        ] {
+            assert_eq!(code(path), "network-path-refused", "{path}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_share_is_refused_before_the_folder_is_touched_unless_its_host_is_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("Arches");
+        repository(&main);
+        // two leading slashes name a host to the check and the first folder to this system
+        let doubled = format!("/{}", text(&main));
+        let refused = run(locate(&doubled, &open())).unwrap_err();
+        assert_eq!(refused.code(), "network-path-refused");
+        let host = doubled.trim_start_matches('/').split('/').next().unwrap();
+        let listed = NetworkShares::new([host.to_uppercase()]);
+        assert_eq!(run(locate(&doubled, &listed)).unwrap().name, "Arches");
+        let other = NetworkShares::new(["elsewhere"]);
+        assert_eq!(
+            run(locate(&doubled, &other)).unwrap_err().code(),
+            "network-path-refused"
+        );
     }
 
     #[test]

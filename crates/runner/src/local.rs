@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nullradix_app::AppError;
 use nullradix_app::dispatch::runs::RunFilesPort;
-use nullradix_app::repositories::Located;
+use nullradix_app::repositories::{Located, network_path_refused};
 use nullradix_app::review::{BranchChanges, BranchFile, FilePatch, ReviewRequest};
 use nullradix_app::runs::{RunProgress, RunSpec, RunnerPort};
 use nullradix_app::session_detail::{
@@ -17,8 +17,8 @@ use nullradix_app::session_detail::{
 use nullradix_app::worktrees::{
     CreatedWorktree, EnsureWorktree, EnsuredWorktree, NewWorktree, RemoveWorktree, WorktreeRemoval,
 };
-use nullradix_domain::{Id, Run};
-use nullradix_os::{spawn_detached, write_atomic};
+use nullradix_domain::{Id, NetworkShares, Run};
+use nullradix_os::{create_data_dir, spawn_detached, write_atomic};
 
 use crate::protocol::{EnvFile, RunFiles, SpecFile, read_output, read_report, supervisor_alive};
 use crate::transcript::{TranscriptRoots, Transcripts};
@@ -37,6 +37,7 @@ pub struct LocalRunner {
     supervisor: SupervisorCommand,
     transcripts: Arc<Transcripts>,
     plugin: Option<String>,
+    shares: NetworkShares,
 }
 
 fn unavailable(error: &io::Error) -> AppError {
@@ -60,7 +61,15 @@ impl LocalRunner {
             supervisor,
             plugin,
             transcripts: Arc::new(Transcripts::new(nullradix_os::claude_config_dirs())),
+            shares: NetworkShares::default(),
         }
+    }
+
+    /// Lets folders on these hosts be used.
+    #[must_use]
+    pub fn with_network_shares(mut self, shares: NetworkShares) -> Self {
+        self.shares = shares;
+        self
     }
 
     /// Lets transcripts be read below `projects` of these config folders and any a path names.
@@ -82,7 +91,11 @@ impl LocalRunner {
     }
 }
 
-fn validate(spec: &RunSpec) -> Result<(), AppError> {
+fn validate(spec: &RunSpec, shares: &NetworkShares) -> Result<(), AppError> {
+    let cwd = spec.cwd.to_string_lossy();
+    if shares.refuses(&cwd) {
+        return Err(network_path_refused(&cwd));
+    }
     spec.validate()?;
     if !spec.cwd.is_dir() {
         return Err(AppError::invalid(
@@ -96,11 +109,11 @@ fn validate(spec: &RunSpec) -> Result<(), AppError> {
 #[async_trait]
 impl RunnerPort for LocalRunner {
     async fn check(&self, spec: &RunSpec) -> Result<(), AppError> {
-        validate(spec)
+        validate(spec, &self.shares)
     }
 
     async fn start(&self, run: Id<Run>, spec: &RunSpec) -> Result<u32, AppError> {
-        validate(spec)?;
+        validate(spec, &self.shares)?;
         let files = self.files(run);
         let file = SpecFile {
             program: spec.program.clone(),
@@ -118,8 +131,11 @@ impl RunnerPort for LocalRunner {
             claude: spec.claude,
         };
         let supervisor = self.supervisor.clone();
+        let runs = self.runs.clone();
         blocking(move || {
-            fs::create_dir_all(files.dir())?;
+            // the prompt and transcript lie here, and older folders are tightened
+            create_data_dir(&runs)?;
+            create_data_dir(files.dir())?;
             let json = serde_json::to_vec_pretty(&file).map_err(io::Error::other)?;
             write_atomic(&files.spec(), &json)?;
             let mut args: Vec<OsString> = supervisor.args.iter().map(OsString::from).collect();
@@ -166,7 +182,7 @@ impl RunnerPort for LocalRunner {
     }
 
     async fn locate(&self, path: &str) -> Result<Located, AppError> {
-        crate::git::locate(path).await
+        crate::git::locate(path, &self.shares).await
     }
 
     async fn create_worktree(&self, request: &NewWorktree) -> Result<CreatedWorktree, AppError> {
@@ -333,5 +349,67 @@ mod tests {
         assert_eq!(progress.lines, Vec::new());
         assert_eq!(progress.report, None);
         assert!(!progress.alive);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_folders_are_private_and_an_older_open_runs_folder_is_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode_of =
+            |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let dir = tempfile::tempdir().unwrap();
+        let runs = dir.path().join("runs");
+        fs::create_dir(&runs).unwrap();
+        fs::set_permissions(&runs, fs::Permissions::from_mode(0o755)).unwrap();
+        let id = Id::from_uuid(uuid::Uuid::from_u128(4));
+        // the supervisor is missing, but the run folder is made before it is started
+        let _ = runner(dir.path())
+            .start(id, &spec(dir.path().to_path_buf()))
+            .await;
+        assert_eq!(mode_of(&runs), 0o700);
+        assert_eq!(mode_of(&runs.join(id.to_string())), 0o700);
+    }
+
+    #[tokio::test]
+    async fn network_working_folders_are_refused_before_any_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = runner(dir.path());
+        let id = Id::from_uuid(uuid::Uuid::from_u128(5));
+        for cwd in ["//server/share", "\\\\server\\share", "\\\\?\\C:\\work"] {
+            let spec = spec(PathBuf::from(cwd));
+            assert_eq!(
+                runner.check(&spec).await.unwrap_err().code(),
+                "network-path-refused",
+                "{cwd}"
+            );
+            assert_eq!(
+                runner.start(id, &spec).await.unwrap_err().code(),
+                "network-path-refused",
+                "{cwd}"
+            );
+        }
+        assert!(!dir.path().join("runs").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_listed_share_is_not_refused_as_a_working_folder() {
+        // two leading slashes name a host to the check and the first folder to this system
+        let doubled = PathBuf::from(format!("/{}", std::env::temp_dir().display()));
+        let host = doubled
+            .to_string_lossy()
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap()
+            .to_owned();
+        let dir = tempfile::tempdir().unwrap();
+        let spec = spec(doubled);
+        assert_eq!(
+            runner(dir.path()).check(&spec).await.unwrap_err().code(),
+            "network-path-refused"
+        );
+        let listed = runner(dir.path()).with_network_shares(NetworkShares::new([host]));
+        assert!(listed.check(&spec).await.is_ok());
     }
 }

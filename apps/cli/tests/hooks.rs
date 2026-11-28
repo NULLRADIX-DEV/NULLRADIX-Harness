@@ -182,6 +182,23 @@ fn hooks_spool_while_the_daemon_is_down_and_arrive_after_its_start() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_hook_tightens_an_open_data_folder_before_it_spools() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode_of = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    let home = tempfile::tempdir().unwrap();
+    let data = home.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (output, _) = hook(home.path(), "stop", &payload(home.path(), "s-1"));
+    assert_silent_success(&output);
+    assert_eq!(spooled(home.path()).len(), 1);
+    assert_eq!(mode_of(&data), 0o700);
+    assert_eq!(mode_of(&data.join("spool")), 0o700);
+    assert_eq!(mode_of(&data.join("spool").join("hooks")), 0o700);
+}
+
 /// A daemon as discovery sees it that accepts connections into its backlog but never answers.
 fn silent_daemon(home: &Path) -> TcpListener {
     let silent = TcpListener::bind("127.0.0.1:0").unwrap();

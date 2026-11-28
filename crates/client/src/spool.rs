@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use nullradix_api::{HookEventDto, HookKindDto};
-use nullradix_os::write_atomic;
+use nullradix_os::{create_data_dir, write_atomic};
 use serde::{Deserialize, Serialize};
 
 const EXTENSION: &str = "json";
@@ -41,16 +41,12 @@ impl Spool {
         write_atomic(&path, &json)
     }
 
-    /// Prompts may sit here, so directories it creates are for the owner only.
+    /// Prompts may sit here: owner-only folders, older ones tightened too.
     fn create_private_dir(&self) -> io::Result<()> {
-        let mut builder = fs::DirBuilder::new();
-        builder.recursive(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
+        if let Some(parent) = self.dir.parent() {
+            create_data_dir(parent)?;
         }
-        builder.create(&self.dir)
+        create_data_dir(&self.dir)
     }
 
     /// Spooled files, oldest first because event ids grow with time.
@@ -285,5 +281,22 @@ mod tests {
         Spool::set_aside(&path).unwrap();
         assert_eq!(spool.pending().unwrap(), Vec::<PathBuf>::new());
         assert!(path.with_extension("bad").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spool_folders_are_private_and_older_open_ones_are_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode_of = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let data = tempfile::tempdir().unwrap();
+        let spool = Spool::in_dir(data.path());
+        let older = data.path().join("spool").join("hooks");
+        fs::create_dir_all(&older).unwrap();
+        for dir in [data.path().join("spool"), older.clone()] {
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        spool.push(&hook(1)).unwrap();
+        assert_eq!(mode_of(&data.path().join("spool")), 0o700);
+        assert_eq!(mode_of(&older), 0o700);
     }
 }

@@ -77,6 +77,17 @@ pub fn path_relative(path: &str) -> AppError {
     AppError::invalid("path-relative", format!("{path} is not an absolute path"))
 }
 
+/// A path to another machine or a device, refused before any file call touches it.
+#[must_use]
+pub fn network_path_refused(path: &str) -> AppError {
+    AppError::invalid(
+        "network-path-refused",
+        format!(
+            "{path} reaches another machine or a device, list its host under network_shares in the config file to allow it"
+        ),
+    )
+}
+
 #[must_use]
 pub fn not_a_git_project(path: &str) -> AppError {
     AppError::invalid(

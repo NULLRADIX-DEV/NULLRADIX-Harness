@@ -72,6 +72,49 @@ pub fn create_private_dir(dir: &Path) -> io::Result<()> {
     }
 }
 
+/// Creates `dir` private to its owner on Unix, and with the rights of its parent on Windows.
+pub fn create_data_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        create_private_dir(dir)
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir_all(dir)
+    }
+}
+
+/// Creates `path` when missing and makes it readable by its owner only: mode 0600 on Unix.
+pub fn ensure_private_file(path: &Path) -> io::Result<()> {
+    let mut options = OpenOptions::new();
+    // no truncation, an existing file keeps its content
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?;
+    tighten_private_file(path)
+}
+
+/// Makes an existing file private to its owner on Unix, a missing file is fine.
+pub fn tighten_private_file(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 /// A staging name of its own per call, so writers of one path never meet.
 fn staging_for(path: &Path) -> PathBuf {
     let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
@@ -154,6 +197,52 @@ mod tests {
         write_private(&path, b"one").unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_data_dir_is_private_and_tightens_a_folder_of_an_older_install() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("data");
+        fs::create_dir(&old).unwrap();
+        fs::set_permissions(&old, fs::Permissions::from_mode(0o755)).unwrap();
+        create_data_dir(&old).unwrap();
+        assert_eq!(mode_of(&old), 0o700);
+        let nested = old.join("runs").join("one");
+        create_data_dir(&nested).unwrap();
+        assert_eq!(mode_of(&old.join("runs")), 0o700);
+        assert_eq!(mode_of(&nested), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_file_is_created_or_tightened_without_losing_its_content() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nullradix.db");
+        ensure_private_file(&path).unwrap();
+        assert_eq!(mode_of(&path), 0o600);
+        fs::write(&path, b"rows").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        ensure_private_file(&path).unwrap();
+        assert_eq!(mode_of(&path), 0o600);
+        assert_eq!(fs::read(&path).unwrap(), b"rows");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tightening_leaves_a_missing_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nullradix.db-wal");
+        tighten_private_file(&path).unwrap();
+        assert!(!path.exists());
     }
 
     #[test]

@@ -836,4 +836,29 @@ mod tests {
         };
         assert!(!format!("{body:?}").contains(TOKEN));
     }
+
+    #[tokio::test]
+    async fn network_and_device_folders_are_refused_as_a_field_problem() {
+        let api = test_api().await;
+        for dir in [
+            "//attacker.example/share/claude",
+            "\\\\attacker.example\\share\\claude",
+            "\\\\?\\C:\\claude",
+            "~/\\\\attacker.example\\share",
+        ] {
+            let (status, json) = call(
+                &api,
+                Request::post("/api/v1/accounts"),
+                Some(json!({ "name": "Max", "configDir": dir })),
+            )
+            .await;
+            assert_eq!(
+                problem(status, &json),
+                (422, "network-path-refused"),
+                "{dir}"
+            );
+        }
+        let (_, list) = call(&api, Request::get("/api/v1/accounts"), None).await;
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
+    }
 }

@@ -154,6 +154,50 @@
     }
   },
   {
+    "name": "a network path",
+    "request": {
+      "body": {
+        "path": "//attacker.example/share/arches",
+        "runnerId": "<ID-5>",
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/repository"
+    },
+    "response": {
+      "json": {
+        "code": "network-path-refused",
+        "detail": "//attacker.example/share/arches reaches another machine or a device, list its host under network_shares in the config file to allow it",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:network-path-refused"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "a device path",
+    "request": {
+      "body": {
+        "path": "\\\\.\\pipe\\arches",
+        "runnerId": "<ID-5>",
+        "version": 1
+      },
+      "method": "PUT",
+      "path": "/api/v1/projects/<ID-1>/boards/<ID-2>/repository"
+    },
+    "response": {
+      "json": {
+        "code": "network-path-refused",
+        "detail": "\\\\.\\pipe\\arches reaches another machine or a device, list its host under network_shares in the config file to allow it",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:network-path-refused"
+      },
+      "status": 422
+    }
+  },
+  {
     "name": "an unknown runner",
     "request": {
       "body": {

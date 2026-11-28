@@ -106,6 +106,48 @@
     }
   },
   {
+    "name": "add with a network folder",
+    "request": {
+      "body": {
+        "configDir": "//attacker.example/share/claude",
+        "name": "Odd"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "code": "network-path-refused",
+        "detail": "//attacker.example/share/claude reaches another machine or a device, list its host under network_shares in the config file to allow it",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:network-path-refused"
+      },
+      "status": 422
+    }
+  },
+  {
+    "name": "add with a device folder",
+    "request": {
+      "body": {
+        "configDir": "\\\\?\\C:\\claude",
+        "name": "Odd"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "code": "network-path-refused",
+        "detail": "\\\\?\\C:\\claude reaches another machine or a device, list its host under network_shares in the config file to allow it",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:network-path-refused"
+      },
+      "status": 422
+    }
+  },
+  {
     "name": "list over HTTP",
     "request": {
       "method": "GET",

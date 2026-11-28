@@ -141,12 +141,18 @@ fn report(
         }
         Delivery::Unreachable(reason) => {
             debug(&format!("spooled: {reason}"));
-            if let Err(error) = Spool::in_dir(&paths.data).push(&SpooledHook { kind, event }) {
+            if let Err(error) = spool(&paths, &SpooledHook { kind, event }) {
                 debug(&format!("cannot spool: {error}"));
             }
             None
         }
     }
+}
+
+/// Keeps the hook on disk, in an owner-only data folder.
+fn spool(paths: &Paths, hook: &SpooledHook) -> io::Result<()> {
+    nullradix_os::create_data_dir(&paths.data)?;
+    Spool::in_dir(&paths.data).push(hook)
 }
 
 fn read_stdin() -> Option<Vec<u8>> {

@@ -551,4 +551,55 @@ mod tests {
         assert_eq!(cleared["repositoryId"], serde_json::Value::Null);
         assert_eq!(cleared["version"], 3);
     }
+
+    #[tokio::test]
+    async fn network_and_device_paths_are_refused_as_a_field_problem() {
+        let api = test_api().await;
+        let project = api.projects.create("ARC", "Arches").await.unwrap();
+        let board = api
+            .boards
+            .create(project.id(), "Main", &api.person)
+            .await
+            .unwrap();
+        let (_, _, runners) = send(
+            &api.router,
+            bearer(Request::get("/api/v1/runners"), &api.token)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let runner = runners["items"][0]["id"].as_str().unwrap().to_owned();
+        let location = format!(
+            "/api/v1/projects/{}/boards/{}/repository",
+            project.id().as_uuid(),
+            board.board.id().as_uuid()
+        );
+        for path in [
+            "//attacker.example/share/repo",
+            "\\\\attacker.example\\share\\repo",
+            "\\\\?\\UNC\\attacker.example\\share",
+            "\\\\.\\pipe\\name",
+        ] {
+            let body = json!({ "runnerId": runner, "path": path, "version": 1 });
+            let request = bearer(Request::put(location.as_str()), &api.token)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap();
+            let (status, _, problem) = send(&api.router, request).await;
+            assert_eq!(
+                (status.as_u16(), problem["code"].as_str()),
+                (422, Some("network-path-refused")),
+                "{path}"
+            );
+        }
+        let lookup = format!("/api/v1/boards?runnerId={runner}&path=//attacker.example/share");
+        let request = bearer(Request::get(lookup), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, problem) = send(&api.router, request).await;
+        assert_eq!(
+            (status.as_u16(), problem["code"].as_str()),
+            (422, Some("network-path-refused"))
+        );
+    }
 }
