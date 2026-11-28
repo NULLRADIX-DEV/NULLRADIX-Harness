@@ -809,7 +809,6 @@ impl TicketService {
         board: Id<Board>,
         keys: &[String],
         actor: &Actor,
-        from_agent: bool,
     ) -> Result<Vec<TicketView>, AppError> {
         if keys.is_empty() || keys.len() > IMPORT_MAX {
             return Err(AppError::invalid(
@@ -844,9 +843,6 @@ impl TicketService {
                     .on_board(&target)
                     .map_err(|error| board_move_error(&error))?,
             );
-        }
-        for (before, after) in tickets.iter().zip(&moved_records) {
-            guard_agent_write(write.as_mut(), from_agent, before, after).await?;
         }
         let now = self.clock.now();
         let mut last = None;

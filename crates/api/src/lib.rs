@@ -97,7 +97,7 @@ use utoipa_axum::routes;
 pub use accounts::{AccountDto, AccountList, CreateAccount, SetRunToken, UpdateAccount};
 pub use auth::{
     Elevation, Handoff, KEY_HEADER, Me, PrincipalKind, RUN_HEADER, RedeemStepUp, SESSION_COOKIE,
-    SESSION_HEADER, SetStepUp, StepUpCode, StepUpSetting,
+    SESSION_HEADER, SetStepUp, StepUpCode, StepUpSetting, TurnOffCode,
 };
 pub use autostart::{AutostartDto, SetAutostart};
 pub use boards::{BoardDeleted, BoardDto, BoardList, CreateBoard, RenameBoard, SetBoardRepository};
@@ -369,6 +369,7 @@ fn run_routes() -> OpenApiRouter<ApiState> {
 fn step_up_routes() -> OpenApiRouter<ApiState> {
     OpenApiRouter::new()
         .routes(routes!(auth::create_step_up_code))
+        .routes(routes!(auth::create_turn_off_code))
         .routes(routes!(auth::redeem_step_up))
         .routes(routes!(auth::step_up_setting, auth::set_step_up_setting))
 }

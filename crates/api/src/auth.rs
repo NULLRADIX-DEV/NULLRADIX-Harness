@@ -6,8 +6,8 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use nullradix_app::AppError;
 use nullradix_app::auth::{
-    CommandRefusal, CommandWriter, Principal, Secret, decision_needs_person, step_up_code_invalid,
-    step_up_code_required,
+    CommandWriter, Principal, Secret, decision_needs_person, session_key_invalid, session_required,
+    step_up_code_invalid,
 };
 use nullradix_domain::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -56,6 +56,10 @@ fn is_theme_asset(method: &Method, route: &str) -> bool {
     if !matches!(*method, Method::GET | Method::HEAD) {
         return false;
     }
+    is_theme_file(route) || is_catalog_preview(route)
+}
+
+fn is_theme_file(route: &str) -> bool {
     let Some(rest) = route.strip_prefix("/themes/") else {
         return false;
     };
@@ -70,6 +74,16 @@ fn is_theme_asset(method: &Method, route: &str) -> bool {
             "fetch" => tail.is_none(),
             _ => false,
         }
+}
+
+/// The image of a catalog theme, loaded by an `img` tag.
+fn is_catalog_preview(route: &str) -> bool {
+    let Some(rest) = route.strip_prefix("/theme-catalog/sources/") else {
+        return false;
+    };
+    let parts: Vec<&str> = rest.split('/').collect();
+    matches!(parts.as_slice(), [source, "themes", theme, "preview"]
+        if !source.is_empty() && !theme.is_empty())
 }
 
 fn credentials(headers: &HeaderMap, key: TabKey) -> Credentials {
@@ -202,8 +216,7 @@ async fn session_principal(
         ));
     }
     match key {
-        TabKey::Malformed => Err(AppError::unauthorized(
-            "session-key-invalid",
+        TabKey::Malformed => Err(session_key_invalid(
             "the key of this tab is malformed: open NULLRADIX again",
         )),
         TabKey::Missing => state.auth.authenticate_session(cookie, None).await,
@@ -272,14 +285,18 @@ pub struct Handoff {
     responses(
         (status = 201, description = "Code to open a browser session", body = Handoff),
         (status = 401, body = Problem),
-        (status = 403, description = "Sessions cannot create handoffs", body = Problem),
+        (status = 403, description = "Sessions cannot create handoffs; neither can runs of agents", body = Problem),
     )
 )]
 pub(crate) async fn create_handoff(
     State(state): State<ApiState>,
     Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
 ) -> Result<(StatusCode, Json<Handoff>), ApiError> {
     require_token(&principal, "open browser sessions")?;
+    refuse_agent(context, || {
+        decision_needs_person("opening a browser session")
+    })?;
     let code = state.auth.create_handoff()?;
     let handoff = Handoff {
         path: format!("{API_PREFIX}/auth/handoff?code={}", code.expose()),
@@ -424,6 +441,42 @@ pub(crate) async fn create_step_up_code(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
+/// One-time code for turning the check off, printed by a terminal and no link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnOffCode {
+    pub code: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/auth/turn-off-codes",
+    tag = "auth",
+    security(("bearer" = [])),
+    responses(
+        (status = 201, description = "Code that lets the person turn the confirmation off once", body = TurnOffCode),
+        (status = 401, body = Problem),
+        (status = 403, description = "Sessions cannot create codes; neither can runs of agents", body = Problem),
+    )
+)]
+pub(crate) async fn create_turn_off_code(
+    State(state): State<ApiState>,
+    Extension(principal): Extension<Principal>,
+    Extension(context): Extension<AgentContext>,
+) -> Result<(StatusCode, Json<TurnOffCode>), ApiError> {
+    require_token(&principal, "confirm changes")?;
+    refuse_agent(context, || {
+        decision_needs_person("turning the confirmation off")
+    })?;
+    let code = state.auth.create_turn_off_code()?;
+    Ok((
+        StatusCode::CREATED,
+        Json(TurnOffCode {
+            code: code.expose().to_owned(),
+        }),
+    ))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RedeemStepUp {
@@ -458,11 +511,7 @@ pub(crate) async fn redeem_step_up(
     ApiJson(input): ApiJson<RedeemStepUp>,
 ) -> Result<Json<Elevation>, ApiError> {
     let Principal::Session { id, .. } = principal else {
-        return Err(AppError::forbidden(
-            "session-required",
-            "only the person in the app can confirm",
-        )
-        .into());
+        return Err(session_required("only the person in the app can confirm").into());
     };
     refuse_agent(context, || {
         decision_needs_person("confirming a change of commands")
@@ -500,7 +549,7 @@ pub(crate) async fn step_up_setting(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SetStepUp {
     pub required: bool,
-    /// Code of `nullradix confirm --no-open`, needed only to turn the check off.
+    /// Code of `nullradix confirm --turn-off`, needed only to turn the check off.
     #[serde(default)]
     pub code: Option<String>,
 }
@@ -523,15 +572,12 @@ pub(crate) async fn set_step_up_setting(
     Extension(context): Extension<AgentContext>,
     ApiJson(input): ApiJson<SetStepUp>,
 ) -> Result<Json<StepUpSetting>, ApiError> {
-    if !input.required && state.auth.step_up_required().await? {
-        if matches!(command_writer(&principal, context), CommandWriter::Other) {
-            return Err(CommandRefusal::NeedsPerson.error(&["required"]).into());
-        }
-        let code = input.code.as_deref().ok_or_else(step_up_code_required)?;
-        let code = Secret::parse(code).ok_or_else(step_up_code_invalid)?;
-        state.auth.spend_step_up_code(&code)?;
-    }
-    if let Some(change) = state.auth.set_step_up_required(input.required).await? {
+    let writer = command_writer(&principal, context);
+    if let Some(change) = state
+        .auth
+        .set_step_up(input.required, writer, input.code.as_deref())
+        .await?
+    {
         state.signal.notify(&change);
     }
     Ok(Json(StepUpSetting {
@@ -832,7 +878,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn theme_files_need_only_the_cookie_but_nothing_else_does() {
+    async fn theme_files_and_previews_need_only_the_cookie_but_nothing_else_does() {
         let api = test_api().await;
         let cookie = without_key(&open_session(&api).await);
         // not found proves the request passed the authentication
@@ -842,6 +888,15 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+        let preview = "/api/v1/theme-catalog/sources/abc/themes/night/preview";
+        let (status, _, _) = send(&api.router, get_with(preview, &cookie, None)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _, _) = send(
+            &api.router,
+            get_with("/api/v1/theme-catalog/sources", &cookie, None),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
         let (status, _, _) = send(
             &api.router,
             get_with("/api/v1/themes/none/settings", &cookie, None),
@@ -875,6 +930,19 @@ mod tests {
         let code = json["code"].as_str().unwrap().to_owned();
         assert_eq!(json["path"], format!("/#confirm={code}"));
         code
+    }
+
+    async fn turn_off_code(api: &TestApi) -> String {
+        let request = bearer(Request::post("/api/v1/auth/turn-off-codes"), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert!(
+            json.get("path").is_none(),
+            "a turn-off code is no link: {json}"
+        );
+        json["code"].as_str().unwrap().to_owned()
     }
 
     async fn confirm(api: &TestApi, cookie: &str) -> (StatusCode, Value) {
@@ -1161,7 +1229,7 @@ mod tests {
         let cookie = open_session(&api).await;
         assert!(switch(&api).await);
         // a token and an agent in the session cannot turn it off, code or not
-        let code = step_up_code(&api).await;
+        let code = turn_off_code(&api).await;
         let (status, json) = put_switch(&api, false, Some(&code), |request| {
             bearer(request, &api.token)
         })
@@ -1226,7 +1294,7 @@ mod tests {
     async fn with_the_check_off_the_person_changes_commands_and_a_token_still_may_not() {
         let api = test_api().await;
         let cookie = open_session(&api).await;
-        let code = step_up_code(&api).await;
+        let code = turn_off_code(&api).await;
         let (status, _) = put_switch(&api, false, Some(&code), |request| {
             as_person(request, &cookie)
         })
@@ -1249,5 +1317,94 @@ mod tests {
         let (status, _) = put_switch(&api, true, None, |request| as_person(request, &cookie)).await;
         assert_eq!(status, StatusCode::OK);
         assert!(switch(&api).await);
+    }
+
+    #[tokio::test]
+    async fn only_tokens_outside_runs_create_turn_off_codes() {
+        let api = test_api().await;
+        let cookie = open_session(&api).await;
+        let request = as_person(Request::post("/api/v1/auth/turn-off-codes"), &cookie)
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        assert_eq!(
+            (status, &json["code"]),
+            (StatusCode::FORBIDDEN, &json!("token-required"))
+        );
+        for mark in [in_run, in_session] {
+            let request = mark(bearer(
+                Request::post("/api/v1/auth/turn-off-codes"),
+                &api.token,
+            ))
+            .body(Body::empty())
+            .unwrap();
+            let (status, _, json) = send(&api.router, request).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(json["code"], "decision-needs-person");
+        }
+        let request = local(Request::post("/api/v1/auth/turn-off-codes"))
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_link_or_tray_code_cannot_turn_the_check_off_and_a_turn_off_code_cannot_confirm() {
+        let api = test_api().await;
+        let cookie = open_session(&api).await;
+        let confirmation = step_up_code(&api).await;
+        let turn_off = turn_off_code(&api).await;
+        // the code of a link, the tray or the box is no turn-off code
+        let (status, json) = put_switch(&api, false, Some(&confirmation), |request| {
+            as_person(request, &cookie)
+        })
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(json["code"], "step-up-code-invalid");
+        assert!(switch(&api).await);
+        // and a turn-off code confirms nobody
+        let (status, json) = post_json(
+            &api,
+            "/api/v1/auth/step-up",
+            |request| as_person(request, &cookie),
+            &json!({ "code": turn_off }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(json["code"], "step-up-code-invalid");
+        let (_, me) = me_with(&api, &cookie, None).await;
+        assert_eq!(me["elevatedUntil"], Value::Null);
+        // neither was used up by the wrong place
+        let (status, _) = post_json(
+            &api,
+            "/api/v1/auth/step-up",
+            |request| as_person(request, &cookie),
+            &json!({ "code": confirmation }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = put_switch(&api, false, Some(&turn_off), |request| {
+            as_person(request, &cookie)
+        })
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!switch(&api).await);
+    }
+
+    #[tokio::test]
+    async fn agents_cannot_create_handoffs_but_a_terminal_can() {
+        let api = test_api().await;
+        for mark in [in_run, in_session] {
+            let request = mark(bearer(Request::post("/api/v1/auth/handoffs"), &api.token))
+                .body(Body::empty())
+                .unwrap();
+            let (status, _, json) = send(&api.router, request).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(json["code"], "decision-needs-person");
+        }
+        let request = bearer(Request::post("/api/v1/auth/handoffs"), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(send(&api.router, request).await.0, StatusCode::CREATED);
     }
 }

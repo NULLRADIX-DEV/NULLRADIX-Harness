@@ -4,17 +4,28 @@ const KEY_PATTERN = /^[0-9a-f]{64}$/;
 
 // What the tabs tell each other: a channel stops at the origin and port.
 export type TabMessage =
-  | { type: 'ask' }
+  | { type: 'ask'; nonce: string }
+  | { type: 'answer'; to: string; key: string }
   | { type: 'key'; key: string }
   | { type: 'code'; code: string }
   | { type: 'done'; code: string; ok: boolean };
+
+function isNonce(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 64;
+}
 
 export function isTabMessage(value: unknown): value is TabMessage {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
   switch (record['type']) {
     case 'ask':
-      return true;
+      return isNonce(record['nonce']);
+    case 'answer':
+      return (
+        isNonce(record['to']) &&
+        typeof record['key'] === 'string' &&
+        KEY_PATTERN.test(record['key'])
+      );
     case 'key':
       return typeof record['key'] === 'string' && KEY_PATTERN.test(record['key']);
     case 'code':

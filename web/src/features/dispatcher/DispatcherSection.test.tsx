@@ -264,7 +264,7 @@ describe('DispatcherSection', () => {
     expect(within(form).getByText(/Not confirmed\./)).toBeInTheDocument();
     await userEvent.click(toggle);
     expect(
-      within(form).getByText(/enter its code here\. A confirmed session is not enough/),
+      within(form).getByText(/nullradix confirm --turn-off .* A confirmed session is not enough/),
     ).toBeInTheDocument();
     // nothing is sent before a code is typed, and the switch stays on until the daemon agrees
     expect(server.api.requests('PUT /api/v1/settings/step-up')).toHaveLength(0);
@@ -313,7 +313,7 @@ describe('DispatcherSection', () => {
     await userEvent.type(within(form).getByRole('textbox', { name: 'Confirmation code' }), 'bad');
     await userEvent.click(within(form).getByRole('button', { name: 'Turn off' }));
     expect(await within(form).findByRole('alert')).toHaveTextContent(
-      'The confirmation code is unknown or expired',
+      'The code is unknown, expired or no turn-off code. Run nullradix confirm --turn-off again.',
     );
     expect(toggle).toBeChecked();
     // cancelling goes back to the plain confirm form

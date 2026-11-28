@@ -1846,7 +1846,7 @@ async fn tickets_move_between_boards_of_one_project_all_or_none() {
         let target = &target;
         async move {
             fx.tickets
-                .move_to_board(project_id, target.id(), &keys, &fx.person, false)
+                .move_to_board(project_id, target.id(), &keys, &fx.person)
                 .await
                 .map_err(|error| error.code().to_owned())
         }
@@ -1885,34 +1885,6 @@ async fn tickets_move_between_boards_of_one_project_all_or_none() {
         (last.field.as_str(), last.note.as_deref()),
         ("boardId", Some("taken from board Main"))
     );
-}
-
-#[tokio::test]
-async fn an_agent_moving_a_ticket_to_another_board_keeps_its_wait_for_a_person() {
-    let fx = fixture().await;
-    let (project, board) = fx.board("ARC").await;
-    let target = fx
-        .boards
-        .create(project.id(), "Target", &fx.person)
-        .await
-        .unwrap()
-        .board;
-    fx.create(&board, titled("Waits"), AGENT).await.unwrap();
-    let waiting = TicketPatch {
-        status: Some(String::from("blocked")),
-        blocked_reason: Some(Some(String::from("Human Interaction: review"))),
-        ..patch()
-    };
-    fx.update("ARC-1", waiting, 1, AGENT).await.unwrap();
-    let keys = [String::from("ARC-1")];
-    let moved = fx
-        .tickets
-        .move_to_board(project.id(), target.id(), &keys, &fx.person, true)
-        .await
-        .unwrap();
-    let record = moved[0].ticket.record();
-    assert_eq!(record.board, target.id());
-    assert!(record.awaits_a_person());
 }
 
 /// Delegates every write to the store and notes which lock reads a claim makes.

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use nullradix_app::auth::{
-    ApiToken, AuthRepository, STEP_UP_FEED_ID, SecretHash, Session, TokenKind,
+    ApiToken, AuthRepository, STEP_UP_FEED_ID, SecretHash, Session, StepUpChange, TokenKind,
 };
-use nullradix_app::{AppError, Change, ChangeOp, Entity};
+use nullradix_app::{AppError, ChangeOp, Entity};
 use nullradix_domain::{Id, Timestamp};
 use uuid::Uuid;
 
@@ -180,8 +180,9 @@ impl AuthRepository for Store {
     async fn set_step_up_required(
         &self,
         required: bool,
+        turn_off_allowed: bool,
         at: Timestamp,
-    ) -> Result<Option<Change>, AppError> {
+    ) -> Result<StepUpChange, AppError> {
         let mut write = self.begin().await?;
         let stored = sqlx::query_scalar!("SELECT value FROM settings WHERE key = ?", STEP_UP_KEY)
             .fetch_optional(&mut *write)
@@ -192,7 +193,10 @@ impl AuthRepository for Store {
                 .map_err(|_| StoreError::Corrupt(String::from("invalid step-up switch")))
         })?;
         if current == required {
-            return Ok(None);
+            return Ok(StepUpChange::Unchanged);
+        }
+        if current && !required && !turn_off_allowed {
+            return Ok(StepUpChange::TurnOffRefused);
         }
         let json = required.to_string();
         let millis = at.as_millis();
@@ -217,6 +221,6 @@ impl AuthRepository for Store {
         )
         .await?;
         write.commit().await.map_err(database)?;
-        Ok(Some(change))
+        Ok(StepUpChange::Changed(change))
     }
 }

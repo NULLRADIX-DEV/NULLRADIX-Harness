@@ -69,6 +69,30 @@
       }
     },
     {
+      "name": "a session cannot make turn-off codes",
+      "http": { "method": "POST", "path": "/api/v1/auth/turn-off-codes", "auth": "session" }
+    },
+    {
+      "name": "a run cannot make turn-off codes",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/auth/turn-off-codes",
+        "headers": { "X-Nullradix-Run": "run-1" }
+      }
+    },
+    {
+      "name": "a run cannot open a browser session",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/auth/handoffs",
+        "headers": { "X-Nullradix-Run": "run-1" }
+      }
+    },
+    {
+      "name": "a session cannot open another one",
+      "http": { "method": "POST", "path": "/api/v1/auth/handoffs", "auth": "session" }
+    },
+    {
       "name": "codes need a credential",
       "http": { "method": "POST", "path": "/api/v1/auth/step-up-codes", "auth": "none" }
     }

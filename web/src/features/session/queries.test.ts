@@ -30,7 +30,7 @@ class FakeChannel extends EventTarget {
   }
 }
 
-// A daemon that knows only NEW_KEY.
+// A daemon knowing only NEW_KEY.
 function daemon(code: string) {
   return fakeApi({
     'GET /api/v1/auth/me': (request) =>
@@ -43,9 +43,8 @@ function daemon(code: string) {
 function otherTabAnswers() {
   const other = new FakeChannel(TAB_CHANNEL);
   other.addEventListener('message', (event) => {
-    if ((event as MessageEvent<{ type: string }>).data.type === 'ask') {
-      other.postMessage({ type: 'key', key: NEW_KEY });
-    }
+    const data = (event as MessageEvent<{ type: string; nonce?: string }>).data;
+    if (data.type === 'ask') other.postMessage({ type: 'answer', to: data.nonce, key: NEW_KEY });
   });
 }
 
@@ -71,7 +70,8 @@ describe('sessionQuery', () => {
       const session = await new QueryClient().query(sessionQuery());
       expect(session).toEqual({ kind: 'session', elevatedUntil: null });
       expect(readTabKey()).toBe(NEW_KEY);
-      expect(api.requests('GET /api/v1/auth/me')).toHaveLength(2);
+      // the refused check, the vouching check of the new key and the retry
+      expect(api.requests('GET /api/v1/auth/me')).toHaveLength(3);
     },
   );
 

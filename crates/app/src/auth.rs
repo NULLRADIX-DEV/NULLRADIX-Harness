@@ -159,6 +159,18 @@ pub fn decision_needs_person(action: &str) -> AppError {
     )
 }
 
+/// The cookie came without the key of its tab, or with a foreign key.
+#[must_use]
+pub fn session_key_invalid(message: &str) -> AppError {
+    AppError::unauthorized("session-key-invalid", message)
+}
+
+/// A route for browser sessions was called another way.
+#[must_use]
+pub fn session_required(message: &str) -> AppError {
+    AppError::forbidden("session-required", message)
+}
+
 /// Who sent a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Principal {
@@ -238,17 +250,39 @@ impl CommandRefusal {
     }
 }
 
+/// The code for turning the check off is unknown, expired, used up or of the other kind.
+#[must_use]
+pub fn turn_off_code_invalid() -> AppError {
+    AppError::invalid(
+        "step-up-code-invalid",
+        "the code for turning the confirmation off is unknown or expired",
+    )
+    .with_fields(vec![FieldProblem {
+        field: String::from("code"),
+        message: String::from("run nullradix confirm --turn-off again for a new code"),
+    }])
+}
+
 /// Turning the confirmation off needs a code of its own, not only a confirmed session.
 #[must_use]
 pub fn step_up_code_required() -> AppError {
     AppError::forbidden(
         "step-up-code-required",
-        "turning the confirmation off needs a fresh code: run `nullradix confirm --no-open` and enter it",
+        "turning the confirmation off needs a fresh code: run `nullradix confirm --turn-off` and enter it",
     )
     .with_fields(vec![FieldProblem {
         field: String::from("code"),
-        message: String::from("enter the code that nullradix confirm --no-open printed"),
+        message: String::from("enter the code that nullradix confirm --turn-off printed"),
     }])
+}
+
+/// What storing the step-up switch did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StepUpChange {
+    Unchanged,
+    Changed(Change),
+    /// The switch was on and turning it off was not allowed yet.
+    TurnOffRefused,
 }
 
 #[async_trait]
@@ -270,12 +304,13 @@ pub trait AuthRepository: Send + Sync {
     async fn elevate_session(&self, id: Id<Session>, until: Timestamp) -> Result<bool, AppError>;
     /// Whether command fields need a confirmation, on until the person turns it off.
     async fn step_up_required(&self) -> Result<bool, AppError>;
-    /// Stores the switch and gives None for no change.
+    /// Stores the switch and decides inside the write whether turning it off is allowed.
     async fn set_step_up_required(
         &self,
         required: bool,
+        turn_off_allowed: bool,
         at: Timestamp,
-    ) -> Result<Option<Change>, AppError>;
+    ) -> Result<StepUpChange, AppError>;
 }
 
 /// What a request brought to prove its session.
@@ -293,6 +328,8 @@ pub struct AuthService {
     ids: Arc<dyn IdGenerator>,
     handoffs: Mutex<HashMap<SecretHash, Timestamp>>,
     step_up_codes: Mutex<HashMap<SecretHash, Timestamp>>,
+    /// Kept apart: a link or the tray never hands one out, and elevation codes do not fit here.
+    turn_off_codes: Mutex<HashMap<SecretHash, Timestamp>>,
 }
 
 impl fmt::Debug for AuthService {
@@ -327,6 +364,7 @@ impl AuthService {
             ids,
             handoffs: Mutex::new(HashMap::new()),
             step_up_codes: Mutex::new(HashMap::new()),
+            turn_off_codes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -458,8 +496,7 @@ impl AuthService {
                 )
             })?;
             if brought.hash() != session.key_hash {
-                return Err(unauthorized(
-                    "session-key-invalid",
+                return Err(session_key_invalid(
                     "the key does not belong to this session: open NULLRADIX again",
                 ));
             }
@@ -485,13 +522,9 @@ impl AuthService {
         self.issue_code(&self.step_up_codes, STEP_UP_CODE_LIFETIME)
     }
 
-    /// Uses up a code without confirming a session: proof for turning the check off.
-    pub fn spend_step_up_code(&self, code: &Secret) -> Result<(), AppError> {
-        if self.spend_code(&self.step_up_codes, code) {
-            Ok(())
-        } else {
-            Err(step_up_code_invalid())
-        }
+    /// A code for turning the check off, printed by a terminal and never shown as a link.
+    pub fn create_turn_off_code(&self) -> Result<Secret, AppError> {
+        self.issue_code(&self.turn_off_codes, STEP_UP_CODE_LIFETIME)
     }
 
     /// Confirms the session for a while and returns the end time.
@@ -500,7 +533,9 @@ impl AuthService {
         session: Id<Session>,
         code: &Secret,
     ) -> Result<Timestamp, AppError> {
-        self.spend_step_up_code(code)?;
+        if !self.spend_code(&self.step_up_codes, code) {
+            return Err(step_up_code_invalid());
+        }
         let until = later(self.clock.now(), ELEVATION)?;
         if !self.repository.elevate_session(session, until).await? {
             return Err(unauthorized("session-invalid", "the session is not valid"));
@@ -513,11 +548,40 @@ impl AuthService {
         self.repository.step_up_required().await
     }
 
-    /// Stores the switch and leaves the change signal to the caller.
-    pub async fn set_step_up_required(&self, required: bool) -> Result<Option<Change>, AppError> {
-        self.repository
-            .set_step_up_required(required, self.clock.now())
-            .await
+    /// Sets the switch, deciding in the store write and spending a code only for a turn-off.
+    pub async fn set_step_up(
+        &self,
+        required: bool,
+        writer: CommandWriter,
+        code: Option<&str>,
+    ) -> Result<Option<Change>, AppError> {
+        let now = self.clock.now();
+        let first = self
+            .repository
+            .set_step_up_required(required, required, now)
+            .await?;
+        match first {
+            StepUpChange::Unchanged => return Ok(None),
+            StepUpChange::Changed(change) => return Ok(Some(change)),
+            StepUpChange::TurnOffRefused => {}
+        }
+        if matches!(writer, CommandWriter::Other) {
+            return Err(CommandRefusal::NeedsPerson.error(&["required"]));
+        }
+        let code = code.ok_or_else(step_up_code_required)?;
+        let code = Secret::parse(code).ok_or_else(turn_off_code_invalid)?;
+        if !self.spend_code(&self.turn_off_codes, &code) {
+            return Err(turn_off_code_invalid());
+        }
+        match self
+            .repository
+            .set_step_up_required(false, true, now)
+            .await?
+        {
+            StepUpChange::Changed(change) => Ok(Some(change)),
+            StepUpChange::Unchanged => Ok(None),
+            StepUpChange::TurnOffRefused => Err(CommandRefusal::NeedsPerson.error(&["required"])),
+        }
     }
 
     /// Why `writer` may not change command fields now, or None when it may.

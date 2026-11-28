@@ -891,7 +891,7 @@
             }
           },
           "403": {
-            "description": "Sessions cannot create handoffs",
+            "description": "Sessions cannot create handoffs; neither can runs of agents",
             "content": {
               "application/json": {
                 "schema": {
@@ -1042,6 +1042,50 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StepUpCode"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sessions cannot create codes; neither can runs of agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/turn-off-codes": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "create_turn_off_code",
+        "responses": {
+          "201": {
+            "description": "Code that lets the person turn the confirmation off once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnOffCode"
                 }
               }
             }
@@ -16986,7 +17030,7 @@
               "string",
               "null"
             ],
-            "description": "Code of `nullradix confirm --no-open`, needed only to turn the check off."
+            "description": "Code of `nullradix confirm --turn-off`, needed only to turn the check off."
           },
           "required": {
             "type": "boolean"
@@ -18661,6 +18705,18 @@
             "format": "int64",
             "description": "Broken lines in this page.",
             "minimum": 0
+          }
+        }
+      },
+      "TurnOffCode": {
+        "type": "object",
+        "description": "One-time code for turning the check off, printed by a terminal and no link.",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
           }
         }
       },

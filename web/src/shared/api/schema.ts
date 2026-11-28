@@ -229,6 +229,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/turn-off-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_turn_off_code"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/boards": {
         parameters: {
             query?: never;
@@ -3885,7 +3901,7 @@ export interface components {
         };
         /** @description Sets the switch, and turning it off uses up a fresh code. */
         SetStepUp: {
-            /** @description Code of `nullradix confirm --no-open`, needed only to turn the check off. */
+            /** @description Code of `nullradix confirm --turn-off`, needed only to turn the check off. */
             code?: string | null;
             required: boolean;
         };
@@ -4410,6 +4426,10 @@ export interface components {
              * @description Broken lines in this page.
              */
             skipped: number;
+        };
+        /** @description One-time code for turning the check off, printed by a terminal and no link. */
+        TurnOffCode: {
+            code: string;
         };
         /** @description A change of fields; left out fields stay, `null` removes a limit. */
         UpdateAccount: {
@@ -5266,7 +5286,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Sessions cannot create handoffs */
+            /** @description Sessions cannot create handoffs; neither can runs of agents */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5396,6 +5416,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StepUpCode"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sessions cannot create codes; neither can runs of agents */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_turn_off_code: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Code that lets the person turn the confirmation off once */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnOffCode"];
                 };
             };
             401: {

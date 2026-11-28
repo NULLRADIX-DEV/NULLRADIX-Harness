@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createQueryClient } from '../../app/queryClient';
 import { TAB_CHANNEL, closeTabChannel } from '../../shared/api/tabChannel';
 import { KEY_HEADER } from '../../shared/api/tabKey';
+import { sessionKeys } from '../session/queries';
 import { fakeApi, json, problem } from '../../test/fakeApi';
 import { parseConfirmCode } from './confirmLink';
 import { HAND_ON_WAIT_MS, StepUpCapture } from './StepUpCapture';
@@ -38,9 +39,13 @@ function show(hash: string) {
   window.history.replaceState(null, '', `/settings${hash}`);
 }
 
-function mount(first: string | null = null, strict = false) {
+function mount(
+  first: string | null = null,
+  strict = false,
+  client = createQueryClient({ retry: false }),
+) {
   const page = (
-    <QueryClientProvider client={createQueryClient({ retry: false })}>
+    <QueryClientProvider client={client}>
       <StepUpCapture first={first} />
     </QueryClientProvider>
   );
@@ -227,5 +232,47 @@ describe('StepUpCapture', () => {
       channel?.hear({ type: 'done', code: CODE, ok: true });
     });
     expect(screen.getByRole('status')).toHaveTextContent('Confirmed in your open NULLRADIX tab');
+  });
+
+  it('asks the session again when another tab reports a confirmation', () => {
+    window.sessionStorage.setItem('nullradix-tab-key', KEY);
+    fakeApi();
+    show('');
+    const client = createQueryClient({ retry: false });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    mount(null, false, client);
+    const [channel] = FakeChannel.all;
+    act(() => {
+      channel?.hear({ type: 'done', code: CODE, ok: false });
+    });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: sessionKeys.all });
+    act(() => {
+      channel?.hear({ type: 'done', code: CODE, ok: true });
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: sessionKeys.all });
+    // nothing was handed on and the tab says nothing
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('tells the other tabs when it confirmed with its own key', async () => {
+    window.sessionStorage.setItem('nullradix-tab-key', KEY);
+    fakeApi({ 'POST /api/v1/auth/step-up': () => json(200, ELEVATED) });
+    show(`#confirm=${CODE}`);
+    mount();
+    const [channel] = FakeChannel.all;
+    await waitFor(() => {
+      expect(channel?.sent).toEqual([{ type: 'done', code: CODE, ok: true }]);
+    });
+  });
+
+  it('tells the other tabs nothing when its own code is refused', async () => {
+    window.sessionStorage.setItem('nullradix-tab-key', KEY);
+    fakeApi({
+      'POST /api/v1/auth/step-up': () => problem(422, 'step-up-code-invalid', 'expired'),
+    });
+    show(`#confirm=${CODE}`);
+    mount();
+    expect(await screen.findByRole('status')).toHaveTextContent('unknown or expired');
+    expect(FakeChannel.all[0]?.sent).toEqual([]);
   });
 });

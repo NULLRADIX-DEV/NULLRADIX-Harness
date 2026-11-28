@@ -1623,7 +1623,6 @@ pub(crate) async fn import_tickets(
             Id::from_uuid(path.board_id),
             &input.ticket_keys,
             &actor,
-            context.is_agent(),
         )
         .await?;
     Ok(Json(ImportedTickets {

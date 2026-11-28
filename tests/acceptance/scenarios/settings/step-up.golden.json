@@ -51,11 +51,11 @@
     "response": {
       "json": {
         "code": "step-up-code-required",
-        "detail": "turning the confirmation off needs a fresh code: run `nullradix confirm --no-open` and enter it",
+        "detail": "turning the confirmation off needs a fresh code: run `nullradix confirm --turn-off` and enter it",
         "errors": [
           {
             "field": "code",
-            "message": "enter the code that nullradix confirm --no-open printed"
+            "message": "enter the code that nullradix confirm --turn-off printed"
           }
         ],
         "status": 403,
@@ -79,11 +79,11 @@
     "response": {
       "json": {
         "code": "step-up-code-invalid",
-        "detail": "the confirmation code is unknown or expired",
+        "detail": "the code for turning the confirmation off is unknown or expired",
         "errors": [
           {
             "field": "code",
-            "message": "run nullradix confirm again for a new code"
+            "message": "run nullradix confirm --turn-off again for a new code"
           }
         ],
         "status": 422,
@@ -241,6 +241,82 @@
         "status": 403,
         "title": "Forbidden",
         "type": "urn:nullradix:problem:decision-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a session cannot make turn-off codes",
+    "request": {
+      "auth": "session",
+      "method": "POST",
+      "path": "/api/v1/auth/turn-off-codes"
+    },
+    "response": {
+      "json": {
+        "code": "token-required",
+        "detail": "only token holders can confirm changes",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:token-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a run cannot make turn-off codes",
+    "request": {
+      "headers": {
+        "X-Nullradix-Run": "run-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/turn-off-codes"
+    },
+    "response": {
+      "json": {
+        "code": "decision-needs-person",
+        "detail": "turning the confirmation off stays with the person: do it in the app or in a terminal outside the run",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:decision-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a run cannot open a browser session",
+    "request": {
+      "headers": {
+        "X-Nullradix-Run": "run-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/handoffs"
+    },
+    "response": {
+      "json": {
+        "code": "decision-needs-person",
+        "detail": "opening a browser session stays with the person: do it in the app or in a terminal outside the run",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:decision-needs-person"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a session cannot open another one",
+    "request": {
+      "auth": "session",
+      "method": "POST",
+      "path": "/api/v1/auth/handoffs"
+    },
+    "response": {
+      "json": {
+        "code": "token-required",
+        "detail": "only token holders can open browser sessions",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:token-required"
       },
       "status": 403
     }

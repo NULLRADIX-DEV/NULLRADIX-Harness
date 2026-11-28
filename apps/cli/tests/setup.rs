@@ -175,6 +175,36 @@ fn a_token_cannot_add_an_account_with_a_folder_of_its_own() {
 }
 
 #[test]
+fn confirm_turn_off_prints_a_code_and_no_link_and_no_agent_may_ask() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let _daemon = Daemon::start(&home);
+
+    let printed = run(&home, &["confirm", "--turn-off"]);
+
+    assert!(printed.status.success(), "{printed:?}");
+    let text = stdout(&printed);
+    let code = text
+        .lines()
+        .find_map(|line| line.strip_prefix("turn-off code: "))
+        .unwrap();
+    assert_eq!(code.len(), 64, "{text}");
+    assert!(!text.contains("http"), "{text}");
+    let both = run(&home, &["confirm", "--turn-off", "--no-open"]);
+    assert!(!both.status.success());
+    let refused = nullradix(&home)
+        .env("NULLRADIX_RUN", "run-1")
+        .args(["confirm", "--turn-off"])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success(), "{refused:?}");
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("decision-needs-person"),
+        "{refused:?}"
+    );
+}
+
+#[test]
 fn install_dry_run_lists_the_folder_of_every_account() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");

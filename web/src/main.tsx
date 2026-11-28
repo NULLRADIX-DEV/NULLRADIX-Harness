@@ -22,7 +22,7 @@ import { dismissStartOverlay } from './shared/lib/startOverlay';
 import { themesQuery } from './shared/query/themes';
 
 // before the router reads the address: the sign-in leaves the key of this tab in it
-adoptTabKey();
+const adopted = adoptTabKey();
 shareTabKey();
 const confirmCode = takeConfirmCode();
 
@@ -46,6 +46,7 @@ function Root() {
 }
 
 const start = async () => {
+  await adopted;
   // a tab opened without the fragment asks the other tabs for a key before it shows a hint
   if (readTabKey() === null) await askForTabKey();
   // the theme list also fills the cache the settings read

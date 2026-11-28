@@ -1,8 +1,10 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { ApiProblemError } from '../../shared/api/errors';
 import { hasTabChannel, listenTab, postTab } from '../../shared/api/tabChannel';
 import { readTabKey } from '../../shared/api/tabKey';
 import { takeConfirmCode } from './confirmLink';
+import { sessionKeys } from '../session/queries';
 import { useRedeemStepUp } from './queries';
 import './stepUp.css';
 
@@ -19,6 +21,7 @@ function failure(error: unknown): string {
 // Redeems a code with the key of this tab or hands it to the other tabs.
 export function StepUpCapture({ first = null }: { first?: string | null }) {
   const { mutate } = useRedeemStepUp();
+  const queryClient = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const waiting = useRef<{ code: string; timer?: ReturnType<typeof setTimeout> } | null>(null);
   // a code works once, and StrictMode runs the effect twice
@@ -53,7 +56,10 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
       if (handled.current.has(code)) return;
       handled.current.add(code);
       if (readTabKey() !== null) {
-        confirm(code, true);
+        // the other tabs show the confirmation too
+        confirm(code, true, (ok) => {
+          if (ok) postTab({ type: 'done', code, ok });
+        });
         return;
       }
       if (!hasTabChannel()) {
@@ -76,11 +82,14 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
           postTab({ type: 'done', code: message.code, ok });
         });
       }
-      // a refusal is not the end: the code may be taken by another tab, or time runs out
-      if (message.type === 'done' && message.ok && waiting.current?.code === message.code) {
-        clearTimeout(waiting.current.timer);
-        waiting.current = null;
-        setNotice('Confirmed in your open NULLRADIX tab. You can close this one.');
+      if (message.type === 'done' && message.ok) {
+        void queryClient.invalidateQueries({ queryKey: sessionKeys.all });
+        // a refusal is not the end: the code may be taken by another tab, or time runs out
+        if (waiting.current?.code === message.code) {
+          clearTimeout(waiting.current.timer);
+          waiting.current = null;
+          setNotice('Confirmed in your open NULLRADIX tab. You can close this one.');
+        }
       }
     });
     window.addEventListener('hashchange', fromAddress);
@@ -92,7 +101,7 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
       stop();
       clearTimeout(waiting.current?.timer);
     };
-  }, [mutate, first]);
+  }, [mutate, queryClient, first]);
 
   if (notice === null) return null;
   return (

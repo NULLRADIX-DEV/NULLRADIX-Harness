@@ -13,14 +13,21 @@ export const STEP_UP_HOW =
   'Run nullradix confirm in a terminal and open the link it prints, or choose Confirm changes in the tray menu of the desktop app. Then save again.';
 
 const TURN_OFF_HOW =
-  'To turn the check off, run nullradix confirm --no-open in a terminal and enter its code here. A confirmed session is not enough.';
+  'To turn the check off, run nullradix confirm --turn-off in a terminal and enter its code here. A confirmed session is not enough.';
 
 const CODE_INVALID = 'The confirmation code is unknown or expired. Run nullradix confirm again.';
+
+const TURN_OFF_CODE_INVALID =
+  'The code is unknown, expired or no turn-off code. Run nullradix confirm --turn-off again.';
 
 const MESSAGES = {
   'step-up-required': STEP_UP_HOW,
   'step-up-code-required': TURN_OFF_HOW,
   'command-change-needs-person': 'Only the person in the app can change this.',
+  'step-up-code-invalid': TURN_OFF_CODE_INVALID,
+};
+
+const REDEEM_MESSAGES = {
   'step-up-code-invalid': CODE_INVALID,
 };
 
@@ -132,7 +139,7 @@ export function StepUpPanel() {
           </div>
         </>
       )}
-      <FormError message={problemMessage(redeem.error, MESSAGES, 'Could not confirm.')} />
+      <FormError message={problemMessage(redeem.error, REDEEM_MESSAGES, 'Could not confirm.')} />
     </div>
   );
 }

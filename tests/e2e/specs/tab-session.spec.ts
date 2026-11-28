@@ -61,8 +61,6 @@ test('the link of nullradix confirm confirms the signed-in session from a second
   await opened.goto(`/#confirm=${code}`);
   // the second tab takes the key of the first and redeems the code itself
   await expect(opened.getByText('Confirmed for 10 minutes')).toBeVisible();
-  // a reload shows the confirmation: the first tab does not poll the session
-  await page.reload();
   await expect(page.getByText(/Confirmed until/)).toBeVisible();
 });
 
@@ -85,5 +83,33 @@ test('turning the confirmation off asks for a fresh code', async ({ page }) => {
   await expect(form.getByText(/A confirmed session is not enough/)).toBeVisible();
   await form.getByRole('textbox', { name: 'Confirmation code' }).fill('0'.repeat(64));
   await form.getByRole('button', { name: 'Turn off' }).click();
-  await expect(form.getByText('The confirmation code is unknown or expired')).toBeVisible();
+  await expect(form.getByText(/unknown, expired or no turn-off code/)).toBeVisible();
+});
+
+test('a made-up key in the address signs no tab out', async ({ page }) => {
+  const key = await page.evaluate<string | null>(KEY_IN_STORAGE);
+  const other = await page.context().newPage();
+  await other.goto(`/board#k=${'0'.repeat(64)}`);
+  // the other tab does not keep the made-up key and works through the key of the first tab
+  await expect(other.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+  expect(await other.evaluate<string | null>(KEY_IN_STORAGE)).toBe(key);
+  expect(await page.evaluate<string | null>(KEY_IN_STORAGE)).toBe(key);
+  await page.reload();
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+});
+
+test('a second nullradix open gives every tab the new key', async ({ page, daemon }) => {
+  const other = await page.context().newPage();
+  await other.goto('/board');
+  await expect(other.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+  const before = await page.evaluate<string | null>(KEY_IN_STORAGE);
+  // the new sign-in replaces the cookie and ends the session of the old key
+  await other.goto(await daemon.handoff());
+  await expect(other.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+  await expect.poll(() => page.evaluate<string | null>(KEY_IN_STORAGE)).not.toBe(before);
+  expect(await page.evaluate<string | null>(KEY_IN_STORAGE)).toBe(
+    await other.evaluate<string | null>(KEY_IN_STORAGE),
+  );
+  await page.reload();
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
 });
