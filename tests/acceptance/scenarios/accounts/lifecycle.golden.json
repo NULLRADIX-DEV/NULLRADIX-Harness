@@ -106,60 +106,6 @@
     }
   },
   {
-    "name": "add with a network folder",
-    "request": {
-      "body": {
-        "configDir": "//attacker.example/share/claude",
-        "name": "Odd"
-      },
-      "method": "POST",
-      "path": "/api/v1/accounts"
-    },
-    "response": {
-      "json": {
-        "code": "network-path-refused",
-        "detail": "//attacker.example/share/claude is on another machine, add its host to network_shares under [server] in the config file to allow it",
-        "errors": [
-          {
-            "field": "configDir",
-            "message": "//attacker.example/share/claude is on another machine, add its host to network_shares under [server] in the config file to allow it"
-          }
-        ],
-        "status": 422,
-        "title": "Unprocessable Entity",
-        "type": "urn:nullradix:problem:network-path-refused"
-      },
-      "status": 422
-    }
-  },
-  {
-    "name": "add with a device folder",
-    "request": {
-      "body": {
-        "configDir": "\\\\?\\C:\\claude",
-        "name": "Odd"
-      },
-      "method": "POST",
-      "path": "/api/v1/accounts"
-    },
-    "response": {
-      "json": {
-        "code": "network-path-refused",
-        "detail": "\\\\?\\C:\\claude is a device path and can never be used",
-        "errors": [
-          {
-            "field": "configDir",
-            "message": "\\\\?\\C:\\claude is a device path and can never be used"
-          }
-        ],
-        "status": 422,
-        "title": "Unprocessable Entity",
-        "type": "urn:nullradix:problem:network-path-refused"
-      },
-      "status": 422
-    }
-  },
-  {
     "name": "list over HTTP",
     "request": {
       "method": "GET",

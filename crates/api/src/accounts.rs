@@ -840,18 +840,23 @@ mod tests {
     #[tokio::test]
     async fn network_and_device_folders_are_refused_as_a_field_problem() {
         let api = test_api().await;
+        let cookie = confirmed(&api).await;
         for dir in [
             "//attacker.example/share/claude",
             "\\\\attacker.example\\share\\claude",
             "\\\\?\\C:\\claude",
             "~/\\\\attacker.example\\share",
         ] {
-            let (status, json) = call(
-                &api,
-                Request::post("/api/v1/accounts"),
-                Some(json!({ "name": "Max", "configDir": dir })),
-            )
-            .await;
+            let body = json!({ "name": "Max", "configDir": dir });
+            // the check for commands comes first for a token
+            let (status, json) =
+                call(&api, Request::post("/api/v1/accounts"), Some(body.clone())).await;
+            assert_eq!(
+                problem(status, &json),
+                (403, "command-change-needs-person"),
+                "{dir}"
+            );
+            let (status, json) = create_as(&api, &cookie, body).await;
             assert_eq!(
                 problem(status, &json),
                 (422, "network-path-refused"),
