@@ -242,6 +242,7 @@ impl Cursor {
                 `Last-Event-ID`."),
         (status = 401, body = Problem),
         (status = 422, body = Problem),
+        (status = 503, description = "Too many open streams: `event-streams-busy`", body = Problem),
     )
 )]
 pub(crate) async fn events(
@@ -249,6 +250,9 @@ pub(crate) async fn events(
     headers: HeaderMap,
     ApiQuery(query): ApiQuery<EventsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let slot = state.limits.event_stream().ok_or_else(|| {
+        AppError::unavailable("event-streams-busy", "too many event streams are open")
+    })?;
     let head = state.signal.subscribe();
     let since = last_event_id(&headers)?.or(query.since);
     let resume = plan(state.changes.as_ref(), since, MAX_BACKLOG).await?;
@@ -271,7 +275,11 @@ pub(crate) async fn events(
     let events = stream::once(async move { opening })
         .chain(changes)
         .take_until(shutdown)
-        .map(Ok::<_, Infallible>);
+        .map(move |event| {
+            // the place in the stream cap is held until the stream is dropped
+            let _slot = &slot;
+            Ok::<_, Infallible>(event)
+        });
     Ok(Sse::new(events).keep_alive(KeepAlive::default()))
 }
 
@@ -285,7 +293,8 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
-    use crate::tests::{TestApi, bearer, local, send, test_api};
+    use crate::Limits;
+    use crate::tests::{TestApi, bearer, local, send, test_api, test_api_with};
 
     async fn open(api: &TestApi, path: &str, last_event_id: Option<&str>) -> Body {
         let mut request = bearer(Request::get(path), &api.token);
@@ -388,6 +397,22 @@ mod tests {
         })
         .await;
         assert!(end.is_ok(), "stream did not end");
+    }
+
+    #[tokio::test]
+    async fn refuses_streams_above_the_cap_until_one_ends() {
+        let limits = Limits::new(Duration::from_secs(10), Duration::from_secs(10), 8, 2);
+        let api = test_api_with(None, limits).await;
+        let first = open(&api, "/api/v1/events", None).await;
+        let _second = open(&api, "/api/v1/events", None).await;
+        let request = bearer(Request::get("/api/v1/events"), &api.token)
+            .body(Body::empty())
+            .unwrap();
+        let (status, _, json) = send(&api.router, request).await;
+        assert_eq!(status, 503);
+        assert_eq!(json["code"], "event-streams-busy");
+        drop(first);
+        let _third = open(&api, "/api/v1/events", None).await;
     }
 
     #[tokio::test]

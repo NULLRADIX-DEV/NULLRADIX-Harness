@@ -36,8 +36,9 @@ impl CurlUsageApi {
     /// The request as a curl config, so the token never appears on a command line.
     fn config(&self, token: &str) -> Option<String> {
         Some(format!(
-            "url = \"{}\"\nheader = \"Authorization: Bearer {}\"\nheader = \"anthropic-beta: oauth-2025-04-20\"\nheader = \"User-Agent: ai-harness\"\n",
+            "url = \"{}\"\n{}header = \"Authorization: Bearer {}\"\nheader = \"anthropic-beta: oauth-2025-04-20\"\nheader = \"User-Agent: nullradix\"\n",
             curl::quoted(&self.url)?,
+            curl::pinned(&self.url),
             curl::quoted(token)?
         ))
     }
@@ -110,6 +111,13 @@ mod tests {
 
     const TOKEN: &str = "sk-ant-oat01-fake-access-token";
 
+    #[test]
+    fn the_production_request_follows_no_redirect_and_speaks_https_only() {
+        let config = CurlUsageApi::anthropic().config(TOKEN).unwrap();
+        assert!(config.contains("max-redirs = 0\n"), "{config}");
+        assert!(config.contains("proto = \"=https\"\n"), "{config}");
+    }
+
     /// Answers one request with `response` and reports the request text.
     fn serve(response: &'static str) -> (String, mpsc::Receiver<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -170,7 +178,7 @@ mod tests {
         assert!(request.starts_with("get /api/oauth/usage"));
         assert!(request.contains(&format!("authorization: bearer {}", TOKEN.to_lowercase())));
         assert!(request.contains("anthropic-beta: oauth-2025-04-20"));
-        assert!(request.contains("user-agent: ai-harness"));
+        assert!(request.contains("user-agent: nullradix"));
     }
 
     #[tokio::test]

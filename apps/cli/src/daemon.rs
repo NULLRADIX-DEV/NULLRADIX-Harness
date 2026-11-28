@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, bail};
-use nullradix_api::{API_VERSION, AllowedHosts, ApiState};
+use nullradix_api::{API_VERSION, AllowedHosts, ApiState, Limits};
 use nullradix_app::accounts::AccountService;
 use nullradix_app::auth::AuthService;
 use nullradix_app::autostart::{Autostart, AutostartService, NoAutostart};
@@ -185,6 +185,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
             plugin: config.profile.plugin_id(),
         },
     );
+    let limits = Limits::default();
     let state = ApiState {
         auth,
         projects,
@@ -231,6 +232,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
         signal,
         shutdown: shutdown.clone(),
         allowed_hosts: AllowedHosts::loopback_and(config.allowed_hosts.iter().cloned()),
+        limits: limits.clone(),
         secure_cookies: false,
         web_dir: config.web_dir.clone(),
     };
@@ -242,6 +244,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
     let http = nullradix_api::serve(
         listener,
         nullradix_api::router(state),
+        &limits,
         shutdown.clone().cancelled_owned(),
     );
     let served = tokio::select! {

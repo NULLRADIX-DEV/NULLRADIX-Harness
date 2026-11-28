@@ -268,13 +268,52 @@ pub fn worktree_mismatch(path: &str, branch: &str, reason: &str) -> AppError {
     )
 }
 
+/// Longest git error output a problem carries; the log keeps all of it.
+const GIT_DETAIL_LIMIT: usize = 1000;
+
 /// A git command failed; `detail` is its error output or exit code.
 #[must_use]
 pub fn git_failed(args: &[&str], detail: &str) -> AppError {
+    let command = redact_credentials(&args.join(" "));
+    let detail = redact_credentials(detail);
+    tracing::debug!(%command, %detail, "git failed");
     AppError::invalid(
         "git-failed",
-        format!("git failed (git {}): {detail}", args.join(" ")),
+        format!(
+            "git failed (git {}): {}",
+            cap_text(&command),
+            cap_text(&detail)
+        ),
     )
+}
+
+/// Replaces the user and password of every `scheme://user:pass@host` with `***`.
+fn redact_credentials(text: &str) -> String {
+    let mut redacted = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(found) = rest.find("://") {
+        let (head, tail) = rest.split_at(found + 3);
+        redacted.push_str(head);
+        let end = tail
+            .find(|c: char| c.is_whitespace() || matches!(c, '/' | '"' | '\'' | '<' | '>'))
+            .unwrap_or(tail.len());
+        rest = match tail[..end].rfind('@') {
+            Some(at) => {
+                redacted.push_str("***");
+                &tail[at..]
+            }
+            None => tail,
+        };
+    }
+    redacted.push_str(rest);
+    redacted
+}
+
+fn cap_text(text: &str) -> String {
+    match text.char_indices().nth(GIT_DETAIL_LIMIT) {
+        Some((end, _)) => format!("{}...", &text[..end]),
+        None => text.to_owned(),
+    }
 }
 
 #[must_use]
@@ -333,5 +372,53 @@ mod tests {
         );
         let missing = not_found(Id::from_uuid(uuid::Uuid::from_u128(2)));
         assert_eq!(missing.kind(), ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn git_failures_hide_credentials_in_urls() {
+        let error = git_failed(
+            &["fetch", "https://me:hunter2@example.com/repo.git"],
+            "fatal: unable to access 'https://me:hunter2@example.com/repo.git/': 403; \
+             ssh://deploy@host.example/x and https://ghp_token@github.com/o/r",
+        );
+        let message = error.message();
+        assert!(!message.contains("hunter2"), "{message}");
+        assert!(!message.contains("ghp_token"), "{message}");
+        assert!(!message.contains("deploy@"), "{message}");
+        assert!(
+            message.contains("git fetch https://***@example.com/repo.git)"),
+            "{message}"
+        );
+        assert!(
+            message.contains("'https://***@example.com/repo.git/'"),
+            "{message}"
+        );
+        assert!(message.contains("https://***@github.com/o/r"), "{message}");
+    }
+
+    #[test]
+    fn redaction_leaves_text_without_credentials_alone() {
+        for text in ["see https://example.com/a@b", "no url, only a@b", "://", ""] {
+            assert_eq!(redact_credentials(text), text);
+        }
+        assert_eq!(
+            redact_credentials("https://u:p@ss@host/x"),
+            "https://***@host/x"
+        );
+        assert_eq!(redact_credentials("://@x ://"), "://***@x ://");
+    }
+
+    #[test]
+    fn git_failures_cap_long_output() {
+        let prefix = "git failed (git status): ".len();
+        let long = "e".repeat(GIT_DETAIL_LIMIT + 500);
+        let message = git_failed(&["status"], &long).message().to_owned();
+        assert!(message.ends_with("eee..."), "{message}");
+        assert_eq!(message.len(), prefix + GIT_DETAIL_LIMIT + 3);
+        let exact = "e".repeat(GIT_DETAIL_LIMIT);
+        assert!(!git_failed(&["status"], &exact).message().ends_with("..."));
+        let wide = "\u{e9}".repeat(GIT_DETAIL_LIMIT + 1);
+        let message = git_failed(&["status"], &wide).message().to_owned();
+        assert!(message.ends_with("\u{e9}..."), "{message}");
     }
 }

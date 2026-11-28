@@ -1991,6 +1991,7 @@ mod tests {
             signal,
             shutdown: tokio_util::sync::CancellationToken::new(),
             allowed_hosts: AllowedHosts::loopback_and([]),
+            limits: nullradix_api::Limits::default(),
             secure_cookies: false,
             web_dir: None,
         }
@@ -2070,9 +2071,14 @@ mod tests {
                 let shutdown = async {
                     let _ = stopped.await;
                 };
-                nullradix_api::serve(listener, nullradix_api::router(state), shutdown)
-                    .await
-                    .unwrap();
+                nullradix_api::serve(
+                    listener,
+                    nullradix_api::router(state),
+                    &nullradix_api::Limits::default(),
+                    shutdown,
+                )
+                .await
+                .unwrap();
             });
         });
         TestDaemon {

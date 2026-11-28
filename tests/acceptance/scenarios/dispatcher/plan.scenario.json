@@ -166,23 +166,23 @@
     },
     {
       "name": "plan an unknown ticket",
-      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-99/plan-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-99/plan-runs" }
     },
     {
       "name": "plan something that is no ticket key",
-      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-Q1/plan-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-Q1/plan-runs" }
     },
     {
       "name": "plan a ticket that is done",
-      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-2/plan-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-2/plan-runs" }
     },
     {
       "name": "plan a ticket that waits on a question",
-      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-3/plan-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-3/plan-runs" }
     },
     {
       "name": "plan a ticket of a board without a repository",
-      "http": { "method": "POST", "path": "/api/v1/tickets/OTH-1/plan-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/tickets/OTH-1/plan-runs" }
     },
     {
       "name": "the state before the planning",
@@ -210,7 +210,7 @@
     },
     {
       "name": "start it a second time while the first is not settled",
-      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-1/plan-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-1/plan-runs" }
     },
     {
       "name": "a pause holds a planning back",
@@ -218,7 +218,7 @@
     },
     {
       "name": "planning during the pause",
-      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-4/plan-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-4/plan-runs" }
     },
     { "name": "lift the pause", "cli": { "args": ["dispatcher", "resume"] } },
     {
@@ -280,7 +280,7 @@
     },
     {
       "name": "plan the fourth ticket, which stays without a result",
-      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-4/plan-runs", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/tickets/ARC-4/plan-runs" }
     },
     {
       "name": "the second run ended",

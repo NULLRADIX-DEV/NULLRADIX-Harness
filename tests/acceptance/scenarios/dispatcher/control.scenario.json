@@ -78,15 +78,11 @@
     },
     {
       "name": "resume",
-      "http": { "method": "POST", "path": "/api/v1/dispatcher/resume", "body": {} }
+      "http": { "method": "POST", "path": "/api/v1/dispatcher/resume" }
     },
     {
       "name": "run a pass on request",
-      "http": {
-        "method": "POST",
-        "path": "/api/v1/dispatcher/passes",
-        "body": {}
-      }
+      "http": { "method": "POST", "path": "/api/v1/dispatcher/passes" }
     },
     {
       "name": "the state after the pass",

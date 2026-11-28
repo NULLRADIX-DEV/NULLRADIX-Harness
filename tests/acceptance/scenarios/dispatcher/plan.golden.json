@@ -335,7 +335,6 @@
   {
     "name": "plan an unknown ticket",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/tickets/ARC-99/plan-runs"
     },
@@ -353,7 +352,6 @@
   {
     "name": "plan something that is no ticket key",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/tickets/ARC-Q1/plan-runs"
     },
@@ -371,7 +369,6 @@
   {
     "name": "plan a ticket that is done",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/tickets/ARC-2/plan-runs"
     },
@@ -389,7 +386,6 @@
   {
     "name": "plan a ticket that waits on a question",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/tickets/ARC-3/plan-runs"
     },
@@ -407,7 +403,6 @@
   {
     "name": "plan a ticket of a board without a repository",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/tickets/OTH-1/plan-runs"
     },
@@ -570,7 +565,6 @@
   {
     "name": "start it a second time while the first is not settled",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/tickets/ARC-1/plan-runs"
     },
@@ -600,7 +594,6 @@
   {
     "name": "planning during the pause",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/tickets/ARC-4/plan-runs"
     },
@@ -938,7 +931,6 @@
   {
     "name": "plan the fourth ticket, which stays without a result",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/tickets/ARC-4/plan-runs"
     },

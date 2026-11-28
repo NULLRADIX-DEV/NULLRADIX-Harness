@@ -324,7 +324,6 @@
   {
     "name": "research an unknown question",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/questions/ARC-Q99/research-runs"
     },
@@ -342,7 +341,6 @@
   {
     "name": "research something that is no question key",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/questions/ARC-1/research-runs"
     },
@@ -360,7 +358,6 @@
   {
     "name": "research a decided question",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/questions/ARC-Q2/research-runs"
     },
@@ -378,7 +375,6 @@
   {
     "name": "research a question of a project without a repository",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/questions/OTH-Q1/research-runs"
     },
@@ -467,7 +463,6 @@
   {
     "name": "start it a second time while the first is not settled",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/questions/ARC-Q1/research-runs"
     },
@@ -497,7 +492,6 @@
   {
     "name": "research during the pause",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/questions/ARC-Q3/research-runs"
     },
@@ -758,7 +752,6 @@
   {
     "name": "research the third question, which stays without a result",
     "request": {
-      "body": {},
       "method": "POST",
       "path": "/api/v1/questions/ARC-Q3/research-runs"
     },
