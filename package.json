@@ -5,7 +5,18 @@
   "type": "module",
   "prettier": {
     "printWidth": 100,
-    "singleQuote": true
+    "singleQuote": true,
+    "overrides": [
+      {
+        "files": [
+          "plugin/.claude-plugin/plugin.json",
+          "apps/desktop/tauri.conf.json"
+        ],
+        "options": {
+          "parser": "json-stringify"
+        }
+      }
+    ]
   },
   "engines": {
     "node": "^24.11"

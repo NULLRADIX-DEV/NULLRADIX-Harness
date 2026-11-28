@@ -10,11 +10,11 @@ const CONFIG: &str = "release-please-config.json";
 const LOCKS: &[&str] = &["Cargo.lock", "apps/desktop/Cargo.lock"];
 const SELECTOR: &str = "@.name.value=='";
 /// Files whose version must move with the workspace, and where it sits.
-const VERSION_FILES: &[(&str, &str)] = &[
-    ("Cargo.toml", "$.workspace.package.version"),
-    ("apps/desktop/Cargo.toml", "$.package.version"),
-    ("apps/desktop/tauri.conf.json", "$.version"),
-    ("plugin/.claude-plugin/plugin.json", "$.version"),
+const VERSION_FILES: &[(&str, &str, &str)] = &[
+    ("Cargo.toml", "toml", "$.workspace.package.version"),
+    ("apps/desktop/Cargo.toml", "toml", "$.package.version"),
+    ("apps/desktop/tauri.conf.json", "json", "$.version"),
+    ("plugin/.claude-plugin/plugin.json", "json", "$.version"),
 ];
 
 /// Names of lockfile packages that come from this repository (no registry source).
@@ -53,13 +53,12 @@ fn unbumped_files(config: &Value) -> Vec<&'static str> {
     let files = config["packages"]["."]["extra-files"].as_array();
     VERSION_FILES
         .iter()
-        .filter(|(path, jsonpath)| {
-            !files
-                .into_iter()
-                .flatten()
-                .any(|file| file["path"] == *path && file["jsonpath"] == *jsonpath)
+        .filter(|(path, kind, jsonpath)| {
+            !files.into_iter().flatten().any(|file| {
+                file["path"] == *path && file["type"] == *kind && file["jsonpath"] == *jsonpath
+            })
         })
-        .map(|(path, _)| *path)
+        .map(|(path, _, _)| *path)
         .collect()
 }
 
@@ -71,7 +70,7 @@ fn missing(config: &Value, lock_path: &str, lock: &str) -> Vec<String> {
         .collect()
 }
 
-/// Every workspace crate in a lockfile must be bumped by release-please, or --locked builds fail.
+/// Release-please must bump every version file and workspace lock entry, or the release fails.
 pub(super) fn run(root: &Path) -> Result<Vec<Violation>> {
     let config_path = root.join(CONFIG);
     if !config_path.is_file() {
@@ -161,7 +160,9 @@ mod tests {
     fn reports_a_version_file_without_entry() {
         let mut files: Vec<Value> = VERSION_FILES
             .iter()
-            .map(|(path, jsonpath)| serde_json::json!({ "path": path, "jsonpath": jsonpath }))
+            .map(|(path, kind, jsonpath)| {
+                serde_json::json!({ "path": path, "type": kind, "jsonpath": jsonpath })
+            })
             .collect();
         let full = serde_json::json!({ "packages": { ".": { "extra-files": files.clone() } } });
         assert_eq!(unbumped_files(&full), Vec::<&str>::new());
