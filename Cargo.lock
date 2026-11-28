@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-acceptance"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libtest-mimic",
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -1336,7 +1336,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1364,7 +1364,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "nullradix-api",
@@ -1385,7 +1385,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-domain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cssparser",
  "semver",
@@ -1398,7 +1398,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-fake-claude"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nix",
  "serde_json",
@@ -1407,7 +1407,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-os"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "directories",
  "jiff",
@@ -1423,7 +1423,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-runner"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "nullradix-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "nullradix-app",
@@ -2879,7 +2879,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
