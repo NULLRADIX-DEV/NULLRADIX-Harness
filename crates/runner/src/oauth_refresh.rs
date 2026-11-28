@@ -395,7 +395,6 @@ mod tests {
     use std::sync::mpsc;
     use std::thread;
 
-    use nullradix_domain::NetworkShares;
     use tokio::sync::Notify;
 
     use super::*;
@@ -1009,7 +1008,8 @@ mod tests {
             .next()
             .unwrap();
         let logins = Arc::new(
-            LocalClaudeLogins::new(None, None).with_network_shares(NetworkShares::new([host])),
+            LocalClaudeLogins::new(None, None)
+                .with_network_shares(nullradix_domain::NetworkShares::new([host])),
         );
         let listed = LocalLoginRenewal::new(logins, endpoint.clone(), Arc::new(FixedClock))
             .with_keychain(false);
