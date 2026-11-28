@@ -1,7 +1,7 @@
 {
   "name": "nullradix",
   "displayName": "NULLRADIX",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Board, tickets, sessions and worktrees for parallel Claude Code sessions.",
   "author": {
     "name": "NULLRADIX-Dev"
