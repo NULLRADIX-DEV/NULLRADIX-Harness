@@ -10,6 +10,8 @@ use nullradix_app::dispatch::detached::{
     detached_subject,
 };
 
+use nullradix_domain::NetworkShares;
+
 use crate::cleanup::{blocking, remove_links};
 use crate::git::local_key;
 use crate::worktree::{LONG_PATHS, attempt, ensure_long_paths, exists, git};
@@ -18,13 +20,24 @@ use crate::worktree::{LONG_PATHS, attempt, ensure_long_paths, exists, git};
 #[derive(Debug, Clone)]
 pub struct LocalDetached {
     plugin: Option<String>,
+    shares: NetworkShares,
 }
 
 impl LocalDetached {
     /// Worktrees get the plugin with this id switched on; `None` leaves them alone.
     #[must_use]
-    pub const fn new(plugin: Option<String>) -> Self {
-        Self { plugin }
+    pub fn new(plugin: Option<String>) -> Self {
+        Self {
+            plugin,
+            shares: NetworkShares::default(),
+        }
+    }
+
+    /// Lets checkouts on these hosts be used.
+    #[must_use]
+    pub fn with_network_shares(mut self, shares: NetworkShares) -> Self {
+        self.shares = shares;
+        self
     }
 }
 
@@ -86,6 +99,7 @@ async fn remove(request: &DetachedRemove) -> Result<DetachedRemoved, AppError> {
 #[async_trait]
 impl DetachedWorktreePort for LocalDetached {
     async fn create(&self, request: &DetachedCreate) -> Result<DetachedCreated, AppError> {
+        crate::git::refuse_networks(&self.shares, &[&request.root])?;
         if !detached_ref_valid(&request.at) {
             return Err(detached_ref_invalid(&request.at));
         }
@@ -114,10 +128,12 @@ impl DetachedWorktreePort for LocalDetached {
     }
 
     async fn remove(&self, request: &DetachedRemove) -> Result<DetachedRemoved, AppError> {
+        crate::git::refuse_networks(&self.shares, &[&request.root, &request.path])?;
         remove(request).await
     }
 
     async fn list(&self, root: &str, purpose: DetachedPurpose) -> Result<Vec<String>, AppError> {
+        crate::git::refuse_networks(&self.shares, &[root])?;
         let Some(list) = attempt(Path::new(root), &["worktree", "list", "--porcelain"]).await?
         else {
             return Ok(Vec::new());
@@ -443,5 +459,39 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(listed, vec![path]);
+    }
+
+    #[tokio::test]
+    async fn a_checkout_on_an_unlisted_share_is_refused_by_every_call() {
+        let port = LocalDetached::new(None);
+        let root = String::from("//srv/share/arches");
+        let code = |error: AppError| error.code();
+        let create = DetachedCreate {
+            root: root.clone(),
+            purpose: DetachedPurpose::Research,
+            subject: String::from("ARC-Q0001"),
+            at: String::from("main"),
+        };
+        assert_eq!(
+            code(port.create(&create).await.unwrap_err()),
+            "network-path-refused"
+        );
+        let remove = DetachedRemove {
+            root: String::from("/work/arches"),
+            purpose: DetachedPurpose::Research,
+            path: String::from("//srv/share/arches-research/ARC-Q0001"),
+        };
+        assert_eq!(
+            code(port.remove(&remove).await.unwrap_err()),
+            "network-path-refused"
+        );
+        assert_eq!(
+            code(
+                port.list(&root, DetachedPurpose::Research)
+                    .await
+                    .unwrap_err()
+            ),
+            "network-path-refused"
+        );
     }
 }

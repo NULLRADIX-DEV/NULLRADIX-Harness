@@ -30,7 +30,7 @@ impl FolderSlots {
         self
     }
 
-    /// Refuses a network path before it is touched.
+    /// Fails for a network path.
     fn refuse(&self, dir: &str) -> Result<(), SlotFailure> {
         if self.shares.refuses(dir) {
             return Err(SlotFailure::Failed(

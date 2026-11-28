@@ -20,6 +20,7 @@ use nullradix_app::worktrees::{
 use nullradix_domain::{Id, NetworkShares, Run};
 use nullradix_os::{create_data_dir, spawn_detached, write_atomic};
 
+use crate::accounts::refuses_typed;
 use crate::protocol::{EnvFile, RunFiles, SpecFile, read_output, read_report, supervisor_alive};
 use crate::transcript::{TranscriptRoots, Transcripts};
 
@@ -88,10 +89,7 @@ impl LocalRunner {
 
     /// Turns away a network path before any file call.
     fn refuse_networks(&self, paths: &[&str]) -> Result<(), AppError> {
-        match paths.iter().find(|path| self.shares.refuses(path)) {
-            Some(path) => Err(network_path_refused(path)),
-            None => Ok(()),
-        }
+        crate::git::refuse_networks(&self.shares, paths)
     }
 
     fn files(&self, run: Id<Run>) -> RunFiles {
@@ -103,6 +101,14 @@ fn validate(spec: &RunSpec, shares: &NetworkShares) -> Result<(), AppError> {
     let cwd = spec.cwd.to_string_lossy();
     if shares.refuses(&cwd) {
         return Err(network_path_refused(&cwd));
+    }
+    // the dispatcher passes the stored folder of the account
+    let config = [&spec.env.set, &spec.env.defaults]
+        .into_iter()
+        .filter_map(|env| env.get("CLAUDE_CONFIG_DIR"))
+        .find(|dir| refuses_typed(shares, dir));
+    if let Some(dir) = config {
+        return Err(network_path_refused(dir));
     }
     spec.validate()?;
     if !spec.cwd.is_dir() {
@@ -378,7 +384,7 @@ mod tests {
         fs::create_dir(&runs).unwrap();
         fs::set_permissions(&runs, fs::Permissions::from_mode(0o755)).unwrap();
         let id = Id::from_uuid(uuid::Uuid::from_u128(4));
-        // the run folder is made before the missing supervisor fails
+        // the missing supervisor fails after the run folder is made
         let _ = runner(dir.path())
             .start(id, &spec(dir.path().to_path_buf()))
             .await;
@@ -534,5 +540,38 @@ mod tests {
         assert_eq!(closed.folders_exist(&paths).await.unwrap(), [false, true]);
         let listed = runner(dir.path()).with_network_shares(NetworkShares::new([host]));
         assert_eq!(listed.folders_exist(&paths).await.unwrap(), [true, true]);
+    }
+
+    #[tokio::test]
+    async fn a_stored_network_account_folder_in_the_environment_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = runner(dir.path());
+        let id = Id::from_uuid(uuid::Uuid::from_u128(6));
+        for (set, folder) in [(true, "//srv/share/claude"), (false, "~/\\\\srv\\share")] {
+            let mut spec = spec(dir.path().to_path_buf());
+            let env = if set {
+                &mut spec.env.set
+            } else {
+                &mut spec.env.defaults
+            };
+            env.insert(String::from("CLAUDE_CONFIG_DIR"), folder.to_owned());
+            assert_eq!(
+                runner.check(&spec).await.unwrap_err().code(),
+                "network-path-refused",
+                "{folder}"
+            );
+            assert_eq!(
+                runner.start(id, &spec).await.unwrap_err().code(),
+                "network-path-refused",
+                "{folder}"
+            );
+        }
+        let mut local = spec(dir.path().to_path_buf());
+        local
+            .env
+            .set
+            .insert(String::from("CLAUDE_CONFIG_DIR"), text_of(dir.path()));
+        assert!(runner.check(&local).await.is_ok());
+        assert!(!dir.path().join("runs").exists());
     }
 }

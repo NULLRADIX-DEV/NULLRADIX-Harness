@@ -48,6 +48,14 @@ pub(crate) async fn locate(path: &str, shares: &NetworkShares) -> Result<Located
     Ok(Located { root, key, name })
 }
 
+/// Turns away the first of `paths` that reaches an unlisted machine, before any file call.
+pub(crate) fn refuse_networks(shares: &NetworkShares, paths: &[&str]) -> Result<(), AppError> {
+    match paths.iter().find(|path| shares.refuses(path)) {
+        Some(path) => Err(network_path_refused(path)),
+        None => Ok(()),
+    }
+}
+
 /// Refuses a resolved root on an unlisted share.
 fn checked_root(root: String, shares: &NetworkShares) -> Result<String, AppError> {
     if shares.refuses(&root) {
@@ -372,7 +380,7 @@ mod tests {
         );
     }
 
-    /// The doubled path of `path` as the check sees a host and this system sees the folder.
+    /// `path` with one more leading slash, a host to the check and a folder to Unix.
     #[cfg(unix)]
     fn doubled(path: &Path) -> String {
         format!("/{}", text(path))

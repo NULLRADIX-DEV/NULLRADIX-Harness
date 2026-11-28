@@ -218,6 +218,7 @@ async fn serve(config: &Config, discovery: DiscoveryFile) -> anyhow::Result<()> 
             board: &board,
             notifier: start_notifier(config),
             plugin: config.profile.plugin_id(),
+            shares: network_shares(config),
         },
     );
     let limits = Limits::default();
@@ -357,6 +358,7 @@ struct DispatcherParts<'a> {
     board: &'a BoardServices,
     notifier: Arc<dyn Notifier>,
     plugin: String,
+    shares: NetworkShares,
 }
 
 /// What runs for the dispatcher and must end before the store closes.
@@ -413,8 +415,11 @@ fn start_dispatcher(
         limits: parts.usage,
         pauses: Arc::new(store.clone()),
         samples: Arc::new(store.clone()),
-        setup: Arc::new(LocalSetup),
-        detached: Arc::new(LocalDetached::new(Some(parts.plugin.clone()))),
+        setup: Arc::new(LocalSetup::default().with_network_shares(parts.shares.clone())),
+        detached: Arc::new(
+            LocalDetached::new(Some(parts.plugin.clone()))
+                .with_network_shares(parts.shares.clone()),
+        ),
         tracking: Arc::new(store.clone()),
         questions: parts.board.questions.clone(),
         actors: Arc::new(store.clone()),
@@ -428,7 +433,10 @@ fn start_dispatcher(
         worktrees: parts.board.worktrees.clone(),
         worktree_repository: Arc::new(store.clone()),
         merge_jobs: Arc::new(store.clone()),
-        merge_git: Arc::new(nullradix_runner::LocalMergeGit::new(Some(parts.plugin))),
+        merge_git: Arc::new(
+            nullradix_runner::LocalMergeGit::new(Some(parts.plugin))
+                .with_network_shares(parts.shares.clone()),
+        ),
         reviews: parts.board.reviews.clone(),
         clock: Arc::new(SystemClock),
         ids: Arc::new(UuidV7Generator),
