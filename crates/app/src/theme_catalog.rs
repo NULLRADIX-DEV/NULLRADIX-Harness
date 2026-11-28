@@ -997,7 +997,7 @@ pub(crate) mod tests {
         assert_eq!(stale.code(), "version-conflict");
         world.service.remove_source(&id, None).await.unwrap();
         let list = world.service.sources().await.unwrap();
-        assert!(list.sources.is_empty());
+        assert_eq!(list.sources, Vec::<CatalogSource>::new());
         assert_eq!(list.version, Some(Version::INITIAL));
         let unknown = world
             .service
