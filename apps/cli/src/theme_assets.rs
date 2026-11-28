@@ -128,7 +128,9 @@ fn prune_folders(dir: &std::path::Path, keep: &[String]) -> std::io::Result<usiz
         match std::fs::remove_dir_all(entry.path()) {
             Ok(()) => removed += 1,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
+            Err(error) => {
+                tracing::warn!(%error, folder = %entry.path().display(), "cannot prune a preview folder");
+            }
         }
     }
     Ok(removed)

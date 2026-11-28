@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::flights::Flights;
 use crate::theme_catalog::{CatalogFetcher, CatalogService, FetchError, fetch_failed};
 use crate::theme_fetch::Stored;
-use crate::{AppError, auth};
+use crate::{AppError, ErrorKind, auth};
 
 /// Previews fetched at the same time, all sources together.
 pub const MAX_PARALLEL_PREVIEWS: usize = 4;
@@ -155,7 +155,10 @@ impl ThemePreviews {
             .offered_preview(&target.source, &target.theme)
             .await
         {
-            self.empty(&target.source).await;
+            // a passing database error must not empty a live source
+            if gone.kind() == ErrorKind::NotFound {
+                self.empty(&target.source).await;
+            }
             return Err(gone);
         }
         if let Some(error) = stored.error {
