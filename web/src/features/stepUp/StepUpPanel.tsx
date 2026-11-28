@@ -28,7 +28,7 @@ function untilText(until: number): string {
   return new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// Confirmation state of this session and the switch that asks for it before commands change.
+// Confirmation state of this session and the switch for asking before commands change.
 export function StepUpPanel() {
   const session = useQuery(sessionQuery());
   const setting = useQuery(stepUpSettingQuery());

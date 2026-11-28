@@ -51,7 +51,7 @@
     "stdout": "added work (Work)\n"
   },
   {
-    "name": "add with a relative folder",
+    "name": "a token adds a folder outside the accounts folder",
     "request": {
       "body": {
         "configDir": "relative/folder",
@@ -62,13 +62,47 @@
     },
     "response": {
       "json": {
-        "code": "account-invalid",
-        "detail": "the folder relative/folder must be an absolute path or start with ~",
-        "status": 422,
-        "title": "Unprocessable Entity",
-        "type": "urn:nullradix:problem:account-invalid"
+        "code": "command-change-needs-person",
+        "detail": "fields that run commands can only be changed by the person in the app",
+        "errors": [
+          {
+            "field": "configDir",
+            "message": "only the person in the app can change this"
+          }
+        ],
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:command-change-needs-person"
       },
-      "status": 422
+      "status": 403
+    }
+  },
+  {
+    "name": "an unconfirmed session adds a folder outside the accounts folder",
+    "request": {
+      "auth": "session",
+      "body": {
+        "configDir": "relative/folder",
+        "name": "Odd"
+      },
+      "method": "POST",
+      "path": "/api/v1/accounts"
+    },
+    "response": {
+      "json": {
+        "code": "step-up-required",
+        "detail": "changing fields that run commands needs a confirmation: run `nullradix confirm` in a terminal and open the link, or choose Confirm changes in the tray menu, then save again",
+        "errors": [
+          {
+            "field": "configDir",
+            "message": "needs a confirmation first"
+          }
+        ],
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:step-up-required"
+      },
+      "status": 403
     }
   },
   {

@@ -46,7 +46,7 @@ function Root() {
 }
 
 const start = async () => {
-  // a tab opened without the fragment gets the key of a tab that has it, before it shows a hint
+  // a tab opened without the fragment asks the other tabs for a key before it shows a hint
   if (readTabKey() === null) await askForTabKey();
   // the theme list also fills the cache the settings read
   const fetchThemes = () => queryClient.query({ ...themesQuery(), retry: false });

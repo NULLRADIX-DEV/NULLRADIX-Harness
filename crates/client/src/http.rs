@@ -229,7 +229,7 @@ impl Client {
         decode(&mut response, 201)
     }
 
-    /// One-time code that confirms a browser session to change commands.
+    /// One-time code to confirm a browser session for command changes.
     pub fn create_step_up_code(&self) -> Result<StepUpCode, ClientError> {
         let mut response = self
             .agent
@@ -1620,7 +1620,7 @@ fn describe(problem: &Problem) -> String {
     if problem.errors.is_empty() {
         return problem.detail.clone();
     }
-    // fields that share a message are listed once with it
+    // fields with the same message are listed once
     let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
     for error in &problem.errors {
         match groups

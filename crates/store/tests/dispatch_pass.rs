@@ -3058,7 +3058,7 @@ const HOUR: i64 = 60 * MINUTE;
 
 impl Fixture {
     async fn account(&self, name: &str) -> Account {
-        self.accounts.create(name, None).await.unwrap()
+        self.accounts.create(name, None, None).await.unwrap()
     }
 
     async fn disable(&self, slug: &str) {

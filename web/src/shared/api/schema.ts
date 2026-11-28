@@ -2938,7 +2938,7 @@ export interface components {
         Me: {
             /**
              * Format: int64
-             * @description Unix milliseconds until a session may change command fields; none when it may not.
+             * @description Unix milliseconds until the confirmation ends, or none.
              */
             elevatedUntil?: number | null;
             kind: components["schemas"]["PrincipalKind"];
@@ -3883,9 +3883,9 @@ export interface components {
              */
             version: number;
         };
-        /** @description Sets the switch; turning it off carries a fresh code that is used up. */
+        /** @description Sets the switch, and turning it off uses up a fresh code. */
         SetStepUp: {
-            /** @description Code of `nullradix confirm --no-open`; only turning the check off needs it. */
+            /** @description Code of `nullradix confirm --no-open`, needed only to turn the check off. */
             code?: string | null;
             required: boolean;
         };
@@ -4080,13 +4080,13 @@ export interface components {
             number: number;
             text: string;
         };
-        /** @description One-time code that confirms a session when the person gives it to the page. */
+        /** @description One-time code the person gives to the page to confirm the session. */
         StepUpCode: {
             code: string;
             /** @description Address of the page with the code in its fragment, relative to the daemon. */
             path: string;
         };
-        /** @description Whether changing the fields that run commands needs a confirmation first. */
+        /** @description Whether changing command fields needs a confirmation first. */
         StepUpSetting: {
             required: boolean;
         };
@@ -6404,7 +6404,7 @@ export interface operations {
             query?: {
                 /** @description Replay changes after this sequence number; `Last-Event-ID` takes precedence. */
                 since?: number;
-                /** @description Key of the tab, because an event stream cannot send headers; this route only. */
+                /** @description Key of the tab: an event stream cannot send headers. */
                 k?: string;
             };
             header?: never;

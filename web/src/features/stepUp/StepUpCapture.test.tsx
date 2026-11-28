@@ -1,10 +1,12 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createQueryClient } from '../../app/queryClient';
+import { TAB_CHANNEL, closeTabChannel } from '../../shared/api/tabChannel';
 import { KEY_HEADER } from '../../shared/api/tabKey';
 import { fakeApi, json, problem } from '../../test/fakeApi';
-import { CONFIRM_CHANNEL, parseConfirmCode } from './confirmLink';
+import { parseConfirmCode } from './confirmLink';
 import { HAND_ON_WAIT_MS, StepUpCapture } from './StepUpCapture';
 
 const KEY = 'ab'.repeat(32);
@@ -36,23 +38,26 @@ function show(hash: string) {
   window.history.replaceState(null, '', `/settings${hash}`);
 }
 
-function mount(first: string | null = null) {
-  return render(
+function mount(first: string | null = null, strict = false) {
+  const page = (
     <QueryClientProvider client={createQueryClient({ retry: false })}>
       <StepUpCapture first={first} />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  return render(strict ? <StrictMode>{page}</StrictMode> : page);
 }
 
 const ELEVATED = { elevatedUntil: Date.now() + 600_000 };
 
 beforeEach(() => {
+  closeTabChannel();
   FakeChannel.all = [];
   vi.stubGlobal('BroadcastChannel', FakeChannel);
   window.sessionStorage.clear();
 });
 
 afterEach(() => {
+  closeTabChannel();
   window.sessionStorage.clear();
   window.history.replaceState(null, '', '/');
   vi.useRealTimers();
@@ -120,7 +125,7 @@ describe('StepUpCapture', () => {
     show(`#confirm=${CODE}`);
     mount();
     const [channel] = FakeChannel.all;
-    expect(channel?.name).toBe(CONFIRM_CHANNEL);
+    expect(channel?.name).toBe(TAB_CHANNEL);
     expect(channel?.sent).toEqual([{ type: 'code', code: CODE }]);
     expect(daemon.requests('POST /api/v1/auth/step-up')).toHaveLength(0);
     // a refusal of one tab does not end the wait
@@ -189,5 +194,38 @@ describe('StepUpCapture', () => {
       channel?.hear({ type: 'other', code: CODE });
     });
     expect(daemon.requests('POST /api/v1/auth/step-up')).toHaveLength(0);
+  });
+
+  it('redeems the code once and says so when React runs the effect twice', async () => {
+    window.sessionStorage.setItem('nullradix-tab-key', KEY);
+    const daemon = fakeApi({ 'POST /api/v1/auth/step-up': () => json(200, ELEVATED) });
+    show('');
+    mount(CODE, true);
+    expect(await screen.findByRole('status')).toHaveTextContent('Confirmed for 10 minutes');
+    expect(daemon.requests('POST /api/v1/auth/step-up')).toHaveLength(1);
+  });
+
+  it('hands a code on once and still gives up when React runs the effect twice', () => {
+    vi.useFakeTimers();
+    fakeApi();
+    show('');
+    mount(CODE, true);
+    const [channel] = FakeChannel.all;
+    expect(channel?.sent).toEqual([{ type: 'code', code: CODE }]);
+    act(() => {
+      vi.advanceTimersByTime(HAND_ON_WAIT_MS);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('No open NULLRADIX tab took the code');
+  });
+
+  it('hears the answer to a handed-on code when React runs the effect twice', () => {
+    fakeApi();
+    show('');
+    mount(CODE, true);
+    const [channel] = FakeChannel.all;
+    act(() => {
+      channel?.hear({ type: 'done', code: CODE, ok: true });
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Confirmed in your open NULLRADIX tab');
   });
 });

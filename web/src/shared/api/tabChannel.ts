@@ -2,7 +2,7 @@ export const TAB_CHANNEL = 'nullradix-tabs';
 
 const KEY_PATTERN = /^[0-9a-f]{64}$/;
 
-// What the tabs of this origin tell each other; the channel stops at the origin, port included.
+// What the tabs tell each other: a channel stops at the origin and port.
 export type TabMessage =
   | { type: 'ask' }
   | { type: 'key'; key: string }
@@ -41,7 +41,7 @@ export function postTab(message: TabMessage): void {
   open()?.postMessage(message);
 }
 
-// Calls `handler` for every message of the other tabs; returns the way to stop.
+// Calls `handler` for each message of the other tabs and returns the stop.
 export function listenTab(handler: (message: TabMessage) => void): () => void {
   const talk = open();
   if (talk === null) return () => undefined;
@@ -54,7 +54,7 @@ export function listenTab(handler: (message: TabMessage) => void): () => void {
   };
 }
 
-// For tests, which swap the channel class.
+// Tests close the channel to start with a fresh one.
 export function closeTabChannel(): void {
   if (channel) channel.close();
   channel = undefined;

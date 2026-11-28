@@ -1119,10 +1119,10 @@ pub(crate) mod tests {
         }
     }
 
-    /// Name of the second pair `open_session` adds; `send` turns it into the key header.
+    /// Name of the second pair from `open_session`, sent as the key header.
     pub(crate) const KEY_PAIR: &str = "nullradix_key";
 
-    /// Redeems a handoff: the cookie and the tab key as two pairs, which `send` turns into headers.
+    /// Redeems a handoff and returns the cookie and the tab key as two pairs.
     pub(crate) async fn open_session(api: &TestApi) -> String {
         let code = api.auth.create_handoff().unwrap();
         let request = local(Request::get(format!(
@@ -1160,7 +1160,7 @@ pub(crate) mod tests {
             .to_owned()
     }
 
-    /// A browser sends the key of its tab with every call: add it from the extra cookie pair.
+    /// Browsers send the key with every call, taken here from the extra cookie pair.
     fn stamp_key(request: &mut Request<Body>) {
         if request.headers().contains_key(crate::KEY_HEADER) {
             return;

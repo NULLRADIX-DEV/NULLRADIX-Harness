@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{AppError, Change, Clock, FieldProblem, IdGenerator};
 
-/// Entity id of the step-up switch in the change feed, which only takes UUIDs.
+/// Entity id of the step-up switch in the change feed: it takes only UUIDs.
 pub const STEP_UP_FEED_ID: uuid::Uuid =
     uuid::Uuid::from_u128(0x6e75_6c6c_7261_6469_7800_7374_6570_7570);
 
@@ -29,7 +29,7 @@ const SEEN_EVERY: Duration = Duration::from_mins(1);
 const STEP_UP_CODE_LIFETIME: Duration = Duration::from_mins(2);
 /// How long a confirmed session may change the command fields.
 const ELEVATION: Duration = Duration::from_mins(10);
-/// Codes that wait to be redeemed; the oldest make room.
+/// At most this many codes wait for redeeming, the oldest make room.
 const PENDING_CODES: usize = 64;
 
 /// Random credential shown to a client once; only its hash is stored.
@@ -132,7 +132,7 @@ pub struct ApiToken {
 pub struct Session {
     pub id: Id<Session>,
     pub hash: SecretHash,
-    /// Hash of the key only the tab that opened the session holds.
+    /// Hash of the key held by the opening tab.
     pub key_hash: SecretHash,
     pub created_at: Timestamp,
     pub expires_at: Timestamp,
@@ -173,12 +173,12 @@ pub enum Principal {
     },
 }
 
-/// Who asks to change fields that end up on a command line.
+/// Who asks to change command fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandWriter {
     /// The person in the app, with or without a fresh confirmation.
     Person { elevated: bool },
-    /// A token, or anything that names an agent.
+    /// A token or any request naming an agent.
     Other,
 }
 
@@ -208,7 +208,7 @@ pub fn step_up_code_invalid() -> AppError {
 }
 
 impl CommandRefusal {
-    /// The error, naming each field that was about to change.
+    /// The error naming each field about to change.
     #[must_use]
     pub fn error(self, fields: &[&str]) -> AppError {
         let message = match self {
@@ -266,11 +266,11 @@ pub trait AuthRepository: Send + Sync {
         idle_before: Timestamp,
     ) -> Result<u64, AppError>;
     async fn touch_session(&self, id: Id<Session>, at: Timestamp) -> Result<(), AppError>;
-    /// Confirms the session until `until`; `false` when it is gone.
+    /// Confirms the session until `until` and returns false when it is gone.
     async fn elevate_session(&self, id: Id<Session>, until: Timestamp) -> Result<bool, AppError>;
-    /// Whether command fields need a confirmation; on unless the person turned it off.
+    /// Whether command fields need a confirmation, on until the person turns it off.
     async fn step_up_required(&self) -> Result<bool, AppError>;
-    /// Stores the switch; `None` when it already had that value.
+    /// Stores the switch and gives None for no change.
     async fn set_step_up_required(
         &self,
         required: bool,
@@ -392,7 +392,7 @@ impl AuthService {
         Ok(code)
     }
 
-    /// Takes the code if it is known and alive; a code works once.
+    /// Takes a known live code, and a code works once.
     fn spend_code(&self, codes: &Mutex<HashMap<SecretHash, Timestamp>>, code: &Secret) -> bool {
         let now = self.clock.now();
         let expires_at = codes.lock().remove(&code.hash());
@@ -425,7 +425,7 @@ impl AuthService {
         Ok(secrets)
     }
 
-    /// A session needs its cookie and the key of its tab; the cookie alone is nobody.
+    /// A session needs its cookie and the key of its tab: the cookie alone is nobody.
     pub async fn authenticate_session(
         &self,
         secret: &Secret,
@@ -434,7 +434,7 @@ impl AuthService {
         self.session_principal(secret, Presented::Key(key)).await
     }
 
-    /// For files a page loads without a key: a live cookie is enough, and it keeps nothing alive.
+    /// For files a page loads without a key, a live cookie is enough and keeps nothing alive.
     pub async fn authenticate_asset_session(&self, secret: &Secret) -> Result<Principal, AppError> {
         self.session_principal(secret, Presented::Asset).await
     }
@@ -475,17 +475,17 @@ impl AuthService {
         }
         Ok(Principal::Session {
             id: session.id,
-            // an asset request is no write, so it is never the confirmed one
+            // an asset request writes nothing and is never confirmed
             elevated_until: session.elevated_until.filter(|until| keyed && *until > now),
         })
     }
 
-    /// A code a token holder hands to the person, who gives it to the page.
+    /// A code a token holder hands to the person for the page.
     pub fn create_step_up_code(&self) -> Result<Secret, AppError> {
         self.issue_code(&self.step_up_codes, STEP_UP_CODE_LIFETIME)
     }
 
-    /// Uses up a code without confirming anyone; the person's proof for the one change that asks.
+    /// Uses up a code without confirming a session: proof for turning the check off.
     pub fn spend_step_up_code(&self, code: &Secret) -> Result<(), AppError> {
         if self.spend_code(&self.step_up_codes, code) {
             Ok(())
@@ -494,7 +494,7 @@ impl AuthService {
         }
     }
 
-    /// Confirms the session for a while; returns when that ends.
+    /// Confirms the session for a while and returns the end time.
     pub async fn redeem_step_up(
         &self,
         session: Id<Session>,
@@ -508,19 +508,19 @@ impl AuthService {
         Ok(until)
     }
 
-    /// Whether command fields need a confirmation; on until the person turns it off.
+    /// Whether command fields need a confirmation, on until the person turns it off.
     pub async fn step_up_required(&self) -> Result<bool, AppError> {
         self.repository.step_up_required().await
     }
 
-    /// Stores the switch; the change is the caller's to signal.
+    /// Stores the switch and leaves the change signal to the caller.
     pub async fn set_step_up_required(&self, required: bool) -> Result<Option<Change>, AppError> {
         self.repository
             .set_step_up_required(required, self.clock.now())
             .await
     }
 
-    /// Why `writer` may not change command fields now; `None` means it may.
+    /// Why `writer` may not change command fields now, or None when it may.
     pub async fn command_refusal(
         &self,
         writer: CommandWriter,

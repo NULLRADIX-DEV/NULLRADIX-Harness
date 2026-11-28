@@ -153,7 +153,7 @@ fn sign_in(app: &AppHandle, shell: &Shell) {
     }
 }
 
-/// Hands the signed-in window a code in its fragment; no other page can obtain one.
+/// Hands the signed-in window a code in its fragment: no other page can read it.
 fn confirm_changes(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN) else {
         return;
@@ -166,7 +166,7 @@ fn confirm_changes(app: &AppHandle) {
         .map(|setup| setup.with_resources(resources.as_deref()))
         .and_then(|setup| launch::step_up_code(&setup));
     match code {
-        // the code is hex, so it needs no quoting
+        // hex needs no quoting in a script string
         Ok(code) => {
             if let Err(error) = window.eval(format!("window.location.hash = 'confirm={code}'")) {
                 eprintln!("cannot confirm: {error}");

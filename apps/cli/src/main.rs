@@ -80,7 +80,7 @@ enum Command {
     Install(install::InstallArgs),
     /// Open the web UI in the browser
     Open,
-    /// Confirm the open browser session so it may change fields that run commands
+    /// Confirm the open browser session to change command fields.
     Confirm(confirm::ConfirmArgs),
     /// Manage the Claude accounts runs are spread over
     #[command(subcommand)]

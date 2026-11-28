@@ -8,12 +8,12 @@ use crate::connect::connect;
 
 #[derive(Args)]
 pub(crate) struct ConfirmArgs {
-    /// Only print the code, for the box that turns the confirmation off
+    /// Print only the code: the box for turning the check off needs no link.
     #[arg(long)]
     no_open: bool,
 }
 
-/// Prints a code that confirms the open browser session for a few minutes, and opens its link.
+/// Prints a code to confirm the open browser session and opens its link.
 pub(crate) fn run(
     args: &ConfirmArgs,
     profile: Profile,

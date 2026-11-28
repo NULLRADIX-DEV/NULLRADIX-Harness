@@ -37,7 +37,7 @@ function writeTabKey(key: string): void {
   }
 }
 
-// Keeps a key another tab announced; `true` when it replaced the one this tab had.
+// Keeps a key another tab announced and returns true when it replaced the old one.
 function adopt(key: string): boolean {
   if (readTabKey() === key) return false;
   writeTabKey(key);
@@ -67,7 +67,7 @@ export function adoptTabKey(): boolean {
   return true;
 }
 
-// Takes over announced keys and tells a tab that asks the key this tab has; returns the stop.
+// Takes over announced keys and answers a tab asking for the key of this tab.
 export function shareTabKey(): () => void {
   return listenTab((message) => {
     if (message.type === 'key') adopt(message.key);
@@ -78,7 +78,7 @@ export function shareTabKey(): () => void {
   });
 }
 
-// Asks the other tabs for their key; `true` when one that differs from ours came in time.
+// Asks the other tabs for their key and returns true when a new one came in time.
 export function askForTabKey(waitMs: number = ASK_WAIT_MS): Promise<boolean> {
   if (!hasTabChannel()) return Promise.resolve(false);
   const before = readTabKey();

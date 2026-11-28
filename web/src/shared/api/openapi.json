@@ -2324,7 +2324,7 @@
           {
             "name": "k",
             "in": "query",
-            "description": "Key of the tab, because an event stream cannot send headers; this route only.",
+            "description": "Key of the tab: an event stream cannot send headers.",
             "required": false,
             "schema": {
               "type": "string"
@@ -13976,7 +13976,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Unix milliseconds until a session may change command fields; none when it may not."
+            "description": "Unix milliseconds until the confirmation ends, or none."
           },
           "kind": {
             "$ref": "#/components/schemas/PrincipalKind"
@@ -16976,7 +16976,7 @@
       },
       "SetStepUp": {
         "type": "object",
-        "description": "Sets the switch; turning it off carries a fresh code that is used up.",
+        "description": "Sets the switch, and turning it off uses up a fresh code.",
         "required": [
           "required"
         ],
@@ -16986,7 +16986,7 @@
               "string",
               "null"
             ],
-            "description": "Code of `nullradix confirm --no-open`; only turning the check off needs it."
+            "description": "Code of `nullradix confirm --no-open`, needed only to turn the check off."
           },
           "required": {
             "type": "boolean"
@@ -17543,7 +17543,7 @@
       },
       "StepUpCode": {
         "type": "object",
-        "description": "One-time code that confirms a session when the person gives it to the page.",
+        "description": "One-time code the person gives to the page to confirm the session.",
         "required": [
           "code",
           "path"
@@ -17560,7 +17560,7 @@
       },
       "StepUpSetting": {
         "type": "object",
-        "description": "Whether changing the fields that run commands needs a confirmation first.",
+        "description": "Whether changing command fields needs a confirmation first.",
         "required": [
           "required"
         ],

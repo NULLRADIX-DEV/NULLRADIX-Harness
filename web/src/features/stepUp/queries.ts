@@ -11,7 +11,7 @@ export const stepUpKeys = {
   setting: () => [...stepUpKeys.all, 'setting'] as const,
 };
 
-// The switch is a setting of the daemon, so its changes arrive as setting changes.
+// The switch is a daemon setting and arrives as a setting change.
 export const stepUpLive: ChangeRegistry = {
   setting: [stepUpKeys.all],
 };
@@ -32,7 +32,7 @@ export function useSetStepUp() {
   });
 }
 
-// Gives the daemon the code a terminal printed; the session is then confirmed for a while.
+// Gives the daemon the code of a terminal to confirm the session for a while.
 export function useRedeemStepUp() {
   const queryClient = useQueryClient();
   return useMutation({

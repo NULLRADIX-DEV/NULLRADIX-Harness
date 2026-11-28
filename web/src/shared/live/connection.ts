@@ -62,7 +62,7 @@ export class ChangeStreamConnection {
 
   private connect(): void {
     const path = this.options.path ?? EVENTS_PATH;
-    // No Last-Event-ID and no headers on a new EventSource, so position and key go in the query.
+    // A new EventSource sends no headers, hence position and key in the query.
     const query = new URLSearchParams();
     if (this.lastSeq !== null) query.set('since', String(this.lastSeq));
     const key = readTabKey();

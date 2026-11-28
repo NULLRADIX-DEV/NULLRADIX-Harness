@@ -254,14 +254,8 @@ describe('DispatcherSection', () => {
     expect(command).toHaveValue('/opt/claude');
   });
 
-  it('shows the confirmation state and the switch, and keeps the switch on when it cannot be turned off', async () => {
+  it('shows that the session is not confirmed and asks for a code to turn the check off', async () => {
     const server = dispatcherServer();
-    server.api.set('GET /api/v1/auth/me', () =>
-      json(200, { kind: 'session', elevatedUntil: null }),
-    );
-    server.api.set('PUT /api/v1/settings/step-up', () =>
-      problem(403, 'step-up-required', 'needs a confirmation'),
-    );
     const form = await open();
     const toggle = await within(form).findByRole('checkbox', {
       name: 'Ask for a confirmation before changing commands',
@@ -269,12 +263,82 @@ describe('DispatcherSection', () => {
     expect(toggle).toBeChecked();
     expect(within(form).getByText(/Not confirmed\./)).toBeInTheDocument();
     await userEvent.click(toggle);
-    expect(await within(form).findByRole('alert')).toHaveTextContent(
-      'Run nullradix confirm in a terminal',
+    expect(
+      within(form).getByText(/enter its code here\. A confirmed session is not enough/),
+    ).toBeInTheDocument();
+    // nothing is sent before a code is typed, and the switch stays on until the daemon agrees
+    expect(server.api.requests('PUT /api/v1/settings/step-up')).toHaveLength(0);
+    expect(toggle).toBeChecked();
+    expect(within(form).getByRole('button', { name: 'Turn off' })).toBeDisabled();
+  });
+
+  it('turns the check off with a fresh code even in a confirmed session', async () => {
+    const server = dispatcherServer();
+    let required = true;
+    server.api.set('GET /api/v1/auth/me', () =>
+      json(200, { kind: 'session', elevatedUntil: Date.now() + 600_000 }),
     );
-    await waitFor(() => {
-      expect(toggle).toBeChecked();
+    server.api.set('GET /api/v1/settings/step-up', () => json(200, { required }));
+    server.api.set('PUT /api/v1/settings/step-up', () => {
+      required = false;
+      return json(200, { required });
     });
+    const form = await open();
+    const toggle = await within(form).findByRole('checkbox', {
+      name: 'Ask for a confirmation before changing commands',
+    });
+    await userEvent.click(toggle);
+    await userEvent.type(
+      within(form).getByRole('textbox', { name: 'Confirmation code' }),
+      ' abc123 ',
+    );
+    await userEvent.click(within(form).getByRole('button', { name: 'Turn off' }));
+    await waitFor(() => {
+      expect(toggle).not.toBeChecked();
+    });
+    const [request] = server.api.requests('PUT /api/v1/settings/step-up');
+    expect(await request?.json()).toEqual({ required: false, code: 'abc123' });
+  });
+
+  it('keeps the check on and says so when the code for turning it off is refused', async () => {
+    const server = dispatcherServer();
+    server.api.set('PUT /api/v1/settings/step-up', () =>
+      problem(401, 'step-up-code-invalid', 'expired'),
+    );
+    const form = await open();
+    const toggle = await within(form).findByRole('checkbox', {
+      name: 'Ask for a confirmation before changing commands',
+    });
+    await userEvent.click(toggle);
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Confirmation code' }), 'bad');
+    await userEvent.click(within(form).getByRole('button', { name: 'Turn off' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent(
+      'The confirmation code is unknown or expired',
+    );
+    expect(toggle).toBeChecked();
+    // cancelling goes back to the plain confirm form
+    await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    expect(within(form).getByRole('button', { name: 'Confirm' })).toBeInTheDocument();
+    expect(within(form).queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('turns the check on again without a code', async () => {
+    const server = dispatcherServer();
+    server.api.set('GET /api/v1/settings/step-up', () => json(200, { required: false }));
+    server.api.set('PUT /api/v1/settings/step-up', () => json(200, { required: true }));
+    const form = await open();
+    const toggle = await within(form).findByRole('checkbox', {
+      name: 'Ask for a confirmation before changing commands',
+    });
+    await waitFor(() => {
+      expect(toggle).not.toBeChecked();
+    });
+    await userEvent.click(toggle);
+    await waitFor(() => {
+      expect(server.api.requests('PUT /api/v1/settings/step-up')).toHaveLength(1);
+    });
+    const [request] = server.api.requests('PUT /api/v1/settings/step-up');
+    expect(await request?.json()).toEqual({ required: true });
   });
 
   it('sends a typed confirmation code and shows when the confirmation ends', async () => {

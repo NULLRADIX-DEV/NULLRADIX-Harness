@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::error::database;
 use crate::{Store, StoreError, change_feed};
 
-/// Key of the switch in the settings table; no row means on.
+/// Key of the switch in the settings table: no row means on.
 const STEP_UP_KEY: &str = "step-up";
 
 #[async_trait]

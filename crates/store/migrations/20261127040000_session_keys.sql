@@ -1,4 +1,4 @@
--- Sessions now belong to one browser tab through a key; old ones cannot be used, so people sign in again.
+-- Old sessions lack a tab key and are dropped. People sign in again.
 DROP TABLE sessions;
 
 CREATE TABLE sessions (

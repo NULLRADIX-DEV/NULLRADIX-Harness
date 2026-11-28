@@ -167,7 +167,7 @@ impl DispatcherConfigService {
         Ok(())
     }
 
-    /// Replaces the configuration; `commands` is why the caller may not change command fields.
+    /// Replaces the configuration, and `commands` says why command fields may not change.
     pub async fn update(
         &self,
         draft: DispatcherConfig,

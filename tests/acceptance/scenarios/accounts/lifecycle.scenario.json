@@ -13,10 +13,19 @@
     },
     { "name": "add in the CLI", "cli": { "args": ["account", "add", "Work"] } },
     {
-      "name": "add with a relative folder",
+      "name": "a token adds a folder outside the accounts folder",
       "http": {
         "method": "POST",
         "path": "/api/v1/accounts",
+        "body": { "name": "Odd", "configDir": "relative/folder" }
+      }
+    },
+    {
+      "name": "an unconfirmed session adds a folder outside the accounts folder",
+      "http": {
+        "method": "POST",
+        "path": "/api/v1/accounts",
+        "auth": "session",
         "body": { "name": "Odd", "configDir": "relative/folder" }
       }
     },

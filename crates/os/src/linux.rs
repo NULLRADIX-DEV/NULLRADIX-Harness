@@ -576,7 +576,7 @@ mod tests {
 
     const FAILING_MODE: &str = "failing-reaper-with-marker";
 
-    /// Reports nothing, closes the report and only then writes the marker, as a slow exit would.
+    /// Reports nothing and closes the report, then writes the marker after a slow exit.
     fn failing_reaper(marker: &Path) -> i32 {
         let status = status_descriptor(std::env::var(STATUS_VAR).ok().as_deref());
         drop(status);

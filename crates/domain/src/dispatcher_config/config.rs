@@ -187,7 +187,7 @@ impl DispatcherConfig {
         profiles.chain(rules).collect()
     }
 
-    /// The fields that end up on a command line or in a shell, as the API names them, that differ.
+    /// Command fields with a different value, named as the API names them.
     #[must_use]
     pub fn command_fields_changed(&self, other: &Self) -> Vec<&'static str> {
         let (own, theirs) = (&self.claude, &other.claude);

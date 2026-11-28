@@ -272,7 +272,7 @@ impl AccountService {
             .ok_or_else(|| not_found(slug))
     }
 
-    /// Adds an account; a folder outside the accounts folder goes through `commands`.
+    /// Adds an account, and `commands` guards a folder outside the accounts folder.
     pub async fn create(
         &self,
         name: &str,

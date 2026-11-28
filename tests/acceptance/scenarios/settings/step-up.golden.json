@@ -39,7 +39,7 @@
     }
   },
   {
-    "name": "a session without a confirmation cannot either",
+    "name": "a session needs a code to turn it off",
     "request": {
       "auth": "session",
       "body": {
@@ -50,19 +50,47 @@
     },
     "response": {
       "json": {
-        "code": "step-up-required",
-        "detail": "changing fields that run commands needs a confirmation: run `nullradix confirm` in a terminal and open the link, or use Confirm in the tray menu of the desktop app, then save again",
+        "code": "step-up-code-required",
+        "detail": "turning the confirmation off needs a fresh code: run `nullradix confirm --no-open` and enter it",
         "errors": [
           {
-            "field": "required",
-            "message": "confirm with `nullradix confirm` before changing this"
+            "field": "code",
+            "message": "enter the code that nullradix confirm --no-open printed"
           }
         ],
         "status": 403,
         "title": "Forbidden",
-        "type": "urn:nullradix:problem:step-up-required"
+        "type": "urn:nullradix:problem:step-up-code-required"
       },
       "status": 403
+    }
+  },
+  {
+    "name": "a code nobody made does not turn it off",
+    "request": {
+      "auth": "session",
+      "body": {
+        "code": "nope",
+        "required": false
+      },
+      "method": "PUT",
+      "path": "/api/v1/settings/step-up"
+    },
+    "response": {
+      "json": {
+        "code": "step-up-code-invalid",
+        "detail": "the confirmation code is unknown or expired",
+        "errors": [
+          {
+            "field": "code",
+            "message": "run nullradix confirm again for a new code"
+          }
+        ],
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "urn:nullradix:problem:step-up-code-invalid"
+      },
+      "status": 422
     }
   },
   {
@@ -94,6 +122,42 @@
         "kind": "session"
       },
       "status": 200
+    }
+  },
+  {
+    "name": "the cookie of a session alone is nobody",
+    "request": {
+      "auth": "sessionNoKey",
+      "method": "GET",
+      "path": "/api/v1/auth/me"
+    },
+    "response": {
+      "json": {
+        "code": "session-key-missing",
+        "detail": "this tab has no key for the session: open NULLRADIX again",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:session-key-missing"
+      },
+      "status": 401
+    }
+  },
+  {
+    "name": "the key of another tab is refused",
+    "request": {
+      "auth": "sessionWrongKey",
+      "method": "GET",
+      "path": "/api/v1/auth/me"
+    },
+    "response": {
+      "json": {
+        "code": "session-key-invalid",
+        "detail": "the key does not belong to this session: open NULLRADIX again",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "urn:nullradix:problem:session-key-invalid"
+      },
+      "status": 401
     }
   },
   {
@@ -130,11 +194,17 @@
       "json": {
         "code": "step-up-code-invalid",
         "detail": "the confirmation code is unknown or expired",
-        "status": 401,
-        "title": "Unauthorized",
+        "errors": [
+          {
+            "field": "code",
+            "message": "run nullradix confirm again for a new code"
+          }
+        ],
+        "status": 422,
+        "title": "Unprocessable Entity",
         "type": "urn:nullradix:problem:step-up-code-invalid"
       },
-      "status": 401
+      "status": 422
     }
   },
   {
@@ -151,6 +221,26 @@
         "status": 403,
         "title": "Forbidden",
         "type": "urn:nullradix:problem:token-required"
+      },
+      "status": 403
+    }
+  },
+  {
+    "name": "a run cannot make codes",
+    "request": {
+      "headers": {
+        "X-Nullradix-Run": "run-1"
+      },
+      "method": "POST",
+      "path": "/api/v1/auth/step-up-codes"
+    },
+    "response": {
+      "json": {
+        "code": "decision-needs-person",
+        "detail": "confirming a change of commands stays with the person: do it in the app or in a terminal outside the run",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "urn:nullradix:problem:decision-needs-person"
       },
       "status": 403
     }

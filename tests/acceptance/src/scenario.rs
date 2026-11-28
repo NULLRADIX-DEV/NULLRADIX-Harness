@@ -46,7 +46,7 @@ pub(crate) enum Auth {
     Session,
     /// The cookie of the session without the key of its tab.
     SessionNoKey,
-    /// The cookie of the session with a key that is not its own.
+    /// The cookie of the session with a foreign key.
     SessionWrongKey,
     None,
 }

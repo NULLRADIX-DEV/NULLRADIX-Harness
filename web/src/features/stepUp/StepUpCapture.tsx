@@ -16,16 +16,16 @@ function failure(error: unknown): string {
   return 'Could not confirm. Open NULLRADIX from the desktop app or nullradix open first.';
 }
 
-// Redeems a code with this tab's key, or hands it to the other tabs; `first` was in the address.
+// Redeems a code with the key of this tab or hands it to the other tabs.
 export function StepUpCapture({ first = null }: { first?: string | null }) {
   const { mutate } = useRedeemStepUp();
   const [notice, setNotice] = useState<string | null>(null);
-  const waiting = useRef<{ code: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const waiting = useRef<{ code: string; timer?: ReturnType<typeof setTimeout> } | null>(null);
   // a code works once, and StrictMode runs the effect twice
   const handled = useRef(new Set<string>());
 
   useEffect(() => {
-    // another tab may have taken a code that was handed on, so only the own tab reports a failure
+    // only the own tab reports a failure: another tab may have taken the code first
     const confirm = (code: string, own: boolean, onDone?: (ok: boolean) => void) => {
       mutate(code, {
         onSuccess: () => {
@@ -37,6 +37,17 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
           onDone?.(false);
         },
       });
+    };
+    // armed again by the second run of the effect: the first run cleared it
+    const giveUpLater = () => {
+      const entry = waiting.current;
+      if (entry === null) return;
+      entry.timer = setTimeout(() => {
+        waiting.current = null;
+        setNotice(
+          'No open NULLRADIX tab took the code. Enter it in the settings of the tab that is signed in.',
+        );
+      }, HAND_ON_WAIT_MS);
     };
     const handle = (code: string) => {
       if (handled.current.has(code)) return;
@@ -50,13 +61,8 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
         return;
       }
       setNotice('Looking for the open NULLRADIX tab...');
-      const timer = setTimeout(() => {
-        waiting.current = null;
-        setNotice(
-          'No open NULLRADIX tab took the code. Enter it in the settings of the tab that is signed in.',
-        );
-      }, HAND_ON_WAIT_MS);
-      waiting.current = { code, timer };
+      waiting.current = { code };
+      giveUpLater();
       postTab({ type: 'code', code });
     };
     const fromAddress = () => {
@@ -78,12 +84,13 @@ export function StepUpCapture({ first = null }: { first?: string | null }) {
       }
     });
     window.addEventListener('hashchange', fromAddress);
+    giveUpLater();
     if (first === null) fromAddress();
     else handle(first);
     return () => {
       window.removeEventListener('hashchange', fromAddress);
       stop();
-      if (waiting.current) clearTimeout(waiting.current.timer);
+      clearTimeout(waiting.current?.timer);
     };
   }, [mutate, first]);
 

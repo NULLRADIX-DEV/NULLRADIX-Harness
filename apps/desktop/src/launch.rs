@@ -192,7 +192,7 @@ fn daemon_beside(program: &Path) -> PathBuf {
     beside
 }
 
-/// A client with the local token for the running daemon, started when none runs.
+/// A client with the local token, after starting a daemon when none runs.
 fn signed_client(setup: &Setup) -> Result<(Client, Discovery), LaunchError> {
     let paths = setup.paths()?;
     let discovery = match running(&paths)? {
@@ -214,7 +214,7 @@ pub(crate) fn sign_in_url(setup: &Setup) -> Result<Url, LaunchError> {
     Ok(daemon_origin(&discovery)?.join(&handoff.path)?)
 }
 
-/// A one-time code that confirms the signed-in window to change commands.
+/// A one-time code to confirm the signed-in window for command changes.
 pub(crate) fn step_up_code(setup: &Setup) -> Result<String, LaunchError> {
     let (client, _) = signed_client(setup)?;
     Ok(client.create_step_up_code()?.code)

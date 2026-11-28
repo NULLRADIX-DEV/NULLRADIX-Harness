@@ -16,7 +16,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{API_PREFIX, ApiError, ApiJson, ApiQuery, ApiState, Problem};
 
 pub const SESSION_COOKIE: &str = "nullradix_session";
-/// Header with the key of the tab; a session cookie alone authenticates nobody.
+/// Header with the key of the tab: a cookie alone authenticates nobody.
 pub const KEY_HEADER: &str = "x-nullradix-key";
 
 const PUBLIC_ROUTES: &[&str] = &["/health", "/auth/handoff"];
@@ -35,7 +35,7 @@ enum TabKey {
     Key(Secret),
 }
 
-/// The key of the tab: the header, or `?k=` on the event stream, which cannot set headers.
+/// The key of the tab from the header, or from `?k=`: an event stream sends no headers.
 fn tab_key(request: &Request, route: &str) -> TabKey {
     let query = (route == "/events" && request.method() == Method::GET)
         .then(|| request.uri().query())
@@ -51,7 +51,7 @@ fn tab_key(request: &Request, route: &str) -> TabKey {
         .map_or(TabKey::Malformed, TabKey::Key)
 }
 
-/// Files a page loads without being able to send the key: only a cookie, read only.
+/// Files a page loads with the cookie alone: it cannot add the key header.
 fn is_theme_asset(method: &Method, route: &str) -> bool {
     if !matches!(*method, Method::GET | Method::HEAD) {
         return false;
@@ -148,7 +148,7 @@ pub(crate) fn is_person(principal: &Principal, context: AgentContext) -> bool {
     matches!(principal, Principal::Session { .. }) && !context.is_agent()
 }
 
-/// Who asks to change fields that run commands.
+/// Who asks to change command fields.
 pub(crate) fn command_writer(principal: &Principal, context: AgentContext) -> CommandWriter {
     match principal {
         Principal::Session { elevated_until, .. } if !context.is_agent() => CommandWriter::Person {
@@ -325,7 +325,7 @@ pub(crate) async fn redeem_handoff(
         .same_site(SameSite::Strict)
         .secure(state.secure_cookies)
         .path("/");
-    // the fragment never goes to a server; the page keeps the key per tab and removes it
+    // the fragment stays in the browser and the page moves it into the tab storage
     let target = format!("/#k={}", secrets.key.expose());
     Ok((jar.add(cookie), Redirect::to(&target)))
 }
@@ -363,7 +363,7 @@ pub enum PrincipalKind {
 #[serde(rename_all = "camelCase")]
 pub struct Me {
     pub kind: PrincipalKind,
-    /// Unix milliseconds until a session may change command fields; none when it may not.
+    /// Unix milliseconds until the confirmation ends, or none.
     pub elevated_until: Option<i64>,
 }
 
@@ -387,7 +387,7 @@ pub(crate) async fn me(Extension(principal): Extension<Principal>) -> Json<Me> {
     })
 }
 
-/// One-time code that confirms a session when the person gives it to the page.
+/// One-time code the person gives to the page to confirm the session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StepUpCode {
@@ -474,7 +474,7 @@ pub(crate) async fn redeem_step_up(
     }))
 }
 
-/// Whether changing the fields that run commands needs a confirmation first.
+/// Whether changing command fields needs a confirmation first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StepUpSetting {
@@ -495,12 +495,12 @@ pub(crate) async fn step_up_setting(
     }))
 }
 
-/// Sets the switch; turning it off carries a fresh code that is used up.
+/// Sets the switch, and turning it off uses up a fresh code.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SetStepUp {
     pub required: bool,
-    /// Code of `nullradix confirm --no-open`; only turning the check off needs it.
+    /// Code of `nullradix confirm --no-open`, needed only to turn the check off.
     #[serde(default)]
     pub code: Option<String>,
 }
@@ -835,7 +835,7 @@ mod tests {
     async fn theme_files_need_only_the_cookie_but_nothing_else_does() {
         let api = test_api().await;
         let cookie = without_key(&open_session(&api).await);
-        // no theme named so: not found, which is past the authentication
+        // not found proves the request passed the authentication
         let (status, _, _) = send(
             &api.router,
             get_with("/api/v1/themes/none/files/theme.css", &cookie, None),
@@ -949,7 +949,7 @@ mod tests {
         assert_eq!(me["elevatedUntil"], until);
         let (_, me) = me_with(&api, &other, None).await;
         assert_eq!(me["elevatedUntil"], Value::Null);
-        // a code that does not work is a wrong input, so the page does not recheck its session
+        // a wrong code is a bad input and must not make the page recheck its session
         let (status, json) = redeem(&mine, &code).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(json["code"], "step-up-code-invalid");
@@ -1088,7 +1088,7 @@ mod tests {
             assert_eq!(json["errors"][0]["field"], field);
         }
         assert_eq!(config_view(&api).await["version"], view["version"]);
-        // other fields do not need it, and a save that changes nothing does not either
+        // other fields and a save without a change need no confirmation
         let mut config = view["config"].clone();
         config["wip"] = json!(2);
         let body = json!({ "version": view["version"], "config": config });
@@ -1108,7 +1108,7 @@ mod tests {
             assert_eq!(status, StatusCode::OK, "{field} {json}");
             view = config_view(&api).await;
         }
-        // the confirmation ends: the session itself says when, so make it the past
+        // the session carries its own end time, set it in the past
         let secret = Secret::parse(cookie.split(';').next().unwrap().split('=').nth(1).unwrap());
         let stored = api
             .store

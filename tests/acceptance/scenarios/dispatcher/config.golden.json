@@ -555,7 +555,7 @@
     ],
     "exitCode": 1,
     "name": "refuse a token changing what runs as a command",
-    "stderr": "error: the daemon refused the request: fields that run commands can only be changed by the person in the app: claude.command: only the person in the app can change this; worktreeSetup: only the person in the app can change this (command-change-needs-person)\n",
+    "stderr": "error: the daemon refused the request: fields that run commands can only be changed by the person in the app: claude.command, worktreeSetup: only the person in the app can change this (command-change-needs-person)\n",
     "stdout": ""
   },
   {

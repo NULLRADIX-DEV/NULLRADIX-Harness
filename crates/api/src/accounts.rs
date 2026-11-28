@@ -410,7 +410,7 @@ mod tests {
         (status, json)
     }
 
-    /// A browser session that was confirmed to change commands.
+    /// A browser session confirmed for command changes.
     async fn confirmed(api: &TestApi) -> String {
         let cookie = open_session(api).await;
         let code = api.auth.create_step_up_code().unwrap();
