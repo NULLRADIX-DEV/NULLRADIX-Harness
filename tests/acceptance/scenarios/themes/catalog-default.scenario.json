@@ -1,0 +1,34 @@
+{
+  "title": "The official catalog is offered until the list changes and stays removed",
+  "env": { "NULLRADIX_NO_DEFAULT_THEME_CATALOG": "false" },
+  "steps": [
+    {
+      "name": "the official source is listed without a stored list",
+      "http": { "method": "GET", "path": "/api/v1/theme-catalog/sources" },
+      "save": { "id": "json.items.0.id" }
+    },
+    {
+      "name": "remove it over the cli",
+      "cli": { "args": ["theme", "catalog", "remove", "{{id}}"] }
+    },
+    {
+      "name": "the list stays empty",
+      "http": { "method": "GET", "path": "/api/v1/theme-catalog/sources" }
+    },
+    {
+      "name": "removing it again finds nothing",
+      "http": { "method": "DELETE", "path": "/api/v1/theme-catalog/sources/{{id}}?version=1" }
+    },
+    {
+      "name": "add it again by hand",
+      "cli": {
+        "args": [
+          "theme",
+          "catalog",
+          "add",
+          "https://github.com/NULLRADIX-DEV/NULLRADIX-Themes/releases/download/catalog/index.json"
+        ]
+      }
+    }
+  ]
+}

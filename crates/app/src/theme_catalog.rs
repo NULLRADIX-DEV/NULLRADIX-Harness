@@ -359,6 +359,8 @@ pub struct CatalogService {
     clock: Arc<dyn Clock>,
     signal: ChangeSignal,
     reach: Reach,
+    /// Offered while no list was ever stored.
+    default_source: Option<CatalogSource>,
     /// The newest read of each index, to answer previews without a read.
     offered: parking_lot::Mutex<Remembered>,
     /// One index read per source at a time for early previews.
@@ -388,9 +390,21 @@ impl CatalogService {
             clock,
             signal,
             reach,
+            default_source: None,
             offered: parking_lot::Mutex::default(),
             reads: Flights::default(),
         }
+    }
+
+    /// Offers the official catalog while no list was ever stored.
+    #[must_use]
+    pub fn with_default_source(mut self) -> Self {
+        self.default_source = CatalogSource::official();
+        self
+    }
+
+    fn unstored(&self) -> Vec<CatalogSource> {
+        self.default_source.iter().cloned().collect()
     }
 
     pub async fn sources(&self) -> Result<SourceList, AppError> {
@@ -400,7 +414,7 @@ impl CatalogService {
                 version: Some(stored.version),
             },
             None => SourceList {
-                sources: Vec::new(),
+                sources: self.unstored(),
                 version: None,
             },
         })
@@ -414,7 +428,7 @@ impl CatalogService {
         let stored = write.sources().await?;
         let mut sources = stored
             .as_ref()
-            .map_or_else(Vec::new, |stored| stored.sources.clone());
+            .map_or_else(|| self.unstored(), |stored| stored.sources.clone());
         if sources.iter().any(|known| known.id() == source.id()) {
             return Err(AppError::conflict(
                 "catalog-source-exists",
@@ -443,24 +457,23 @@ impl CatalogService {
     }
 
     /// Removes the source; `expected` is the version of the list the caller read.
-    pub async fn remove_source(&self, id: &str, expected: Version) -> Result<(), AppError> {
+    pub async fn remove_source(&self, id: &str, expected: Option<Version>) -> Result<(), AppError> {
         let id = SourceId::parse(id).ok_or_else(source_not_found)?;
         let mut write = self.repository.begin().await?;
-        let stored = write.sources().await?.ok_or_else(source_not_found)?;
-        if !stored.sources.iter().any(|source| source.id() == &id) {
+        let stored = write.sources().await?;
+        let current = stored.as_ref().map(|stored| stored.version);
+        let sources = stored.map_or_else(|| self.unstored(), |stored| stored.sources);
+        if !sources.iter().any(|source| source.id() == &id) {
             return Err(source_not_found());
         }
-        if stored.version != expected {
+        if current != expected {
             return Err(AppError::version_conflict("catalog sources", &id));
         }
-        let remaining: Vec<CatalogSource> = stored
-            .sources
+        let remaining: Vec<CatalogSource> = sources
             .into_iter()
             .filter(|source| source.id() != &id)
             .collect();
-        let (_, change) = write
-            .put(&remaining, Some(expected), self.clock.now())
-            .await?;
+        let (_, change) = write.put(&remaining, current, self.clock.now()).await?;
         write.commit().await?;
         self.signal.notify(&change);
         self.forget_offered(&id);
@@ -683,6 +696,7 @@ impl CatalogService {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use nullradix_domain::DEFAULT_SOURCE_URL;
     use parking_lot::Mutex;
 
     use super::*;
@@ -868,7 +882,7 @@ pub(crate) mod tests {
 
         world
             .service
-            .remove_source(added.id().as_str(), Version::from_stored(2))
+            .remove_source(added.id().as_str(), Some(Version::from_stored(2)))
             .await
             .unwrap();
         let list = world.service.sources().await.unwrap();
@@ -919,19 +933,97 @@ pub(crate) mod tests {
         let source = world.service.add_source(SOURCE).await.unwrap();
         let stale = world
             .service
-            .remove_source(source.id().as_str(), Version::from_stored(9))
+            .remove_source(source.id().as_str(), Some(Version::from_stored(9)))
             .await
             .unwrap_err();
         assert_eq!(stale.code(), "version-conflict");
         for id in ["000000000000", "not-an-id"] {
             let error = world
                 .service
-                .remove_source(id, Version::INITIAL)
+                .remove_source(id, Some(Version::INITIAL))
                 .await
                 .unwrap_err();
             assert_eq!(error.code(), "catalog-source-not-found", "{id}");
         }
         assert_eq!(world.service.sources().await.unwrap().sources.len(), 1);
+    }
+
+    fn with_default(world: World) -> World {
+        let service = Arc::new(
+            Arc::into_inner(world.service)
+                .unwrap()
+                .with_default_source(),
+        );
+        World { service, ..world }
+    }
+
+    #[tokio::test]
+    async fn the_official_source_is_listed_until_the_list_is_stored() {
+        let world = with_default(world(Reach::Public));
+        let list = world.service.sources().await.unwrap();
+        assert_eq!(list.version, None);
+        assert_eq!(list.sources, vec![CatalogSource::official().unwrap()]);
+        assert_eq!(list.sources[0].added_at(), Timestamp::from_millis(0));
+        assert!(world.sources.stored.lock().is_none());
+    }
+
+    #[tokio::test]
+    async fn adding_starts_from_the_official_source() {
+        let world = with_default(world(Reach::Public));
+        let added = world.service.add_source(SOURCE).await.unwrap();
+        let list = world.service.sources().await.unwrap();
+        assert_eq!(
+            list.sources,
+            vec![CatalogSource::official().unwrap(), added]
+        );
+        assert_eq!(list.version, Some(Version::INITIAL));
+        let again = world
+            .service
+            .add_source(DEFAULT_SOURCE_URL)
+            .await
+            .unwrap_err();
+        assert_eq!(again.code(), "catalog-source-exists");
+    }
+
+    #[tokio::test]
+    async fn removing_the_official_source_stays_removed_and_can_be_added_again() {
+        let world = with_default(world(Reach::Public));
+        let id = CatalogSource::official().unwrap().id().to_string();
+        let stale = world
+            .service
+            .remove_source(&id, Some(Version::INITIAL))
+            .await
+            .unwrap_err();
+        assert_eq!(stale.code(), "version-conflict");
+        world.service.remove_source(&id, None).await.unwrap();
+        let list = world.service.sources().await.unwrap();
+        assert!(list.sources.is_empty());
+        assert_eq!(list.version, Some(Version::INITIAL));
+        let unknown = world
+            .service
+            .remove_source(&id, Some(Version::INITIAL))
+            .await;
+        assert_eq!(unknown.unwrap_err().code(), "catalog-source-not-found");
+        world.service.add_source(DEFAULT_SOURCE_URL).await.unwrap();
+        assert_eq!(world.service.sources().await.unwrap().sources.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_official_source_is_read_for_themes_and_installs() {
+        let world = with_default(world(Reach::Public));
+        let bytes = night_blue();
+        world
+            .fetcher
+            .answer(DEFAULT_SOURCE_URL, index(&[entry("1.0.0", &bytes)]));
+        world.fetcher.answer(PACKAGE_URL, Ok(bytes));
+        let catalog = world.service.browse().await.unwrap();
+        assert_eq!(catalog.themes.len(), 1);
+        let id = CatalogSource::official().unwrap().id().to_string();
+        world
+            .service
+            .install(&id, "night-blue", false, None, true)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

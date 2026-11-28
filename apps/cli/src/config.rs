@@ -105,6 +105,7 @@ pub(crate) struct Overrides {
     pub(crate) log: Option<String>,
     pub(crate) web_dir: Option<PathBuf>,
     pub(crate) theme_catalog_local: bool,
+    pub(crate) no_default_theme_catalog: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,6 +120,8 @@ pub(crate) struct Config {
     pub(crate) web_dir: Option<PathBuf>,
     /// Theme catalogs may also be http, local or private; for self-hosted catalogs.
     pub(crate) theme_catalog_local: bool,
+    /// The official catalog is not offered while the list of sources is untouched.
+    pub(crate) no_default_theme_catalog: bool,
     /// A home override keeps secrets and Claude logins away from the real ones of the user.
     pub(crate) isolated: bool,
 }
@@ -191,6 +194,7 @@ impl Config {
             log_filter,
             web_dir,
             theme_catalog_local: overrides.theme_catalog_local,
+            no_default_theme_catalog: overrides.no_default_theme_catalog,
             isolated: false,
         }
     }
@@ -259,6 +263,7 @@ mod tests {
             log: Some(String::from("warn")),
             web_dir: None,
             theme_catalog_local: false,
+            no_default_theme_catalog: false,
         };
         let overridden = Config::load(Profile::Release, Some(home.path()), overrides).unwrap();
         assert_eq!(overridden.address, "0.0.0.0:9100".parse().unwrap());

@@ -7370,7 +7370,7 @@
           {
             "name": "version",
             "in": "query",
-            "description": "Version of the source list the removal is based on.",
+            "description": "Version of the source list the removal is based on; 0 while it was never stored.",
             "required": true,
             "schema": {
               "type": "integer",
@@ -11385,7 +11385,7 @@
           "version": {
             "type": "integer",
             "format": "int64",
-            "description": "Version of the list for removing; 0 while no source was ever added."
+            "description": "Version of the list for removing; 0 while the list was never stored."
           }
         }
       },

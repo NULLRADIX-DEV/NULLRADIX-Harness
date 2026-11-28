@@ -672,14 +672,18 @@ fn start_extensions(
         signal.clone(),
     ));
     let reach = catalog_reach(config);
-    let catalog = Arc::new(CatalogService::new(
+    let mut catalog = CatalogService::new(
         Arc::new(store.clone()),
         Arc::new(CurlCatalogFetcher::new(reach)),
         themes.clone(),
         Arc::new(SystemClock),
         signal.clone(),
         reach,
-    ));
+    );
+    if !config.no_default_theme_catalog {
+        catalog = catalog.with_default_source();
+    }
+    let catalog = Arc::new(catalog);
     let customizations = Arc::new(CustomizationService::new(
         Arc::new(store.clone()),
         Arc::new(crate::plugin::ShippedStandards),

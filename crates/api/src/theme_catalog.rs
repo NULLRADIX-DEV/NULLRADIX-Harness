@@ -41,7 +41,7 @@ impl From<&CatalogSource> for CatalogSourceDto {
 pub struct CatalogSourceListDto {
     /// In the order they were added.
     pub items: Vec<CatalogSourceDto>,
-    /// Version of the list for removing; 0 while no source was ever added.
+    /// Version of the list for removing; 0 while the list was never stored.
     pub version: i64,
 }
 
@@ -248,7 +248,7 @@ pub(crate) struct PreviewQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct RemoveSourceQuery {
-    /// Version of the source list the removal is based on.
+    /// Version of the source list the removal is based on; 0 while it was never stored.
     version: i64,
 }
 
@@ -296,6 +296,14 @@ pub(crate) async fn add_catalog_source(
     ))
 }
 
+/// 0 is the version of a list that was never stored.
+fn removal_version(value: i64) -> Result<Option<nullradix_domain::Version>, AppError> {
+    if value == 0 {
+        return Ok(None);
+    }
+    AppError::client_version(value).map(Some)
+}
+
 #[utoipa::path(
     delete,
     path = "/theme-catalog/sources/{id}",
@@ -316,7 +324,7 @@ pub(crate) async fn remove_catalog_source(
 ) -> Result<StatusCode, ApiError> {
     state
         .catalog
-        .remove_source(&path.id, AppError::client_version(query.version)?)
+        .remove_source(&path.id, removal_version(query.version)?)
         .await?;
     state.theme_previews.forget(&path.id).await;
     Ok(StatusCode::NO_CONTENT)

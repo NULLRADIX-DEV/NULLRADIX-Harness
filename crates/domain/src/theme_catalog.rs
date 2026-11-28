@@ -19,6 +19,9 @@ pub const MAX_DESCRIPTION_CHARS: usize = 2000;
 /// Longest version or SDK range an entry may state.
 pub const MAX_VERSION_CHARS: usize = 128;
 const SOURCE_ID_CHARS: usize = 12;
+/// The official catalog, offered while the person never changed the list of sources.
+pub const DEFAULT_SOURCE_URL: &str =
+    "https://github.com/NULLRADIX-DEV/NULLRADIX-Themes/releases/download/catalog/index.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CatalogError {
@@ -250,6 +253,13 @@ impl CatalogSource {
             url,
             added_at,
         }
+    }
+
+    /// The official catalog with a fixed time, so its id and output stay stable.
+    #[must_use]
+    pub fn official() -> Option<Self> {
+        let url = CatalogUrl::parse(DEFAULT_SOURCE_URL, Reach::Public).ok()?;
+        Some(Self::new(url, Timestamp::from_millis(0)))
     }
 
     #[must_use]
